@@ -175,8 +175,6 @@ func (t *CheckAgentTool) Run(ctx context.Context, args json.RawMessage) string {
 		return fmt.Sprintf("Status: completed\nResult:\n%s", task.Result)
 	case bus.SubagentStatusFailed:
 		return fmt.Sprintf("Status: failed\nError: %s", task.Error)
-	case bus.SubagentStatusCancelled:
-		return "Status: cancelled"
 	default:
 		return fmt.Sprintf("Status: unknown (%s)", task.Status)
 	}

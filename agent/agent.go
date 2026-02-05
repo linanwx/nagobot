@@ -204,9 +204,6 @@ func NewAgent(cfg *config.Config) (*Agent, error) {
 	// Register skill tool for progressive loading
 	toolRegistry.Register(tools.NewUseSkillTool(skillRegistry))
 
-	// Publish agent started event
-	eventBus.PublishAgentStarted(agentID)
-
 	return agent, nil
 }
 
@@ -220,7 +217,6 @@ func (a *Agent) SetChannelSender(sender tools.ChannelSender) {
 // Close cleans up agent resources.
 func (a *Agent) Close() {
 	if a.bus != nil {
-		a.bus.PublishAgentStopped(a.id)
 		a.bus.Close()
 	}
 }
@@ -228,11 +224,6 @@ func (a *Agent) Close() {
 // ID returns the agent's ID.
 func (a *Agent) ID() string {
 	return a.id
-}
-
-// Bus returns the agent's event bus.
-func (a *Agent) Bus() *bus.Bus {
-	return a.bus
 }
 
 // createSubagentRunner creates a runner function for subagents.

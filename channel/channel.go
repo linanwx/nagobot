@@ -65,48 +65,17 @@ func GetOrigin(ctx context.Context) (MessageOrigin, bool) {
 // Handler is a function that processes incoming messages.
 type Handler func(ctx context.Context, msg *Message) (*Response, error)
 
-// Router routes messages to handlers based on channel and user.
-type Router struct {
-	defaultHandler Handler
-	handlers       map[string]Handler // ChannelID -> Handler
-}
-
-// NewRouter creates a new message router.
-func NewRouter(defaultHandler Handler) *Router {
-	return &Router{
-		defaultHandler: defaultHandler,
-		handlers:       make(map[string]Handler),
-	}
-}
-
-// Register registers a handler for a specific channel.
-func (r *Router) Register(channelID string, handler Handler) {
-	r.handlers[channelID] = handler
-}
-
-// Handle processes a message through the appropriate handler.
-func (r *Router) Handle(ctx context.Context, msg *Message) (*Response, error) {
-	handler := r.handlers[msg.ChannelID]
-	if handler == nil {
-		handler = r.defaultHandler
-	}
-	if handler == nil {
-		return nil, nil
-	}
-	return handler(ctx, msg)
-}
-
-// Manager manages multiple channels.
+// Manager manages multiple channels with a single message handler.
 type Manager struct {
 	channels map[string]Channel
-	router   *Router
+	handler  Handler
 }
 
 // NewManager creates a new channel manager.
-func NewManager(router *Router) *Manager {
+func NewManager(handler Handler) *Manager {
 	return &Manager{
 		channels: make(map[string]Channel),
-		router:   router,
+		handler:  handler,
 	}
 }
 
@@ -164,15 +133,12 @@ func (m *Manager) processMessages(ctx context.Context, ch Channel) {
 				return
 			}
 
-			// Process through router
-			resp, err := m.router.Handle(ctx, msg)
+			resp, err := m.handler(ctx, msg)
 			if err != nil {
-				// Log error but continue processing
 				continue
 			}
 
 			if resp != nil {
-				// Send response back through the channel
 				_ = ch.Send(ctx, resp)
 			}
 		}

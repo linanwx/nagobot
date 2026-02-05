@@ -17,7 +17,6 @@ const (
 	SubagentStatusRunning   SubagentStatus = "running"
 	SubagentStatusCompleted SubagentStatus = "completed"
 	SubagentStatusFailed    SubagentStatus = "failed"
-	SubagentStatusCancelled SubagentStatus = "cancelled"
 )
 
 // SubagentOrigin tracks where the spawning request came from,
@@ -36,7 +35,6 @@ type SubagentTask struct {
 	Task        string // The task description/prompt
 	Context     string // Additional context
 	Origin      SubagentOrigin
-	Priority    int // Higher = more urgent
 	Timeout     time.Duration
 	CreatedAt   time.Time
 	StartedAt   time.Time
@@ -118,11 +116,6 @@ func (m *SubagentManager) spawnInternal(ctx context.Context, parentID, task, tas
 	m.tasks[taskID] = subTask
 	m.mu.Unlock()
 
-	// Publish spawned event
-	if m.bus != nil {
-		m.bus.PublishSubagentSpawned(parentID, taskID, agentName, task)
-	}
-
 	// Run in background
 	go m.runTask(ctx, subTask, m.runner)
 
@@ -163,8 +156,6 @@ func (m *SubagentManager) Wait(ctx context.Context, taskID string) (string, erro
 				return task.Result, nil
 			case SubagentStatusFailed:
 				return "", fmt.Errorf("subagent failed: %s", task.Error)
-			case SubagentStatusCancelled:
-				return "", fmt.Errorf("subagent cancelled")
 			}
 		}
 	}
@@ -178,39 +169,6 @@ func (m *SubagentManager) GetTask(taskID string) (*SubagentTask, bool) {
 	return task, ok
 }
 
-// ListTasks returns all tasks for a parent agent.
-func (m *SubagentManager) ListTasks(parentID string) []*SubagentTask {
-	m.mu.RLock()
-	defer m.mu.RUnlock()
-
-	var tasks []*SubagentTask
-	for _, task := range m.tasks {
-		if task.ParentID == parentID {
-			tasks = append(tasks, task)
-		}
-	}
-	return tasks
-}
-
-// Cancel cancels a running task.
-func (m *SubagentManager) Cancel(taskID string) error {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-
-	task, ok := m.tasks[taskID]
-	if !ok {
-		return fmt.Errorf("task not found: %s", taskID)
-	}
-
-	if task.Status == SubagentStatusRunning || task.Status == SubagentStatusPending {
-		task.Status = SubagentStatusCancelled
-		task.CompletedAt = time.Now()
-		logger.Info("subagent cancelled", "id", taskID)
-	}
-
-	return nil
-}
-
 // runTask executes a subagent task.
 func (m *SubagentManager) runTask(ctx context.Context, task *SubagentTask, runner SubagentRunner) {
 	// Acquire semaphore
@@ -221,14 +179,6 @@ func (m *SubagentManager) runTask(ctx context.Context, task *SubagentTask, runne
 		m.setTaskFailed(task, ctx.Err().Error())
 		return
 	}
-
-	// Check if cancelled
-	m.mu.RLock()
-	if task.Status == SubagentStatusCancelled {
-		m.mu.RUnlock()
-		return
-	}
-	m.mu.RUnlock()
 
 	// Update status to running
 	m.mu.Lock()
@@ -305,25 +255,3 @@ func (m *SubagentManager) setTaskFailed(task *SubagentTask, errMsg string) {
 	}
 }
 
-// Cleanup removes completed tasks older than the given duration.
-func (m *SubagentManager) Cleanup(maxAge time.Duration) int {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-
-	cutoff := time.Now().Add(-maxAge)
-	count := 0
-
-	for id, task := range m.tasks {
-		if task.Status == SubagentStatusCompleted || task.Status == SubagentStatusFailed || task.Status == SubagentStatusCancelled {
-			if task.CompletedAt.Before(cutoff) {
-				delete(m.tasks, id)
-				count++
-			}
-		}
-	}
-
-	if count > 0 {
-		logger.Debug("cleaned up subagent tasks", "count", count)
-	}
-	return count
-}

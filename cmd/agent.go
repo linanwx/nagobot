@@ -1,11 +1,8 @@
 package cmd
 
 import (
-	"bufio"
 	"context"
 	"fmt"
-	"os"
-	"strings"
 
 	"github.com/spf13/cobra"
 
@@ -23,16 +20,14 @@ var (
 
 var agentCmd = &cobra.Command{
 	Use:   "agent",
-	Short: "Chat with the nagobot agent",
-	Long: `Start an interactive chat session with the nagobot agent,
-or send a single message with the -m flag.
+	Short: "Send a single message to the nagobot agent",
+	Long: `Send a single message to the nagobot agent with the -m flag.
+For interactive sessions, use 'nagobot serve --cli' instead.
 
 Use --provider, --model, --api-key, --api-base to override config at runtime.
-This allows testing different providers in parallel without editing config.json.
 
 Examples:
-  nagobot agent                                        # Interactive mode
-  nagobot agent -m "Hello world"                       # Single message
+  nagobot agent -m "Hello world"
   nagobot agent --provider anthropic --api-key sk-xxx -m "hi"
   nagobot agent --provider openrouter --model moonshotai/kimi-k2.5 -m "hi"`,
 	RunE: runAgent,
@@ -40,7 +35,7 @@ Examples:
 
 func init() {
 	rootCmd.AddCommand(agentCmd)
-	agentCmd.Flags().StringVarP(&messageFlag, "message", "m", "", "Send a single message")
+	agentCmd.Flags().StringVarP(&messageFlag, "message", "m", "", "Message to send (required)")
 	agentCmd.Flags().StringVar(&providerFlag, "provider", "", "Override provider (openrouter, anthropic)")
 	agentCmd.Flags().StringVar(&modelFlag, "model", "", "Override model type (e.g. claude-sonnet-4-5)")
 	agentCmd.Flags().StringVar(&apiKeyFlag, "api-key", "", "Override API key")
@@ -48,14 +43,17 @@ func init() {
 }
 
 func runAgent(cmd *cobra.Command, args []string) error {
+	if messageFlag == "" {
+		return fmt.Errorf("message is required (-m flag)\nFor interactive mode, use: nagobot serve --cli")
+	}
+
 	// Load config (from custom path or default)
 	cfg, err := config.Load()
 	if err != nil {
 		return fmt.Errorf("failed to load config: %w\nRun 'nagobot onboard' to initialize", err)
 	}
 
-	// Apply CLI flag overrides — allows testing different providers
-	// in parallel without editing config.json.
+	// Apply CLI flag overrides
 	applyAgentOverrides(cfg)
 
 	// Create agent
@@ -63,59 +61,19 @@ func runAgent(cmd *cobra.Command, args []string) error {
 	if err != nil {
 		return fmt.Errorf("failed to create agent: %w", err)
 	}
+	defer a.Close()
 
 	ctx := context.Background()
 
-	// Single message mode
-	if messageFlag != "" {
-		response, err := a.Run(ctx, messageFlag)
-		if err != nil {
-			return fmt.Errorf("agent error: %w", err)
-		}
-		fmt.Println(response)
-		return nil
+	response, err := a.Run(ctx, messageFlag)
+	if err != nil {
+		return fmt.Errorf("agent error: %w", err)
 	}
-
-	// Interactive mode (with session history)
-	fmt.Println("nagobot interactive mode (type 'exit' or Ctrl+C to quit)")
-	fmt.Println()
-
-	reader := bufio.NewReader(os.Stdin)
-	sessionKey := "cli:interactive"
-
-	for {
-		fmt.Print("you> ")
-		input, err := reader.ReadString('\n')
-		if err != nil {
-			break
-		}
-
-		input = strings.TrimSpace(input)
-		if input == "" {
-			continue
-		}
-		if input == "exit" || input == "quit" {
-			fmt.Println("Goodbye!")
-			break
-		}
-
-		response, err := a.RunInSession(ctx, sessionKey, input)
-		if err != nil {
-			fmt.Printf("Error: %v\n", err)
-			continue
-		}
-
-		fmt.Printf("\nnagobot> %s\n\n", response)
-	}
-
+	fmt.Println(response)
 	return nil
 }
 
 // applyAgentOverrides applies CLI flag overrides to config.
-// This enables parallel testing of different providers:
-//
-//	nagobot agent --provider anthropic --api-key sk-ant-xxx -m "hello"
-//	nagobot agent --provider openrouter --api-key sk-or-xxx -m "hello"
 func applyAgentOverrides(cfg *config.Config) {
 	if providerFlag != "" {
 		cfg.Agents.Defaults.Provider = providerFlag

@@ -123,9 +123,8 @@ func runServe(cmd *cobra.Command, args []string) error {
 		}, nil
 	}
 
-	// Create router and manager
-	router := channel.NewRouter(handler)
-	manager := channel.NewManager(router)
+	// Create channel manager
+	manager := channel.NewManager(handler)
 
 	// Register channels
 	if serveCLI || (!serveTelegram && !serveAll) {
@@ -209,27 +208,6 @@ func runServe(cmd *cobra.Command, args []string) error {
 		}
 	}
 
-	// Create and start heartbeat monitor
-	heartbeat := cron.NewHeartbeat(cron.HeartbeatConfig{
-		Interval: 30 * time.Second,
-		OnUnhealthy: func(health *cron.SystemHealth) {
-			logger.Error("system unhealthy",
-				"status", health.Status,
-				"goroutines", health.Goroutines,
-				"memoryMB", health.Memory.Alloc/1024/1024,
-			)
-		},
-	})
-
-	// Register health checks
-	heartbeat.Register("agent", cron.PingCheck())
-	heartbeat.Register("memory", cron.MemoryCheck(500*1024*1024)) // 500MB limit
-	heartbeat.Register("goroutines", cron.GoroutineCheck(1000))   // 1000 goroutine limit
-
-	if err := heartbeat.Start(ctx); err != nil {
-		return fmt.Errorf("failed to start heartbeat: %w", err)
-	}
-
 	// Start heartbeat wakeup: periodically check HEARTBEAT.md for agent tasks.
 	// Strictly atomic: rename (claim) first, then read the claimed file.
 	// This eliminates the race window between read and rename.
@@ -290,10 +268,6 @@ func runServe(cmd *cobra.Command, args []string) error {
 
 	if cronSvc != nil {
 		cronSvc.Stop()
-	}
-
-	if err := heartbeat.Stop(); err != nil {
-		logger.Error("error stopping heartbeat", "err", err)
 	}
 
 	logger.Info("nagobot service stopped")
