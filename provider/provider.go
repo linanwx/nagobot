@@ -22,9 +22,9 @@ type Request struct {
 
 // Message represents a chat message in OpenAI format (internal canonical format).
 type Message struct {
-	Role       string     `json:"role"`                  // system, user, assistant, tool
-	Content    string     `json:"content,omitempty"`     // text content
-	ToolCalls  []ToolCall `json:"tool_calls,omitempty"`  // for assistant messages
+	Role       string     `json:"role"`                   // system, user, assistant, tool
+	Content    string     `json:"content,omitempty"`      // text content
+	ToolCalls  []ToolCall `json:"tool_calls,omitempty"`   // for assistant messages
 	ToolCallID string     `json:"tool_call_id,omitempty"` // for tool result messages
 	Name       string     `json:"name,omitempty"`         // tool name for tool results
 }
@@ -82,15 +82,15 @@ type ModelTypeInfo struct {
 
 // supportedModelTypes is the whitelist of supported model types.
 var supportedModelTypes = map[string]ModelTypeInfo{
-	"moonshotai/kimi-k2.5":     {HasThinking: true},
-	"claude-sonnet-4-20250514": {HasThinking: true},
-	"claude-opus-4-20250514":   {HasThinking: true},
+	"moonshotai/kimi-k2.5": {HasThinking: true},
+	"claude-sonnet-4-5":    {HasThinking: true},
+	"claude-opus-4-5":      {HasThinking: true},
 }
 
 // providerModelTypes maps providers to their supported model types.
 var providerModelTypes = map[string][]string{
 	"openrouter": {"moonshotai/kimi-k2.5"},
-	"anthropic":  {"claude-sonnet-4-20250514", "claude-opus-4-20250514"},
+	"anthropic":  {"claude-sonnet-4-5", "claude-opus-4-5"},
 }
 
 // ValidateModelType checks if a model type is supported.

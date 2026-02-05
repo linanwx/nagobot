@@ -11,16 +11,23 @@ import (
 	"strings"
 	"time"
 
+	"github.com/pinkplumcom/nagobot/bus"
 	"github.com/pinkplumcom/nagobot/config"
+	"github.com/pinkplumcom/nagobot/logger"
 	"github.com/pinkplumcom/nagobot/provider"
+	"github.com/pinkplumcom/nagobot/skills"
 	"github.com/pinkplumcom/nagobot/tools"
 )
 
 // Agent is the core agent that processes messages.
 type Agent struct {
+	id            string
 	cfg           *config.Config
 	provider      provider.Provider
 	tools         *tools.Registry
+	skills        *skills.Registry
+	bus           *bus.Bus
+	subagents     *bus.SubagentManager
 	workspace     string
 	maxIterations int
 }
@@ -69,22 +76,94 @@ func NewAgent(cfg *config.Config) (*Agent, error) {
 		return nil, errors.New("unknown provider: " + cfg.Agents.Defaults.Provider)
 	}
 
+	// Generate agent ID
+	agentID := fmt.Sprintf("agent-%d", time.Now().UnixNano())
+
+	// Create event bus
+	eventBus := bus.NewBus(100)
+
+	// Create subagent manager
+	subagentMgr := bus.NewSubagentManager(eventBus, 5)
+
+	// Register default subagent runners
+	registerDefaultSubagentRunners(subagentMgr, cfg)
+
 	// Create tool registry
-	registry := tools.NewRegistry()
-	registry.RegisterDefaultTools(workspace)
+	toolRegistry := tools.NewRegistry()
+	toolRegistry.RegisterDefaultTools(workspace)
+
+	// Register subagent tools
+	toolRegistry.Register(tools.NewSpawnAgentTool(subagentMgr, agentID))
+	toolRegistry.Register(tools.NewCheckAgentTool(subagentMgr))
+
+	// Create skill registry
+	skillRegistry := skills.NewRegistry()
+	skillRegistry.RegisterBuiltinSkills()
+	// Load custom skills from workspace
+	skillsDir := filepath.Join(workspace, "skills")
+	if err := skillRegistry.LoadFromDirectory(skillsDir); err != nil {
+		logger.Warn("failed to load skills", "dir", skillsDir, "err", err)
+	}
 
 	maxIter := cfg.Agents.Defaults.MaxToolIterations
 	if maxIter == 0 {
 		maxIter = 20
 	}
 
-	return &Agent{
+	agent := &Agent{
+		id:            agentID,
 		cfg:           cfg,
 		provider:      p,
-		tools:         registry,
+		tools:         toolRegistry,
+		skills:        skillRegistry,
+		bus:           eventBus,
+		subagents:     subagentMgr,
 		workspace:     workspace,
 		maxIterations: maxIter,
-	}, nil
+	}
+
+	// Publish agent started event
+	eventBus.PublishAgentStarted(agentID)
+
+	return agent, nil
+}
+
+// Close cleans up agent resources.
+func (a *Agent) Close() {
+	if a.bus != nil {
+		a.bus.PublishAgentStopped(a.id)
+		a.bus.Close()
+	}
+}
+
+// ID returns the agent's ID.
+func (a *Agent) ID() string {
+	return a.id
+}
+
+// Bus returns the agent's event bus.
+func (a *Agent) Bus() *bus.Bus {
+	return a.bus
+}
+
+// registerDefaultSubagentRunners registers the default subagent runners.
+func registerDefaultSubagentRunners(mgr *bus.SubagentManager, cfg *config.Config) {
+	// Research subagent - uses web search and fetch
+	mgr.RegisterRunner("research", func(ctx context.Context, task *bus.SubagentTask) (string, error) {
+		// For now, return a placeholder - in a full implementation,
+		// this would create a mini-agent with web tools
+		return fmt.Sprintf("Research task completed: %s\n(Note: Full subagent implementation pending)", task.Task), nil
+	})
+
+	// Code subagent - analyzes or generates code
+	mgr.RegisterRunner("code", func(ctx context.Context, task *bus.SubagentTask) (string, error) {
+		return fmt.Sprintf("Code task completed: %s\n(Note: Full subagent implementation pending)", task.Task), nil
+	})
+
+	// Review subagent - reviews code
+	mgr.RegisterRunner("review", func(ctx context.Context, task *bus.SubagentTask) (string, error) {
+		return fmt.Sprintf("Review task completed: %s\n(Note: Full subagent implementation pending)", task.Task), nil
+	})
 }
 
 // Run processes a user message and returns the assistant's response.
@@ -117,6 +196,14 @@ func (a *Agent) Run(ctx context.Context, userMessage string) (string, error) {
 		// Execute tool calls
 		for _, tc := range resp.ToolCalls {
 			result := a.tools.Run(ctx, tc.Function.Name, tc.Arguments)
+			if strings.HasPrefix(result, "Error:") {
+				logger.Error(
+					"tool error",
+					"tool", tc.Function.Name,
+					"toolCallID", tc.ID,
+					"err", result,
+				)
+			}
 			messages = append(messages, provider.ToolResultMessage(tc.ID, tc.Function.Name, result))
 		}
 	}
@@ -148,6 +235,9 @@ func (a *Agent) buildSystemPrompt() string {
 You are nagobot, a helpful AI assistant. You have access to tools that allow you to:
 - Read, write, and edit files
 - List directory contents
+- Execute shell commands
+- Search the web
+- Fetch web page content
 
 ## Current Time
 %s
@@ -186,6 +276,12 @@ All file operations should be relative to this workspace unless an absolute path
 	// Available tools
 	toolNames := a.tools.Names()
 	parts = append(parts, fmt.Sprintf("## Available Tools\n\n%s", strings.Join(toolNames, ", ")))
+
+	// Skills
+	skillsPrompt := a.skills.BuildPromptSection()
+	if skillsPrompt != "" {
+		parts = append(parts, skillsPrompt)
+	}
 
 	return strings.Join(parts, "\n\n---\n\n")
 }

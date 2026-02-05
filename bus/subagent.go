@@ -1,0 +1,301 @@
+package bus
+
+import (
+	"context"
+	"fmt"
+	"sync"
+	"time"
+
+	"github.com/pinkplumcom/nagobot/logger"
+)
+
+// SubagentStatus represents the status of a subagent.
+type SubagentStatus string
+
+const (
+	SubagentStatusPending   SubagentStatus = "pending"
+	SubagentStatusRunning   SubagentStatus = "running"
+	SubagentStatusCompleted SubagentStatus = "completed"
+	SubagentStatusFailed    SubagentStatus = "failed"
+	SubagentStatusCancelled SubagentStatus = "cancelled"
+)
+
+// SubagentTask represents a task for a subagent.
+type SubagentTask struct {
+	ID          string
+	ParentID    string
+	Type        string // e.g., "research", "code", "review"
+	Task        string // The task description/prompt
+	Context     string // Additional context
+	Priority    int    // Higher = more urgent
+	Timeout     time.Duration
+	CreatedAt   time.Time
+	StartedAt   time.Time
+	CompletedAt time.Time
+	Status      SubagentStatus
+	Result      string
+	Error       string
+}
+
+// SubagentRunner is a function that runs a subagent task.
+type SubagentRunner func(ctx context.Context, task *SubagentTask) (string, error)
+
+// SubagentManager manages subagent lifecycle.
+type SubagentManager struct {
+	mu       sync.RWMutex
+	bus      *Bus
+	tasks    map[string]*SubagentTask
+	runners  map[string]SubagentRunner // Type -> Runner
+	counter  int64
+	maxConcurrent int
+	semaphore chan struct{}
+}
+
+// NewSubagentManager creates a new subagent manager.
+func NewSubagentManager(bus *Bus, maxConcurrent int) *SubagentManager {
+	if maxConcurrent <= 0 {
+		maxConcurrent = 5
+	}
+
+	return &SubagentManager{
+		bus:           bus,
+		tasks:         make(map[string]*SubagentTask),
+		runners:       make(map[string]SubagentRunner),
+		maxConcurrent: maxConcurrent,
+		semaphore:     make(chan struct{}, maxConcurrent),
+	}
+}
+
+// RegisterRunner registers a runner for a subagent type.
+func (m *SubagentManager) RegisterRunner(agentType string, runner SubagentRunner) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.runners[agentType] = runner
+	logger.Debug("subagent runner registered", "type", agentType)
+}
+
+// Spawn creates and starts a new subagent task.
+func (m *SubagentManager) Spawn(ctx context.Context, parentID, agentType, task, taskContext string) (string, error) {
+	m.mu.Lock()
+
+	// Check if runner exists
+	runner, ok := m.runners[agentType]
+	if !ok {
+		m.mu.Unlock()
+		return "", fmt.Errorf("unknown subagent type: %s", agentType)
+	}
+
+	// Create task
+	m.counter++
+	taskID := fmt.Sprintf("sub-%s-%d", agentType, m.counter)
+
+	subTask := &SubagentTask{
+		ID:        taskID,
+		ParentID:  parentID,
+		Type:      agentType,
+		Task:      task,
+		Context:   taskContext,
+		Timeout:   5 * time.Minute, // Default timeout
+		CreatedAt: time.Now(),
+		Status:    SubagentStatusPending,
+	}
+
+	m.tasks[taskID] = subTask
+	m.mu.Unlock()
+
+	// Publish spawned event
+	if m.bus != nil {
+		m.bus.PublishSubagentSpawned(parentID, taskID, agentType, task)
+	}
+
+	// Run in background
+	go m.runTask(ctx, subTask, runner)
+
+	logger.Info("subagent spawned", "id", taskID, "type", agentType, "parent", parentID)
+	return taskID, nil
+}
+
+// SpawnSync creates and waits for a subagent task to complete.
+func (m *SubagentManager) SpawnSync(ctx context.Context, parentID, agentType, task, taskContext string) (string, error) {
+	taskID, err := m.Spawn(ctx, parentID, agentType, task, taskContext)
+	if err != nil {
+		return "", err
+	}
+
+	return m.Wait(ctx, taskID)
+}
+
+// Wait waits for a task to complete and returns the result.
+func (m *SubagentManager) Wait(ctx context.Context, taskID string) (string, error) {
+	ticker := time.NewTicker(100 * time.Millisecond)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-ctx.Done():
+			return "", ctx.Err()
+		case <-ticker.C:
+			m.mu.RLock()
+			task, ok := m.tasks[taskID]
+			m.mu.RUnlock()
+
+			if !ok {
+				return "", fmt.Errorf("task not found: %s", taskID)
+			}
+
+			switch task.Status {
+			case SubagentStatusCompleted:
+				return task.Result, nil
+			case SubagentStatusFailed:
+				return "", fmt.Errorf("subagent failed: %s", task.Error)
+			case SubagentStatusCancelled:
+				return "", fmt.Errorf("subagent cancelled")
+			}
+		}
+	}
+}
+
+// GetTask returns a task by ID.
+func (m *SubagentManager) GetTask(taskID string) (*SubagentTask, bool) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	task, ok := m.tasks[taskID]
+	return task, ok
+}
+
+// ListTasks returns all tasks for a parent agent.
+func (m *SubagentManager) ListTasks(parentID string) []*SubagentTask {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+
+	var tasks []*SubagentTask
+	for _, task := range m.tasks {
+		if task.ParentID == parentID {
+			tasks = append(tasks, task)
+		}
+	}
+	return tasks
+}
+
+// Cancel cancels a running task.
+func (m *SubagentManager) Cancel(taskID string) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	task, ok := m.tasks[taskID]
+	if !ok {
+		return fmt.Errorf("task not found: %s", taskID)
+	}
+
+	if task.Status == SubagentStatusRunning || task.Status == SubagentStatusPending {
+		task.Status = SubagentStatusCancelled
+		task.CompletedAt = time.Now()
+		logger.Info("subagent cancelled", "id", taskID)
+	}
+
+	return nil
+}
+
+// runTask executes a subagent task.
+func (m *SubagentManager) runTask(ctx context.Context, task *SubagentTask, runner SubagentRunner) {
+	// Acquire semaphore
+	select {
+	case m.semaphore <- struct{}{}:
+		defer func() { <-m.semaphore }()
+	case <-ctx.Done():
+		m.setTaskFailed(task, ctx.Err().Error())
+		return
+	}
+
+	// Check if cancelled
+	m.mu.RLock()
+	if task.Status == SubagentStatusCancelled {
+		m.mu.RUnlock()
+		return
+	}
+	m.mu.RUnlock()
+
+	// Update status to running
+	m.mu.Lock()
+	task.Status = SubagentStatusRunning
+	task.StartedAt = time.Now()
+	m.mu.Unlock()
+
+	// Create timeout context
+	runCtx := ctx
+	if task.Timeout > 0 {
+		var cancel context.CancelFunc
+		runCtx, cancel = context.WithTimeout(ctx, task.Timeout)
+		defer cancel()
+	}
+
+	// Run the task
+	result, err := runner(runCtx, task)
+
+	// Update task status
+	m.mu.Lock()
+	task.CompletedAt = time.Now()
+	if err != nil {
+		task.Status = SubagentStatusFailed
+		task.Error = err.Error()
+		logger.Error("subagent failed", "id", task.ID, "err", err)
+	} else {
+		task.Status = SubagentStatusCompleted
+		task.Result = result
+		logger.Info("subagent completed", "id", task.ID)
+	}
+	m.mu.Unlock()
+
+	// Publish completion event
+	if m.bus != nil {
+		if err != nil {
+			event, _ := NewEvent(EventSubagentError, task.ParentID, SubagentEventData{
+				AgentID: task.ID,
+				Error:   err.Error(),
+			})
+			m.bus.Publish(event)
+		} else {
+			m.bus.PublishSubagentCompleted(task.ParentID, task.ID, result)
+		}
+	}
+}
+
+// setTaskFailed marks a task as failed.
+func (m *SubagentManager) setTaskFailed(task *SubagentTask, errMsg string) {
+	m.mu.Lock()
+	task.Status = SubagentStatusFailed
+	task.Error = errMsg
+	task.CompletedAt = time.Now()
+	m.mu.Unlock()
+
+	if m.bus != nil {
+		event, _ := NewEvent(EventSubagentError, task.ParentID, SubagentEventData{
+			AgentID: task.ID,
+			Error:   errMsg,
+		})
+		m.bus.Publish(event)
+	}
+}
+
+// Cleanup removes completed tasks older than the given duration.
+func (m *SubagentManager) Cleanup(maxAge time.Duration) int {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	cutoff := time.Now().Add(-maxAge)
+	count := 0
+
+	for id, task := range m.tasks {
+		if task.Status == SubagentStatusCompleted || task.Status == SubagentStatusFailed || task.Status == SubagentStatusCancelled {
+			if task.CompletedAt.Before(cutoff) {
+				delete(m.tasks, id)
+				count++
+			}
+		}
+	}
+
+	if count > 0 {
+		logger.Debug("cleaned up subagent tasks", "count", count)
+	}
+	return count
+}

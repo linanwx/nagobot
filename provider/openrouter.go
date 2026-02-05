@@ -8,6 +8,9 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"time"
+
+	"github.com/pinkplumcom/nagobot/logger"
 )
 
 const (
@@ -87,16 +90,26 @@ type openRouterResponse struct {
 	Choices []struct {
 		Index   int `json:"index"`
 		Message struct {
-			Role      string           `json:"role"`
-			Content   string           `json:"content"`
+			Role             string `json:"role"`
+			Content          string `json:"content"`
+			Reasoning        string `json:"reasoning,omitempty"`
+			ReasoningDetails []struct {
+				Type   string `json:"type,omitempty"`
+				Text   string `json:"text,omitempty"`
+				Format string `json:"format,omitempty"`
+				Index  int    `json:"index,omitempty"`
+			} `json:"reasoning_details,omitempty"`
 			ToolCalls []openRouterTool `json:"tool_calls,omitempty"`
 		} `json:"message"`
 		FinishReason string `json:"finish_reason"`
 	} `json:"choices"`
 	Usage struct {
-		PromptTokens     int `json:"prompt_tokens"`
-		CompletionTokens int `json:"completion_tokens"`
-		TotalTokens      int `json:"total_tokens"`
+		PromptTokens            int `json:"prompt_tokens"`
+		CompletionTokens        int `json:"completion_tokens"`
+		TotalTokens             int `json:"total_tokens"`
+		CompletionTokensDetails struct {
+			ReasoningTokens int `json:"reasoning_tokens"`
+		} `json:"completion_tokens_details,omitempty"`
 	} `json:"usage"`
 	Error *struct {
 		Message string `json:"message"`
@@ -104,8 +117,20 @@ type openRouterResponse struct {
 	} `json:"error,omitempty"`
 }
 
+func openRouterInputChars(messages []Message) int {
+	total := 0
+	for _, m := range messages {
+		total += len(m.Role)
+		total += len(m.Content)
+	}
+	return total
+}
+
 // Chat sends a chat completion request to OpenRouter.
 func (p *OpenRouterProvider) Chat(ctx context.Context, req *Request) (*Response, error) {
+	start := time.Now()
+	inputChars := openRouterInputChars(req.Messages)
+
 	// Convert messages to OpenRouter format
 	msgs := make([]openRouterMsg, 0, len(req.Messages))
 	for _, m := range req.Messages {
@@ -144,23 +169,36 @@ func (p *OpenRouterProvider) Chat(ctx context.Context, req *Request) (*Response,
 	}
 
 	// Add Kimi-specific thinking mode if this is a Kimi model
+	thinkingEnabled := false
 	if IsKimiModel(p.modelType) {
+		thinkingEnabled = true
 		reqBody.ExtraBody = &kimiExtraBody{
 			ChatTemplateKwargs: &kimiChatTemplateKwargs{
 				Thinking: true,
 			},
 		}
 	}
+	logger.Info(
+		"openrouter request",
+		"provider", "openrouter",
+		"modelType", p.modelType,
+		"modelName", p.modelName,
+		"thinkingEnabled", thinkingEnabled,
+		"toolCount", len(req.Tools),
+		"inputChars", inputChars,
+	)
 
 	// Marshal request
 	body, err := json.Marshal(reqBody)
 	if err != nil {
+		logger.Error("openrouter request marshal error", "provider", "openrouter", "err", err)
 		return nil, fmt.Errorf("failed to marshal request: %w", err)
 	}
 
 	// Create HTTP request
 	httpReq, err := http.NewRequestWithContext(ctx, "POST", openRouterBaseURL, bytes.NewReader(body))
 	if err != nil {
+		logger.Error("openrouter request create error", "provider", "openrouter", "err", err)
 		return nil, fmt.Errorf("failed to create request: %w", err)
 	}
 
@@ -172,6 +210,7 @@ func (p *OpenRouterProvider) Chat(ctx context.Context, req *Request) (*Response,
 	// Send request
 	httpResp, err := p.httpClient.Do(httpReq)
 	if err != nil {
+		logger.Error("openrouter request send error", "provider", "openrouter", "err", err)
 		return nil, fmt.Errorf("request failed: %w", err)
 	}
 	defer httpResp.Body.Close()
@@ -179,26 +218,32 @@ func (p *OpenRouterProvider) Chat(ctx context.Context, req *Request) (*Response,
 	// Read response
 	respBody, err := io.ReadAll(httpResp.Body)
 	if err != nil {
+		logger.Error("openrouter response read error", "provider", "openrouter", "err", err)
 		return nil, fmt.Errorf("failed to read response: %w", err)
 	}
 
 	// Parse response
 	var orResp openRouterResponse
 	if err := json.Unmarshal(respBody, &orResp); err != nil {
+		logger.Error("openrouter response parse error", "provider", "openrouter", "err", err)
 		return nil, fmt.Errorf("failed to parse response: %w", err)
 	}
 
 	// Check for API error
 	if orResp.Error != nil {
+		logger.Error("openrouter api error", "provider", "openrouter", "err", orResp.Error.Message)
 		return nil, fmt.Errorf("API error: %s", orResp.Error.Message)
 	}
 
 	// Check for valid response
 	if len(orResp.Choices) == 0 {
+		logger.Error("openrouter no choices", "provider", "openrouter")
 		return nil, fmt.Errorf("no choices in response")
 	}
 
 	choice := orResp.Choices[0]
+	reasoningInResponse := choice.Message.Reasoning != "" || len(choice.Message.ReasoningDetails) > 0
+	reasoningTokens := orResp.Usage.CompletionTokensDetails.ReasoningTokens
 
 	// Convert tool calls
 	var toolCalls []ToolCall
@@ -216,6 +261,23 @@ func (p *OpenRouterProvider) Chat(ctx context.Context, req *Request) (*Response,
 			}
 		}
 	}
+
+	logger.Info(
+		"openrouter response",
+		"provider", "openrouter",
+		"modelType", p.modelType,
+		"modelName", p.modelName,
+		"finishReason", choice.FinishReason,
+		"reasoningInResponse", reasoningInResponse,
+		"hasToolCalls", len(toolCalls) > 0,
+		"toolCallCount", len(toolCalls),
+		"promptTokens", orResp.Usage.PromptTokens,
+		"completionTokens", orResp.Usage.CompletionTokens,
+		"reasoningTokens", reasoningTokens,
+		"totalTokens", orResp.Usage.TotalTokens,
+		"outputChars", len(choice.Message.Content),
+		"latencyMs", time.Since(start).Milliseconds(),
+	)
 
 	return &Response{
 		Content:   choice.Message.Content,

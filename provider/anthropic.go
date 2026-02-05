@@ -8,6 +8,9 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"time"
+
+	"github.com/pinkplumcom/nagobot/logger"
 )
 
 const (
@@ -94,8 +97,25 @@ type anthropicResponse struct {
 	} `json:"error,omitempty"`
 }
 
+func anthropicInputChars(systemPrompt string, messages []Message) int {
+	total := len(systemPrompt)
+	for _, m := range messages {
+		switch m.Role {
+		case "system":
+			// already counted
+		case "user", "assistant", "tool":
+			total += len(m.Content)
+		default:
+			total += len(m.Content)
+		}
+	}
+	return total
+}
+
 // Chat sends a chat completion request to Anthropic.
 func (p *AnthropicProvider) Chat(ctx context.Context, req *Request) (*Response, error) {
+	start := time.Now()
+
 	// Extract system message and convert messages to Anthropic format
 	var systemPrompt string
 	msgs := make([]anthropicMessage, 0)
@@ -167,6 +187,8 @@ func (p *AnthropicProvider) Chat(ctx context.Context, req *Request) (*Response, 
 		}
 	}
 
+	inputChars := anthropicInputChars(systemPrompt, req.Messages)
+
 	// Add any remaining tool results
 	if len(pendingToolResults) > 0 {
 		msgs = append(msgs, anthropicMessage{
@@ -185,6 +207,16 @@ func (p *AnthropicProvider) Chat(ctx context.Context, req *Request) (*Response, 
 		})
 	}
 
+	logger.Info(
+		"anthropic request",
+		"provider", "anthropic",
+		"modelType", p.modelType,
+		"modelName", p.modelName,
+		"thinkingEnabled", false,
+		"toolCount", len(req.Tools),
+		"inputChars", inputChars,
+	)
+
 	// Build request body
 	reqBody := anthropicRequest{
 		Model:       p.modelName,
@@ -198,12 +230,14 @@ func (p *AnthropicProvider) Chat(ctx context.Context, req *Request) (*Response, 
 	// Marshal request
 	body, err := json.Marshal(reqBody)
 	if err != nil {
+		logger.Error("anthropic request marshal error", "provider", "anthropic", "err", err)
 		return nil, fmt.Errorf("failed to marshal request: %w", err)
 	}
 
 	// Create HTTP request
 	httpReq, err := http.NewRequestWithContext(ctx, "POST", anthropicBaseURL, bytes.NewReader(body))
 	if err != nil {
+		logger.Error("anthropic request create error", "provider", "anthropic", "err", err)
 		return nil, fmt.Errorf("failed to create request: %w", err)
 	}
 
@@ -214,6 +248,7 @@ func (p *AnthropicProvider) Chat(ctx context.Context, req *Request) (*Response, 
 	// Send request
 	httpResp, err := p.httpClient.Do(httpReq)
 	if err != nil {
+		logger.Error("anthropic request send error", "provider", "anthropic", "err", err)
 		return nil, fmt.Errorf("request failed: %w", err)
 	}
 	defer httpResp.Body.Close()
@@ -221,17 +256,20 @@ func (p *AnthropicProvider) Chat(ctx context.Context, req *Request) (*Response, 
 	// Read response
 	respBody, err := io.ReadAll(httpResp.Body)
 	if err != nil {
+		logger.Error("anthropic response read error", "provider", "anthropic", "err", err)
 		return nil, fmt.Errorf("failed to read response: %w", err)
 	}
 
 	// Parse response
 	var antResp anthropicResponse
 	if err := json.Unmarshal(respBody, &antResp); err != nil {
+		logger.Error("anthropic response parse error", "provider", "anthropic", "err", err)
 		return nil, fmt.Errorf("failed to parse response: %w", err)
 	}
 
 	// Check for API error
 	if antResp.Error != nil {
+		logger.Error("anthropic api error", "provider", "anthropic", "err", antResp.Error.Message)
 		return nil, fmt.Errorf("API error: %s", antResp.Error.Message)
 	}
 
@@ -256,6 +294,22 @@ func (p *AnthropicProvider) Chat(ctx context.Context, req *Request) (*Response, 
 			toolCalls = append(toolCalls, tc)
 		}
 	}
+
+	logger.Info(
+		"anthropic response",
+		"provider", "anthropic",
+		"modelType", p.modelType,
+		"modelName", p.modelName,
+		"finishReason", antResp.StopReason,
+		"reasoningInResponse", false,
+		"hasToolCalls", len(toolCalls) > 0,
+		"toolCallCount", len(toolCalls),
+		"promptTokens", antResp.Usage.InputTokens,
+		"completionTokens", antResp.Usage.OutputTokens,
+		"totalTokens", antResp.Usage.InputTokens+antResp.Usage.OutputTokens,
+		"outputChars", len(content),
+		"latencyMs", time.Since(start).Milliseconds(),
+	)
 
 	return &Response{
 		Content:   content,

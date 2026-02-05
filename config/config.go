@@ -13,6 +13,7 @@ type Config struct {
 	Agents    AgentsConfig    `json:"agents"`
 	Providers ProvidersConfig `json:"providers"`
 	Tools     ToolsConfig     `json:"tools,omitempty"`
+	Logging   LoggingConfig   `json:"logging,omitempty"`
 }
 
 // AgentsConfig contains agent-related configuration.
@@ -49,6 +50,14 @@ type ToolsConfig struct {
 	Exec ExecToolsConfig `json:"exec,omitempty"`
 }
 
+// LoggingConfig contains logging configuration.
+type LoggingConfig struct {
+	Enabled *bool  `json:"enabled,omitempty"`
+	Level   string `json:"level,omitempty"`  // debug, info, warn, error
+	Stdout  bool   `json:"stdout,omitempty"` // log to stdout
+	File    string `json:"file,omitempty"`   // log file path
+}
+
 // WebToolsConfig contains web tool configuration.
 type WebToolsConfig struct {
 	Search SearchConfig `json:"search,omitempty"`
@@ -68,6 +77,7 @@ type ExecToolsConfig struct {
 
 // DefaultConfig returns a config with sensible defaults.
 func DefaultConfig() *Config {
+	logDefaults := defaultLoggingConfig()
 	return &Config{
 		Agents: AgentsConfig{
 			Defaults: AgentDefaults{
@@ -78,6 +88,22 @@ func DefaultConfig() *Config {
 				MaxToolIterations: 20,
 			},
 		},
+		Logging: logDefaults,
+	}
+}
+
+func defaultLoggingConfig() LoggingConfig {
+	dir, err := ConfigDir()
+	if err != nil {
+		dir = ""
+	}
+	logFile := filepath.Join(dir, "logs", "nagobot.log")
+	enabled := true
+	return LoggingConfig{
+		Enabled: &enabled,
+		Level:   "info",
+		Stdout:  true,
+		File:    logFile,
 	}
 }
 
@@ -167,7 +193,35 @@ func Load() (*Config, error) {
 		return nil, err
 	}
 
+	cfg.applyDefaults()
+
 	return &cfg, nil
+}
+
+func (c *Config) applyDefaults() {
+	def := defaultLoggingConfig()
+	if c.Logging == (LoggingConfig{}) {
+		c.Logging = def
+		return
+	}
+
+	hasAny := c.Logging.Level != "" || c.Logging.File != "" || c.Logging.Stdout
+	if c.Logging.Enabled == nil && hasAny {
+		enabled := true
+		c.Logging.Enabled = &enabled
+	}
+	if c.Logging.Level == "" {
+		c.Logging.Level = def.Level
+	}
+	if c.Logging.File == "" {
+		c.Logging.File = def.File
+	}
+	if !c.Logging.Stdout && c.Logging.File == "" {
+		c.Logging.Stdout = def.Stdout
+	}
+	if c.Logging.Enabled == nil {
+		c.Logging.Enabled = def.Enabled
+	}
 }
 
 // Save saves the configuration to disk.
