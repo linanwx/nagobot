@@ -7,7 +7,7 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/pinkplumcom/nagobot/config"
+	"github.com/linanwx/nagobot/config"
 )
 
 var onboardCmd = &cobra.Command{

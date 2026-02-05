@@ -5,8 +5,8 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/pinkplumcom/nagobot/config"
-	"github.com/pinkplumcom/nagobot/provider"
+	"github.com/linanwx/nagobot/config"
+	"github.com/linanwx/nagobot/provider"
 )
 
 var statusCmd = &cobra.Command{

@@ -8,7 +8,7 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/pinkplumcom/nagobot/logger"
+	"github.com/linanwx/nagobot/logger"
 )
 
 // CLIChannel implements the Channel interface for interactive CLI.

@@ -8,11 +8,11 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/pinkplumcom/nagobot/agent"
-	"github.com/pinkplumcom/nagobot/channel"
-	"github.com/pinkplumcom/nagobot/config"
-	"github.com/pinkplumcom/nagobot/cron"
-	"github.com/pinkplumcom/nagobot/logger"
+	"github.com/linanwx/nagobot/agent"
+	"github.com/linanwx/nagobot/channel"
+	"github.com/linanwx/nagobot/config"
+	"github.com/linanwx/nagobot/cron"
+	"github.com/linanwx/nagobot/logger"
 	"github.com/spf13/cobra"
 )
 

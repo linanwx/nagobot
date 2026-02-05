@@ -15,8 +15,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/pinkplumcom/nagobot/logger"
-	"github.com/pinkplumcom/nagobot/provider"
+	"github.com/linanwx/nagobot/logger"
+	"github.com/linanwx/nagobot/provider"
 )
 
 // Tool is the interface for agent tools.
@@ -31,6 +31,12 @@ type Tool interface {
 // Registry holds registered tools.
 type Registry struct {
 	tools map[string]Tool
+}
+
+// DefaultToolsConfig provides defaults for built-in tools.
+type DefaultToolsConfig struct {
+	ExecTimeout         int
+	WebSearchMaxResults int
 }
 
 // NewRegistry creates a new tool registry.
@@ -81,13 +87,13 @@ func (r *Registry) Names() []string {
 }
 
 // RegisterDefaultTools registers the default file tools.
-func (r *Registry) RegisterDefaultTools(workspace string) {
+func (r *Registry) RegisterDefaultTools(workspace string, cfg DefaultToolsConfig) {
 	r.Register(&ReadFileTool{workspace: workspace})
 	r.Register(&WriteFileTool{workspace: workspace})
 	r.Register(&EditFileTool{workspace: workspace})
 	r.Register(&ListDirTool{workspace: workspace})
-	r.Register(&ExecTool{workspace: workspace})
-	r.Register(&WebSearchTool{})
+	r.Register(&ExecTool{workspace: workspace, defaultTimeout: cfg.ExecTimeout})
+	r.Register(&WebSearchTool{defaultMaxResults: cfg.WebSearchMaxResults})
 	r.Register(&WebFetchTool{})
 }
 
@@ -397,7 +403,8 @@ func (t *ListDirTool) Run(ctx context.Context, args json.RawMessage) string {
 
 // ExecTool executes shell commands.
 type ExecTool struct {
-	workspace string
+	workspace      string
+	defaultTimeout int
 }
 
 // Def returns the tool definition.
@@ -446,7 +453,11 @@ func (t *ExecTool) Run(ctx context.Context, args json.RawMessage) string {
 	// Default timeout
 	timeout := a.Timeout
 	if timeout <= 0 {
-		timeout = 60
+		if t.defaultTimeout > 0 {
+			timeout = t.defaultTimeout
+		} else {
+			timeout = 60
+		}
 	}
 
 	// Create context with timeout
@@ -494,7 +505,9 @@ func (t *ExecTool) Run(ctx context.Context, args json.RawMessage) string {
 // ============================================================================
 
 // WebSearchTool searches the web using DuckDuckGo.
-type WebSearchTool struct{}
+type WebSearchTool struct {
+	defaultMaxResults int
+}
 
 // Def returns the tool definition.
 func (t *WebSearchTool) Def() provider.ToolDef {
@@ -535,7 +548,11 @@ func (t *WebSearchTool) Run(ctx context.Context, args json.RawMessage) string {
 	}
 
 	if a.MaxResults <= 0 {
-		a.MaxResults = 5
+		if t.defaultMaxResults > 0 {
+			a.MaxResults = t.defaultMaxResults
+		} else {
+			a.MaxResults = 5
+		}
 	}
 
 	// Use DuckDuckGo HTML search (no API key required)

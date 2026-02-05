@@ -5,7 +5,7 @@ import (
 	"encoding/json"
 	"sync"
 
-	"github.com/pinkplumcom/nagobot/logger"
+	"github.com/linanwx/nagobot/logger"
 )
 
 // Handler is a function that handles events.

@@ -6,7 +6,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/pinkplumcom/nagobot/logger"
+	"github.com/linanwx/nagobot/logger"
 )
 
 // SubagentStatus represents the status of a subagent.
@@ -24,7 +24,7 @@ const (
 type SubagentTask struct {
 	ID          string
 	ParentID    string
-	Type        string // e.g., "research", "code", "review"
+	Type        string // Agent name (corresponds to agents/*.md file)
 	Task        string // The task description/prompt
 	Context     string // Additional context
 	Priority    int    // Higher = more urgent
@@ -42,17 +42,17 @@ type SubagentRunner func(ctx context.Context, task *SubagentTask) (string, error
 
 // SubagentManager manages subagent lifecycle.
 type SubagentManager struct {
-	mu       sync.RWMutex
-	bus      *Bus
-	tasks    map[string]*SubagentTask
-	runners  map[string]SubagentRunner // Type -> Runner
-	counter  int64
+	mu            sync.RWMutex
+	bus           *Bus
+	tasks         map[string]*SubagentTask
+	runner        SubagentRunner // Single runner for all subagents
+	counter       int64
 	maxConcurrent int
-	semaphore chan struct{}
+	semaphore     chan struct{}
 }
 
 // NewSubagentManager creates a new subagent manager.
-func NewSubagentManager(bus *Bus, maxConcurrent int) *SubagentManager {
+func NewSubagentManager(bus *Bus, maxConcurrent int, runner SubagentRunner) *SubagentManager {
 	if maxConcurrent <= 0 {
 		maxConcurrent = 5
 	}
@@ -60,39 +60,35 @@ func NewSubagentManager(bus *Bus, maxConcurrent int) *SubagentManager {
 	return &SubagentManager{
 		bus:           bus,
 		tasks:         make(map[string]*SubagentTask),
-		runners:       make(map[string]SubagentRunner),
+		runner:        runner,
 		maxConcurrent: maxConcurrent,
 		semaphore:     make(chan struct{}, maxConcurrent),
 	}
 }
 
-// RegisterRunner registers a runner for a subagent type.
-func (m *SubagentManager) RegisterRunner(agentType string, runner SubagentRunner) {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	m.runners[agentType] = runner
-	logger.Debug("subagent runner registered", "type", agentType)
-}
-
 // Spawn creates and starts a new subagent task.
-func (m *SubagentManager) Spawn(ctx context.Context, parentID, agentType, task, taskContext string) (string, error) {
+// agentName is the name of the agent definition (from agents/*.md).
+func (m *SubagentManager) Spawn(ctx context.Context, parentID, task, taskContext, agentName string) (string, error) {
 	m.mu.Lock()
 
-	// Check if runner exists
-	runner, ok := m.runners[agentType]
-	if !ok {
+	// Check if runner is configured
+	if m.runner == nil {
 		m.mu.Unlock()
-		return "", fmt.Errorf("unknown subagent type: %s", agentType)
+		return "", fmt.Errorf("subagent runner not configured")
 	}
 
 	// Create task
 	m.counter++
-	taskID := fmt.Sprintf("sub-%s-%d", agentType, m.counter)
+	idPart := "task"
+	if agentName != "" {
+		idPart = agentName
+	}
+	taskID := fmt.Sprintf("sub-%s-%d", idPart, m.counter)
 
 	subTask := &SubagentTask{
 		ID:        taskID,
 		ParentID:  parentID,
-		Type:      agentType,
+		Type:      agentName, // Agent name from agents/ directory
 		Task:      task,
 		Context:   taskContext,
 		Timeout:   5 * time.Minute, // Default timeout
@@ -105,19 +101,19 @@ func (m *SubagentManager) Spawn(ctx context.Context, parentID, agentType, task, 
 
 	// Publish spawned event
 	if m.bus != nil {
-		m.bus.PublishSubagentSpawned(parentID, taskID, agentType, task)
+		m.bus.PublishSubagentSpawned(parentID, taskID, agentName, task)
 	}
 
 	// Run in background
-	go m.runTask(ctx, subTask, runner)
+	go m.runTask(ctx, subTask, m.runner)
 
-	logger.Info("subagent spawned", "id", taskID, "type", agentType, "parent", parentID)
+	logger.Info("subagent spawned", "id", taskID, "agent", agentName, "parent", parentID)
 	return taskID, nil
 }
 
 // SpawnSync creates and waits for a subagent task to complete.
-func (m *SubagentManager) SpawnSync(ctx context.Context, parentID, agentType, task, taskContext string) (string, error) {
-	taskID, err := m.Spawn(ctx, parentID, agentType, task, taskContext)
+func (m *SubagentManager) SpawnSync(ctx context.Context, parentID, task, taskContext, agentName string) (string, error) {
+	taskID, err := m.Spawn(ctx, parentID, task, taskContext, agentName)
 	if err != nil {
 		return "", err
 	}

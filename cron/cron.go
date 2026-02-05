@@ -8,7 +8,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/pinkplumcom/nagobot/logger"
+	"github.com/linanwx/nagobot/logger"
 )
 
 // Scheduler manages scheduled jobs.

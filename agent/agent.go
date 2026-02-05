@@ -11,12 +11,12 @@ import (
 	"strings"
 	"time"
 
-	"github.com/pinkplumcom/nagobot/bus"
-	"github.com/pinkplumcom/nagobot/config"
-	"github.com/pinkplumcom/nagobot/logger"
-	"github.com/pinkplumcom/nagobot/provider"
-	"github.com/pinkplumcom/nagobot/skills"
-	"github.com/pinkplumcom/nagobot/tools"
+	"github.com/linanwx/nagobot/bus"
+	"github.com/linanwx/nagobot/config"
+	"github.com/linanwx/nagobot/logger"
+	"github.com/linanwx/nagobot/provider"
+	"github.com/linanwx/nagobot/skills"
+	"github.com/linanwx/nagobot/tools"
 )
 
 // Agent is the core agent that processes messages.
@@ -26,10 +26,13 @@ type Agent struct {
 	provider      provider.Provider
 	tools         *tools.Registry
 	skills        *skills.Registry
+	agents        *AgentRegistry // Agent definitions from agents/ directory
 	bus           *bus.Bus
 	subagents     *bus.SubagentManager
 	workspace     string
 	maxIterations int
+	runner        *Runner // Reusable runner for agent loop
+	toolsDefaults tools.DefaultToolsConfig
 }
 
 // NewAgent creates a new agent.
@@ -47,6 +50,7 @@ func NewAgent(cfg *config.Config) (*Agent, error) {
 	if err != nil {
 		return nil, err
 	}
+	apiBase := cfg.GetAPIBase()
 
 	// Get workspace
 	workspace, err := cfg.WorkspacePath()
@@ -64,14 +68,14 @@ func NewAgent(cfg *config.Config) (*Agent, error) {
 	}
 	temp := cfg.Agents.Defaults.Temperature
 	if temp == 0 {
-		temp = 0.7
+		temp = 0.95
 	}
 
 	switch cfg.Agents.Defaults.Provider {
 	case "openrouter":
-		p = provider.NewOpenRouterProvider(apiKey, modelType, modelName, maxTokens, temp)
+		p = provider.NewOpenRouterProvider(apiKey, apiBase, modelType, modelName, maxTokens, temp)
 	case "anthropic":
-		p = provider.NewAnthropicProvider(apiKey, modelType, modelName, maxTokens, temp)
+		p = provider.NewAnthropicProvider(apiKey, apiBase, modelType, modelName, maxTokens, temp)
 	default:
 		return nil, errors.New("unknown provider: " + cfg.Agents.Defaults.Provider)
 	}
@@ -82,19 +86,13 @@ func NewAgent(cfg *config.Config) (*Agent, error) {
 	// Create event bus
 	eventBus := bus.NewBus(100)
 
-	// Create subagent manager
-	subagentMgr := bus.NewSubagentManager(eventBus, 5)
-
-	// Register default subagent runners
-	registerDefaultSubagentRunners(subagentMgr, cfg)
-
 	// Create tool registry
 	toolRegistry := tools.NewRegistry()
-	toolRegistry.RegisterDefaultTools(workspace)
-
-	// Register subagent tools
-	toolRegistry.Register(tools.NewSpawnAgentTool(subagentMgr, agentID))
-	toolRegistry.Register(tools.NewCheckAgentTool(subagentMgr))
+	toolsDefaults := tools.DefaultToolsConfig{
+		ExecTimeout:         cfg.Tools.Exec.Timeout,
+		WebSearchMaxResults: cfg.Tools.Web.Search.MaxResults,
+	}
+	toolRegistry.RegisterDefaultTools(workspace, toolsDefaults)
 
 	// Create skill registry
 	skillRegistry := skills.NewRegistry()
@@ -105,10 +103,16 @@ func NewAgent(cfg *config.Config) (*Agent, error) {
 		logger.Warn("failed to load skills", "dir", skillsDir, "err", err)
 	}
 
+	// Create agent registry (loads from agents/ directory)
+	agentRegistry := NewAgentRegistry(workspace)
+
 	maxIter := cfg.Agents.Defaults.MaxToolIterations
 	if maxIter == 0 {
 		maxIter = 20
 	}
+
+	// Create the runner (used by both main agent and subagents)
+	runner := NewRunner(p, toolRegistry, maxIter)
 
 	agent := &Agent{
 		id:            agentID,
@@ -116,11 +120,21 @@ func NewAgent(cfg *config.Config) (*Agent, error) {
 		provider:      p,
 		tools:         toolRegistry,
 		skills:        skillRegistry,
+		agents:        agentRegistry,
 		bus:           eventBus,
-		subagents:     subagentMgr,
 		workspace:     workspace,
 		maxIterations: maxIter,
+		runner:        runner,
+		toolsDefaults: toolsDefaults,
 	}
+
+	// Create subagent manager with a runner that creates real subagent execution
+	subagentMgr := bus.NewSubagentManager(eventBus, 5, agent.createSubagentRunner())
+	agent.subagents = subagentMgr
+
+	// Register subagent tools (now that subagentMgr is ready)
+	toolRegistry.Register(tools.NewSpawnAgentTool(subagentMgr, agentID))
+	toolRegistry.Register(tools.NewCheckAgentTool(subagentMgr))
 
 	// Publish agent started event
 	eventBus.PublishAgentStarted(agentID)
@@ -146,144 +160,89 @@ func (a *Agent) Bus() *bus.Bus {
 	return a.bus
 }
 
-// registerDefaultSubagentRunners registers the default subagent runners.
-func registerDefaultSubagentRunners(mgr *bus.SubagentManager, cfg *config.Config) {
-	// Research subagent - uses web search and fetch
-	mgr.RegisterRunner("research", func(ctx context.Context, task *bus.SubagentTask) (string, error) {
-		// For now, return a placeholder - in a full implementation,
-		// this would create a mini-agent with web tools
-		return fmt.Sprintf("Research task completed: %s\n(Note: Full subagent implementation pending)", task.Task), nil
-	})
+// createSubagentRunner creates a runner function for subagents.
+// This runner reuses the same provider but creates a separate tool registry
+// (without spawn_agent to prevent recursive spawning).
+func (a *Agent) createSubagentRunner() bus.SubagentRunner {
+	return func(ctx context.Context, task *bus.SubagentTask) (string, error) {
+		// task.Type contains the agent name (from agents/ directory)
+		agentName := task.Type
+		if agentName == "" {
+			return "", fmt.Errorf("agent name is required (available: %v)", a.agents.List())
+		}
 
-	// Code subagent - analyzes or generates code
-	mgr.RegisterRunner("code", func(ctx context.Context, task *bus.SubagentTask) (string, error) {
-		return fmt.Sprintf("Code task completed: %s\n(Note: Full subagent implementation pending)", task.Task), nil
-	})
+		// Create a tool registry for the subagent (without spawn tools to prevent recursion)
+		subTools := tools.NewRegistry()
+		subTools.RegisterDefaultTools(a.workspace, a.toolsDefaults)
+		// Note: we don't register spawn_agent and check_agent to prevent infinite recursion
 
-	// Review subagent - reviews code
-	mgr.RegisterRunner("review", func(ctx context.Context, task *bus.SubagentTask) (string, error) {
-		return fmt.Sprintf("Review task completed: %s\n(Note: Full subagent implementation pending)", task.Task), nil
-	})
+		// Create a runner for this subagent (same max iterations as main agent)
+		subRunner := NewRunner(a.provider, subTools, a.maxIterations)
+
+		// Build subagent system prompt from agents/ directory
+		systemPrompt, err := a.agents.BuildPrompt(agentName, a.workspace, subTools.Names(), task.Task)
+		if err != nil {
+			return "", err
+		}
+
+		// Build the user message (task + optional context)
+		userMessage := task.Task
+		if task.Context != "" {
+			userMessage = fmt.Sprintf("%s\n\nContext:\n%s", task.Task, task.Context)
+		}
+
+		// Execute using the runner
+		return subRunner.Run(ctx, systemPrompt, userMessage)
+	}
 }
 
 // Run processes a user message and returns the assistant's response.
 func (a *Agent) Run(ctx context.Context, userMessage string) (string, error) {
-	// Build context
-	messages := a.buildContext(userMessage)
-
-	// Get tool definitions
-	toolDefs := a.tools.Defs()
-
-	// Agent loop
-	for i := 0; i < a.maxIterations; i++ {
-		// Call provider
-		resp, err := a.provider.Chat(ctx, &provider.Request{
-			Messages: messages,
-			Tools:    toolDefs,
-		})
-		if err != nil {
-			return "", fmt.Errorf("provider error: %w", err)
-		}
-
-		// No tool calls = done
-		if !resp.HasToolCalls() {
-			return resp.Content, nil
-		}
-
-		// Add assistant message with tool calls
-		messages = append(messages, provider.AssistantMessageWithTools(resp.Content, resp.ToolCalls))
-
-		// Execute tool calls
-		for _, tc := range resp.ToolCalls {
-			result := a.tools.Run(ctx, tc.Function.Name, tc.Arguments)
-			if strings.HasPrefix(result, "Error:") {
-				logger.Error(
-					"tool error",
-					"tool", tc.Function.Name,
-					"toolCallID", tc.ID,
-					"err", result,
-				)
-			}
-			messages = append(messages, provider.ToolResultMessage(tc.ID, tc.Function.Name, result))
-		}
-	}
-
-	return "", errors.New("max iterations exceeded")
-}
-
-// buildContext builds the initial message context.
-func (a *Agent) buildContext(userMessage string) []provider.Message {
-	messages := []provider.Message{}
-
-	// System prompt
+	// Build system prompt
 	systemPrompt := a.buildSystemPrompt()
-	messages = append(messages, provider.SystemMessage(systemPrompt))
 
-	// User message
-	messages = append(messages, provider.UserMessage(userMessage))
-
-	return messages
+	// Use the runner to execute the agent loop
+	return a.runner.Run(ctx, systemPrompt, userMessage)
 }
 
-// buildSystemPrompt builds the system prompt from workspace files.
+// buildSystemPrompt builds the system prompt from SOUL.md in workspace.
+// SOUL.md should contain the complete system prompt template with placeholders.
 func (a *Agent) buildSystemPrompt() string {
-	var parts []string
+	soulPath := filepath.Join(a.workspace, "SOUL.md")
+	content, err := os.ReadFile(soulPath)
+	if err != nil {
+		// Fallback to minimal prompt if SOUL.md doesn't exist
+		logger.Warn("SOUL.md not found, using minimal prompt", "path", soulPath)
+		return fmt.Sprintf(`You are nagobot, a helpful AI assistant.
 
-	// Identity
-	parts = append(parts, fmt.Sprintf(`# nagobot
-
-You are nagobot, a helpful AI assistant. You have access to tools that allow you to:
-- Read, write, and edit files
-- List directory contents
-- Execute shell commands
-- Search the web
-- Fetch web page content
-
-## Current Time
-%s
-
-## Workspace
-Your workspace is at: %s
-
-All file operations should be relative to this workspace unless an absolute path is given.
-`, time.Now().Format("2006-01-02 15:04 (Monday)"), a.workspace))
-
-	// Bootstrap files
-	bootstrapFiles := []string{"AGENTS.md", "SOUL.md", "USER.md", "IDENTITY.md"}
-	for _, name := range bootstrapFiles {
-		path := filepath.Join(a.workspace, name)
-		content, err := os.ReadFile(path)
-		if err == nil && len(content) > 0 {
-			parts = append(parts, fmt.Sprintf("## %s\n\n%s", name, strings.TrimSpace(string(content))))
-		}
+Current Time: %s
+Workspace: %s
+Available Tools: %s
+`, time.Now().Format("2006-01-02 15:04 (Monday)"), a.workspace, strings.Join(a.tools.Names(), ", "))
 	}
 
-	// Memory
+	// Replace placeholders in SOUL.md
+	prompt := string(content)
+	prompt = strings.ReplaceAll(prompt, "{{TIME}}", time.Now().Format("2006-01-02 15:04 (Monday)"))
+	prompt = strings.ReplaceAll(prompt, "{{WORKSPACE}}", a.workspace)
+	prompt = strings.ReplaceAll(prompt, "{{TOOLS}}", strings.Join(a.tools.Names(), ", "))
+
+	// Skills section
+	skillsPrompt := a.skills.BuildPromptSection()
+	prompt = strings.ReplaceAll(prompt, "{{SKILLS}}", skillsPrompt)
+
+	// Memory (optional)
 	memoryPath := filepath.Join(a.workspace, "memory", "MEMORY.md")
-	memoryContent, err := os.ReadFile(memoryPath)
-	if err == nil && len(memoryContent) > 0 {
-		parts = append(parts, fmt.Sprintf("## Long-term Memory\n\n%s", strings.TrimSpace(string(memoryContent))))
-	}
+	memoryContent, _ := os.ReadFile(memoryPath)
+	prompt = strings.ReplaceAll(prompt, "{{MEMORY}}", strings.TrimSpace(string(memoryContent)))
 
-	// Today's notes
+	// Today's notes (optional)
 	todayFile := time.Now().Format("2006-01-02") + ".md"
 	todayPath := filepath.Join(a.workspace, "memory", todayFile)
-	todayContent, err := os.ReadFile(todayPath)
-	if err == nil && len(todayContent) > 0 {
-		parts = append(parts, fmt.Sprintf("## Today's Notes\n\n%s", strings.TrimSpace(string(todayContent))))
-	}
+	todayContent, _ := os.ReadFile(todayPath)
+	prompt = strings.ReplaceAll(prompt, "{{TODAY}}", strings.TrimSpace(string(todayContent)))
 
-	// Available tools
-	toolNames := a.tools.Names()
-	parts = append(parts, fmt.Sprintf("## Available Tools\n\n%s", strings.Join(toolNames, ", ")))
-
-	// Skills
-	skillsPrompt := a.skills.BuildPromptSection()
-	if skillsPrompt != "" {
-		parts = append(parts, skillsPrompt)
-	}
-
-	return strings.Join(parts, "\n\n---\n\n")
+	return prompt
 }
 
 // ============================================================================

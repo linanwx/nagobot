@@ -7,7 +7,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/pinkplumcom/nagobot/logger"
+	"github.com/linanwx/nagobot/logger"
 )
 
 // HealthStatus represents the health status of a component.

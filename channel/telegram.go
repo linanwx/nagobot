@@ -12,7 +12,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/pinkplumcom/nagobot/logger"
+	"github.com/linanwx/nagobot/logger"
 )
 
 // TelegramChannel implements the Channel interface for Telegram.

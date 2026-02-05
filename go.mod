@@ -1,4 +1,4 @@
-module github.com/pinkplumcom/nagobot
+module github.com/linanwx/nagobot
 
 go 1.23.3
 

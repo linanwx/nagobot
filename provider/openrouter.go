@@ -10,7 +10,7 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/pinkplumcom/nagobot/logger"
+	"github.com/linanwx/nagobot/logger"
 )
 
 const (
@@ -20,6 +20,7 @@ const (
 // OpenRouterProvider implements the Provider interface for OpenRouter.
 type OpenRouterProvider struct {
 	apiKey      string
+	apiBase     string
 	modelName   string
 	modelType   string
 	maxTokens   int
@@ -28,12 +29,13 @@ type OpenRouterProvider struct {
 }
 
 // NewOpenRouterProvider creates a new OpenRouter provider.
-func NewOpenRouterProvider(apiKey, modelType, modelName string, maxTokens int, temperature float64) *OpenRouterProvider {
+func NewOpenRouterProvider(apiKey, apiBase, modelType, modelName string, maxTokens int, temperature float64) *OpenRouterProvider {
 	if modelName == "" {
 		modelName = modelType
 	}
 	return &OpenRouterProvider{
 		apiKey:      apiKey,
+		apiBase:     apiBase,
 		modelName:   modelName,
 		modelType:   modelType,
 		maxTokens:   maxTokens,
@@ -196,7 +198,11 @@ func (p *OpenRouterProvider) Chat(ctx context.Context, req *Request) (*Response,
 	}
 
 	// Create HTTP request
-	httpReq, err := http.NewRequestWithContext(ctx, "POST", openRouterBaseURL, bytes.NewReader(body))
+	baseURL := p.apiBase
+	if baseURL == "" {
+		baseURL = openRouterBaseURL
+	}
+	httpReq, err := http.NewRequestWithContext(ctx, "POST", baseURL, bytes.NewReader(body))
 	if err != nil {
 		logger.Error("openrouter request create error", "provider", "openrouter", "err", err)
 		return nil, fmt.Errorf("failed to create request: %w", err)
@@ -204,7 +210,7 @@ func (p *OpenRouterProvider) Chat(ctx context.Context, req *Request) (*Response,
 
 	httpReq.Header.Set("Content-Type", "application/json")
 	httpReq.Header.Set("Authorization", "Bearer "+p.apiKey)
-	httpReq.Header.Set("HTTP-Referer", "https://github.com/pinkplumcom/nagobot")
+	httpReq.Header.Set("HTTP-Referer", "https://github.com/linanwx/nagobot")
 	httpReq.Header.Set("X-Title", "nagobot")
 
 	// Send request

@@ -10,7 +10,7 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/pinkplumcom/nagobot/logger"
+	"github.com/linanwx/nagobot/logger"
 )
 
 const (
@@ -21,6 +21,7 @@ const (
 // AnthropicProvider implements the Provider interface for Anthropic.
 type AnthropicProvider struct {
 	apiKey      string
+	apiBase     string
 	modelName   string
 	modelType   string
 	maxTokens   int
@@ -29,12 +30,13 @@ type AnthropicProvider struct {
 }
 
 // NewAnthropicProvider creates a new Anthropic provider.
-func NewAnthropicProvider(apiKey, modelType, modelName string, maxTokens int, temperature float64) *AnthropicProvider {
+func NewAnthropicProvider(apiKey, apiBase, modelType, modelName string, maxTokens int, temperature float64) *AnthropicProvider {
 	if modelName == "" {
 		modelName = modelType
 	}
 	return &AnthropicProvider{
 		apiKey:      apiKey,
+		apiBase:     apiBase,
 		modelName:   modelName,
 		modelType:   modelType,
 		maxTokens:   maxTokens,
@@ -235,7 +237,11 @@ func (p *AnthropicProvider) Chat(ctx context.Context, req *Request) (*Response, 
 	}
 
 	// Create HTTP request
-	httpReq, err := http.NewRequestWithContext(ctx, "POST", anthropicBaseURL, bytes.NewReader(body))
+	baseURL := p.apiBase
+	if baseURL == "" {
+		baseURL = anthropicBaseURL
+	}
+	httpReq, err := http.NewRequestWithContext(ctx, "POST", baseURL, bytes.NewReader(body))
 	if err != nil {
 		logger.Error("anthropic request create error", "provider", "anthropic", "err", err)
 		return nil, fmt.Errorf("failed to create request: %w", err)

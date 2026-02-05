@@ -5,8 +5,8 @@ import (
 	"encoding/json"
 	"fmt"
 
-	"github.com/pinkplumcom/nagobot/bus"
-	"github.com/pinkplumcom/nagobot/provider"
+	"github.com/linanwx/nagobot/bus"
+	"github.com/linanwx/nagobot/provider"
 )
 
 // SpawnAgentTool spawns a subagent to handle a task.
@@ -29,29 +29,28 @@ func (t *SpawnAgentTool) Def() provider.ToolDef {
 		Type: "function",
 		Function: provider.FunctionDef{
 			Name:        "spawn_agent",
-			Description: "Spawn a subagent to handle a specific task. The subagent runs in parallel and returns results when done. Use for delegating complex subtasks.",
+			Description: "Spawn a subagent to handle a specific task. The agent must be defined in the agents/ directory as a .md file. Use for delegating complex subtasks.",
 			Parameters: map[string]any{
 				"type": "object",
 				"properties": map[string]any{
-					"type": map[string]any{
+					"agent": map[string]any{
 						"type":        "string",
-						"description": "The type of subagent: 'research' (web search/fetch), 'code' (code analysis/generation), 'review' (code review).",
-						"enum":        []string{"research", "code", "review"},
+						"description": "The agent name (corresponds to a .md file in agents/ directory, e.g., 'researcher' for agents/researcher.md).",
 					},
 					"task": map[string]any{
 						"type":        "string",
-						"description": "The task description for the subagent.",
+						"description": "The task description for the subagent. Be specific about what you want it to do.",
 					},
 					"context": map[string]any{
 						"type":        "string",
-						"description": "Optional additional context for the task.",
+						"description": "Optional additional context for the task (e.g., relevant code, files, or background info).",
 					},
 					"wait": map[string]any{
 						"type":        "boolean",
 						"description": "If true, wait for the subagent to complete. Defaults to true.",
 					},
 				},
-				"required": []string{"type", "task"},
+				"required": []string{"agent", "task"},
 			},
 		},
 	}
@@ -59,7 +58,7 @@ func (t *SpawnAgentTool) Def() provider.ToolDef {
 
 // spawnAgentArgs are the arguments for spawn_agent.
 type spawnAgentArgs struct {
-	Type    string `json:"type"`
+	Agent   string `json:"agent"`
 	Task    string `json:"task"`
 	Context string `json:"context,omitempty"`
 	Wait    *bool  `json:"wait,omitempty"`
@@ -84,7 +83,7 @@ func (t *SpawnAgentTool) Run(ctx context.Context, args json.RawMessage) string {
 
 	if wait {
 		// Synchronous: wait for result
-		result, err := t.manager.SpawnSync(ctx, t.parentID, a.Type, a.Task, a.Context)
+		result, err := t.manager.SpawnSync(ctx, t.parentID, a.Task, a.Context, a.Agent)
 		if err != nil {
 			return fmt.Sprintf("Subagent error: %v", err)
 		}
@@ -92,7 +91,7 @@ func (t *SpawnAgentTool) Run(ctx context.Context, args json.RawMessage) string {
 	}
 
 	// Async: spawn and return task ID
-	taskID, err := t.manager.Spawn(ctx, t.parentID, a.Type, a.Task, a.Context)
+	taskID, err := t.manager.Spawn(ctx, t.parentID, a.Task, a.Context, a.Agent)
 	if err != nil {
 		return fmt.Sprintf("Error spawning subagent: %v", err)
 	}

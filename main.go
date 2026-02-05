@@ -5,9 +5,9 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/pinkplumcom/nagobot/cmd"
-	"github.com/pinkplumcom/nagobot/config"
-	"github.com/pinkplumcom/nagobot/logger"
+	"github.com/linanwx/nagobot/cmd"
+	"github.com/linanwx/nagobot/config"
+	"github.com/linanwx/nagobot/logger"
 )
 
 func main() {
