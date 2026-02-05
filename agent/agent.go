@@ -9,6 +9,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/linanwx/nagobot/bus"
@@ -18,6 +19,13 @@ import (
 	"github.com/linanwx/nagobot/skills"
 	"github.com/linanwx/nagobot/tools"
 )
+
+// pendingSubagentResult holds a subagent completion or error for injection into the next turn.
+type pendingSubagentResult struct {
+	TaskID string
+	Result string
+	Error  string
+}
 
 // Agent is the core agent that processes messages.
 type Agent struct {
@@ -33,6 +41,14 @@ type Agent struct {
 	maxIterations int
 	runner        *Runner // Reusable runner for agent loop
 	toolsDefaults tools.DefaultToolsConfig
+	sessions      *SessionManager
+
+	// pendingResults keyed by session key to prevent cross-session leakage.
+	// Empty key "" is used for stateless/CLI mode.
+	pendingResults   map[string][]pendingSubagentResult
+	pendingResultsMu sync.Mutex
+
+	channelSender tools.ChannelSender // Set in serve mode for push delivery
 }
 
 // NewAgent creates a new agent.
@@ -91,6 +107,7 @@ func NewAgent(cfg *config.Config) (*Agent, error) {
 	toolsDefaults := tools.DefaultToolsConfig{
 		ExecTimeout:         cfg.Tools.Exec.Timeout,
 		WebSearchMaxResults: cfg.Tools.Web.Search.MaxResults,
+		RestrictToWorkspace: cfg.Tools.Exec.RestrictToWorkspace,
 	}
 	toolRegistry.RegisterDefaultTools(workspace, toolsDefaults)
 
@@ -114,19 +131,67 @@ func NewAgent(cfg *config.Config) (*Agent, error) {
 	// Create the runner (used by both main agent and subagents)
 	runner := NewRunner(p, toolRegistry, maxIter)
 
-	agent := &Agent{
-		id:            agentID,
-		cfg:           cfg,
-		provider:      p,
-		tools:         toolRegistry,
-		skills:        skillRegistry,
-		agents:        agentRegistry,
-		bus:           eventBus,
-		workspace:     workspace,
-		maxIterations: maxIter,
-		runner:        runner,
-		toolsDefaults: toolsDefaults,
+	// Create session manager (non-fatal if it fails)
+	configDir, _ := config.ConfigDir()
+	sessions, sessErr := NewSessionManager(configDir)
+	if sessErr != nil {
+		logger.Warn("session manager unavailable", "err", sessErr)
 	}
+
+	agent := &Agent{
+		id:             agentID,
+		cfg:            cfg,
+		provider:       p,
+		tools:          toolRegistry,
+		skills:         skillRegistry,
+		agents:         agentRegistry,
+		bus:            eventBus,
+		workspace:      workspace,
+		maxIterations:  maxIter,
+		runner:         runner,
+		toolsDefaults:  toolsDefaults,
+		sessions:       sessions,
+		pendingResults: make(map[string][]pendingSubagentResult),
+	}
+
+	// Subscribe to subagent completion/error events.
+	// If origin routing is available and sender is configured, push directly.
+	// Otherwise, queue for injection into the next turn.
+	handleSubagentResult := func(_ context.Context, event *bus.Event) {
+		var data bus.SubagentEventData
+		if err := event.ParseData(&data); err != nil {
+			return
+		}
+
+		// Format the result message
+		var text string
+		if data.Error != "" {
+			text = fmt.Sprintf("[Subagent %s failed]: %s", data.AgentID, data.Error)
+		} else {
+			text = fmt.Sprintf("[Subagent %s completed]:\n%s", data.AgentID, data.Result)
+		}
+
+		// Attempt push delivery if origin and sender are available
+		if data.OriginChannel != "" && data.OriginReplyTo != "" && agent.channelSender != nil {
+			if err := agent.channelSender.SendTo(context.Background(), data.OriginChannel, text, data.OriginReplyTo); err != nil {
+				logger.Warn("subagent push delivery failed, queuing for next turn", "err", err)
+			} else {
+				return // Push succeeded, no need to queue
+			}
+		}
+
+		// Fallback: queue for injection into next user message, keyed by session
+		sessionKey := data.OriginSessionKey // Empty string for stateless/CLI
+		agent.pendingResultsMu.Lock()
+		agent.pendingResults[sessionKey] = append(agent.pendingResults[sessionKey], pendingSubagentResult{
+			TaskID: data.AgentID,
+			Result: data.Result,
+			Error:  data.Error,
+		})
+		agent.pendingResultsMu.Unlock()
+	}
+	eventBus.Subscribe(bus.EventSubagentCompleted, handleSubagentResult)
+	eventBus.Subscribe(bus.EventSubagentError, handleSubagentResult)
 
 	// Create subagent manager with a runner that creates real subagent execution
 	subagentMgr := bus.NewSubagentManager(eventBus, 5, agent.createSubagentRunner())
@@ -136,10 +201,20 @@ func NewAgent(cfg *config.Config) (*Agent, error) {
 	toolRegistry.Register(tools.NewSpawnAgentTool(subagentMgr, agentID))
 	toolRegistry.Register(tools.NewCheckAgentTool(subagentMgr))
 
+	// Register skill tool for progressive loading
+	toolRegistry.Register(tools.NewUseSkillTool(skillRegistry))
+
 	// Publish agent started event
 	eventBus.PublishAgentStarted(agentID)
 
 	return agent, nil
+}
+
+// SetChannelSender registers the send_message tool backed by the given sender,
+// and enables push delivery for async subagent results.
+func (a *Agent) SetChannelSender(sender tools.ChannelSender) {
+	a.channelSender = sender
+	a.tools.Register(tools.NewSendMessageTool(sender))
 }
 
 // Close cleans up agent resources.
@@ -193,13 +268,91 @@ func (a *Agent) createSubagentRunner() bus.SubagentRunner {
 	}
 }
 
-// Run processes a user message and returns the assistant's response.
+// drainPendingResults collects and clears pending subagent results for a specific session.
+// Returns a formatted string to prepend to the user message, or empty if none.
+func (a *Agent) drainPendingResults(sessionKey string) string {
+	a.pendingResultsMu.Lock()
+	results := a.pendingResults[sessionKey]
+	if len(results) > 0 {
+		delete(a.pendingResults, sessionKey)
+	}
+	a.pendingResultsMu.Unlock()
+
+	if len(results) == 0 {
+		return ""
+	}
+
+	var sb strings.Builder
+	sb.WriteString("[Async subagent results since last turn]\n")
+	for _, r := range results {
+		if r.Error != "" {
+			sb.WriteString(fmt.Sprintf("- %s failed: %s\n", r.TaskID, r.Error))
+		} else {
+			sb.WriteString(fmt.Sprintf("- %s completed: %s\n", r.TaskID, r.Result))
+		}
+	}
+	return sb.String()
+}
+
+// Run processes a user message and returns the assistant's response (stateless).
 func (a *Agent) Run(ctx context.Context, userMessage string) (string, error) {
+	// Prepend any pending subagent results (stateless = empty session key)
+	if prefix := a.drainPendingResults(""); prefix != "" {
+		userMessage = prefix + "---\nUser message: " + userMessage
+	}
+
 	// Build system prompt
 	systemPrompt := a.buildSystemPrompt()
 
 	// Use the runner to execute the agent loop
 	return a.runner.Run(ctx, systemPrompt, userMessage)
+}
+
+// RunInSession processes a user message within a named session, replaying history.
+// Falls back to stateless Run() if session manager is unavailable.
+func (a *Agent) RunInSession(ctx context.Context, sessionKey string, userMessage string) (string, error) {
+	// Prepend any pending subagent results for this specific session
+	if prefix := a.drainPendingResults(sessionKey); prefix != "" {
+		userMessage = prefix + "---\nUser message: " + userMessage
+	}
+
+	if a.sessions == nil {
+		return a.Run(ctx, userMessage)
+	}
+
+	session, err := a.sessions.Get(sessionKey)
+	if err != nil {
+		logger.Warn("failed to load session, falling back to stateless", "key", sessionKey, "err", err)
+		return a.Run(ctx, userMessage)
+	}
+
+	// Build messages: system prompt + session history + new user message
+	systemPrompt := a.buildSystemPrompt()
+	messages := make([]provider.Message, 0, len(session.Messages)+2)
+	messages = append(messages, provider.SystemMessage(systemPrompt))
+	messages = append(messages, session.Messages...)
+	messages = append(messages, provider.UserMessage(userMessage))
+
+	response, err := a.runner.RunWithMessages(ctx, messages)
+	if err != nil {
+		return "", err
+	}
+
+	// Persist the exchange
+	session.Messages = append(session.Messages, provider.UserMessage(userMessage))
+	session.Messages = append(session.Messages, provider.AssistantMessage(response))
+
+	// Cap history to prevent token overflow (keep last 40 messages = 20 exchanges)
+	const maxSessionMessages = 40
+	if len(session.Messages) > maxSessionMessages {
+		session.Messages = session.Messages[len(session.Messages)-maxSessionMessages:]
+	}
+
+	if saveErr := a.sessions.Save(session); saveErr != nil {
+		logger.Warn("failed to save session", "key", sessionKey, "err", saveErr)
+	}
+
+	return response, nil
 }
 
 // buildSystemPrompt builds the system prompt from SOUL.md in workspace.
@@ -223,6 +376,16 @@ Available Tools: %s
 	prompt = strings.ReplaceAll(prompt, "{{TIME}}", time.Now().Format("2006-01-02 15:04 (Monday)"))
 	prompt = strings.ReplaceAll(prompt, "{{WORKSPACE}}", a.workspace)
 	prompt = strings.ReplaceAll(prompt, "{{TOOLS}}", strings.Join(a.tools.Names(), ", "))
+
+	// Identity / User / Agents context files (optional, empty if not present)
+	identityContent, _ := os.ReadFile(filepath.Join(a.workspace, "IDENTITY.md"))
+	prompt = strings.ReplaceAll(prompt, "{{IDENTITY}}", strings.TrimSpace(string(identityContent)))
+
+	userContent, _ := os.ReadFile(filepath.Join(a.workspace, "USER.md"))
+	prompt = strings.ReplaceAll(prompt, "{{USER}}", strings.TrimSpace(string(userContent)))
+
+	agentsContent, _ := os.ReadFile(filepath.Join(a.workspace, "AGENTS.md"))
+	prompt = strings.ReplaceAll(prompt, "{{AGENTS}}", strings.TrimSpace(string(agentsContent)))
 
 	// Skills section
 	skillsPrompt := a.skills.BuildPromptSection()

@@ -5,8 +5,9 @@ import (
 	"fmt"
 	"os"
 	"os/signal"
-	"syscall"
 	"path/filepath"
+	"strings"
+	"syscall"
 	"time"
 
 	"github.com/linanwx/nagobot/agent"
@@ -68,8 +69,46 @@ func runServe(cmd *cobra.Command, args []string) error {
 			"text", truncate(msg.Text, 50),
 		)
 
-		// Run agent
-		response, err := ag.Run(ctx, msg.Text)
+		// Derive session key from channel and user
+		sessionKey := msg.ChannelID
+		if msg.UserID != "" {
+			sessionKey = msg.ChannelID + ":" + msg.UserID
+		}
+
+		// Build user message, injecting media metadata when present
+		userMessage := msg.Text
+		if mediaType := msg.Metadata["media_type"]; mediaType != "" {
+			var mediaParts []string
+			mediaParts = append(mediaParts, fmt.Sprintf("media_type: %s", mediaType))
+			if fn := msg.Metadata["file_name"]; fn != "" {
+				mediaParts = append(mediaParts, fmt.Sprintf("file_name: %s", fn))
+			}
+			if mime := msg.Metadata["mime_type"]; mime != "" {
+				mediaParts = append(mediaParts, fmt.Sprintf("mime_type: %s", mime))
+			}
+			if url := msg.Metadata["file_url"]; url != "" {
+				mediaParts = append(mediaParts, fmt.Sprintf("file_url: %s", url))
+			}
+			if dur := msg.Metadata["duration"]; dur != "" {
+				mediaParts = append(mediaParts, fmt.Sprintf("duration: %ss", dur))
+			}
+			userMessage = fmt.Sprintf("[Media: %s]\n%s\n\n%s", mediaType, strings.Join(mediaParts, "\n"), msg.Text)
+		}
+
+		// Attach message origin to context for subagent push delivery.
+		// Extract channel name from channelID (e.g., "telegram:123456" -> "telegram")
+		originChannel := msg.ChannelID
+		if idx := strings.Index(originChannel, ":"); idx > 0 {
+			originChannel = originChannel[:idx]
+		}
+		ctx = channel.WithOrigin(ctx, channel.MessageOrigin{
+			Channel:    originChannel,
+			ReplyTo:    msg.Metadata["chat_id"],
+			SessionKey: sessionKey,
+		})
+
+		// Run agent with session history
+		response, err := ag.RunInSession(ctx, sessionKey, userMessage)
 		if err != nil {
 			logger.Error("agent error", "err", err)
 			return &channel.Response{
@@ -121,6 +160,9 @@ func runServe(cmd *cobra.Command, args []string) error {
 		}
 	}
 
+	// Wire send_message tool so agent can proactively send to channels
+	ag.SetChannelSender(manager)
+
 	// Setup context with cancellation
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -148,6 +190,17 @@ func runServe(cmd *cobra.Command, args []string) error {
 	if cronSvc != nil {
 		cronSvc.Start(func(ctx context.Context, job cron.Job) error {
 			logger.Info("cron job triggered", "id", job.ID, "name", job.Name)
+
+			// Delivery mode: send directly to a channel
+			if job.Payload.Deliver && job.Payload.Channel != "" {
+				if err := manager.SendTo(ctx, job.Payload.Channel, job.Payload.Message, job.Payload.To); err != nil {
+					logger.Error("cron delivery failed", "id", job.ID, "channel", job.Payload.Channel, "err", err)
+					return err
+				}
+				return nil
+			}
+
+			// Agent mode: process through agent
 			_, err := ag.Run(ctx, job.Payload.Message)
 			return err
 		})
@@ -176,6 +229,48 @@ func runServe(cmd *cobra.Command, args []string) error {
 	if err := heartbeat.Start(ctx); err != nil {
 		return fmt.Errorf("failed to start heartbeat: %w", err)
 	}
+
+	// Start heartbeat wakeup: periodically check HEARTBEAT.md for agent tasks.
+	// Strictly atomic: rename (claim) first, then read the claimed file.
+	// This eliminates the race window between read and rename.
+	heartbeatPath := filepath.Join(workspace, "HEARTBEAT.md")
+	go func() {
+		ticker := time.NewTicker(60 * time.Second)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-ticker.C:
+				// Step 1: Atomic claim — rename before reading.
+				// If the file doesn't exist or rename fails, nothing to do.
+				processingPath := heartbeatPath + ".processing"
+				if err := os.Rename(heartbeatPath, processingPath); err != nil {
+					continue // File doesn't exist or already claimed
+				}
+
+				// Step 2: Read the claimed file.
+				content, err := os.ReadFile(processingPath)
+				if err != nil || len(strings.TrimSpace(string(content))) == 0 {
+					_ = os.Remove(processingPath) // Empty or unreadable, discard
+					continue
+				}
+				task := strings.TrimSpace(string(content))
+
+				// Step 3: Execute.
+				logger.Info("heartbeat wakeup", "task", truncate(task, 80))
+				if _, err := ag.Run(ctx, "Heartbeat task:\n\n"+task); err != nil {
+					// Execution failed: preserve as .failed for inspection/retry
+					failedPath := heartbeatPath + ".failed"
+					_ = os.Rename(processingPath, failedPath)
+					logger.Error("heartbeat agent error, task preserved", "err", err, "path", failedPath)
+				} else {
+					// Success: remove the processing file
+					_ = os.Remove(processingPath)
+				}
+			}
+		}
+	}()
 
 	// Start all channels
 	if err := manager.StartAll(ctx); err != nil {

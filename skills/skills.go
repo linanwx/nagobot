@@ -5,20 +5,28 @@ package skills
 import (
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 
 	"gopkg.in/yaml.v3"
 )
 
+// Requirement represents a prerequisite for a skill.
+type Requirement struct {
+	Kind  string `yaml:"kind"`  // "cmd", "env", or "file"
+	Value string `yaml:"value"` // command name, env var name, or file path
+}
+
 // Skill represents a skill definition.
 type Skill struct {
-	Name        string   `yaml:"name"`
-	Description string   `yaml:"description"`
-	Prompt      string   `yaml:"prompt"`
-	Tags        []string `yaml:"tags,omitempty"`
-	Examples    []string `yaml:"examples,omitempty"`
-	Enabled     bool     `yaml:"enabled"`
+	Name        string        `yaml:"name"`
+	Description string        `yaml:"description"`
+	Prompt      string        `yaml:"prompt"`
+	Tags        []string      `yaml:"tags,omitempty"`
+	Examples    []string      `yaml:"examples,omitempty"`
+	Enabled     bool          `yaml:"enabled"`
+	Requires    []Requirement `yaml:"requires,omitempty"`
 }
 
 // Registry holds loaded skills.
@@ -188,7 +196,8 @@ func loadMarkdownSkill(path string) (*Skill, error) {
 	return &skill, nil
 }
 
-// BuildPromptSection builds a prompt section from enabled skills.
+// BuildPromptSection builds a compact skill summary for the system prompt.
+// Full skill prompts are loaded on demand via the use_skill tool.
 func (r *Registry) BuildPromptSection() string {
 	enabled := r.EnabledSkills()
 	if len(enabled) == 0 {
@@ -197,18 +206,57 @@ func (r *Registry) BuildPromptSection() string {
 
 	var sb strings.Builder
 	sb.WriteString("## Skills\n\n")
-	sb.WriteString("You have the following specialized skills:\n\n")
+	sb.WriteString("Available skills (use the `use_skill` tool to load full instructions):\n\n")
 
 	for _, s := range enabled {
-		sb.WriteString(fmt.Sprintf("### %s\n", s.Name))
+		sb.WriteString(fmt.Sprintf("- **%s**", s.Name))
 		if s.Description != "" {
-			sb.WriteString(fmt.Sprintf("%s\n\n", s.Description))
+			sb.WriteString(fmt.Sprintf(": %s", s.Description))
 		}
-		sb.WriteString(s.Prompt)
-		sb.WriteString("\n\n")
+		sb.WriteString("\n")
 	}
 
 	return sb.String()
+}
+
+// GetSkillPrompt returns the full prompt for a skill by name.
+func (r *Registry) GetSkillPrompt(name string) (string, bool) {
+	s, ok := r.skills[name]
+	if !ok || !s.Enabled {
+		return "", false
+	}
+	return s.Prompt, true
+}
+
+// CheckRequirements checks whether a skill's prerequisites are met.
+// Returns a list of unmet requirements (empty if all are satisfied).
+func (r *Registry) CheckRequirements(name string) (met bool, missing []string) {
+	s, ok := r.skills[name]
+	if !ok {
+		return false, []string{"skill not found"}
+	}
+	if len(s.Requires) == 0 {
+		return true, nil
+	}
+	for _, req := range s.Requires {
+		switch req.Kind {
+		case "cmd":
+			if _, err := exec.LookPath(req.Value); err != nil {
+				missing = append(missing, fmt.Sprintf("command not found: %s", req.Value))
+			}
+		case "env":
+			if os.Getenv(req.Value) == "" {
+				missing = append(missing, fmt.Sprintf("env var not set: %s", req.Value))
+			}
+		case "file":
+			if _, err := os.Stat(req.Value); err != nil {
+				missing = append(missing, fmt.Sprintf("file not found: %s", req.Value))
+			}
+		default:
+			missing = append(missing, fmt.Sprintf("unknown requirement kind: %s", req.Kind))
+		}
+	}
+	return len(missing) == 0, missing
 }
 
 // ============================================================================

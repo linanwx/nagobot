@@ -120,6 +120,10 @@ type SubagentEventData struct {
 	Task      string `json:"task,omitempty"`
 	Result    string `json:"result,omitempty"`
 	Error     string `json:"error,omitempty"`
+	// Origin routing info for push delivery of async results.
+	OriginChannel    string `json:"origin_channel,omitempty"`
+	OriginReplyTo    string `json:"origin_reply_to,omitempty"`
+	OriginSessionKey string `json:"origin_session_key,omitempty"`
 }
 
 // AgentErrorData contains data for agent error events.

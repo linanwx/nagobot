@@ -1,6 +1,7 @@
 package cmd
 
 import (
+	"embed"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -9,6 +10,9 @@ import (
 
 	"github.com/linanwx/nagobot/config"
 )
+
+//go:embed templates/*
+var templateFS embed.FS
 
 var onboardCmd = &cobra.Command{
 	Use:   "onboard",
@@ -48,7 +52,7 @@ func runOnboard(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("failed to create workspace: %w", err)
 	}
 
-	// Create workspace bootstrap files
+	// Create workspace bootstrap files from embedded templates
 	workspace, _ := cfg.WorkspacePath()
 	if err := createBootstrapFiles(workspace); err != nil {
 		return fmt.Errorf("failed to create bootstrap files: %w", err)
@@ -77,73 +81,51 @@ func runOnboard(cmd *cobra.Command, args []string) error {
 	return nil
 }
 
-func createBootstrapFiles(workspace string) error {
-	files := map[string]string{
-		"AGENTS.md": `# Agent Instructions
-
-This file contains instructions for the nagobot agent.
-
-## Guidelines
-
-- Be helpful and concise
-- Use tools when appropriate
-- Ask for clarification when needed
-`,
-		"SOUL.md": `# Soul
-
-This file defines the personality and values of the nagobot agent.
-
-## Personality
-
-- Friendly and professional
-- Direct and efficient
-- Curious and helpful
-`,
-		"USER.md": `# User Information
-
-This file contains information about the user.
-
-## About Me
-
-(Add information about yourself here)
-`,
-		"IDENTITY.md": `# Identity
-
-This file customizes the agent's identity.
-
-## Name
-
-nagobot
-`,
+// writeTemplate writes an embedded template file to the workspace,
+// skipping if the file already exists.
+func writeTemplate(workspace, templateName, destName string) error {
+	destPath := filepath.Join(workspace, destName)
+	if _, err := os.Stat(destPath); err == nil {
+		return nil // already exists, don't overwrite
 	}
+	data, err := templateFS.ReadFile("templates/" + templateName)
+	if err != nil {
+		return fmt.Errorf("read embedded template %s: %w", templateName, err)
+	}
+	return os.WriteFile(destPath, data, 0644)
+}
 
-	for name, content := range files {
-		path := filepath.Join(workspace, name)
-		if _, err := os.Stat(path); os.IsNotExist(err) {
-			if err := os.WriteFile(path, []byte(content), 0644); err != nil {
-				return err
-			}
+func createBootstrapFiles(workspace string) error {
+	// Write top-level template files
+	templates := []struct{ src, dst string }{
+		{"SOUL.md", "SOUL.md"},
+		{"AGENTS.md", "AGENTS.md"},
+		{"USER.md", "USER.md"},
+		{"IDENTITY.md", "IDENTITY.md"},
+		{"cron.yaml", "cron.yaml"},
+	}
+	for _, t := range templates {
+		if err := writeTemplate(workspace, t.src, t.dst); err != nil {
+			return err
 		}
 	}
 
-	// Create memory directory
+	// Create memory directory and MEMORY.md
 	memoryDir := filepath.Join(workspace, "memory")
 	if err := os.MkdirAll(memoryDir, 0755); err != nil {
 		return err
 	}
+	memoryDst := filepath.Join(memoryDir, "MEMORY.md")
+	if _, err := os.Stat(memoryDst); os.IsNotExist(err) {
+		data, _ := templateFS.ReadFile("templates/MEMORY.md")
+		if err := os.WriteFile(memoryDst, data, 0644); err != nil {
+			return err
+		}
+	}
 
-	// Create MEMORY.md if it doesn't exist
-	memoryPath := filepath.Join(memoryDir, "MEMORY.md")
-	if _, err := os.Stat(memoryPath); os.IsNotExist(err) {
-		content := `# Long-term Memory
-
-This file stores important information that should be remembered across sessions.
-
-## Key Facts
-
-(Add important facts here)
-`
-		if err := os.WriteFile(memoryPath, []byte(content), 0644); err != nil {
+	// Create agents/ and skills/ directories
+	for _, dir := range []string{"agents", "skills"} {
+		if err := os.MkdirAll(filepath.Join(workspace, dir), 0755); err != nil {
 			return err
 		}
 	}

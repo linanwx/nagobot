@@ -6,6 +6,7 @@ import (
 	"fmt"
 
 	"github.com/linanwx/nagobot/bus"
+	"github.com/linanwx/nagobot/channel"
 	"github.com/linanwx/nagobot/provider"
 )
 
@@ -81,8 +82,18 @@ func (t *SpawnAgentTool) Run(ctx context.Context, args json.RawMessage) string {
 		wait = *a.Wait
 	}
 
+	// Extract origin from context for async push delivery + session isolation
+	var origin bus.SubagentOrigin
+	if o, ok := channel.GetOrigin(ctx); ok {
+		origin = bus.SubagentOrigin{
+			Channel:    o.Channel,
+			ReplyTo:    o.ReplyTo,
+			SessionKey: o.SessionKey,
+		}
+	}
+
 	if wait {
-		// Synchronous: wait for result
+		// Synchronous: wait for result (origin not needed, result returned inline)
 		result, err := t.manager.SpawnSync(ctx, t.parentID, a.Task, a.Context, a.Agent)
 		if err != nil {
 			return fmt.Sprintf("Subagent error: %v", err)
@@ -90,8 +101,8 @@ func (t *SpawnAgentTool) Run(ctx context.Context, args json.RawMessage) string {
 		return result
 	}
 
-	// Async: spawn and return task ID
-	taskID, err := t.manager.Spawn(ctx, t.parentID, a.Task, a.Context, a.Agent)
+	// Async: spawn with origin for push delivery
+	taskID, err := t.manager.SpawnWithOrigin(ctx, t.parentID, a.Task, a.Context, a.Agent, origin)
 	if err != nil {
 		return fmt.Sprintf("Error spawning subagent: %v", err)
 	}

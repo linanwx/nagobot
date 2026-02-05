@@ -38,6 +38,7 @@ type Registry struct {
 type DefaultToolsConfig struct {
 	ExecTimeout         int
 	WebSearchMaxResults int
+	RestrictToWorkspace bool
 }
 
 // NewRegistry creates a new tool registry.
@@ -93,7 +94,7 @@ func (r *Registry) RegisterDefaultTools(workspace string, cfg DefaultToolsConfig
 	r.Register(&WriteFileTool{workspace: workspace})
 	r.Register(&EditFileTool{workspace: workspace})
 	r.Register(&ListDirTool{workspace: workspace})
-	r.Register(&ExecTool{workspace: workspace, defaultTimeout: cfg.ExecTimeout})
+	r.Register(&ExecTool{workspace: workspace, defaultTimeout: cfg.ExecTimeout, restrictToWorkspace: cfg.RestrictToWorkspace})
 	r.Register(&WebSearchTool{defaultMaxResults: cfg.WebSearchMaxResults})
 	r.Register(&WebFetchTool{})
 }
@@ -404,8 +405,9 @@ func (t *ListDirTool) Run(ctx context.Context, args json.RawMessage) string {
 
 // ExecTool executes shell commands.
 type ExecTool struct {
-	workspace      string
-	defaultTimeout int
+	workspace           string
+	defaultTimeout      int
+	restrictToWorkspace bool
 }
 
 // Def returns the tool definition.
@@ -473,6 +475,22 @@ func (t *ExecTool) Run(ctx context.Context, args json.RawMessage) string {
 		cmd.Dir = expandPath(a.Workdir)
 	} else if t.workspace != "" {
 		cmd.Dir = t.workspace
+	}
+
+	// Enforce workspace restriction
+	if t.restrictToWorkspace && t.workspace != "" {
+		effectiveDir := cmd.Dir
+		if effectiveDir == "" {
+			effectiveDir, _ = os.Getwd()
+		}
+		absDir, _ := filepath.Abs(effectiveDir)
+		absDir, _ = filepath.EvalSymlinks(absDir)
+		absWorkspace, _ := filepath.Abs(t.workspace)
+		absWorkspace, _ = filepath.EvalSymlinks(absWorkspace)
+		sep := string(filepath.Separator)
+		if absDir != absWorkspace && !strings.HasPrefix(absDir+sep, absWorkspace+sep) {
+			return fmt.Sprintf("Error: working directory %q is outside workspace %q (restrictToWorkspace is enabled)", effectiveDir, t.workspace)
+		}
 	}
 
 	// Capture output

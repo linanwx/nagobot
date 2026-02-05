@@ -3,6 +3,7 @@ package channel
 
 import (
 	"context"
+	"fmt"
 )
 
 // Message represents an incoming message from a channel.
@@ -39,6 +40,26 @@ type Channel interface {
 
 	// Messages returns a channel for receiving incoming messages.
 	Messages() <-chan *Message
+}
+
+// MessageOrigin holds routing info for the current message, stored in context.
+type MessageOrigin struct {
+	Channel    string // Channel name (e.g., "telegram")
+	ReplyTo    string // Chat/user ID to reply to
+	SessionKey string // Session key for pending result isolation
+}
+
+type ctxKeyOrigin struct{}
+
+// WithOrigin returns a context with the message origin attached.
+func WithOrigin(ctx context.Context, origin MessageOrigin) context.Context {
+	return context.WithValue(ctx, ctxKeyOrigin{}, origin)
+}
+
+// GetOrigin returns the message origin from the context, if present.
+func GetOrigin(ctx context.Context) (MessageOrigin, bool) {
+	o, ok := ctx.Value(ctxKeyOrigin{}).(MessageOrigin)
+	return o, ok
 }
 
 // Handler is a function that processes incoming messages.
@@ -98,6 +119,15 @@ func (m *Manager) Register(ch Channel) {
 func (m *Manager) Get(name string) (Channel, bool) {
 	ch, ok := m.channels[name]
 	return ch, ok
+}
+
+// SendTo sends a text message to a named channel.
+func (m *Manager) SendTo(ctx context.Context, channelName, text, replyTo string) error {
+	ch, ok := m.channels[channelName]
+	if !ok {
+		return fmt.Errorf("channel not found: %s", channelName)
+	}
+	return ch.Send(ctx, &Response{Text: text, ReplyTo: replyTo})
 }
 
 // StartAll starts all registered channels.

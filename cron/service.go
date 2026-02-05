@@ -68,6 +68,32 @@ func (s *Service) load() ([]Job, error) {
 	return cfg.Jobs, nil
 }
 
+// LoadConfig reads jobs from a cron config file.
+func LoadConfig(configPath string) ([]Job, error) {
+	data, err := os.ReadFile(configPath)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil, nil
+		}
+		return nil, err
+	}
+	var cfg Config
+	if err := yaml.Unmarshal(data, &cfg); err != nil {
+		return nil, err
+	}
+	return cfg.Jobs, nil
+}
+
+// SaveConfig writes jobs to a cron config file.
+func SaveConfig(configPath string, jobs []Job) error {
+	cfg := Config{Jobs: jobs}
+	data, err := yaml.Marshal(&cfg)
+	if err != nil {
+		return err
+	}
+	return os.WriteFile(configPath, data, 0644)
+}
+
 // Reload reloads jobs from disk and re-arms scheduling.
 func (s *Service) Reload() error {
 	s.reconfigMu.Lock()

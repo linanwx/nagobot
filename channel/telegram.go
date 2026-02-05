@@ -180,18 +180,68 @@ func (t *TelegramChannel) processUpdate(update tgbotapi.Update) {
 		}
 	}
 
+	// Determine text and media metadata
+	text := msg.Text
+	metadata := map[string]string{
+		"chat_id":    strconv.FormatInt(chat.ID, 10),
+		"chat_type":  chat.Type,
+		"first_name": firstName,
+		"last_name":  lastName,
+	}
+
+	switch {
+	case len(msg.Photo) > 0:
+		// Use the largest photo (last in the slice)
+		photo := msg.Photo[len(msg.Photo)-1]
+		metadata["media_type"] = "photo"
+		metadata["file_id"] = photo.FileID
+		if fileURL := t.getFileURL(photo.FileID); fileURL != "" {
+			metadata["file_url"] = fileURL
+		}
+		if text == "" {
+			text = msg.Caption
+		}
+		if text == "" {
+			text = "[Photo received]"
+		}
+	case msg.Document != nil:
+		metadata["media_type"] = "document"
+		metadata["file_id"] = msg.Document.FileID
+		metadata["file_name"] = msg.Document.FileName
+		metadata["mime_type"] = msg.Document.MimeType
+		if fileURL := t.getFileURL(msg.Document.FileID); fileURL != "" {
+			metadata["file_url"] = fileURL
+		}
+		if text == "" {
+			text = msg.Caption
+		}
+		if text == "" {
+			text = fmt.Sprintf("[Document: %s]", msg.Document.FileName)
+		}
+	case msg.Voice != nil:
+		metadata["media_type"] = "voice"
+		metadata["file_id"] = msg.Voice.FileID
+		metadata["duration"] = strconv.Itoa(msg.Voice.Duration)
+		if fileURL := t.getFileURL(msg.Voice.FileID); fileURL != "" {
+			metadata["file_url"] = fileURL
+		}
+		if text == "" {
+			text = "[Voice message received]"
+		}
+	}
+
+	// Skip empty messages (no text and no media)
+	if text == "" {
+		return
+	}
+
 	channelMsg := &Message{
 		ID:        strconv.Itoa(msg.MessageID),
 		ChannelID: fmt.Sprintf("telegram:%d", chat.ID),
 		UserID:    strconv.FormatInt(fromID, 10),
 		Username:  username,
-		Text:      msg.Text,
-		Metadata: map[string]string{
-			"chat_id":    strconv.FormatInt(chat.ID, 10),
-			"chat_type":  chat.Type,
-			"first_name": firstName,
-			"last_name":  lastName,
-		},
+		Text:      text,
+		Metadata:  metadata,
 	}
 
 	if msg.ReplyToMessage != nil {
@@ -203,6 +253,20 @@ func (t *TelegramChannel) processUpdate(update tgbotapi.Update) {
 	default:
 		logger.Warn("telegram message buffer full, dropping message")
 	}
+}
+
+// getFileURL retrieves the download URL for a Telegram file.
+func (t *TelegramChannel) getFileURL(fileID string) string {
+	if t.bot == nil {
+		return ""
+	}
+	fileCfg := tgbotapi.FileConfig{FileID: fileID}
+	file, err := t.bot.GetFile(fileCfg)
+	if err != nil {
+		logger.Warn("failed to get telegram file URL", "fileID", fileID, "err", err)
+		return ""
+	}
+	return file.Link(t.token)
 }
 
 // splitMessage splits a long message into chunks.
