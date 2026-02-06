@@ -28,7 +28,7 @@ type Config struct {
 	Agents    AgentsConfig    `json:"agents" yaml:"agents"`
 	Providers ProvidersConfig `json:"providers" yaml:"providers"`
 	Tools     ToolsConfig     `json:"tools,omitempty" yaml:"tools,omitempty"`
-	Channels  *ChannelsConfig `json:"channels,omitempty" yaml:"channels,omitempty"`
+	Channels  *ChannelsConfig `json:"channels" yaml:"channels"`
 	Logging   LoggingConfig   `json:"logging,omitempty" yaml:"logging,omitempty"`
 }
 
@@ -93,14 +93,14 @@ type ExecToolsConfig struct {
 
 // ChannelsConfig contains channel configurations.
 type ChannelsConfig struct {
-	AdminUserID string                 `json:"adminUserID,omitempty" yaml:"adminUserID,omitempty"` // Cross-channel admin user id for shared "main" session
-	Telegram    *TelegramChannelConfig `json:"telegram,omitempty" yaml:"telegram,omitempty"`
+	AdminUserID string                 `json:"adminUserID" yaml:"adminUserID"` // Cross-channel admin user id for shared "main" session
+	Telegram    *TelegramChannelConfig `json:"telegram" yaml:"telegram"`
 }
 
 // TelegramChannelConfig contains Telegram bot configuration.
 type TelegramChannelConfig struct {
-	Token      string  `json:"token" yaml:"token"`                               // Bot token from BotFather
-	AllowedIDs []int64 `json:"allowedIds,omitempty" yaml:"allowedIds,omitempty"` // Allowed user/chat IDs
+	Token      string  `json:"token" yaml:"token"`           // Bot token from BotFather
+	AllowedIDs []int64 `json:"allowedIds" yaml:"allowedIds"` // Allowed user/chat IDs
 }
 
 // DefaultConfig returns a config with sensible defaults.
@@ -119,6 +119,13 @@ func DefaultConfig() *Config {
 		Providers: ProvidersConfig{
 			OpenRouter: &ProviderConfig{
 				APIKey: "",
+			},
+		},
+		Channels: &ChannelsConfig{
+			AdminUserID: "",
+			Telegram: &TelegramChannelConfig{
+				Token:      "",
+				AllowedIDs: []int64{},
 			},
 		},
 		Logging: logDefaults,
@@ -280,6 +287,18 @@ func Load() (*Config, error) {
 }
 
 func (c *Config) applyDefaults() {
+	if c.Channels == nil {
+		c.Channels = &ChannelsConfig{}
+	}
+	if c.Channels.Telegram == nil {
+		c.Channels.Telegram = &TelegramChannelConfig{
+			AllowedIDs: []int64{},
+		}
+	}
+	if c.Channels.Telegram.AllowedIDs == nil {
+		c.Channels.Telegram.AllowedIDs = []int64{}
+	}
+
 	def := defaultLoggingConfig()
 	if c.Logging == (LoggingConfig{}) {
 		c.Logging = def
