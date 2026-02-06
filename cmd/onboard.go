@@ -107,8 +107,9 @@ func createBootstrapFiles(workspace string) error {
 	// Write top-level template files
 	templates := []struct{ src, dst string }{
 		{"SOUL.md", "SOUL.md"},
-		{"AGENTS.md", "AGENTS.md"},
 		{"USER.md", "USER.md"},
+		{"GENERAL.md", filepath.Join("agents", "GENERAL.md")},
+		{"EXPLAIN_RUNTIME.md", filepath.Join(runtimecfg.WorkspaceSkillsDirName, "EXPLAIN_RUNTIME.md")},
 	}
 	for _, t := range templates {
 		if err := writeTemplate(workspace, t.src, t.dst); err != nil {

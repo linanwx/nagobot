@@ -42,14 +42,14 @@ func NewSoulAgent(workspace string) *Agent {
 			}
 
 			userContent, _ := os.ReadFile(filepath.Join(workspace, "USER.md"))
-			agentsContent, _ := os.ReadFile(filepath.Join(workspace, "AGENTS.md"))
+			agentsContent := buildAgentsPromptSection(workspace)
 
 			vars := map[string]string{
 				"USER":   strings.TrimSpace(string(userContent)),
-				"AGENTS": strings.TrimSpace(string(agentsContent)),
+				"AGENTS": strings.TrimSpace(agentsContent),
 			}
 
-			return renderPrompt(string(tpl), ctx, vars)
+			return renderPrompt(stripFrontMatter(string(tpl)), ctx, vars)
 		},
 	}
 }
@@ -66,13 +66,13 @@ func NewTemplateAgent(name, templatePath, workspace string) *Agent {
 			}
 
 			userContent, _ := os.ReadFile(filepath.Join(workspace, "USER.md"))
-			agentsContent, _ := os.ReadFile(filepath.Join(workspace, "AGENTS.md"))
+			agentsContent := buildAgentsPromptSection(workspace)
 			vars := map[string]string{
 				"USER":   strings.TrimSpace(string(userContent)),
-				"AGENTS": strings.TrimSpace(string(agentsContent)),
+				"AGENTS": strings.TrimSpace(agentsContent),
 			}
 
-			return renderPrompt(string(tpl), ctx, vars)
+			return renderPrompt(stripFrontMatter(string(tpl)), ctx, vars)
 		},
 	}
 }
@@ -130,4 +130,12 @@ Available Tools: %s
 		strings.Join(ctx.ToolNames, ", "),
 		ctx.Skills,
 	)
+}
+
+func buildAgentsPromptSection(workspace string) string {
+	if strings.TrimSpace(workspace) == "" {
+		return ""
+	}
+	reg := NewRegistry(workspace)
+	return reg.BuildPromptSection()
 }
