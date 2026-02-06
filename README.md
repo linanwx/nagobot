@@ -90,8 +90,14 @@ Telegram config example (token redacted):
 
 ```yaml
 channels:
+  adminUserID: "1234567890" # Optional: Telegram admin user id that shares the "main" session
   telegram:
     token: "1234567890:AA***************"
     allowedIds:
       - 1234567890
 ```
+
+Session routing in `serve` mode:
+- CLI always uses session key `main`
+- Telegram admin user (`channels.adminUserID`) uses `main`
+- Other Telegram users use `telegram:<userid>`

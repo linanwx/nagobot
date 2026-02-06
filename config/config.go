@@ -93,7 +93,8 @@ type ExecToolsConfig struct {
 
 // ChannelsConfig contains channel configurations.
 type ChannelsConfig struct {
-	Telegram *TelegramChannelConfig `json:"telegram,omitempty" yaml:"telegram,omitempty"`
+	AdminUserID string                 `json:"adminUserID,omitempty" yaml:"adminUserID,omitempty"` // Cross-channel admin user id for shared "main" session
+	Telegram    *TelegramChannelConfig `json:"telegram,omitempty" yaml:"telegram,omitempty"`
 }
 
 // TelegramChannelConfig contains Telegram bot configuration.

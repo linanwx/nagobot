@@ -67,10 +67,7 @@ func runServe(cmd *cobra.Command, args []string) error {
 			"text", truncate(msg.Text, 50),
 		)
 
-		sessionKey := msg.ChannelID
-		if msg.UserID != "" {
-			sessionKey = msg.ChannelID + ":" + msg.UserID
-		}
+		sessionKey := buildSessionKey(msg, cfg)
 
 		userMessage := msg.Text
 		if mediaType := msg.Metadata["media_type"]; mediaType != "" {
@@ -201,6 +198,37 @@ func runServe(cmd *cobra.Command, args []string) error {
 
 	logger.Info("nagobot service stopped")
 	return nil
+}
+
+func buildSessionKey(msg *channel.Message, cfg *config.Config) string {
+	if msg == nil {
+		return "main"
+	}
+
+	if msg.ChannelID == "cli:local" {
+		return "main"
+	}
+
+	if strings.HasPrefix(msg.ChannelID, "telegram:") {
+		userID := strings.TrimSpace(msg.UserID)
+		adminID := ""
+		if cfg != nil && cfg.Channels != nil {
+			adminID = strings.TrimSpace(cfg.Channels.AdminUserID)
+		}
+		if userID != "" && adminID != "" && userID == adminID {
+			return "main"
+		}
+		if userID != "" {
+			return "telegram:" + userID
+		}
+		return msg.ChannelID
+	}
+
+	sessionKey := msg.ChannelID
+	if msg.UserID != "" {
+		sessionKey = msg.ChannelID + ":" + msg.UserID
+	}
+	return sessionKey
 }
 
 func truncate(s string, maxLen int) string {

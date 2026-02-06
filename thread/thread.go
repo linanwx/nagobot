@@ -2,6 +2,8 @@ package thread
 
 import (
 	"context"
+	"crypto/rand"
+	"encoding/hex"
 	"fmt"
 	"path/filepath"
 	"strings"
@@ -162,9 +164,13 @@ func NewChannel(cfg *Config, ag *agent.Agent, sessionKey string, sink Sink) *Cha
 
 // NewChild creates a child thread. Child threads cannot spawn nested children.
 func NewChild(cfg *Config, ag *agent.Agent, sink Sink) *ChildThread {
+	return newChildWithSession(cfg, ag, sink, "")
+}
+
+func newChildWithSession(cfg *Config, ag *agent.Agent, sink Sink, sessionKey string) *ChildThread {
 	return &ChildThread{
 		PlainThread: &PlainThread{
-			Thread: newThread(cfg, ag, "", sink, ThreadTypeChild, false),
+			Thread: newThread(cfg, ag, sessionKey, sink, ThreadTypeChild, false),
 		},
 	}
 }
@@ -300,7 +306,15 @@ func (t *Thread) SpawnChild(ctx context.Context, ag *agent.Agent, task, taskCont
 	}
 
 	childAgent := wrapAgentTaskPlaceholder(ag, task)
-	child := NewChild(t.cfg, childAgent, nil)
+	childSessionKey := ""
+	if t.cfg != nil && t.cfg.Sessions != nil {
+		parentIdentity := strings.TrimSpace(t.sessionKey)
+		if parentIdentity == "" {
+			parentIdentity = strings.TrimSpace(t.id)
+		}
+		childSessionKey = generateChildSessionKey(parentIdentity)
+	}
+	child := newChildWithSession(t.cfg, childAgent, nil, childSessionKey)
 
 	userMessage := task
 	if strings.TrimSpace(taskContext) != "" {
@@ -390,7 +404,7 @@ func (t *Thread) runtimeTools() *tools.Registry {
 }
 
 func (t *Thread) loadSession() *Session {
-	if t.kind != ThreadTypeChannel || t.sessionKey == "" || t.cfg.Sessions == nil {
+	if t.cfg == nil || strings.TrimSpace(t.sessionKey) == "" || t.cfg.Sessions == nil {
 		return nil
 	}
 
@@ -400,6 +414,19 @@ func (t *Thread) loadSession() *Session {
 		return nil
 	}
 	return session
+}
+
+func generateChildSessionKey(parentIdentity string) string {
+	parentIdentity = strings.TrimSpace(parentIdentity)
+	if parentIdentity == "" {
+		parentIdentity = "root"
+	}
+
+	buf := make([]byte, 16)
+	if _, err := rand.Read(buf); err != nil {
+		return fmt.Sprintf("child:%s:%d", parentIdentity, time.Now().UnixNano())
+	}
+	return fmt.Sprintf("child:%s:%s", parentIdentity, hex.EncodeToString(buf))
 }
 
 func (t *Thread) buildSkillsSection() string {
