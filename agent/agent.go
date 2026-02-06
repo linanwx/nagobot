@@ -31,27 +31,7 @@ type Agent struct {
 
 // NewSoulAgent creates the default SOUL.md-based agent.
 func NewSoulAgent(workspace string) *Agent {
-	return &Agent{
-		Name: "soul",
-		BuildPrompt: func(ctx PromptContext) string {
-			templatePath := filepath.Join(workspace, "SOUL.md")
-			tpl, err := os.ReadFile(templatePath)
-			if err != nil {
-				logger.Warn("SOUL.md not found, using fallback prompt", "path", templatePath, "err", err)
-				return fallbackPrompt(ctx)
-			}
-
-			userContent, _ := os.ReadFile(filepath.Join(workspace, "USER.md"))
-			agentsContent := buildAgentsPromptSection(workspace)
-
-			vars := map[string]string{
-				"USER":   strings.TrimSpace(string(userContent)),
-				"AGENTS": strings.TrimSpace(agentsContent),
-			}
-
-			return renderPrompt(stripFrontMatter(string(tpl)), ctx, vars)
-		},
-	}
+	return NewTemplateAgent("soul", filepath.Join(workspace, "SOUL.md"), workspace)
 }
 
 // NewTemplateAgent creates an agent from any markdown template file.
