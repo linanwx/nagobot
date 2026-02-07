@@ -86,8 +86,9 @@ func (t *Thread) Run(ctx context.Context, userMessage string) (string, error) {
 		// TODO: implement time system (timezone/user-locale aware runtime time injection).
 		now := time.Now()
 		timeMsg := provider.UserMessage(fmt.Sprintf(
-			"[Runtime time note] Current server time: %s (timezone: %s, offset: UTC%s).",
+			"[Runtime time note] Current server time: %s (weekday: %s, timezone: %s, offset: UTC%s).",
 			now.Format(time.RFC3339),
+			now.Weekday().String(),
 			now.Location().String(),
 			now.Format("-07:00"),
 		))
