@@ -52,8 +52,8 @@ type useSkillArgs struct {
 // Run executes the tool.
 func (t *UseSkillTool) Run(ctx context.Context, args json.RawMessage) string {
 	var a useSkillArgs
-	if err := json.Unmarshal(args, &a); err != nil {
-		return fmt.Sprintf("Error: invalid arguments: %v", err)
+	if errMsg := parseArgs(args, &a); errMsg != "" {
+		return errMsg
 	}
 
 	prompt, ok := t.provider.GetSkillPrompt(a.Name)

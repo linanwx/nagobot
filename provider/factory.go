@@ -113,58 +113,64 @@ func (f *Factory) Create(providerName, modelType string) (Provider, error) {
 	if !ok || strings.TrimSpace(provCfg.APIKey) == "" {
 		return nil, fmt.Errorf("%s API key not configured", providerName)
 	}
+	reg, ok := providerRegistry[providerName]
+	if !ok {
+		return nil, fmt.Errorf("unknown provider: %s", providerName)
+	}
+	if reg.Constructor == nil {
+		return nil, fmt.Errorf("provider constructor not configured: %s", providerName)
+	}
 
 	modelName := modelType
 	if providerName == f.defaultProv && modelType == f.defaultModel && strings.TrimSpace(f.defaultModelName) != "" {
 		modelName = f.defaultModelName
 	}
 
-	switch providerName {
-	case "openrouter":
-		return NewOpenRouterProvider(provCfg.APIKey, provCfg.APIBase, modelType, modelName, f.maxTokens, f.temperature), nil
-	case "anthropic":
-		return NewAnthropicProvider(provCfg.APIKey, provCfg.APIBase, modelType, modelName, f.maxTokens, f.temperature), nil
-	default:
-		return nil, fmt.Errorf("unknown provider: %s", providerName)
-	}
+	return reg.Constructor(provCfg.APIKey, provCfg.APIBase, modelType, modelName, f.maxTokens, f.temperature), nil
 }
 
 func providerAPIKey(cfg *config.Config, providerName string) string {
-	switch providerName {
-	case "openrouter":
-		if v := strings.TrimSpace(os.Getenv("OPENROUTER_API_KEY")); v != "" {
+	reg, ok := providerRegistry[providerName]
+	if !ok {
+		return ""
+	}
+	if reg.EnvKey != "" {
+		if v := strings.TrimSpace(os.Getenv(reg.EnvKey)); v != "" {
 			return v
 		}
-		if cfg.Providers.OpenRouter != nil {
-			return strings.TrimSpace(cfg.Providers.OpenRouter.APIKey)
-		}
-	case "anthropic":
-		if v := strings.TrimSpace(os.Getenv("ANTHROPIC_API_KEY")); v != "" {
-			return v
-		}
-		if cfg.Providers.Anthropic != nil {
-			return strings.TrimSpace(cfg.Providers.Anthropic.APIKey)
-		}
+	}
+	if providerCfg := providerConfigFor(cfg, providerName); providerCfg != nil {
+		return strings.TrimSpace(providerCfg.APIKey)
 	}
 	return ""
 }
 
 func providerAPIBase(cfg *config.Config, providerName string) string {
-	switch providerName {
-	case "openrouter":
-		if v := strings.TrimSpace(os.Getenv("OPENROUTER_API_BASE")); v != "" {
+	reg, ok := providerRegistry[providerName]
+	if !ok {
+		return ""
+	}
+	if reg.EnvBase != "" {
+		if v := strings.TrimSpace(os.Getenv(reg.EnvBase)); v != "" {
 			return v
-		}
-		if cfg.Providers.OpenRouter != nil {
-			return strings.TrimSpace(cfg.Providers.OpenRouter.APIBase)
-		}
-	case "anthropic":
-		if v := strings.TrimSpace(os.Getenv("ANTHROPIC_API_BASE")); v != "" {
-			return v
-		}
-		if cfg.Providers.Anthropic != nil {
-			return strings.TrimSpace(cfg.Providers.Anthropic.APIBase)
 		}
 	}
+	if providerCfg := providerConfigFor(cfg, providerName); providerCfg != nil {
+		return strings.TrimSpace(providerCfg.APIBase)
+	}
 	return ""
+}
+
+func providerConfigFor(cfg *config.Config, providerName string) *config.ProviderConfig {
+	if cfg == nil {
+		return nil
+	}
+
+	switch providerName {
+	case "openrouter":
+		return cfg.Providers.OpenRouter
+	case "anthropic":
+		return cfg.Providers.Anthropic
+	}
+	return nil
 }

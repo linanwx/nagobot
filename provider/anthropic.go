@@ -18,6 +18,17 @@ const (
 	anthropicAPIBase = "https://api.anthropic.com"
 )
 
+func init() {
+	RegisterProvider("anthropic", ProviderRegistration{
+		Models:  []string{"claude-sonnet-4-5", "claude-opus-4-6"},
+		EnvKey:  "ANTHROPIC_API_KEY",
+		EnvBase: "ANTHROPIC_API_BASE",
+		Constructor: func(apiKey, apiBase, modelType, modelName string, maxTokens int, temperature float64) Provider {
+			return NewAnthropicProvider(apiKey, apiBase, modelType, modelName, maxTokens, temperature)
+		},
+	})
+}
+
 // AnthropicProvider implements the Provider interface for Anthropic.
 type AnthropicProvider struct {
 	apiKey      string

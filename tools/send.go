@@ -62,8 +62,8 @@ type sendMessageArgs struct {
 // Run executes the tool.
 func (t *SendMessageTool) Run(ctx context.Context, args json.RawMessage) string {
 	var a sendMessageArgs
-	if err := json.Unmarshal(args, &a); err != nil {
-		return fmt.Sprintf("Error: invalid arguments: %v", err)
+	if errMsg := parseArgs(args, &a); errMsg != "" {
+		return errMsg
 	}
 
 	if t.sender == nil {

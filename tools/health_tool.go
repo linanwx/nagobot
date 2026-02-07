@@ -81,8 +81,8 @@ type healthArgs struct {
 func (t *HealthTool) Run(ctx context.Context, args json.RawMessage) string {
 	var a healthArgs
 	if len(args) > 0 {
-		if err := json.Unmarshal(args, &a); err != nil {
-			return fmt.Sprintf("Error: invalid arguments: %v", err)
+		if errMsg := parseArgs(args, &a); errMsg != "" {
+			return errMsg
 		}
 	}
 
@@ -111,10 +111,10 @@ func (t *HealthTool) Run(ctx context.Context, args json.RawMessage) string {
 		Workspace:      t.workspace,
 		SessionsRoot:   sessionsRoot,
 		SkillsRoot:     skillsRoot,
-		ThreadID:       strings.TrimSpace(runtimeCtx.ThreadID),
-		ThreadType:     strings.TrimSpace(runtimeCtx.ThreadType),
-		SessionKey:     strings.TrimSpace(runtimeCtx.SessionKey),
-		SessionFile:    strings.TrimSpace(runtimeCtx.SessionFile),
+		ThreadID:       runtimeCtx.ThreadID,
+		ThreadType:     runtimeCtx.ThreadType,
+		SessionKey:     runtimeCtx.SessionKey,
+		SessionFile:    runtimeCtx.SessionFile,
 		IncludeTree:    a.IncludeTree,
 		TreeDepth:      depth,
 		TreeMaxEntries: maxEntries,

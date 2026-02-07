@@ -48,6 +48,17 @@ const (
 	openRouterAPIBase = "https://openrouter.ai/api/v1"
 )
 
+func init() {
+	RegisterProvider("openrouter", ProviderRegistration{
+		Models:  []string{"moonshotai/kimi-k2.5"},
+		EnvKey:  "OPENROUTER_API_KEY",
+		EnvBase: "OPENROUTER_API_BASE",
+		Constructor: func(apiKey, apiBase, modelType, modelName string, maxTokens int, temperature float64) Provider {
+			return NewOpenRouterProvider(apiKey, apiBase, modelType, modelName, maxTokens, temperature)
+		},
+	})
+}
+
 // OpenRouterProvider implements the Provider interface for OpenRouter.
 type OpenRouterProvider struct {
 	apiKey      string

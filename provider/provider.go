@@ -22,12 +22,12 @@ type Request struct {
 
 // Message represents a chat message in OpenAI format (internal canonical format).
 type Message struct {
-	Role             string     `json:"role"`                      // system, user, assistant, tool
-	Content          string     `json:"content,omitempty"`         // text content
+	Role             string     `json:"role"`                        // system, user, assistant, tool
+	Content          string     `json:"content,omitempty"`           // text content
 	ReasoningContent string     `json:"reasoning_content,omitempty"` // reasoning text for providers that require it
-	ToolCalls        []ToolCall `json:"tool_calls,omitempty"`      // for assistant messages
-	ToolCallID       string     `json:"tool_call_id,omitempty"`    // for tool result messages
-	Name             string     `json:"name,omitempty"`            // tool name for tool results
+	ToolCalls        []ToolCall `json:"tool_calls,omitempty"`        // for assistant messages
+	ToolCallID       string     `json:"tool_call_id,omitempty"`      // for tool result messages
+	Name             string     `json:"name,omitempty"`              // tool name for tool results
 }
 
 // ToolCall represents a tool invocation by the model.
@@ -76,17 +76,47 @@ type FunctionDef struct {
 	Parameters  map[string]any `json:"parameters"` // JSON Schema
 }
 
-// supportedModelTypes is the whitelist of supported model types.
-var supportedModelTypes = map[string]bool{
-	"moonshotai/kimi-k2.5": true,
-	"claude-sonnet-4-5":    true,
-	"claude-opus-4-6":      true,
+// ProviderConstructor builds a provider for the requested model/runtime settings.
+type ProviderConstructor func(apiKey, apiBase, modelType, modelName string, maxTokens int, temperature float64) Provider
+
+// ProviderRegistration defines metadata and constructor for a provider.
+type ProviderRegistration struct {
+	Models      []string
+	EnvKey      string
+	EnvBase     string
+	Constructor ProviderConstructor
 }
 
+// supportedModelTypes is the whitelist of supported model types.
+var supportedModelTypes = map[string]bool{}
+
 // providerModelTypes maps providers to their supported model types.
-var providerModelTypes = map[string][]string{
-	"openrouter": {"moonshotai/kimi-k2.5"},
-	"anthropic":  {"claude-sonnet-4-5", "claude-opus-4-6"},
+var providerModelTypes = map[string][]string{}
+
+var providerRegistry = map[string]ProviderRegistration{}
+
+// RegisterProvider registers provider metadata and constructor.
+func RegisterProvider(name string, reg ProviderRegistration) {
+	name = strings.TrimSpace(name)
+	if name == "" {
+		return
+	}
+
+	models := make([]string, 0, len(reg.Models))
+	for _, model := range reg.Models {
+		model = strings.TrimSpace(model)
+		if model == "" {
+			continue
+		}
+		models = append(models, model)
+		supportedModelTypes[model] = true
+	}
+
+	reg.Models = models
+	reg.EnvKey = strings.TrimSpace(reg.EnvKey)
+	reg.EnvBase = strings.TrimSpace(reg.EnvBase)
+	providerRegistry[name] = reg
+	providerModelTypes[name] = append([]string(nil), models...)
 }
 
 // SupportedProviders returns all supported provider names in sorted order.

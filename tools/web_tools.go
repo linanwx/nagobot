@@ -53,8 +53,8 @@ type webSearchArgs struct {
 // Run executes the tool.
 func (t *WebSearchTool) Run(ctx context.Context, args json.RawMessage) string {
 	var a webSearchArgs
-	if err := json.Unmarshal(args, &a); err != nil {
-		return fmt.Sprintf("Error: invalid arguments: %v", err)
+	if errMsg := parseArgs(args, &a); errMsg != "" {
+		return errMsg
 	}
 
 	if a.MaxResults <= 0 {
@@ -207,8 +207,8 @@ type webFetchArgs struct {
 // Run executes the tool.
 func (t *WebFetchTool) Run(ctx context.Context, args json.RawMessage) string {
 	var a webFetchArgs
-	if err := json.Unmarshal(args, &a); err != nil {
-		return fmt.Sprintf("Error: invalid arguments: %v", err)
+	if errMsg := parseArgs(args, &a); errMsg != "" {
+		return errMsg
 	}
 
 	parsedURL, err := url.Parse(a.URL)

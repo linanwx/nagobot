@@ -57,6 +57,17 @@ type Options struct {
 	TreeMaxEntries int
 }
 
+func (o Options) normalize() Options {
+	o.Workspace = strings.TrimSpace(o.Workspace)
+	o.SessionsRoot = strings.TrimSpace(o.SessionsRoot)
+	o.SkillsRoot = strings.TrimSpace(o.SkillsRoot)
+	o.ThreadID = strings.TrimSpace(o.ThreadID)
+	o.ThreadType = strings.TrimSpace(o.ThreadType)
+	o.SessionKey = strings.TrimSpace(o.SessionKey)
+	o.SessionFile = strings.TrimSpace(o.SessionFile)
+	return o
+}
+
 // PathsInfo contains important workspace paths.
 type PathsInfo struct {
 	Workspace    string `json:"workspace,omitempty"`
@@ -101,6 +112,8 @@ type TreeEntry struct {
 
 // Collect returns a health snapshot for the current process.
 func Collect(opts Options) Snapshot {
+	opts = opts.normalize()
+
 	var mem runtime.MemStats
 	runtime.ReadMemStats(&mem)
 
@@ -122,32 +135,32 @@ func Collect(opts Options) Snapshot {
 		Timestamp: time.Now().Format(time.RFC3339),
 	}
 
-	if strings.TrimSpace(opts.Workspace) != "" || strings.TrimSpace(opts.SessionsRoot) != "" || strings.TrimSpace(opts.SkillsRoot) != "" {
+	if opts.Workspace != "" || opts.SessionsRoot != "" || opts.SkillsRoot != "" {
 		s.Paths = &PathsInfo{
-			Workspace:    strings.TrimSpace(opts.Workspace),
-			SessionsRoot: strings.TrimSpace(opts.SessionsRoot),
-			SkillsRoot:   strings.TrimSpace(opts.SkillsRoot),
+			Workspace:    opts.Workspace,
+			SessionsRoot: opts.SessionsRoot,
+			SkillsRoot:   opts.SkillsRoot,
 		}
 	}
 
-	if strings.TrimSpace(opts.ThreadID) != "" ||
-		strings.TrimSpace(opts.ThreadType) != "" ||
-		strings.TrimSpace(opts.SessionKey) != "" ||
-		strings.TrimSpace(opts.SessionFile) != "" {
+	if opts.ThreadID != "" ||
+		opts.ThreadType != "" ||
+		opts.SessionKey != "" ||
+		opts.SessionFile != "" {
 		s.Thread = &ThreadInfo{
-			ID:          strings.TrimSpace(opts.ThreadID),
-			Type:        strings.TrimSpace(opts.ThreadType),
-			SessionKey:  strings.TrimSpace(opts.SessionKey),
-			SessionFile: strings.TrimSpace(opts.SessionFile),
+			ID:          opts.ThreadID,
+			Type:        opts.ThreadType,
+			SessionKey:  opts.SessionKey,
+			SessionFile: opts.SessionFile,
 		}
 	}
 
-	if strings.TrimSpace(opts.SessionFile) != "" {
-		s.Session = inspectSessionFile(strings.TrimSpace(opts.SessionFile))
+	if opts.SessionFile != "" {
+		s.Session = inspectSessionFile(opts.SessionFile)
 	}
 
-	if opts.IncludeTree && strings.TrimSpace(opts.Workspace) != "" {
-		s.WorkspaceTree = buildWorkspaceTree(strings.TrimSpace(opts.Workspace), opts.TreeDepth, opts.TreeMaxEntries)
+	if opts.IncludeTree && opts.Workspace != "" {
+		s.WorkspaceTree = buildWorkspaceTree(opts.Workspace, opts.TreeDepth, opts.TreeMaxEntries)
 	}
 
 	return s

@@ -45,8 +45,8 @@ type readFileArgs struct {
 // Run executes the tool.
 func (t *ReadFileTool) Run(ctx context.Context, args json.RawMessage) string {
 	var a readFileArgs
-	if err := json.Unmarshal(args, &a); err != nil {
-		return fmt.Sprintf("Error: invalid arguments: %v", err)
+	if errMsg := parseArgs(args, &a); errMsg != "" {
+		return errMsg
 	}
 
 	path := resolveToolPath(a.Path, t.workspace)
@@ -110,8 +110,8 @@ type writeFileArgs struct {
 // Run executes the tool.
 func (t *WriteFileTool) Run(ctx context.Context, args json.RawMessage) string {
 	var a writeFileArgs
-	if err := json.Unmarshal(args, &a); err != nil {
-		return fmt.Sprintf("Error: invalid arguments: %v", err)
+	if errMsg := parseArgs(args, &a); errMsg != "" {
+		return errMsg
 	}
 
 	path := resolveToolPath(a.Path, t.workspace)
@@ -174,8 +174,8 @@ type editFileArgs struct {
 // Run executes the tool.
 func (t *EditFileTool) Run(ctx context.Context, args json.RawMessage) string {
 	var a editFileArgs
-	if err := json.Unmarshal(args, &a); err != nil {
-		return fmt.Sprintf("Error: invalid arguments: %v", err)
+	if errMsg := parseArgs(args, &a); errMsg != "" {
+		return errMsg
 	}
 
 	path := resolveToolPath(a.Path, t.workspace)
@@ -239,8 +239,8 @@ type listDirArgs struct {
 // Run executes the tool.
 func (t *ListDirTool) Run(ctx context.Context, args json.RawMessage) string {
 	var a listDirArgs
-	if err := json.Unmarshal(args, &a); err != nil {
-		return fmt.Sprintf("Error: invalid arguments: %v", err)
+	if errMsg := parseArgs(args, &a); errMsg != "" {
+		return errMsg
 	}
 
 	path := resolveToolPath(a.Path, t.workspace)

@@ -60,8 +60,8 @@ type execArgs struct {
 // Run executes the tool.
 func (t *ExecTool) Run(ctx context.Context, args json.RawMessage) string {
 	var a execArgs
-	if err := json.Unmarshal(args, &a); err != nil {
-		return fmt.Sprintf("Error: invalid arguments: %v", err)
+	if errMsg := parseArgs(args, &a); errMsg != "" {
+		return errMsg
 	}
 
 	timeout := a.Timeout

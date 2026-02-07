@@ -79,8 +79,8 @@ type spawnThreadArgs struct {
 // Run executes the tool.
 func (t *SpawnThreadTool) Run(ctx context.Context, args json.RawMessage) string {
 	var a spawnThreadArgs
-	if err := json.Unmarshal(args, &a); err != nil {
-		return fmt.Sprintf("Error: invalid arguments: %v", err)
+	if errMsg := parseArgs(args, &a); errMsg != "" {
+		return errMsg
 	}
 
 	if t.spawner == nil {
@@ -153,8 +153,8 @@ type checkThreadArgs struct {
 // Run executes the tool.
 func (t *CheckThreadTool) Run(ctx context.Context, args json.RawMessage) string {
 	var a checkThreadArgs
-	if err := json.Unmarshal(args, &a); err != nil {
-		return fmt.Sprintf("Error: invalid arguments: %v", err)
+	if errMsg := parseArgs(args, &a); errMsg != "" {
+		return errMsg
 	}
 
 	if t.checker == nil {
@@ -169,12 +169,8 @@ func (t *CheckThreadTool) Run(ctx context.Context, args json.RawMessage) string 
 		return fmt.Sprintf("Error: %v", err)
 	}
 
-	switch status {
-	case "completed":
+	if status == "completed" {
 		return fmt.Sprintf("Status: completed\nResult:\n%s", result)
-	case "running", "pending":
-		return fmt.Sprintf("Status: %s", status)
-	default:
-		return fmt.Sprintf("Status: %s", status)
 	}
+	return fmt.Sprintf("Status: %s", status)
 }

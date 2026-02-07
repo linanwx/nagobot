@@ -23,6 +23,13 @@ type Tool interface {
 	Run(ctx context.Context, args json.RawMessage) string
 }
 
+func parseArgs[T any](args json.RawMessage, target *T) string {
+	if err := json.Unmarshal(args, target); err != nil {
+		return fmt.Sprintf("Error: invalid arguments: %v", err)
+	}
+	return ""
+}
+
 // Registry holds registered tools.
 type Registry struct {
 	tools map[string]Tool
