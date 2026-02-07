@@ -38,12 +38,12 @@ func (t *Thread) Run(ctx context.Context, userMessage string) (string, error) {
 		injectedUserMessages = append(injectedUserMessages, t.drainInjectQueue()...)
 	}
 
-	if pending := t.drainPendingResults(); pending != "" {
-		injectedUserMessages = append(injectedUserMessages, pending)
-		if !hasRealUserMessage {
-			injectedUserMessages = append(injectedUserMessages, "No new user message. Continue based on async child thread results above and send the user a concise update.")
+		if pending := t.drainPendingResults(); pending != "" {
+			injectedUserMessages = append(injectedUserMessages, pending)
+			if !hasRealUserMessage {
+				injectedUserMessages = append(injectedUserMessages, "[System Wake Notice] You were awakened because an async child thread has completed. The result is shown above. Summarize it and send the user a concise update.")
+			}
 		}
-	}
 
 	if !hasRealUserMessage && len(injectedUserMessages) == 0 {
 		return "", nil
