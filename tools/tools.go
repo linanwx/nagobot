@@ -111,6 +111,7 @@ func (r *Registry) Names() []string {
 func (r *Registry) RegisterDefaultTools(workspace string, cfg DefaultToolsConfig) {
 	r.Register(&ReadFileTool{workspace: workspace})
 	r.Register(&WriteFileTool{workspace: workspace})
+	r.Register(&AppendFileTool{workspace: workspace})
 	r.Register(&EditFileTool{workspace: workspace})
 	r.Register(&ExecTool{workspace: workspace, defaultTimeout: cfg.ExecTimeout, restrictToWorkspace: cfg.RestrictToWorkspace})
 	r.Register(NewHealthTool(workspace, nil))

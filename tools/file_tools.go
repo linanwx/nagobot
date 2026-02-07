@@ -112,10 +112,6 @@ func (t *WriteFileTool) Def() provider.ToolDef {
 						"type":        "string",
 						"description": "The content to write to the file.",
 					},
-					"append": map[string]any{
-						"type":        "boolean",
-						"description": "When true, append content to the file instead of overwriting it.",
-					},
 				},
 				"required": []string{"path", "content"},
 			},
@@ -127,7 +123,6 @@ func (t *WriteFileTool) Def() provider.ToolDef {
 type writeFileArgs struct {
 	Path    string `json:"path"`
 	Content string `json:"content"`
-	Append  bool   `json:"append,omitempty"`
 }
 
 // Run executes the tool.
@@ -147,25 +142,76 @@ func (t *WriteFileTool) Run(ctx context.Context, args json.RawMessage) string {
 		return fmt.Sprintf("Error: failed to create parent directory: %s: %v", formatResolvedPath(dir, resolvedDir), err)
 	}
 
-	if a.Append {
-		f, err := os.OpenFile(path, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
-		if err != nil {
-			return fmt.Sprintf("Error: failed to open file for append: %s: %v", formatResolvedPath(a.Path, resolvedPath), err)
-		}
-		defer f.Close()
-
-		if _, err := f.WriteString(a.Content); err != nil {
-			return fmt.Sprintf("Error: failed to append file: %s: %v", formatResolvedPath(a.Path, resolvedPath), err)
-		}
-		return fmt.Sprintf("Successfully appended %d bytes to %s", len(a.Content), formatResolvedPath(a.Path, resolvedPath))
-	}
-
 	// Write file (overwrite)
 	if err := os.WriteFile(path, []byte(a.Content), 0644); err != nil {
 		return fmt.Sprintf("Error: failed to write file: %s: %v", formatResolvedPath(a.Path, resolvedPath), err)
 	}
 
 	return fmt.Sprintf("Successfully wrote %d bytes to %s", len(a.Content), formatResolvedPath(a.Path, resolvedPath))
+}
+
+// AppendFileTool appends content to a file.
+type AppendFileTool struct {
+	workspace string
+}
+
+// Def returns the tool definition.
+func (t *AppendFileTool) Def() provider.ToolDef {
+	return provider.ToolDef{
+		Type: "function",
+		Function: provider.FunctionDef{
+			Name:        "append_file",
+			Description: "Append content to a file at the given path. Relative paths are resolved from workspace root. Creates parent directories if needed.",
+			Parameters: map[string]any{
+				"type": "object",
+				"properties": map[string]any{
+					"path": map[string]any{
+						"type":        "string",
+						"description": "The path to the file to append.",
+					},
+					"content": map[string]any{
+						"type":        "string",
+						"description": "The content to append to the file.",
+					},
+				},
+				"required": []string{"path", "content"},
+			},
+		},
+	}
+}
+
+type appendFileArgs struct {
+	Path    string `json:"path"`
+	Content string `json:"content"`
+}
+
+// Run executes the tool.
+func (t *AppendFileTool) Run(ctx context.Context, args json.RawMessage) string {
+	var a appendFileArgs
+	if errMsg := parseArgs(args, &a); errMsg != "" {
+		return errMsg
+	}
+
+	path := resolveToolPath(a.Path, t.workspace)
+	resolvedPath := absOrOriginal(path)
+
+	dir := filepath.Dir(path)
+	resolvedDir := absOrOriginal(dir)
+	if err := os.MkdirAll(dir, 0755); err != nil {
+		return fmt.Sprintf("Error: failed to create parent directory: %s: %v", formatResolvedPath(dir, resolvedDir), err)
+	}
+
+	f, err := os.OpenFile(path, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
+	if err != nil {
+		return fmt.Sprintf("Error: failed to open file for append: %s: %v", formatResolvedPath(a.Path, resolvedPath), err)
+	}
+	defer f.Close()
+
+	if _, err := f.WriteString(a.Content); err != nil {
+		return fmt.Sprintf("Error: failed to append file: %s: %v", formatResolvedPath(a.Path, resolvedPath), err)
+	}
+
+	return fmt.Sprintf("Successfully appended %d bytes to %s", len(a.Content), formatResolvedPath(a.Path, resolvedPath))
 }
 
 // EditFileTool edits a file by replacing text.
