@@ -42,14 +42,9 @@ For `kind=cron`, use standard 5-field cron:
 
 ## Operating Procedure
 
-1. Read current file first with `read_file`:
-   - target: `<workspace>/cron.yaml`
-2. If file is missing, create it as a YAML array.
-3. Edit jobs in memory, then write full file with `write_file`.
-4. Do not append partial fragments; always write a complete valid YAML document.
-5. If `creator_session_key` is unknown, call `health` and use the current thread/session info.
-6. After writing, wait for cron runtime reload (up to 60 seconds).
-7. Finally, call `health` again to verify cron status, parsed jobs, and any parse errors.
+1. Check whether `<workspace>/cron.yaml` exists, and create it if it does not.
+2. Edit cron jobs with any suitable tools; `creator_session_key` can be obtained from `health`.
+3. Call `health` to confirm the cron job appears in runtime status; if it does not, investigate and fix it.
 
 ## Examples
 
