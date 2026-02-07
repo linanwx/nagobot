@@ -1,6 +1,7 @@
 package health
 
 import (
+	"path/filepath"
 	"runtime"
 	"time"
 )
@@ -52,6 +53,9 @@ func Collect(opts Options) Snapshot {
 
 	if opts.SessionFile != "" {
 		s.Session = inspectSessionFile(opts.SessionFile)
+	}
+	if opts.Workspace != "" {
+		s.Cron = inspectCronFile(filepath.Join(opts.Workspace, "cron.yaml"))
 	}
 
 	if opts.IncludeTree && opts.Workspace != "" {

@@ -71,6 +71,36 @@ func FormatText(s Snapshot) string {
 		}
 	}
 
+	if s.Cron != nil {
+		b.WriteString("\nCron:\n")
+		b.WriteString(fmt.Sprintf("  Exists: %t\n", s.Cron.Exists))
+		if s.Cron.Path != "" {
+			b.WriteString(fmt.Sprintf("  Path: %s\n", s.Cron.Path))
+		}
+		if s.Cron.FileSizeBytes > 0 {
+			b.WriteString(fmt.Sprintf("  Size: %d bytes\n", s.Cron.FileSizeBytes))
+		}
+		if s.Cron.UpdatedAt != "" {
+			b.WriteString(fmt.Sprintf("  Updated At: %s\n", s.Cron.UpdatedAt))
+		}
+		if s.Cron.ParseError != "" {
+			b.WriteString(fmt.Sprintf("  Parse Error: %s\n", s.Cron.ParseError))
+		}
+		if s.Cron.JobsCount > 0 {
+			b.WriteString(fmt.Sprintf("  Jobs: %d\n", s.Cron.JobsCount))
+			for _, job := range s.Cron.Jobs {
+				schedule := strings.TrimSpace(job.Expr)
+				if schedule == "" {
+					schedule = strings.TrimSpace(job.AtTime)
+				}
+				if schedule == "" {
+					schedule = "-"
+				}
+				b.WriteString(fmt.Sprintf("    - %s | kind=%s | schedule=%s | enabled=%t | silent=%t\n", job.ID, job.Kind, schedule, job.Enabled, job.Silent))
+			}
+		}
+	}
+
 	if s.WorkspaceTree != nil {
 		b.WriteString("\nWorkspace Tree:\n")
 		b.WriteString(fmt.Sprintf("  Root: %s\n", s.WorkspaceTree.Root))

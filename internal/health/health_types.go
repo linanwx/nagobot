@@ -12,6 +12,7 @@ type Snapshot struct {
 	Paths         *PathsInfo     `json:"paths,omitempty"`
 	Thread        *ThreadInfo    `json:"thread,omitempty"`
 	Session       *SessionInfo   `json:"session,omitempty"`
+	Cron          *CronInfo      `json:"cron,omitempty"`
 	WorkspaceTree *WorkspaceTree `json:"workspaceTree,omitempty"`
 }
 
@@ -81,6 +82,29 @@ type SessionInfo struct {
 	MessagesCount int    `json:"messagesCount,omitempty"`
 	UpdatedAt     string `json:"updatedAt,omitempty"`
 	ParseError    string `json:"parseError,omitempty"`
+}
+
+// CronInfo contains cron file diagnostics and parsed jobs.
+type CronInfo struct {
+	Path          string        `json:"path,omitempty"`
+	Exists        bool          `json:"exists"`
+	FileSizeBytes int64         `json:"fileSizeBytes,omitempty"`
+	JobsCount     int           `json:"jobsCount,omitempty"`
+	UpdatedAt     string        `json:"updatedAt,omitempty"`
+	ParseError    string        `json:"parseError,omitempty"`
+	Jobs          []CronJobInfo `json:"jobs,omitempty"`
+}
+
+// CronJobInfo is a compact cron job summary for health output.
+type CronJobInfo struct {
+	ID                string `json:"id,omitempty"`
+	Kind              string `json:"kind,omitempty"`
+	Expr              string `json:"expr,omitempty"`
+	AtTime            string `json:"atTime,omitempty"`
+	Agent             string `json:"agent,omitempty"`
+	CreatorSessionKey string `json:"creatorSessionKey,omitempty"`
+	Enabled           bool   `json:"enabled"`
+	Silent            bool   `json:"silent"`
 }
 
 // WorkspaceTree contains a bounded tree snapshot for workspace diagnostics.
