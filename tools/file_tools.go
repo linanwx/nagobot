@@ -82,6 +82,9 @@ func (t *ReadFileTool) Run(ctx context.Context, args json.RawMessage) string {
 	if err != nil {
 		return fmt.Sprintf("Error: failed to read file: %s: %v", formatResolvedPath(a.Path, resolvedPath), err)
 	}
+	if len(content) == 0 {
+		return fmt.Sprintf("Error: file exists but is empty: %s", resolvedPath)
+	}
 
 	return string(content)
 }
