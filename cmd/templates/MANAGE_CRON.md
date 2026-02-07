@@ -1,6 +1,6 @@
 ---
 name: manage_cron
-description: Manage cron jobs by editing cron.yaml directly in the workspace.
+description: Use this skill when you need to inspect, read, create, update, or delete scheduled cron jobs by editing cron.yaml directly in the workspace.
 ---
 # Manage Cron via File Editing
 
