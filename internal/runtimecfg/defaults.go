@@ -18,10 +18,6 @@ const (
 )
 
 const (
-	ServeHeartbeatTickInterval = 60 * time.Second
-)
-
-const (
 	ToolExecDefaultTimeoutSeconds = 60
 	ToolExecOutputMaxChars        = 50000
 )

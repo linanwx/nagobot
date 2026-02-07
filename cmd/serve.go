@@ -5,14 +5,11 @@ import (
 	"fmt"
 	"os"
 	"os/signal"
-	"path/filepath"
 	"strings"
 	"syscall"
-	"time"
 
 	"github.com/linanwx/nagobot/channel"
 	"github.com/linanwx/nagobot/config"
-	"github.com/linanwx/nagobot/internal/runtimecfg"
 	"github.com/linanwx/nagobot/logger"
 	"github.com/linanwx/nagobot/thread"
 	"github.com/linanwx/nagobot/tools"
@@ -147,40 +144,6 @@ func runServe(cmd *cobra.Command, args []string) error {
 		<-sigChan
 		logger.Info("shutdown signal received")
 		cancel()
-	}()
-
-	heartbeatPath := filepath.Join(rt.workspace, "HEARTBEAT.md")
-	go func() {
-		ticker := time.NewTicker(runtimecfg.ServeHeartbeatTickInterval)
-		defer ticker.Stop()
-		for {
-			select {
-			case <-ctx.Done():
-				return
-			case <-ticker.C:
-				processingPath := heartbeatPath + ".processing"
-				if err := os.Rename(heartbeatPath, processingPath); err != nil {
-					continue
-				}
-
-				content, err := os.ReadFile(processingPath)
-				if err != nil || len(strings.TrimSpace(string(content))) == 0 {
-					_ = os.Remove(processingPath)
-					continue
-				}
-				task := strings.TrimSpace(string(content))
-
-				logger.Info("heartbeat wakeup", "task", truncate(task, 80))
-				t := thread.NewPlain(rt.threadConfig, rt.soulAgent, nil)
-				if _, err := t.Run(ctx, "Heartbeat task:\n\n"+task); err != nil {
-					failedPath := heartbeatPath + ".failed"
-					_ = os.Rename(processingPath, failedPath)
-					logger.Error("heartbeat thread error, task preserved", "err", err, "path", failedPath)
-				} else {
-					_ = os.Remove(processingPath)
-				}
-			}
-		}
 	}()
 
 	if err := manager.StartAll(ctx); err != nil {
