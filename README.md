@@ -14,7 +14,7 @@ This project is evolving rapidly.
 
 ## Features
 
-- Providers: `openrouter`, `anthropic`, `deepseek`
+- Providers: `openrouter`, `anthropic`, `deepseek`, `moonshot-cn`, `moonshot-global`
 - Tools
 - Skills
 - Agent
@@ -27,6 +27,8 @@ This project is evolving rapidly.
 - `openrouter`: `moonshotai/kimi-k2.5`
 - `anthropic`: `claude-sonnet-4-5`, `claude-opus-4-6`
 - `deepseek`: `deepseek-chat`, `deepseek-reasoner`
+- `moonshot-cn`: `kimi-k2.5`
+- `moonshot-global`: `kimi-k2.5`
 
 For OpenRouter, support is currently **whitelist-only**. Only verified model routes are treated as supported. In particular, reasoning/chain-of-thought behavior and tool-calling are guaranteed only for validated routes.
 
@@ -95,6 +97,34 @@ providers:
   anthropic:
     apiKey: sk-ant-xxx
     # apiBase: https://api.anthropic.com # optional
+```
+
+Moonshot CN (official) config example:
+
+```yaml
+agents:
+  defaults:
+    provider: moonshot-cn
+    modelType: kimi-k2.5
+
+providers:
+  moonshotCN:
+    apiKey: sk-xxx
+    # apiBase: https://api.moonshot.cn/v1 # optional
+```
+
+Moonshot Global (official) config example:
+
+```yaml
+agents:
+  defaults:
+    provider: moonshot-global
+    modelType: kimi-k2.5
+
+providers:
+  moonshotGlobal:
+    apiKey: sk-xxx
+    # apiBase: https://api.moonshot.ai/v1 # optional
 ```
 
 3. Start service:

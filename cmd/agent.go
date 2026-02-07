@@ -107,6 +107,16 @@ func applyAgentOverrides(cfg *config.Config) {
 				cfg.Providers.DeepSeek = &config.ProviderConfig{}
 			}
 			cfg.Providers.DeepSeek.APIKey = apiKeyFlag
+		case "moonshot-cn":
+			if cfg.Providers.MoonshotCN == nil {
+				cfg.Providers.MoonshotCN = &config.ProviderConfig{}
+			}
+			cfg.Providers.MoonshotCN.APIKey = apiKeyFlag
+		case "moonshot-global":
+			if cfg.Providers.MoonshotGlobal == nil {
+				cfg.Providers.MoonshotGlobal = &config.ProviderConfig{}
+			}
+			cfg.Providers.MoonshotGlobal.APIKey = apiKeyFlag
 		}
 	}
 	if apiBaseFlag != "" {
@@ -126,6 +136,16 @@ func applyAgentOverrides(cfg *config.Config) {
 				cfg.Providers.DeepSeek = &config.ProviderConfig{}
 			}
 			cfg.Providers.DeepSeek.APIBase = apiBaseFlag
+		case "moonshot-cn":
+			if cfg.Providers.MoonshotCN == nil {
+				cfg.Providers.MoonshotCN = &config.ProviderConfig{}
+			}
+			cfg.Providers.MoonshotCN.APIBase = apiBaseFlag
+		case "moonshot-global":
+			if cfg.Providers.MoonshotGlobal == nil {
+				cfg.Providers.MoonshotGlobal = &config.ProviderConfig{}
+			}
+			cfg.Providers.MoonshotGlobal.APIBase = apiBaseFlag
 		}
 	}
 }

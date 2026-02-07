@@ -173,6 +173,10 @@ func providerConfigFor(cfg *config.Config, providerName string) *config.Provider
 		return cfg.Providers.Anthropic
 	case "deepseek":
 		return cfg.Providers.DeepSeek
+	case "moonshot-cn":
+		return cfg.Providers.MoonshotCN
+	case "moonshot-global":
+		return cfg.Providers.MoonshotGlobal
 	}
 	return nil
 }

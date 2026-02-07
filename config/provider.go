@@ -56,6 +56,10 @@ func (c *Config) providerConfigEnv() (*ProviderConfig, string, string, error) {
 		return c.Providers.Anthropic, "ANTHROPIC_API_KEY", "ANTHROPIC_API_BASE", nil
 	case "deepseek":
 		return c.Providers.DeepSeek, "DEEPSEEK_API_KEY", "DEEPSEEK_API_BASE", nil
+	case "moonshot-cn":
+		return c.Providers.MoonshotCN, "MOONSHOT_API_KEY", "MOONSHOT_API_BASE", nil
+	case "moonshot-global":
+		return c.Providers.MoonshotGlobal, "MOONSHOT_GLOBAL_API_KEY", "MOONSHOT_GLOBAL_API_BASE", nil
 	default:
 		return nil, "", "", errors.New("unknown provider: " + c.Agents.Defaults.Provider)
 	}
