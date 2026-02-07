@@ -50,15 +50,24 @@ go build -o nagobot .
 
 2. Edit config (default: `~/.nagobot/config.yaml`) and set your API key.
 
-For example:
+### Provider Config Examples
+
+OpenRouter (Kimi K2.5):
 
 ```yaml
+agents:
+  defaults:
+    provider: openrouter
+    modelType: moonshotai/kimi-k2.5
+    # modelName: your-openrouter-preset-or-alias # optional
+
 providers:
   openrouter:
     apiKey: sk-or-v1-xxx
 ```
 
-You can use default model: **moonshotai/kimi-k2.5**
+When using `moonshotai/kimi-k2.5`, route to OpenRouter's official `moonshot` provider.
+If routing falls back to other upstream providers, chain-of-thought and tool-calling can fail.
 
 DeepSeek config example:
 
@@ -88,24 +97,6 @@ providers:
     # apiBase: https://api.anthropic.com # optional
 ```
 
-### Important: Kimi K2.5 + OpenRouter
-
-When using `moonshotai/kimi-k2.5`, you must route to OpenRouter's official `moonshot` provider. If routing falls back to other upstream providers, chain-of-thought and tool-calling are not supported, and tool-calling can fail.
-
-- Required: in OpenRouter routing, allow only `moonshot` as provider for this model.
-- Alternative: set `agents.defaults.modelName` to an OpenRouter preset/model alias that already pins routing to Moonshot.
-- Runtime reminder: when nagobot detects `openrouter + kimi`, it prints a terminal warning about this requirement.
-
-Example:
-
-```yaml
-agents:
-  defaults:
-    provider: openrouter
-    modelType: moonshotai/kimi-k2.5
-    modelName: your-openrouter-preset-or-alias
-```
-
 3. Start service:
 
 ```bash
@@ -129,9 +120,9 @@ Telegram config example (token redacted):
 
 ```yaml
 channels:
-  adminUserID: "1234567890" # Optional
+  adminUserID: "1234567890" # Optional: open @userinfobot in Telegram, send /start, and paste your user ID here
   telegram:
-    token: "1234567890:AA***************"
+    token: "1234567890:AA***************" # Open @BotFather in Telegram, run /newbot, and paste the generated token here
     allowedIds:
-      - 1234567890
+      - 1234567890 # Open @userinfobot in Telegram, send /start, and paste allowed user IDs here
 ```
