@@ -242,13 +242,16 @@ func (t *ListDirTool) Run(ctx context.Context, args json.RawMessage) string {
 	if errMsg := parseArgs(args, &a); errMsg != "" {
 		return errMsg
 	}
+	if strings.TrimSpace(a.Path) == "" {
+		return "Error: path is required"
+	}
 
 	path := resolveToolPath(a.Path, t.workspace)
 
 	info, err := os.Stat(path)
 	if err != nil {
 		if os.IsNotExist(err) {
-			return fmt.Sprintf("Error: directory not found: %s", a.Path)
+			return fmt.Sprintf("Error: directory not found: [%s]", a.Path)
 		}
 		return fmt.Sprintf("Error: %v", err)
 	}

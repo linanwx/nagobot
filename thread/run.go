@@ -72,7 +72,7 @@ func (t *Thread) Run(ctx context.Context, userMessage string) (string, error) {
 		messages = append(messages, session.Messages...)
 	}
 
-	turnUserMessages := make([]provider.Message, 0, len(injectedUserMessages)+1)
+	turnUserMessages := make([]provider.Message, 0, len(injectedUserMessages)+2)
 	for _, injected := range injectedUserMessages {
 		msg := provider.UserMessage(injected)
 		messages = append(messages, msg)
@@ -82,6 +82,17 @@ func (t *Thread) Run(ctx context.Context, userMessage string) (string, error) {
 		msg := provider.UserMessage(userMessage)
 		messages = append(messages, msg)
 		turnUserMessages = append(turnUserMessages, msg)
+
+		// TODO: implement time system (timezone/user-locale aware runtime time injection).
+		now := time.Now()
+		timeMsg := provider.UserMessage(fmt.Sprintf(
+			"[Runtime time note] Current server time: %s (timezone: %s, offset: UTC%s).",
+			now.Format(time.RFC3339),
+			now.Location().String(),
+			now.Format("-07:00"),
+		))
+		messages = append(messages, timeMsg)
+		turnUserMessages = append(turnUserMessages, timeMsg)
 	}
 
 	if len(turnUserMessages) == 0 {
