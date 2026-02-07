@@ -31,11 +31,15 @@ func NewManageCronTool(manager CronManager) *ManageCronTool {
 
 // Def returns the tool definition.
 func (t *ManageCronTool) Def() provider.ToolDef {
+	now := time.Now()
+	currentTime := now.Format(time.RFC3339)
+	currentOffset := now.Format("-07:00")
+
 	return provider.ToolDef{
 		Type: "function",
 		Function: provider.FunctionDef{
 			Name:        "manage_cron",
-			Description: "Manage scheduled cron jobs. Supports add, remove, and list operations. Before add with at_time, confirm the user's timezone first.",
+			Description: fmt.Sprintf("Manage scheduled cron jobs. Supports add, remove, and list operations. Server current time: %s (UTC%s).", currentTime, currentOffset),
 			Parameters: map[string]any{
 				"type": "object",
 				"properties": map[string]any{
@@ -54,7 +58,7 @@ func (t *ManageCronTool) Def() provider.ToolDef {
 					},
 					"at_time": map[string]any{
 						"type":        "string",
-						"description": "One-time schedule in RFC3339 with explicit timezone offset (e.g. 2026-02-07T15:04:05+08:00). Confirm user timezone before setting this.",
+						"description": "One-time schedule in RFC3339 with explicit timezone offset (e.g. 2026-02-07T15:04:05+08:00).",
 					},
 					"task": map[string]any{
 						"type":        "string",
