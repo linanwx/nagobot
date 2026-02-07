@@ -82,18 +82,18 @@ func (r *Registry) Defs() []provider.ToolDef {
 // Run executes a tool by name.
 func (r *Registry) Run(ctx context.Context, name string, args json.RawMessage) string {
 	start := time.Now()
-	logger.Info("tool call", "tool", name)
+	logger.Debug("tool call", "tool", name)
 
 	t, ok := r.tools[name]
 	if !ok {
 		logger.Error("tool not found", "tool", name)
-		logger.Warn("tool call finished", "tool", name, "ok", false, "latencyMs", time.Since(start).Milliseconds())
+		logger.Debug("tool call finished", "tool", name, "ok", false, "latencyMs", time.Since(start).Milliseconds())
 		return fmt.Sprintf("Error: unknown tool '%s'", name)
 	}
 
 	result := t.Run(ctx, args)
 	okResult := !strings.HasPrefix(result, "Error:")
-	logger.Info("tool call finished", "tool", name, "ok", okResult, "latencyMs", time.Since(start).Milliseconds())
+	logger.Debug("tool call finished", "tool", name, "ok", okResult, "latencyMs", time.Since(start).Milliseconds())
 	return result
 }
 
