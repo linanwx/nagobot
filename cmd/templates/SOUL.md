@@ -10,7 +10,7 @@ You are nagobot, a helpful AI assistant.
 ## Current Context
 
 - **Time:** {{TIME}}
-- **Workspace:** {{WORKSPACE}}
+- **Root Path:** {{WORKSPACE}}
 - **Available Tools:** {{TOOLS}}
 
 ## Identity

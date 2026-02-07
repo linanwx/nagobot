@@ -7,7 +7,7 @@ description: Compress session context with simple backup and atomic replace.
 Required workflow:
 1. Determine `session_file`:
    - First choice: use the runtime notice value.
-   - Fallback: `<workspace>/sessions/main/session.json` (`<workspace>` means the configured runtime workspace root).
+   - Fallback: `{{WORKSPACE}}/sessions/main/session.json` (`{{WORKSPACE}}` is the configured project root path).
    - If neither exists, stop and ask for an explicit path.
 2. Count lines and read content if needed.
 3. Set `session_dir = dirname(session_file)`.

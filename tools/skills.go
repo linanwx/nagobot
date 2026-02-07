@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"strings"
 
 	"github.com/linanwx/nagobot/provider"
 )
@@ -59,6 +60,11 @@ func (t *UseSkillTool) Run(ctx context.Context, args json.RawMessage) string {
 	prompt, ok := t.provider.GetSkillPrompt(a.Name)
 	if !ok {
 		return fmt.Sprintf("Error: skill not found: %s", a.Name)
+	}
+
+	rt := RuntimeContextFrom(ctx)
+	if strings.TrimSpace(rt.Workspace) != "" {
+		prompt = strings.ReplaceAll(prompt, "{{WORKSPACE}}", rt.Workspace)
 	}
 
 	return prompt

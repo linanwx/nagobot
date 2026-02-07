@@ -2,6 +2,7 @@ package tools
 
 import (
 	"context"
+	"path/filepath"
 	"strings"
 )
 
@@ -10,6 +11,7 @@ type runtimeContextKey struct{}
 // RuntimeContext carries lightweight per-run metadata for tools.
 type RuntimeContext struct {
 	SessionKey string
+	Workspace  string
 }
 
 // WithRuntimeContext injects tool runtime metadata into context.
@@ -18,6 +20,12 @@ func WithRuntimeContext(ctx context.Context, rt RuntimeContext) context.Context 
 		ctx = context.Background()
 	}
 	rt.SessionKey = strings.TrimSpace(rt.SessionKey)
+	rt.Workspace = strings.TrimSpace(rt.Workspace)
+	if rt.Workspace != "" {
+		if absPath, err := filepath.Abs(rt.Workspace); err == nil {
+			rt.Workspace = absPath
+		}
+	}
 	return context.WithValue(ctx, runtimeContextKey{}, rt)
 }
 
@@ -28,5 +36,11 @@ func RuntimeContextFrom(ctx context.Context) RuntimeContext {
 	}
 	rt, _ := ctx.Value(runtimeContextKey{}).(RuntimeContext)
 	rt.SessionKey = strings.TrimSpace(rt.SessionKey)
+	rt.Workspace = strings.TrimSpace(rt.Workspace)
+	if rt.Workspace != "" {
+		if absPath, err := filepath.Abs(rt.Workspace); err == nil {
+			rt.Workspace = absPath
+		}
+	}
 	return rt
 }

@@ -146,6 +146,7 @@ func (t *Thread) Run(ctx context.Context, userMessage string) (string, error) {
 
 	runCtx := tools.WithRuntimeContext(ctx, tools.RuntimeContext{
 		SessionKey: t.sessionKey,
+		Workspace:  t.workspace,
 	})
 	runner := NewRunner(prov, runtimeTools)
 	response, err := runner.RunWithMessages(runCtx, messages)

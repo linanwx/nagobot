@@ -14,7 +14,7 @@ You are a general-purpose helper agent used for delegated tasks.
 ## Context
 
 - Time: {{TIME}}
-- Workspace: {{WORKSPACE}}
+- Root Path: {{WORKSPACE}}
 - Available Tools: {{TOOLS}}
 
 ## Instructions

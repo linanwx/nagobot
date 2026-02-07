@@ -11,6 +11,18 @@ import (
 	"github.com/linanwx/nagobot/provider"
 )
 
+func absOrOriginal(path string) string {
+	absPath, err := filepath.Abs(path)
+	if err != nil {
+		return path
+	}
+	return absPath
+}
+
+func formatResolvedPath(input, resolved string) string {
+	return fmt.Sprintf("%s (resolved: %s)", input, resolved)
+}
+
 // ReadFileTool reads the contents of a file.
 type ReadFileTool struct {
 	workspace string
@@ -50,22 +62,23 @@ func (t *ReadFileTool) Run(ctx context.Context, args json.RawMessage) string {
 	}
 
 	path := resolveToolPath(a.Path, t.workspace)
+	resolvedPath := absOrOriginal(path)
 
 	info, err := os.Stat(path)
 	if err != nil {
 		if os.IsNotExist(err) {
-			return fmt.Sprintf("Error: file not found: %s", a.Path)
+			return fmt.Sprintf("Error: file not found: %s", formatResolvedPath(a.Path, resolvedPath))
 		}
-		return fmt.Sprintf("Error: %v", err)
+		return fmt.Sprintf("Error: failed to stat file: %s: %v", formatResolvedPath(a.Path, resolvedPath), err)
 	}
 
 	if info.IsDir() {
-		return fmt.Sprintf("Error: %s is a directory, not a file", a.Path)
+		return fmt.Sprintf("Error: path is a directory, not a file: %s", formatResolvedPath(a.Path, resolvedPath))
 	}
 
 	content, err := os.ReadFile(path)
 	if err != nil {
-		return fmt.Sprintf("Error: failed to read file: %v", err)
+		return fmt.Sprintf("Error: failed to read file: %s: %v", formatResolvedPath(a.Path, resolvedPath), err)
 	}
 
 	return string(content)
@@ -115,19 +128,21 @@ func (t *WriteFileTool) Run(ctx context.Context, args json.RawMessage) string {
 	}
 
 	path := resolveToolPath(a.Path, t.workspace)
+	resolvedPath := absOrOriginal(path)
 
 	// Create parent directories
 	dir := filepath.Dir(path)
+	resolvedDir := absOrOriginal(dir)
 	if err := os.MkdirAll(dir, 0755); err != nil {
-		return fmt.Sprintf("Error: failed to create directory: %v", err)
+		return fmt.Sprintf("Error: failed to create parent directory: %s: %v", formatResolvedPath(dir, resolvedDir), err)
 	}
 
 	// Write file
 	if err := os.WriteFile(path, []byte(a.Content), 0644); err != nil {
-		return fmt.Sprintf("Error: failed to write file: %v", err)
+		return fmt.Sprintf("Error: failed to write file: %s: %v", formatResolvedPath(a.Path, resolvedPath), err)
 	}
 
-	return fmt.Sprintf("Successfully wrote %d bytes to %s", len(a.Content), a.Path)
+	return fmt.Sprintf("Successfully wrote %d bytes to %s", len(a.Content), formatResolvedPath(a.Path, resolvedPath))
 }
 
 // EditFileTool edits a file by replacing text.
@@ -179,30 +194,31 @@ func (t *EditFileTool) Run(ctx context.Context, args json.RawMessage) string {
 	}
 
 	path := resolveToolPath(a.Path, t.workspace)
+	resolvedPath := absOrOriginal(path)
 
 	content, err := os.ReadFile(path)
 	if err != nil {
 		if os.IsNotExist(err) {
-			return fmt.Sprintf("Error: file not found: %s", a.Path)
+			return fmt.Sprintf("Error: file not found: %s", formatResolvedPath(a.Path, resolvedPath))
 		}
-		return fmt.Sprintf("Error: failed to read file: %v", err)
+		return fmt.Sprintf("Error: failed to read file: %s: %v", formatResolvedPath(a.Path, resolvedPath), err)
 	}
 
 	contentStr := string(content)
 	count := strings.Count(contentStr, a.OldText)
 	if count == 0 {
-		return fmt.Sprintf("Error: text not found in file: %q", a.OldText)
+		return fmt.Sprintf("Error: text not found in file: %q (path: %s)", a.OldText, formatResolvedPath(a.Path, resolvedPath))
 	}
 	if count > 1 {
-		return fmt.Sprintf("Error: text appears %d times in file, must be unique. Provide more context.", count)
+		return fmt.Sprintf("Error: text appears %d times in file (path: %s); match must be unique. Provide more context.", count, formatResolvedPath(a.Path, resolvedPath))
 	}
 
 	newContent := strings.Replace(contentStr, a.OldText, a.NewText, 1)
 	if err := os.WriteFile(path, []byte(newContent), 0644); err != nil {
-		return fmt.Sprintf("Error: failed to write file: %v", err)
+		return fmt.Sprintf("Error: failed to write file: %s: %v", formatResolvedPath(a.Path, resolvedPath), err)
 	}
 
-	return fmt.Sprintf("Successfully edited %s", a.Path)
+	return fmt.Sprintf("Successfully edited %s", formatResolvedPath(a.Path, resolvedPath))
 }
 
 // ListDirTool lists the contents of a directory.
@@ -247,22 +263,23 @@ func (t *ListDirTool) Run(ctx context.Context, args json.RawMessage) string {
 	}
 
 	path := resolveToolPath(a.Path, t.workspace)
+	resolvedPath := absOrOriginal(path)
 
 	info, err := os.Stat(path)
 	if err != nil {
 		if os.IsNotExist(err) {
-			return fmt.Sprintf("Error: directory not found: [%s]", a.Path)
+			return fmt.Sprintf("Error: directory not found: %s", formatResolvedPath(a.Path, resolvedPath))
 		}
-		return fmt.Sprintf("Error: %v", err)
+		return fmt.Sprintf("Error: failed to stat directory: %s: %v", formatResolvedPath(a.Path, resolvedPath), err)
 	}
 
 	if !info.IsDir() {
-		return fmt.Sprintf("Error: %s is a file, not a directory", a.Path)
+		return fmt.Sprintf("Error: path is a file, not a directory: %s", formatResolvedPath(a.Path, resolvedPath))
 	}
 
 	entries, err := os.ReadDir(path)
 	if err != nil {
-		return fmt.Sprintf("Error: failed to read directory: %v", err)
+		return fmt.Sprintf("Error: failed to read directory: %s: %v", formatResolvedPath(a.Path, resolvedPath), err)
 	}
 
 	var lines []string
