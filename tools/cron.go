@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"strings"
+	"time"
 
 	cronpkg "github.com/linanwx/nagobot/cron"
 	"github.com/linanwx/nagobot/provider"
@@ -13,6 +14,7 @@ import (
 // CronManager manages persisted cron jobs.
 type CronManager interface {
 	Add(id, expr, task, agent string) error
+	AddAt(id string, atTime time.Time, task, agent string) error
 	Remove(id string) error
 	List() []*cronpkg.Job
 }
@@ -48,7 +50,11 @@ func (t *ManageCronTool) Def() provider.ToolDef {
 					},
 					"expr": map[string]any{
 						"type":        "string",
-						"description": "Cron expression. Required for add.",
+						"description": "Cron expression for recurring jobs. Required for add when at_time is not provided.",
+					},
+					"at_time": map[string]any{
+						"type":        "string",
+						"description": "One-time schedule in RFC3339 (e.g. 2026-02-07T15:04:05+08:00).",
 					},
 					"task": map[string]any{
 						"type":        "string",
@@ -69,6 +75,7 @@ type manageCronArgs struct {
 	Operation string `json:"operation"`
 	ID        string `json:"id,omitempty"`
 	Expr      string `json:"expr,omitempty"`
+	AtTime    string `json:"at_time,omitempty"`
 	Task      string `json:"task,omitempty"`
 	Agent     string `json:"agent,omitempty"`
 }
@@ -90,16 +97,34 @@ func (t *ManageCronTool) Run(ctx context.Context, args json.RawMessage) string {
 		if strings.TrimSpace(a.ID) == "" {
 			return "Error: id is required for add"
 		}
-		if strings.TrimSpace(a.Expr) == "" {
-			return "Error: expr is required for add"
-		}
 		if strings.TrimSpace(a.Task) == "" {
 			return "Error: task is required for add"
 		}
-		if err := t.manager.Add(a.ID, a.Expr, a.Task, a.Agent); err != nil {
-			return fmt.Sprintf("Error: failed to add cron job: %v", err)
+
+		expr := strings.TrimSpace(a.Expr)
+		hasOneTime := strings.TrimSpace(a.AtTime) != ""
+		if expr == "" && !hasOneTime {
+			return "Error: either expr or at_time is required for add"
 		}
-		return fmt.Sprintf("Cron job added: %s (%s)", strings.TrimSpace(a.ID), strings.TrimSpace(a.Expr))
+		if expr != "" && hasOneTime {
+			return "Error: use either expr (recurring) or at_time (one-time), not both"
+		}
+
+		if expr != "" {
+			if err := t.manager.Add(a.ID, expr, a.Task, a.Agent); err != nil {
+				return fmt.Sprintf("Error: failed to add cron job: %v", err)
+			}
+			return fmt.Sprintf("Cron job added: %s (%s)", strings.TrimSpace(a.ID), expr)
+		}
+
+		runAt, err := parseOneTime(strings.TrimSpace(a.AtTime))
+		if err != nil {
+			return fmt.Sprintf("Error: invalid at_time: %v", err)
+		}
+		if err := t.manager.AddAt(a.ID, runAt, a.Task, a.Agent); err != nil {
+			return fmt.Sprintf("Error: failed to add one-time job: %v", err)
+		}
+		return fmt.Sprintf("One-time cron job added: %s (%s)", strings.TrimSpace(a.ID), runAt.Format(time.RFC3339))
 
 	case "remove":
 		if strings.TrimSpace(a.ID) == "" {
@@ -126,7 +151,7 @@ func (t *ManageCronTool) Run(ctx context.Context, args json.RawMessage) string {
 			if job.Enabled {
 				state = "enabled"
 			}
-			line := fmt.Sprintf("- %s | %s | %s", job.ID, job.Expr, state)
+			line := fmt.Sprintf("- %s | %s | %s", job.ID, formatSchedule(job), state)
 			if strings.TrimSpace(job.Agent) != "" {
 				line += fmt.Sprintf(" | agent=%s", strings.TrimSpace(job.Agent))
 			}
@@ -137,5 +162,33 @@ func (t *ManageCronTool) Run(ctx context.Context, args json.RawMessage) string {
 
 	default:
 		return "Error: operation must be one of add, remove, list"
+	}
+}
+
+func parseOneTime(value string) (time.Time, error) {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return time.Time{}, fmt.Errorf("at_time is required")
+	}
+
+	t, err := time.Parse(time.RFC3339, value)
+	if err != nil {
+		return time.Time{}, fmt.Errorf("expected RFC3339")
+	}
+	return t, nil
+}
+
+func formatSchedule(job *cronpkg.Job) string {
+	if job == nil {
+		return ""
+	}
+	switch strings.ToLower(strings.TrimSpace(job.Kind)) {
+	case cronpkg.JobKindAt:
+		if !job.AtTime.IsZero() {
+			return "at:" + job.AtTime.Format(time.RFC3339)
+		}
+		return "at"
+	default:
+		return strings.TrimSpace(job.Expr)
 	}
 }
