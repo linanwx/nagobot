@@ -49,6 +49,7 @@ For `kind=cron`, use standard 5-field cron:
 4. Do not append partial fragments; always write a complete valid YAML document.
 5. If `creator_session_key` is unknown, call `health` and use the current thread/session info.
 6. After writing, wait for cron runtime reload (up to 60 seconds).
+7. Finally, call `health` again to verify cron status, parsed jobs, and any parse errors.
 
 ## Examples
 
