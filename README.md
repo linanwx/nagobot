@@ -75,7 +75,7 @@ DeepSeek config example:
 agents:
   defaults:
     provider: deepseek
-    modelType: deepseek-chat # or deepseek-reasoner
+    modelType: deepseek-reasoner # or deepseek-chat
 
 providers:
   deepseek:
