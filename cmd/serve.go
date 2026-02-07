@@ -166,6 +166,18 @@ func runServe(cmd *cobra.Command, args []string) error {
 	}
 	scheduler.Start()
 	defer scheduler.Stop()
+	go func() {
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-time.After(time.Minute):
+				if err := scheduler.Load(); err != nil {
+					logger.Warn("failed to reload cron jobs", "err", err)
+				}
+			}
+		}
+	}()
 	rt.toolRegistry.Register(tools.NewManageCronTool(scheduler))
 
 	sigChan := make(chan os.Signal, 1)
@@ -276,9 +288,8 @@ func buildCronSessionKey(job *cronpkg.Job) string {
 	if suffix == "" {
 		suffix = fmt.Sprintf("%d", now.UnixNano())
 	}
-
 	return fmt.Sprintf(
-		"cron:%s:threads:%s:%s-%s",
+		"cron:%s:%s:%s-%s",
 		jobID,
 		now.Format("2006-01-02"),
 		now.Format("20060102T150405Z"),
