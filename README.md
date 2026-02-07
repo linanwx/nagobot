@@ -18,6 +18,7 @@ This project is evolving rapidly.
 - Tools
 - Skills
 - Agent
+- Cron
 
 ## Supported Providers and Model Types
 
@@ -58,6 +59,20 @@ providers:
 ```
 
 You can use default model: **moonshotai/kimi-k2.5**
+
+DeepSeek config example:
+
+```yaml
+agents:
+  defaults:
+    provider: deepseek
+    modelType: deepseek-chat # or deepseek-reasoner
+
+providers:
+  deepseek:
+    apiKey: sk-xxx
+    # apiBase: https://api.deepseek.com # optional
+```
 
 ### Important: Kimi K2.5 + OpenRouter
 
