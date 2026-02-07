@@ -1,26 +1,21 @@
 # nagobot
 
-`nagobot` is a lightweight AI assistant built with Go. It supports multiple providers (OpenRouter / Anthropic), tool calling, sessions, multi-channel service mode (CLI / Telegram), and file-based memory indexing.
+<p align="center">
+  <img src="img/head.png" alt="nagobot head" width="720" />
+</p>
+
+`nagobot` is a ultra light AI assistant built with Go.
 
 Inspired by nanobot (`github.com/HKUDS/nanobot`) and openclaw (`github.com/openclaw`).
 
 This project is evolving rapidly.
 
-Repository: <https://github.com/linanwx/nagobot>
-
 ## Features
 
 - Providers: `openrouter`, `anthropic`
-- Modes:
-  - `agent`: single message mode
-  - `serve`: long-running service (CLI / Telegram)
-- Tools: file read/write, command execution, directory listing, web search/fetch, skill loading, subagents
-- Skills:
-  - Injects skill summaries by default
-  - Loads full skill instructions on demand via `use_skill`
-- Memory (file-based):
-  - Global summary: `memory/MEMORY.md`
-  - Daily summary: `memory/YYYY-MM-DD.md`
+- Tools
+- Skills
+- Agent
 
 ## Requirements
 
@@ -49,6 +44,8 @@ providers:
   openrouter:
     apiKey: sk-or-v1-xxx
 ```
+
+You can use default model: **moonshotai/kimi-k2.5**
 
 ### Important: Kimi K2.5 + OpenRouter
 
@@ -90,14 +87,9 @@ Telegram config example (token redacted):
 
 ```yaml
 channels:
-  adminUserID: "1234567890" # Optional: Telegram admin user id that shares the "main" session
+  adminUserID: "1234567890" # Optional
   telegram:
     token: "1234567890:AA***************"
     allowedIds:
       - 1234567890
 ```
-
-Session routing in `serve` mode:
-- CLI always uses session key `main`
-- Telegram admin user (`channels.adminUserID`) uses `main`
-- Other Telegram users use `telegram:<userid>`
