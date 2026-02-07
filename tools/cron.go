@@ -35,7 +35,7 @@ func (t *ManageCronTool) Def() provider.ToolDef {
 		Type: "function",
 		Function: provider.FunctionDef{
 			Name:        "manage_cron",
-			Description: "Manage scheduled cron jobs. Supports add, remove, and list operations.",
+			Description: "Manage scheduled cron jobs. Supports add, remove, and list operations. Before add with at_time, confirm the user's timezone first.",
 			Parameters: map[string]any{
 				"type": "object",
 				"properties": map[string]any{
@@ -54,7 +54,7 @@ func (t *ManageCronTool) Def() provider.ToolDef {
 					},
 					"at_time": map[string]any{
 						"type":        "string",
-						"description": "One-time schedule in RFC3339 (e.g. 2026-02-07T15:04:05+08:00).",
+						"description": "One-time schedule in RFC3339 with explicit timezone offset (e.g. 2026-02-07T15:04:05+08:00). Confirm user timezone before setting this.",
 					},
 					"task": map[string]any{
 						"type":        "string",
@@ -94,12 +94,14 @@ func (t *ManageCronTool) Run(ctx context.Context, args json.RawMessage) string {
 	op := strings.ToLower(strings.TrimSpace(a.Operation))
 	switch op {
 	case "add":
-		if strings.TrimSpace(a.ID) == "" {
+		id := strings.TrimSpace(a.ID)
+		if id == "" {
 			return "Error: id is required for add"
 		}
 		if strings.TrimSpace(a.Task) == "" {
 			return "Error: task is required for add"
 		}
+		serverOffset := time.Now().Format("-07:00")
 
 		expr := strings.TrimSpace(a.Expr)
 		hasOneTime := strings.TrimSpace(a.AtTime) != ""
@@ -114,7 +116,7 @@ func (t *ManageCronTool) Run(ctx context.Context, args json.RawMessage) string {
 			if err := t.manager.Add(a.ID, expr, a.Task, a.Agent); err != nil {
 				return fmt.Sprintf("Error: failed to add cron job: %v", err)
 			}
-			return fmt.Sprintf("Cron job added: %s (%s)", strings.TrimSpace(a.ID), expr)
+			return fmt.Sprintf("Cron job added: %s (%s)\nserver_timezone: UTC%s\nsame_timezone: n/a (expr has no explicit timezone)", id, expr, serverOffset)
 		}
 
 		runAt, err := parseOneTime(strings.TrimSpace(a.AtTime))
@@ -124,7 +126,15 @@ func (t *ManageCronTool) Run(ctx context.Context, args json.RawMessage) string {
 		if err := t.manager.AddAt(a.ID, runAt, a.Task, a.Agent); err != nil {
 			return fmt.Sprintf("Error: failed to add one-time job: %v", err)
 		}
-		return fmt.Sprintf("One-time cron job added: %s (%s)", strings.TrimSpace(a.ID), runAt.Format(time.RFC3339))
+		inputOffset := runAt.Format("-07:00")
+		return fmt.Sprintf(
+			"One-time cron job added: %s (%s)\nserver_timezone: UTC%s\ninput_timezone: UTC%s\nsame_timezone: %t",
+			id,
+			runAt.Format(time.RFC3339),
+			serverOffset,
+			inputOffset,
+			inputOffset == serverOffset,
+		)
 
 	case "remove":
 		if strings.TrimSpace(a.ID) == "" {
@@ -173,7 +183,7 @@ func parseOneTime(value string) (time.Time, error) {
 
 	t, err := time.Parse(time.RFC3339, value)
 	if err != nil {
-		return time.Time{}, fmt.Errorf("expected RFC3339")
+		return time.Time{}, fmt.Errorf("expected RFC3339 with timezone offset, e.g. 2026-02-07T15:04:05+08:00")
 	}
 	return t, nil
 }
