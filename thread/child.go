@@ -27,7 +27,7 @@ func (t *Thread) SpawnChild(ctx context.Context, ag *agent.Agent, task, taskCont
 		return "", fmt.Errorf("child agent is not configured")
 	}
 
-	childAgent := wrapAgentTaskPlaceholder(ag, task)
+	childAgent := WrapAgentTaskPlaceholder(ag, task)
 	childSessionKey := ""
 	if t.cfg != nil && t.cfg.Sessions != nil {
 		parentIdentity := strings.TrimSpace(t.sessionKey)
@@ -110,13 +110,14 @@ func generateChildSessionKey(parentIdentity string) string {
 	now := time.Now().UTC()
 	datePart := now.Format("2006-01-02")
 	timePart := now.Format("20060102T150405Z")
-	if suffix := randomHex(4); suffix != "" {
+	if suffix := RandomHex(4); suffix != "" {
 		return fmt.Sprintf("%s:threads:%s:%s-%s", parentIdentity, datePart, timePart, suffix)
 	}
 	return fmt.Sprintf("%s:threads:%s:%d", parentIdentity, datePart, now.UnixNano())
 }
 
-func randomHex(n int) string {
+// RandomHex returns a random lowercase hex string of length n*2.
+func RandomHex(n int) string {
 	if n <= 0 {
 		return ""
 	}
@@ -125,6 +126,47 @@ func randomHex(n int) string {
 		return ""
 	}
 	return hex.EncodeToString(buf)
+}
+
+// Wake appends a wake message and triggers auto continuation when sink exists.
+func (t *Thread) Wake(ctx context.Context, message string) {
+	message = strings.TrimSpace(message)
+	if message == "" {
+		return
+	}
+
+	t.mu.Lock()
+	t.pendingResults = append(t.pendingResults, pendingChildResult{
+		ID:     "wake",
+		Result: message,
+	})
+	shouldStartAuto := t.sink != nil && !t.autoRunning
+	if shouldStartAuto {
+		t.autoRunning = true
+	}
+	t.mu.Unlock()
+
+	if shouldStartAuto {
+		go t.runAsyncContinuations(ctx)
+	}
+}
+
+// WakeThread wakes a managed channel thread by session key.
+func (m *Manager) WakeThread(ctx context.Context, sessionKey, message string) error {
+	sessionKey = strings.TrimSpace(sessionKey)
+	if sessionKey == "" {
+		return fmt.Errorf("session key is required")
+	}
+
+	m.mu.Lock()
+	t, ok := m.threads[sessionKey]
+	m.mu.Unlock()
+	if !ok || t == nil || t.Thread == nil {
+		return fmt.Errorf("thread not found: %s", sessionKey)
+	}
+
+	t.Wake(ctx, message)
+	return nil
 }
 
 func (t *Thread) drainPendingResults() string {
@@ -181,7 +223,8 @@ func (t *Thread) runAsyncContinuations(ctx context.Context) {
 	}
 }
 
-func wrapAgentTaskPlaceholder(base *agent.Agent, task string) *agent.Agent {
+// WrapAgentTaskPlaceholder binds {{TASK}} in a prompt-builder agent.
+func WrapAgentTaskPlaceholder(base *agent.Agent, task string) *agent.Agent {
 	if base == nil {
 		return nil
 	}
