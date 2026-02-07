@@ -5,14 +5,11 @@ import (
 	"fmt"
 	"os"
 	"os/signal"
-	"path/filepath"
 	"strings"
 	"syscall"
-	"time"
 
 	"github.com/linanwx/nagobot/channel"
 	"github.com/linanwx/nagobot/config"
-	cronpkg "github.com/linanwx/nagobot/cron"
 	"github.com/linanwx/nagobot/logger"
 	"github.com/linanwx/nagobot/thread"
 	"github.com/linanwx/nagobot/tools"
@@ -143,42 +140,11 @@ func runServe(cmd *cobra.Command, args []string) error {
 	rt.toolRegistry.Register(tools.NewWakeThreadTool(threadMgr))
 	rt.toolRegistry.Register(tools.NewSendMessageTool(manager))
 
-	cronStorePath := filepath.Join(rt.workspace, "cron.json")
-	scheduler := cronpkg.NewScheduler(cronStorePath, func(job *cronpkg.Job) (string, error) {
-		ag := rt.soulAgent
-		if job != nil && rt.threadConfig != nil && rt.threadConfig.Agents != nil {
-			if agentName := strings.TrimSpace(job.Agent); agentName != "" {
-				if named := rt.threadConfig.Agents.Get(agentName); named != nil {
-					ag = named
-				}
-			}
-		}
-		task := ""
-		if job != nil {
-			task = strings.TrimSpace(job.Task)
-		}
-		ag = thread.WrapAgentTaskPlaceholder(ag, task)
-		t := thread.NewChannel(rt.threadConfig, ag, buildCronSessionKey(job), nil)
-		return t.Run(ctx, task)
-	})
-	if err := scheduler.Load(); err != nil {
-		return fmt.Errorf("failed to load cron jobs: %w", err)
+	scheduler, err := startCronRuntime(ctx, rt, threadMgr)
+	if err != nil {
+		return err
 	}
-	scheduler.Start()
 	defer scheduler.Stop()
-	go func() {
-		for {
-			select {
-			case <-ctx.Done():
-				return
-			case <-time.After(time.Minute):
-				if err := scheduler.Load(); err != nil {
-					logger.Warn("failed to reload cron jobs", "err", err)
-				}
-			}
-		}
-	}()
-	rt.toolRegistry.Register(tools.NewManageCronTool(scheduler))
 
 	sigChan := make(chan os.Signal, 1)
 	signal.Notify(sigChan, syscall.SIGINT, syscall.SIGTERM)
@@ -275,24 +241,4 @@ func channelNameFromID(channelID string) string {
 		return channelID[:idx]
 	}
 	return channelID
-}
-
-func buildCronSessionKey(job *cronpkg.Job) string {
-	jobID := "job"
-	if job != nil && strings.TrimSpace(job.ID) != "" {
-		jobID = strings.TrimSpace(job.ID)
-	}
-
-	now := time.Now().UTC()
-	suffix := thread.RandomHex(4)
-	if suffix == "" {
-		suffix = fmt.Sprintf("%d", now.UnixNano())
-	}
-	return fmt.Sprintf(
-		"cron:%s:%s:%s-%s",
-		jobID,
-		now.Format("2006-01-02"),
-		now.Format("20060102T150405Z"),
-		suffix,
-	)
 }

@@ -132,8 +132,11 @@ func (t *Thread) Run(ctx context.Context, userMessage string) (string, error) {
 		ContextWarnRatio:       contextWarnRatio,
 	})
 
+	runCtx := tools.WithRuntimeContext(ctx, tools.RuntimeContext{
+		SessionKey: t.sessionKey,
+	})
 	runner := NewRunner(prov, runtimeTools)
-	response, err := runner.RunWithMessages(ctx, messages)
+	response, err := runner.RunWithMessages(runCtx, messages)
 	if err != nil {
 		return "", err
 	}
