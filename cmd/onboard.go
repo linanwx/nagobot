@@ -116,6 +116,7 @@ func createBootstrapFiles(workspace string) error {
 		{"GENERAL.md", filepath.Join("agents", "GENERAL.md")},
 		{"EXPLAIN_RUNTIME.md", filepath.Join(runtimecfg.WorkspaceSkillsDirName, "EXPLAIN_RUNTIME.md")},
 		{"COMPRESS_CONTEXT.md", filepath.Join(runtimecfg.WorkspaceSkillsDirName, "COMPRESS_CONTEXT.md")},
+		{"MANAGE_CRON.md", filepath.Join(runtimecfg.WorkspaceSkillsDirName, "MANAGE_CRON.md")},
 	}
 	for _, t := range templates {
 		if err := writeTemplate(workspace, t.src, t.dst); err != nil {

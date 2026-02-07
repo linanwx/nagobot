@@ -10,11 +10,10 @@ import (
 	cronpkg "github.com/linanwx/nagobot/cron"
 	"github.com/linanwx/nagobot/logger"
 	"github.com/linanwx/nagobot/thread"
-	"github.com/linanwx/nagobot/tools"
 )
 
 func startCronRuntime(ctx context.Context, rt *threadRuntime, threadMgr *thread.Manager) (*cronpkg.Scheduler, error) {
-	cronStorePath := filepath.Join(rt.workspace, "cron.json")
+	cronStorePath := filepath.Join(rt.workspace, "cron.yaml")
 	scheduler := cronpkg.NewScheduler(cronStorePath, func(job *cronpkg.Job) (string, error) {
 		ag := rt.soulAgent
 		if job != nil && rt.threadConfig != nil && rt.threadConfig.Agents != nil {
@@ -63,7 +62,6 @@ func startCronRuntime(ctx context.Context, rt *threadRuntime, threadMgr *thread.
 		}
 	}()
 
-	rt.toolRegistry.Register(tools.NewManageCronTool(scheduler))
 	return scheduler, nil
 }
 

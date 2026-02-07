@@ -14,16 +14,16 @@ const (
 )
 
 type Job struct {
-	ID                string    `json:"id"`
-	Kind              string    `json:"kind,omitempty"`
-	Expr              string    `json:"expr,omitempty"`
-	AtTime            time.Time `json:"at_time,omitempty"`
-	Task              string    `json:"task"`
-	Agent             string    `json:"agent,omitempty"`
-	CreatorSessionKey string    `json:"creator_session_key,omitempty"`
-	Silent            bool      `json:"silent,omitempty"`
-	Enabled           bool      `json:"enabled"`
-	CreatedAt         time.Time `json:"created_at"`
+	ID                string    `json:"id" yaml:"id"`
+	Kind              string    `json:"kind,omitempty" yaml:"kind,omitempty"`
+	Expr              string    `json:"expr,omitempty" yaml:"expr,omitempty"`
+	AtTime            time.Time `json:"at_time,omitempty" yaml:"at_time,omitempty"`
+	Task              string    `json:"task" yaml:"task"`
+	Agent             string    `json:"agent,omitempty" yaml:"agent,omitempty"`
+	CreatorSessionKey string    `json:"creator_session_key,omitempty" yaml:"creator_session_key,omitempty"`
+	Silent            bool      `json:"silent,omitempty" yaml:"silent,omitempty"`
+	Enabled           bool      `json:"enabled" yaml:"enabled"`
+	CreatedAt         time.Time `json:"created_at" yaml:"created_at"`
 }
 
 type ThreadFactory func(job *Job) (string, error)

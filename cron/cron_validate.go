@@ -1,39 +1,9 @@
 package cron
 
 import (
-	"fmt"
 	"strings"
 	"time"
 )
-
-func validateNew(job Job, existing map[string]Job, now time.Time) error {
-	if job.ID == "" {
-		return fmt.Errorf("id is required")
-	}
-	if job.Task == "" {
-		return fmt.Errorf("task is required")
-	}
-	if _, ok := existing[job.ID]; ok {
-		return fmt.Errorf("job already exists: %s", job.ID)
-	}
-
-	switch job.Kind {
-	case JobKindCron:
-		if job.Expr == "" {
-			return fmt.Errorf("expr is required")
-		}
-	case JobKindAt:
-		if job.AtTime.IsZero() {
-			return fmt.Errorf("at_time is required")
-		}
-		if !job.AtTime.After(now) {
-			return fmt.Errorf("at_time must be in the future")
-		}
-	default:
-		return fmt.Errorf("unsupported job kind: %s", job.Kind)
-	}
-	return nil
-}
 
 func validateStored(job Job, now time.Time) (ok bool, expiredAt bool) {
 	if job.ID == "" || job.Task == "" {

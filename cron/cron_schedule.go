@@ -56,13 +56,6 @@ func (s *Scheduler) scheduleLocked(job Job) (func(), error) {
 	return nil, fmt.Errorf("unsupported job kind: %s", job.Kind)
 }
 
-func (s *Scheduler) unscheduleLocked(id string) {
-	if cancel, ok := s.cancels[id]; ok {
-		cancel()
-		delete(s.cancels, id)
-	}
-}
-
 func (s *Scheduler) resetLocked() {
 	for _, cancel := range s.cancels {
 		cancel()

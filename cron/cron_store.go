@@ -1,11 +1,12 @@
 package cron
 
 import (
-	"encoding/json"
 	"errors"
 	"os"
 	"path/filepath"
 	"sort"
+
+	"gopkg.in/yaml.v3"
 )
 
 func (s *Scheduler) readStore() ([]Job, error) {
@@ -20,7 +21,7 @@ func (s *Scheduler) readStore() ([]Job, error) {
 		return nil, err
 	}
 	var list []Job
-	if err := json.Unmarshal(data, &list); err != nil {
+	if err := yaml.Unmarshal(data, &list); err != nil {
 		return nil, err
 	}
 	return list, nil
@@ -37,7 +38,7 @@ func (s *Scheduler) saveLocked() error {
 	}
 	sort.Slice(list, func(i, j int) bool { return list[i].ID < list[j].ID })
 
-	data, err := json.MarshalIndent(list, "", "  ")
+	data, err := yaml.Marshal(list)
 	if err != nil {
 		return err
 	}
