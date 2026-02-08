@@ -11,6 +11,7 @@ import (
 	"github.com/linanwx/nagobot/internal/runtimecfg"
 	"github.com/linanwx/nagobot/logger"
 	"github.com/linanwx/nagobot/provider"
+	"github.com/linanwx/nagobot/session"
 	"github.com/linanwx/nagobot/tools"
 )
 
@@ -216,20 +217,20 @@ func (t *Thread) runtimeTools() *tools.Registry {
 	return runtimeTools
 }
 
-func (t *Thread) loadSession() *Session {
+func (t *Thread) loadSession() *session.Session {
 	if t.cfg == nil || strings.TrimSpace(t.sessionKey) == "" || t.cfg.Sessions == nil {
 		return nil
 	}
 
-	session, err := t.cfg.Sessions.Reload(t.sessionKey)
+	loadedSession, err := t.cfg.Sessions.Reload(t.sessionKey)
 	if err != nil {
 		logger.Warn("failed to load session", "key", t.sessionKey, "err", err)
 		return nil
 	}
-	return session
+	return loadedSession
 }
 
-func (t *Thread) reloadSessionForSave() (*Session, error) {
+func (t *Thread) reloadSessionForSave() (*session.Session, error) {
 	if t.cfg == nil || strings.TrimSpace(t.sessionKey) == "" || t.cfg.Sessions == nil {
 		return nil, fmt.Errorf("session manager unavailable")
 	}

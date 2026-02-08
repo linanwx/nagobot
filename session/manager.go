@@ -1,4 +1,4 @@
-package thread
+package session
 
 import (
 	"encoding/json"
@@ -21,27 +21,27 @@ type Session struct {
 	UpdatedAt time.Time          `json:"updated_at"`
 }
 
-// SessionManager manages conversation sessions.
-type SessionManager struct {
+// Manager manages conversation sessions.
+type Manager struct {
 	sessionsDir string
 	cache       map[string]*Session
 	mu          sync.RWMutex
 }
 
-// NewSessionManager creates a new session manager rooted at workspace/sessions.
-func NewSessionManager(workspace string) (*SessionManager, error) {
+// NewManager creates a new session manager rooted at workspace/sessions.
+func NewManager(workspace string) (*Manager, error) {
 	sessionsDir := filepath.Join(workspace, runtimecfg.WorkspaceSessionsDirName)
 	if err := os.MkdirAll(sessionsDir, 0755); err != nil {
 		return nil, err
 	}
-	return &SessionManager{
+	return &Manager{
 		sessionsDir: sessionsDir,
 		cache:       make(map[string]*Session),
 	}, nil
 }
 
 // Get returns a session by key, creating one if it doesn't exist.
-func (m *SessionManager) Get(key string) (*Session, error) {
+func (m *Manager) Get(key string) (*Session, error) {
 	key = normalizeSessionKey(key)
 
 	m.mu.RLock()
@@ -66,7 +66,7 @@ func (m *SessionManager) Get(key string) (*Session, error) {
 }
 
 // Reload forces loading session state from disk and refreshes cache.
-func (m *SessionManager) Reload(key string) (*Session, error) {
+func (m *Manager) Reload(key string) (*Session, error) {
 	key = normalizeSessionKey(key)
 
 	s, err := m.loadFromDisk(key)
@@ -80,7 +80,7 @@ func (m *SessionManager) Reload(key string) (*Session, error) {
 }
 
 // Save saves a session to disk.
-func (m *SessionManager) Save(s *Session) error {
+func (m *Manager) Save(s *Session) error {
 	s.Key = normalizeSessionKey(s.Key)
 	s.UpdatedAt = time.Now()
 	data, err := json.MarshalIndent(s, "", "  ")
@@ -94,7 +94,7 @@ func (m *SessionManager) Save(s *Session) error {
 	return os.WriteFile(path, data, 0644)
 }
 
-func (m *SessionManager) sessionPath(key string) string {
+func (m *Manager) sessionPath(key string) string {
 	key = normalizeSessionKey(key)
 	parts := strings.Split(key, ":")
 	cleanParts := make([]string, 0, len(parts)+1)
@@ -113,11 +113,11 @@ func (m *SessionManager) sessionPath(key string) string {
 }
 
 // PathForKey returns the on-disk session file path for a session key.
-func (m *SessionManager) PathForKey(key string) string {
+func (m *Manager) PathForKey(key string) string {
 	return m.sessionPath(key)
 }
 
-func (m *SessionManager) loadFromDisk(key string) (*Session, error) {
+func (m *Manager) loadFromDisk(key string) (*Session, error) {
 	key = normalizeSessionKey(key)
 
 	path := m.sessionPath(key)

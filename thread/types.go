@@ -9,6 +9,7 @@ import (
 
 	"github.com/linanwx/nagobot/agent"
 	"github.com/linanwx/nagobot/provider"
+	"github.com/linanwx/nagobot/session"
 	"github.com/linanwx/nagobot/skills"
 	"github.com/linanwx/nagobot/tools"
 )
@@ -38,7 +39,7 @@ type Config struct {
 	Workspace           string
 	ContextWindowTokens int
 	ContextWarnRatio    float64
-	Sessions            *SessionManager
+	Sessions            *session.Manager
 }
 
 // Manager keeps long-lived threads (typically keyed by session key).

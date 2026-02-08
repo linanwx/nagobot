@@ -9,6 +9,7 @@ import (
 	"github.com/linanwx/nagobot/internal/runtimecfg"
 	"github.com/linanwx/nagobot/logger"
 	"github.com/linanwx/nagobot/provider"
+	"github.com/linanwx/nagobot/session"
 	"github.com/linanwx/nagobot/skills"
 	"github.com/linanwx/nagobot/thread"
 	"github.com/linanwx/nagobot/tools"
@@ -58,9 +59,9 @@ func buildThreadRuntime(cfg *config.Config, enableSessions bool) (*threadRuntime
 
 	agentRegistry := agent.NewRegistry(workspace)
 
-	var sessions *thread.SessionManager
+	var sessions *session.Manager
 	if enableSessions {
-		sessions, err = thread.NewSessionManager(workspace)
+		sessions, err = session.NewManager(workspace)
 		if err != nil {
 			logger.Warn("session manager unavailable", "err", err)
 		}
