@@ -140,7 +140,7 @@ func (t *Thread) Wake(ctx context.Context, source, message string) (string, erro
 
 	now := time.Now()
 	wakeHeader := fmt.Sprintf(
-		"[Wake: %s | %s (%s, %s, UTC%s)]",
+		"[Wake reason: %s | %s (%s, %s, UTC%s)]",
 		source,
 		now.Format(time.RFC3339),
 		now.Weekday().String(),
