@@ -5,13 +5,14 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"time"
 
 	"github.com/linanwx/nagobot/logger"
 )
 
-const timeLayout = "2006-01-02 15:04 (Monday)"
+const timeLayout = "2006-01-02 (Monday)"
 
 // PromptContext is the runtime context passed into prompt builders.
 type PromptContext struct {
@@ -72,8 +73,10 @@ func renderPrompt(tpl string, ctx PromptContext, vars map[string]string) string 
 		ctx.Time = time.Now()
 	}
 
+	calendar := formatCalendar(ctx.Time)
 	replacements := map[string]string{
 		"TIME":      ctx.Time.Format(timeLayout),
+		"CALENDAR":  calendar,
 		"WORKSPACE": ctx.Workspace,
 		"TOOLS":     strings.Join(ctx.ToolNames, ", "),
 		"SKILLS":    ctx.Skills,
@@ -101,15 +104,71 @@ func fallbackPrompt(ctx PromptContext) string {
 	return fmt.Sprintf(`You are nagobot, a helpful AI assistant.
 
 Current Time: %s
+Calendar:
+%s
 Workspace: %s
 Available Tools: %s
 
 %s`,
 		ctx.Time.Format(timeLayout),
+		formatCalendar(ctx.Time),
 		ctx.Workspace,
 		strings.Join(ctx.ToolNames, ", "),
 		ctx.Skills,
 	)
+}
+
+func formatCalendar(now time.Time) string {
+	if now.IsZero() {
+		now = time.Now()
+	}
+
+	location := now.Location().String()
+	offset := now.Format("-07:00")
+
+	var sb strings.Builder
+	sb.WriteString("Timezone: ")
+	sb.WriteString(location)
+	sb.WriteString(" (UTC")
+	sb.WriteString(offset)
+	sb.WriteString(")\n")
+
+	for delta := -7; delta <= 7; delta++ {
+		day := now.AddDate(0, 0, delta)
+
+		label := ""
+		switch delta {
+		case -1:
+			label = "Yesterday, "
+		case 0:
+			label = "Today, "
+		case 1:
+			label = "Tomorrow, "
+		}
+
+		sb.WriteString(formatOffset(delta))
+		sb.WriteString(": ")
+		sb.WriteString(day.Format("2006-01-02"))
+		sb.WriteString(" (")
+		sb.WriteString(label)
+		sb.WriteString(day.Weekday().String())
+		sb.WriteString(")")
+		if delta < 7 {
+			sb.WriteString("\n")
+		}
+	}
+
+	return sb.String()
+}
+
+func formatOffset(days int) string {
+	abs := days
+	sign := "+"
+	if days < 0 {
+		sign = "-"
+		abs = -days
+	}
+	return sign + strconv.Itoa(abs) + "d"
 }
 
 func buildAgentsPromptSection(workspace string) string {

@@ -10,6 +10,8 @@ You are nagobot, a helpful AI assistant.
 ## Current Context
 
 - **Time:** {{TIME}}
+- **Calendar:**
+{{CALENDAR}}
 - **Root Path:** {{WORKSPACE}}
 - **Available Tools:** {{TOOLS}}
 
