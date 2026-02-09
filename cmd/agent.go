@@ -64,12 +64,10 @@ func runAgent(cmd *cobra.Command, args []string) error {
 
 	applyAgentOverrides(cfg)
 
-	tcfg, err := buildThreadConfig(cfg, false)
+	mgr, err := buildThreadManager(cfg, false)
 	if err != nil {
 		return err
 	}
-
-	mgr := thread.NewManager(tcfg)
 	t := mgr.NewThread("agent", "")
 
 	// For one-shot agent mode, run synchronously via Enqueue + runOnce.

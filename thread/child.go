@@ -27,7 +27,6 @@ func (t *Thread) SpawnChild(ctx context.Context, agentName string, task string) 
 	child := t.mgr.NewThread(childSessionKey, agentName)
 	child.Set("TASK", task)
 
-	childID := fmt.Sprintf("child-%s", RandomHex(4))
 	parentThread := t
 	child.Enqueue(&WakeMessage{
 		Source:  "child_task",
@@ -35,9 +34,9 @@ func (t *Thread) SpawnChild(ctx context.Context, agentName string, task string) 
 		Sink: func(_ context.Context, response string) error {
 			var message string
 			if strings.TrimSpace(response) != "" {
-				message = fmt.Sprintf("Child %s completed:\n%s", childID, response)
+				message = fmt.Sprintf("Child %s completed:\n%s", child.id, response)
 			} else {
-				message = fmt.Sprintf("Child %s completed (no output)", childID)
+				message = fmt.Sprintf("Child %s completed (no output)", child.id)
 			}
 			parentThread.Enqueue(&WakeMessage{
 				Source:  "child_completed",
@@ -47,9 +46,10 @@ func (t *Thread) SpawnChild(ctx context.Context, agentName string, task string) 
 		},
 	})
 
-	logger.Debug("child thread spawned", "parentID", t.id, "childID", childID)
-	return childID, nil
+	logger.Debug("child thread spawned", "parentID", t.id, "childID", child.id)
+	return child.id, nil
 }
+
 
 func (t *Thread) generateChildSessionKey() string {
 	if t.cfg().Sessions == nil {

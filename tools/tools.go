@@ -42,6 +42,7 @@ type DefaultToolsConfig struct {
 	ExecTimeout         int
 	WebSearchMaxResults int
 	RestrictToWorkspace bool
+	Skills              SkillProvider
 }
 
 // NewRegistry creates a new tool registry.
@@ -128,6 +129,9 @@ func (r *Registry) RegisterDefaultTools(workspace string, cfg DefaultToolsConfig
 	r.Register(NewHealthTool(workspace, nil))
 	r.Register(&WebSearchTool{defaultMaxResults: cfg.WebSearchMaxResults})
 	r.Register(&WebFetchTool{})
+	if cfg.Skills != nil {
+		r.Register(NewUseSkillTool(cfg.Skills))
+	}
 }
 
 // expandPath expands ~ to home directory and resolves the path.

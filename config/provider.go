@@ -65,6 +65,14 @@ func (c *Config) GetContextWarnRatio() float64 {
 	return c.Thread.ContextWarnRatio
 }
 
+// GetAdminUserID returns the cross-channel admin user ID.
+func (c *Config) GetAdminUserID() string {
+	if c == nil || c.Channels == nil {
+		return ""
+	}
+	return c.Channels.AdminUserID
+}
+
 // GetAPIKey returns the API key for the configured provider.
 func (c *Config) GetAPIKey() (string, error) {
 	providerCfg, envKey, _, err := c.providerConfigEnv()

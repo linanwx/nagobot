@@ -6,6 +6,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/linanwx/nagobot/tools"
 )
 
 // Manager keeps long-lived threads and schedules their execution.
@@ -130,4 +132,37 @@ func (m *Manager) NewThread(sessionKey, agentName string) *Thread {
 	t.RegisterHook(t.contextPressureHook())
 	m.threads[sessionKey] = t
 	return t
+}
+
+// RegisterTool adds a tool to the shared tool registry.
+func (m *Manager) RegisterTool(t tools.Tool) {
+	if m.cfg.Tools != nil {
+		m.cfg.Tools.Register(t)
+	}
+}
+
+// ThreadStatus returns the status of a thread by ID.
+func (m *Manager) ThreadStatus(id string) (tools.ThreadInfo, bool) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	for _, t := range m.threads {
+		if t.id == id {
+			info := tools.ThreadInfo{ID: t.id}
+			switch t.state {
+			case ThreadRunning:
+				info.State = "running"
+				info.Pending = len(t.inbox)
+			default:
+				if t.hasMessages() {
+					info.State = "pending"
+					info.Pending = len(t.inbox)
+				} else {
+					info.State = "completed"
+				}
+			}
+			return info, true
+		}
+	}
+	return tools.ThreadInfo{}, false
 }

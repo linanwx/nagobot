@@ -15,7 +15,7 @@ import (
 	"github.com/linanwx/nagobot/tools"
 )
 
-func buildThreadConfig(cfg *config.Config, enableSessions bool) (*thread.ThreadConfig, error) {
+func buildThreadManager(cfg *config.Config, enableSessions bool) (*thread.Manager, error) {
 	if cfg == nil {
 		return nil, fmt.Errorf("config is nil")
 	}
@@ -34,19 +34,19 @@ func buildThreadConfig(cfg *config.Config, enableSessions bool) (*thread.ThreadC
 		return nil, fmt.Errorf("failed to create default provider: %w", err)
 	}
 
-	toolRegistry := tools.NewRegistry()
-	toolRegistry.RegisterDefaultTools(workspace, tools.DefaultToolsConfig{
-		ExecTimeout:         cfg.Tools.Exec.Timeout,
-		WebSearchMaxResults: cfg.Tools.Web.Search.MaxResults,
-		RestrictToWorkspace: cfg.Tools.Exec.RestrictToWorkspace,
-	})
-
 	skillRegistry := skills.NewRegistry()
 	skillsDir := filepath.Join(workspace, runtimecfg.WorkspaceSkillsDirName)
 	if err := skillRegistry.LoadFromDirectory(skillsDir); err != nil {
 		logger.Warn("failed to load skills", "dir", skillsDir, "err", err)
 	}
-	toolRegistry.Register(tools.NewUseSkillTool(skillRegistry))
+
+	toolRegistry := tools.NewRegistry()
+	toolRegistry.RegisterDefaultTools(workspace, tools.DefaultToolsConfig{
+		ExecTimeout:         cfg.Tools.Exec.Timeout,
+		WebSearchMaxResults: cfg.Tools.Web.Search.MaxResults,
+		RestrictToWorkspace: cfg.Tools.Exec.RestrictToWorkspace,
+		Skills:              skillRegistry,
+	})
 
 	agentRegistry := agent.NewRegistry(workspace)
 
@@ -58,7 +58,7 @@ func buildThreadConfig(cfg *config.Config, enableSessions bool) (*thread.ThreadC
 		}
 	}
 
-	return &thread.ThreadConfig{
+	return thread.NewManager(&thread.ThreadConfig{
 		DefaultProvider:     defaultProvider,
 		Tools:               toolRegistry,
 		Skills:              skillRegistry,
@@ -67,5 +67,5 @@ func buildThreadConfig(cfg *config.Config, enableSessions bool) (*thread.ThreadC
 		ContextWindowTokens: cfg.GetContextWindowTokens(),
 		ContextWarnRatio:    cfg.GetContextWarnRatio(),
 		Sessions:            sessions,
-	}, nil
+	}), nil
 }

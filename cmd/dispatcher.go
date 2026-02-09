@@ -91,10 +91,7 @@ func (d *Dispatcher) route(msg *channel.Message) string {
 
 	if strings.HasPrefix(msg.ChannelID, "telegram:") {
 		userID := strings.TrimSpace(msg.UserID)
-		adminID := ""
-		if d.cfg != nil && d.cfg.Channels != nil {
-			adminID = strings.TrimSpace(d.cfg.Channels.AdminUserID)
-		}
+		adminID := strings.TrimSpace(d.cfg.GetAdminUserID())
 		if userID != "" && adminID != "" && userID == adminID {
 			return "main"
 		}

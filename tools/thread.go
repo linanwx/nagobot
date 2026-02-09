@@ -14,6 +14,18 @@ type ThreadSpawner interface {
 	SpawnChild(ctx context.Context, agentName string, task string) (string, error)
 }
 
+// ThreadInfo holds the status of a thread.
+type ThreadInfo struct {
+	ID      string `json:"id"`
+	State   string `json:"state"`   // "running", "pending", "completed"
+	Pending int    `json:"pending"` // number of queued messages
+}
+
+// ThreadChecker checks the status of a thread by ID.
+type ThreadChecker interface {
+	ThreadStatus(id string) (ThreadInfo, bool)
+}
+
 // SpawnThreadTool delegates a task to a child thread.
 type SpawnThreadTool struct {
 	spawner ThreadSpawner
@@ -71,4 +83,64 @@ func (t *SpawnThreadTool) Run(ctx context.Context, args json.RawMessage) string 
 	}
 
 	return fmt.Sprintf("Thread spawned with ID: %s\nThe child will wake this thread with a 'child_completed' message when done.", childID)
+}
+
+// CheckThreadTool checks the status of a spawned thread.
+type CheckThreadTool struct {
+	checker ThreadChecker
+}
+
+// NewCheckThreadTool creates a new check_thread tool.
+func NewCheckThreadTool(checker ThreadChecker) *CheckThreadTool {
+	return &CheckThreadTool{checker: checker}
+}
+
+// Def returns the tool definition.
+func (t *CheckThreadTool) Def() provider.ToolDef {
+	return provider.ToolDef{
+		Type: "function",
+		Function: provider.FunctionDef{
+			Name:        "check_thread",
+			Description: "Check the status of a spawned child thread by its ID.",
+			Parameters: map[string]any{
+				"type": "object",
+				"properties": map[string]any{
+					"thread_id": map[string]any{
+						"type":        "string",
+						"description": "The thread ID returned by spawn_thread.",
+					},
+				},
+				"required": []string{"thread_id"},
+			},
+		},
+	}
+}
+
+type checkThreadArgs struct {
+	ThreadID string `json:"thread_id"`
+}
+
+// Run executes the tool.
+func (t *CheckThreadTool) Run(_ context.Context, args json.RawMessage) string {
+	var a checkThreadArgs
+	if errMsg := parseArgs(args, &a); errMsg != "" {
+		return errMsg
+	}
+
+	if t.checker == nil {
+		return "Error: thread checker not configured"
+	}
+
+	id := strings.TrimSpace(a.ThreadID)
+	if id == "" {
+		return "Error: thread_id is required"
+	}
+
+	info, found := t.checker.ThreadStatus(id)
+	if !found {
+		return fmt.Sprintf("Error: thread %q not found", id)
+	}
+
+	result, _ := json.Marshal(info)
+	return string(result)
 }

@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"os"
 	"os/signal"
-	"path/filepath"
 	"strings"
 	"syscall"
 
@@ -13,7 +12,6 @@ import (
 	"github.com/linanwx/nagobot/config"
 	"github.com/linanwx/nagobot/internal/runtimecfg"
 	"github.com/linanwx/nagobot/logger"
-	"github.com/linanwx/nagobot/thread"
 	"github.com/linanwx/nagobot/tools"
 	"github.com/spf13/cobra"
 )
@@ -57,12 +55,16 @@ func runServe(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("failed to load config: %w", err)
 	}
 
-	tcfg, err := buildThreadConfig(cfg, true)
+	workspace, err := cfg.WorkspacePath()
+	if err != nil {
+		return fmt.Errorf("failed to get workspace: %w", err)
+	}
+
+	threadMgr, err := buildThreadManager(cfg, true)
 	if err != nil {
 		return err
 	}
-	threadMgr := thread.NewManager(tcfg)
-	manager := channel.NewManager()
+	chManager := channel.NewManager()
 
 	finalServeCLI, finalServeTelegram, finalServeWeb, err := resolveServeTargets(cmd)
 	if err != nil {
@@ -76,15 +78,15 @@ func runServe(cmd *cobra.Command, args []string) error {
 				addr = configuredAddr
 			}
 		}
-		manager.Register(channel.NewWebChannel(channel.WebConfig{
+		chManager.Register(channel.NewWebChannel(channel.WebConfig{
 			Addr:      addr,
-			Workspace: tcfg.Workspace,
+			Workspace: workspace,
 		}))
 		logger.Info("Web channel enabled", "addr", addr)
 	}
 
 	if finalServeCLI {
-		manager.Register(channel.NewCLIChannel(channel.CLIConfig{Prompt: "nagobot> "}))
+		chManager.Register(channel.NewCLIChannel(channel.CLIConfig{Prompt: "nagobot> "}))
 		logger.Info("CLI channel enabled")
 	}
 
@@ -104,7 +106,7 @@ func runServe(cmd *cobra.Command, args []string) error {
 				allowedIDs = cfg.Channels.Telegram.AllowedIDs
 			}
 
-			manager.Register(channel.NewTelegramChannel(channel.TelegramConfig{
+			chManager.Register(channel.NewTelegramChannel(channel.TelegramConfig{
 				Token:      token,
 				AllowedIDs: allowedIDs,
 			}))
@@ -113,19 +115,15 @@ func runServe(cmd *cobra.Command, args []string) error {
 	}
 
 	// Register cron channel.
-	cronStorePath := filepath.Join(tcfg.Workspace, "cron.yaml")
-	manager.Register(channel.NewCronChannel(cronStorePath))
+	chManager.Register(channel.NewCronChannel(workspace))
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
 	// Register shared tools.
-	tcfg.Tools.Register(tools.NewWakeThreadTool(threadMgr))
-	adminUserID := ""
-	if cfg.Channels != nil {
-		adminUserID = cfg.Channels.AdminUserID
-	}
-	tcfg.Tools.Register(tools.NewSendMessageTool(manager, adminUserID))
+	threadMgr.RegisterTool(tools.NewWakeThreadTool(threadMgr))
+	threadMgr.RegisterTool(tools.NewCheckThreadTool(threadMgr))
+	threadMgr.RegisterTool(tools.NewSendMessageTool(chManager, cfg.GetAdminUserID()))
 
 	sigChan := make(chan os.Signal, 1)
 	signal.Notify(sigChan, syscall.SIGINT, syscall.SIGTERM)
@@ -135,7 +133,7 @@ func runServe(cmd *cobra.Command, args []string) error {
 		cancel()
 	}()
 
-	if err := manager.StartAll(ctx); err != nil {
+	if err := chManager.StartAll(ctx); err != nil {
 		return fmt.Errorf("failed to start channels: %w", err)
 	}
 
@@ -146,10 +144,10 @@ func runServe(cmd *cobra.Command, args []string) error {
 	fmt.Println("nagobot is running. Press Ctrl+C to stop.")
 
 	// Dispatcher reads from channels and dispatches to threads. Blocks until ctx done.
-	dispatcher := NewDispatcher(manager, threadMgr, cfg)
+	dispatcher := NewDispatcher(chManager, threadMgr, cfg)
 	dispatcher.Run(ctx)
 
-	if err := manager.StopAll(); err != nil {
+	if err := chManager.StopAll(); err != nil {
 		logger.Error("error stopping channels", "err", err)
 	}
 

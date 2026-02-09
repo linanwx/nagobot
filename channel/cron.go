@@ -3,6 +3,7 @@ package channel
 import (
 	"context"
 	"fmt"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"time"
@@ -22,10 +23,10 @@ type CronChannel struct {
 	done      chan struct{}
 }
 
-// NewCronChannel creates a CronChannel backed by the given cron store path.
-func NewCronChannel(storePath string) *CronChannel {
+// NewCronChannel creates a CronChannel backed by a cron.yaml in the workspace.
+func NewCronChannel(workspace string) *CronChannel {
 	ch := &CronChannel{
-		storePath: storePath,
+		storePath: filepath.Join(workspace, "cron.yaml"),
 		messages:  make(chan *Message, 64),
 		done:      make(chan struct{}),
 	}
