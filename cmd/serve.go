@@ -5,12 +5,10 @@ import (
 	"fmt"
 	"os"
 	"os/signal"
-	"strings"
 	"syscall"
 
 	"github.com/linanwx/nagobot/channel"
 	"github.com/linanwx/nagobot/config"
-	"github.com/linanwx/nagobot/internal/runtimecfg"
 	"github.com/linanwx/nagobot/logger"
 	"github.com/linanwx/nagobot/tools"
 	"github.com/spf13/cobra"
@@ -55,11 +53,6 @@ func runServe(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("failed to load config: %w", err)
 	}
 
-	workspace, err := cfg.WorkspacePath()
-	if err != nil {
-		return fmt.Errorf("failed to get workspace: %w", err)
-	}
-
 	threadMgr, err := buildThreadManager(cfg, true)
 	if err != nil {
 		return err
@@ -72,50 +65,15 @@ func runServe(cmd *cobra.Command, args []string) error {
 	}
 
 	if finalServeWeb {
-		addr := runtimecfg.WebChannelDefaultAddr
-		if cfg.Channels != nil && cfg.Channels.Web != nil {
-			if configuredAddr := strings.TrimSpace(cfg.Channels.Web.Addr); configuredAddr != "" {
-				addr = configuredAddr
-			}
-		}
-		chManager.Register(channel.NewWebChannel(channel.WebConfig{
-			Addr:      addr,
-			Workspace: workspace,
-		}))
-		logger.Info("Web channel enabled", "addr", addr)
+		chManager.Register(channel.NewWebChannel(cfg))
 	}
-
 	if finalServeCLI {
-		chManager.Register(channel.NewCLIChannel(channel.CLIConfig{Prompt: "nagobot> "}))
-		logger.Info("CLI channel enabled")
+		chManager.Register(channel.NewCLIChannel())
 	}
-
 	if finalServeTelegram {
-		token := os.Getenv("TELEGRAM_BOT_TOKEN")
-		if token == "" {
-			if cfg.Channels != nil && cfg.Channels.Telegram != nil {
-				token = cfg.Channels.Telegram.Token
-			}
-		}
-
-		if token == "" {
-			logger.Warn("Telegram token not configured, skipping Telegram channel")
-		} else {
-			var allowedIDs []int64
-			if cfg.Channels != nil && cfg.Channels.Telegram != nil {
-				allowedIDs = cfg.Channels.Telegram.AllowedIDs
-			}
-
-			chManager.Register(channel.NewTelegramChannel(channel.TelegramConfig{
-				Token:      token,
-				AllowedIDs: allowedIDs,
-			}))
-			logger.Info("Telegram channel enabled")
-		}
+		chManager.Register(channel.NewTelegramChannel(cfg))
 	}
-
-	// Register cron channel.
-	chManager.Register(channel.NewCronChannel(workspace))
+	chManager.Register(channel.NewCronChannel(cfg))
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()

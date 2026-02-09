@@ -92,70 +92,15 @@ func runAgent(cmd *cobra.Command, args []string) error {
 // applyAgentOverrides applies CLI flag overrides to config.
 func applyAgentOverrides(cfg *config.Config) {
 	if providerFlag != "" {
-		cfg.Thread.Provider = providerFlag
+		cfg.SetProvider(providerFlag)
 	}
 	if modelFlag != "" {
-		cfg.Thread.ModelType = modelFlag
-		cfg.Thread.ModelName = "" // reset so modelType takes effect
+		cfg.SetModelType(modelFlag)
 	}
-
-	provider := cfg.GetProvider()
 	if apiKeyFlag != "" {
-		switch provider {
-		case "openrouter":
-			if cfg.Providers.OpenRouter == nil {
-				cfg.Providers.OpenRouter = &config.ProviderConfig{}
-			}
-			cfg.Providers.OpenRouter.APIKey = apiKeyFlag
-		case "anthropic":
-			if cfg.Providers.Anthropic == nil {
-				cfg.Providers.Anthropic = &config.ProviderConfig{}
-			}
-			cfg.Providers.Anthropic.APIKey = apiKeyFlag
-		case "deepseek":
-			if cfg.Providers.DeepSeek == nil {
-				cfg.Providers.DeepSeek = &config.ProviderConfig{}
-			}
-			cfg.Providers.DeepSeek.APIKey = apiKeyFlag
-		case "moonshot-cn":
-			if cfg.Providers.MoonshotCN == nil {
-				cfg.Providers.MoonshotCN = &config.ProviderConfig{}
-			}
-			cfg.Providers.MoonshotCN.APIKey = apiKeyFlag
-		case "moonshot-global":
-			if cfg.Providers.MoonshotGlobal == nil {
-				cfg.Providers.MoonshotGlobal = &config.ProviderConfig{}
-			}
-			cfg.Providers.MoonshotGlobal.APIKey = apiKeyFlag
-		}
+		cfg.SetProviderAPIKey(apiKeyFlag)
 	}
 	if apiBaseFlag != "" {
-		switch provider {
-		case "openrouter":
-			if cfg.Providers.OpenRouter == nil {
-				cfg.Providers.OpenRouter = &config.ProviderConfig{}
-			}
-			cfg.Providers.OpenRouter.APIBase = apiBaseFlag
-		case "anthropic":
-			if cfg.Providers.Anthropic == nil {
-				cfg.Providers.Anthropic = &config.ProviderConfig{}
-			}
-			cfg.Providers.Anthropic.APIBase = apiBaseFlag
-		case "deepseek":
-			if cfg.Providers.DeepSeek == nil {
-				cfg.Providers.DeepSeek = &config.ProviderConfig{}
-			}
-			cfg.Providers.DeepSeek.APIBase = apiBaseFlag
-		case "moonshot-cn":
-			if cfg.Providers.MoonshotCN == nil {
-				cfg.Providers.MoonshotCN = &config.ProviderConfig{}
-			}
-			cfg.Providers.MoonshotCN.APIBase = apiBaseFlag
-		case "moonshot-global":
-			if cfg.Providers.MoonshotGlobal == nil {
-				cfg.Providers.MoonshotGlobal = &config.ProviderConfig{}
-			}
-			cfg.Providers.MoonshotGlobal.APIBase = apiBaseFlag
-		}
+		cfg.SetProviderAPIBase(apiBaseFlag)
 	}
 }

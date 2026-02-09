@@ -9,9 +9,18 @@ import (
 	"net/url"
 	"strings"
 
+	"time"
+
 	"github.com/PuerkitoBio/goquery"
-	"github.com/linanwx/nagobot/internal/runtimecfg"
 	"github.com/linanwx/nagobot/provider"
+)
+
+const (
+	webSearchDefaultMaxResults = 5
+	webSearchHTTPTimeout       = 15 * time.Second
+	webFetchHTTPTimeout        = 30 * time.Second
+	webFetchMaxReadBytes       = 500000
+	webFetchMaxContentChars    = 100000
 )
 
 // WebSearchTool searches the web using DuckDuckGo.
@@ -61,13 +70,13 @@ func (t *WebSearchTool) Run(ctx context.Context, args json.RawMessage) string {
 		if t.defaultMaxResults > 0 {
 			a.MaxResults = t.defaultMaxResults
 		} else {
-			a.MaxResults = runtimecfg.ToolWebSearchDefaultMaxResults
+			a.MaxResults = webSearchDefaultMaxResults
 		}
 	}
 
 	searchURL := fmt.Sprintf("https://html.duckduckgo.com/html/?q=%s", url.QueryEscape(a.Query))
 
-	client := &http.Client{Timeout: runtimecfg.ToolWebSearchHTTPTimeout}
+	client := &http.Client{Timeout: webSearchHTTPTimeout}
 	req, err := http.NewRequestWithContext(ctx, "GET", searchURL, nil)
 	if err != nil {
 		return fmt.Sprintf("Error: failed to create request: %v", err)
@@ -219,7 +228,7 @@ func (t *WebFetchTool) Run(ctx context.Context, args json.RawMessage) string {
 		return "Error: only http and https URLs are supported"
 	}
 
-	client := &http.Client{Timeout: runtimecfg.ToolWebFetchHTTPTimeout}
+	client := &http.Client{Timeout: webFetchHTTPTimeout}
 	req, err := http.NewRequestWithContext(ctx, "GET", a.URL, nil)
 	if err != nil {
 		return fmt.Sprintf("Error: failed to create request: %v", err)
@@ -238,7 +247,7 @@ func (t *WebFetchTool) Run(ctx context.Context, args json.RawMessage) string {
 		return fmt.Sprintf("Error: HTTP %d %s", resp.StatusCode, resp.Status)
 	}
 
-	body, err := io.ReadAll(io.LimitReader(resp.Body, runtimecfg.ToolWebFetchMaxReadBytes))
+	body, err := io.ReadAll(io.LimitReader(resp.Body, webFetchMaxReadBytes))
 	if err != nil {
 		return fmt.Sprintf("Error: failed to read response: %v", err)
 	}
@@ -248,8 +257,8 @@ func (t *WebFetchTool) Run(ctx context.Context, args json.RawMessage) string {
 		content = extractTextContent(content)
 	}
 
-	if len(content) > runtimecfg.ToolWebFetchMaxContentChars {
-		content, _ = truncateWithNotice(content, runtimecfg.ToolWebFetchMaxContentChars)
+	if len(content) > webFetchMaxContentChars {
+		content, _ = truncateWithNotice(content, webFetchMaxContentChars)
 	}
 
 	return content

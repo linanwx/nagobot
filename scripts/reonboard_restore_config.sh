@@ -76,12 +76,12 @@ if ! command -v trash >/dev/null 2>&1; then
 fi
 
 WORKSPACE_PATH="$(resolve_workspace_path)"
-CRON_PATH="$WORKSPACE_PATH/cron.yaml"
+CRON_PATH="$WORKSPACE_PATH/cron.jsonl"
 SESSIONS_PATH="$WORKSPACE_PATH/sessions"
 
 BACKUP_DIR="$(mktemp -d "${TMPDIR:-/tmp}/nagobot-reonboard-backup-XXXXXX")"
 BACKUP_CONFIG_PATH="$BACKUP_DIR/config.yaml"
-BACKUP_CRON_PATH="$BACKUP_DIR/cron.yaml"
+BACKUP_CRON_PATH="$BACKUP_DIR/cron.jsonl"
 BACKUP_SESSIONS_PATH="$BACKUP_DIR/sessions"
 
 cp "$CONFIG_PATH" "$BACKUP_CONFIG_PATH"

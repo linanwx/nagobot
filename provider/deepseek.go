@@ -7,7 +7,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/linanwx/nagobot/internal/runtimecfg"
 	"github.com/linanwx/nagobot/logger"
 	openai "github.com/openai/openai-go/v3"
 	oaioption "github.com/openai/openai-go/v3/option"
@@ -50,7 +49,7 @@ func NewDeepSeekProvider(apiKey, apiBase, modelType, modelName string, maxTokens
 	client := openai.NewClient(
 		oaioption.WithAPIKey(apiKey),
 		oaioption.WithBaseURL(baseURL),
-		oaioption.WithMaxRetries(runtimecfg.ProviderSDKMaxRetries),
+		oaioption.WithMaxRetries(sdkMaxRetries),
 	)
 
 	return &DeepSeekProvider{

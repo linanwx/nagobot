@@ -5,6 +5,8 @@ import (
 	"context"
 	"fmt"
 	"time"
+
+	"github.com/linanwx/nagobot/logger"
 )
 
 // Message represents an incoming message from a channel.
@@ -55,9 +57,13 @@ func NewManager() *Manager {
 	}
 }
 
-// Register adds a channel to the manager.
+// Register adds a channel to the manager and logs it. Nil is silently ignored.
 func (m *Manager) Register(ch Channel) {
+	if ch == nil {
+		return
+	}
 	m.channels[ch.Name()] = ch
+	logger.Info("channel registered", "channel", ch.Name())
 }
 
 // Get returns a channel by name.

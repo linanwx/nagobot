@@ -7,9 +7,15 @@ import (
 	"sync"
 
 	tgbotapi "github.com/go-telegram-bot-api/telegram-bot-api/v5"
-	"github.com/linanwx/nagobot/internal/runtimecfg"
+	"github.com/linanwx/nagobot/config"
 	"github.com/linanwx/nagobot/logger"
 	"github.com/linanwx/nagobot/tgmd"
+)
+
+const (
+	telegramMessageBufferSize    = 100
+	telegramUpdateTimeoutSeconds = 30
+	telegramMaxMessageLength     = 4096
 )
 
 // TelegramChannel implements the Channel interface for Telegram.
@@ -24,23 +30,24 @@ type TelegramChannel struct {
 	offset int
 }
 
-// TelegramConfig holds Telegram channel configuration.
-type TelegramConfig struct {
-	Token      string  // Bot token from BotFather
-	AllowedIDs []int64 // Allowed user/chat IDs (empty = allow all)
-}
+// NewTelegramChannel creates a new Telegram channel from config.
+// Returns nil if no token is configured.
+func NewTelegramChannel(cfg *config.Config) Channel {
+	token := cfg.GetTelegramToken()
+	if token == "" {
+		logger.Warn("Telegram token not configured, skipping Telegram channel")
+		return nil
+	}
 
-// NewTelegramChannel creates a new Telegram channel.
-func NewTelegramChannel(cfg TelegramConfig) *TelegramChannel {
 	allowedIDs := make(map[int64]bool)
-	for _, id := range cfg.AllowedIDs {
+	for _, id := range cfg.GetTelegramAllowedIDs() {
 		allowedIDs[id] = true
 	}
 
 	return &TelegramChannel{
-		token:      cfg.Token,
+		token:      token,
 		allowedIDs: allowedIDs,
-		messages:   make(chan *Message, runtimecfg.TelegramChannelMessageBufferSize),
+		messages:   make(chan *Message, telegramMessageBufferSize),
 		done:       make(chan struct{}),
 	}
 }
@@ -67,7 +74,7 @@ func (t *TelegramChannel) Start(ctx context.Context) error {
 	logger.Info("telegram channel started")
 
 	u := tgbotapi.NewUpdate(t.offset)
-	u.Timeout = runtimecfg.TelegramUpdateTimeoutSeconds
+	u.Timeout = telegramUpdateTimeoutSeconds
 	updates := bot.GetUpdatesChan(u)
 
 	t.wg.Add(1)
@@ -100,7 +107,7 @@ func (t *TelegramChannel) Send(ctx context.Context, resp *Response) error {
 	}
 
 	// Split long messages
-	messages := splitMessage(resp.Text, runtimecfg.TelegramMaxMessageLength)
+	messages := splitMessage(resp.Text, telegramMaxMessageLength)
 
 	for _, chunk := range messages {
 		htmlChunk := tgmd.Convert(chunk)

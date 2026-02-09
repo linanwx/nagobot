@@ -4,21 +4,14 @@ description: Use this skill when you need to inspect, read, create, update, or d
 ---
 # Manage Cron via File Editing
 
-Use this skill to manage scheduled jobs by editing `{{WORKSPACE}}/cron.yaml`.
+Use this skill to manage scheduled jobs by editing `{{WORKSPACE}}/cron.jsonl`.
 
 ## File Schema
 
-`cron.yaml` is a YAML array of jobs:
+`cron.jsonl` is a JSONL file (one JSON object per line):
 
-```yaml
-- id: daily-summary
-  kind: cron
-  expr: "0 9 * * *"
-  task: "Prepare a daily operational summary from recent session activity. Include completed items, unresolved blockers, risk signals, and top priorities for the next cycle. Keep it concise, actionable, and reference key files or commands when relevant."
-  agent: GENERAL
-  creator_session_key: main
-  silent: false
-  created_at: 2026-02-07T09:00:00Z
+```jsonl
+{"id":"daily-summary","kind":"cron","expr":"0 9 * * *","task":"Prepare a daily operational summary from recent session activity. Include completed items, unresolved blockers, risk signals, and top priorities for the next cycle. Keep it concise, actionable, and reference key files or commands when relevant.","agent":"GENERAL","creator_session_key":"main","created_at":"2026-02-07T09:00:00Z"}
 ```
 
 Fields:
@@ -40,30 +33,21 @@ For `kind=cron`, use standard 5-field cron:
 
 ## Operating Procedure
 
-1. Check whether `{{WORKSPACE}}/cron.yaml` exists, and create it if it does not.
-2. Edit cron jobs with any suitable tools; `creator_session_key` can be obtained from `health`. Using the `append_file` tool can quickly append new entries. If you're unsure whether the file ends with a newline, it's safe to add a leading newline before the text you append.
-3. Call `health` to confirm the cron job appears in runtime status; if it does not, investigate and fix it.
+1. Check whether `{{WORKSPACE}}/cron.jsonl` exists, and create it if it does not.
+2. To add a job, use `append_file` to append a single JSON line. Each line must be a complete JSON object ending with a newline.
+3. To remove or update a job, use `read_file` to find the line, then `edit_file` to replace or delete it.
+4. Call `health` to confirm the cron job appears in runtime status; if it does not, investigate and fix it.
 
 ## Examples
 
-Add one recurring and one one-time job:
+Add one recurring job (append a single line):
 
-```yaml
-- id: daily-summary
-  kind: cron
-  expr: "0 9 * * *"
-  task: "Review recent execution logs and session updates, then produce a daily summary with three sections: (1) completed work, (2) pending actions, and (3) immediate next steps. Highlight blockers, owner assumptions, and any commands or files that require follow-up."
-  agent: GENERAL
-  creator_session_key: main
-  silent: false
-  created_at: 2026-02-07T09:00:00Z
+```
+{"id":"daily-summary","kind":"cron","expr":"0 9 * * *","task":"Review recent execution logs and session updates, then produce a daily summary with three sections: (1) completed work, (2) pending actions, and (3) immediate next steps. Highlight blockers, owner assumptions, and any commands or files that require follow-up.","agent":"GENERAL","creator_session_key":"main","created_at":"2026-02-07T09:00:00Z"}
+```
 
-- id: one-shot-cleanup
-  kind: at
-  at_time: 2026-02-07T18:30:00+08:00
-  task: "Run a one-time cleanup for stale temporary artifacts under the project root path. Remove only known temp outputs and cache leftovers, keep source files untouched, and finish with a short report that lists what was deleted and what was skipped."
-  agent: GENERAL
-  creator_session_key: main
-  silent: true
-  created_at: 2026-02-07T10:00:00Z
+Add one one-time job (append a single line):
+
+```
+{"id":"one-shot-cleanup","kind":"at","at_time":"2026-02-07T18:30:00+08:00","task":"Run a one-time cleanup for stale temporary artifacts under the project root path. Remove only known temp outputs and cache leftovers, keep source files untouched, and finish with a short report that lists what was deleted and what was skipped.","agent":"GENERAL","creator_session_key":"main","silent":true,"created_at":"2026-02-07T10:00:00Z"}
 ```

@@ -6,7 +6,11 @@ import (
 	"strings"
 
 	"github.com/linanwx/nagobot/config"
-	"github.com/linanwx/nagobot/internal/runtimecfg"
+)
+
+const (
+	sdkMaxRetries              = 2
+	anthropicFallbackMaxTokens = 1024
 )
 
 // FactoryConfig stores provider-level credentials and endpoint settings.
@@ -46,14 +50,7 @@ func NewFactory(cfg *config.Config) (*Factory, error) {
 	}
 
 	maxTokens := cfg.GetMaxTokens()
-	if maxTokens == 0 {
-		maxTokens = runtimecfg.ThreadDefaultMaxTokens
-	}
-
 	temperature := cfg.GetTemperature()
-	if temperature == 0 {
-		temperature = runtimecfg.ThreadDefaultTemperature
-	}
 
 	f := &Factory{
 		configs:          make(map[string]FactoryConfig),

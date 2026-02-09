@@ -14,14 +14,21 @@ import (
 	"strings"
 	"sync"
 	"sync/atomic"
+	"time"
 
 	"github.com/coder/websocket"
 	"github.com/coder/websocket/wsjson"
-	"github.com/linanwx/nagobot/internal/runtimecfg"
+	"github.com/linanwx/nagobot/config"
 	"github.com/linanwx/nagobot/logger"
 )
 
-const webMainSessionID = "main"
+const (
+	webMainSessionID     = "main"
+	webMessageBufferSize = 100
+	webDefaultAddr       = "127.0.0.1:8080"
+	webShutdownTimeout   = 5 * time.Second
+	sessionsDirName      = "sessions"
+)
 
 //go:embed web/dist/*
 var rawFrontendFS embed.FS
@@ -59,23 +66,18 @@ type webOutboundMessage struct {
 	Error string `json:"error,omitempty"`
 }
 
-// WebConfig holds Web channel configuration.
-type WebConfig struct {
-	Addr      string
-	Workspace string
-}
-
-// NewWebChannel creates a new web channel.
-func NewWebChannel(cfg WebConfig) *WebChannel {
-	addr := strings.TrimSpace(cfg.Addr)
+// NewWebChannel creates a new web channel from config.
+func NewWebChannel(cfg *config.Config) Channel {
+	addr := cfg.GetWebAddr()
 	if addr == "" {
-		addr = runtimecfg.WebChannelDefaultAddr
+		addr = webDefaultAddr
 	}
+	workspace, _ := cfg.WorkspacePath()
 
 	return &WebChannel{
 		addr:      addr,
-		workspace: strings.TrimSpace(cfg.Workspace),
-		messages:  make(chan *Message, runtimecfg.WebChannelMessageBufferSize),
+		workspace: workspace,
+		messages:  make(chan *Message, webMessageBufferSize),
 		done:      make(chan struct{}),
 		clients:   make(map[string]*wsClient),
 		peers:     make(map[*wsClient]struct{}),
@@ -143,7 +145,7 @@ func (w *WebChannel) Stop() error {
 	}
 
 	if w.server != nil {
-		shutdownCtx, cancel := context.WithTimeout(context.Background(), runtimecfg.WebChannelShutdownTimeout)
+		shutdownCtx, cancel := context.WithTimeout(context.Background(), webShutdownTimeout)
 		defer cancel()
 		if err := w.server.Shutdown(shutdownCtx); err != nil && !errors.Is(err, http.ErrServerClosed) {
 			logger.Warn("web channel shutdown error", "err", err)
@@ -357,7 +359,7 @@ func (w *WebChannel) loadHistory() ([]webHistoryMessage, error) {
 		return nil, fmt.Errorf("workspace is not configured")
 	}
 
-	path := filepath.Join(w.workspace, runtimecfg.WorkspaceSessionsDirName, "main", "session.json")
+	path := filepath.Join(w.workspace, sessionsDirName, "main", "session.json")
 	data, err := os.ReadFile(path)
 	if err != nil {
 		if errors.Is(err, os.ErrNotExist) {

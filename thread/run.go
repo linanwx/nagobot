@@ -3,11 +3,9 @@ package thread
 import (
 	"context"
 	"fmt"
-	"path/filepath"
 	"strings"
 	"time"
 
-	"github.com/linanwx/nagobot/internal/runtimecfg"
 	"github.com/linanwx/nagobot/logger"
 	"github.com/linanwx/nagobot/provider"
 	"github.com/linanwx/nagobot/session"
@@ -129,7 +127,7 @@ func (t *Thread) buildTools() *tools.Registry {
 		reg = cfg.Tools.Clone()
 	}
 
-	reg.Register(tools.NewHealthTool(cfg.Workspace, func() tools.HealthRuntimeContext {
+	reg.Register(tools.NewHealthTool(cfg.Workspace, cfg.SessionsDir, cfg.SkillsDir, func() tools.HealthRuntimeContext {
 		sessionPath, _ := t.sessionFilePath()
 		return tools.HealthRuntimeContext{
 			ThreadID:    t.id,
@@ -167,13 +165,12 @@ func (t *Thread) reloadSessionForSave() (*session.Session, error) {
 
 func (t *Thread) buildSkillsSection() string {
 	cfg := t.cfg()
-	if cfg.Skills == nil || strings.TrimSpace(cfg.Workspace) == "" {
+	if cfg.Skills == nil || strings.TrimSpace(cfg.SkillsDir) == "" {
 		return ""
 	}
 
-	skillsDir := filepath.Join(cfg.Workspace, runtimecfg.WorkspaceSkillsDirName)
-	if err := cfg.Skills.ReloadFromDirectory(skillsDir); err != nil {
-		logger.Warn("failed to reload skills", "dir", skillsDir, "err", err)
+	if err := cfg.Skills.ReloadFromDirectory(cfg.SkillsDir); err != nil {
+		logger.Warn("failed to reload skills", "dir", cfg.SkillsDir, "err", err)
 	}
 	return cfg.Skills.BuildPromptSection()
 }

@@ -7,7 +7,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/linanwx/nagobot/internal/runtimecfg"
 	"github.com/linanwx/nagobot/logger"
 	openai "github.com/openai/openai-go/v3"
 	oaioption "github.com/openai/openai-go/v3/option"
@@ -68,7 +67,7 @@ func NewMoonshotProvider(providerName, apiKey, apiBase, defaultBase, modelType, 
 	client := openai.NewClient(
 		oaioption.WithAPIKey(apiKey),
 		oaioption.WithBaseURL(baseURL),
-		oaioption.WithMaxRetries(runtimecfg.ProviderSDKMaxRetries),
+		oaioption.WithMaxRetries(sdkMaxRetries),
 	)
 
 	return &MoonshotProvider{

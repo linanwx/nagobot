@@ -10,7 +10,6 @@ import (
 
 	anthropic "github.com/anthropics/anthropic-sdk-go"
 	aoption "github.com/anthropics/anthropic-sdk-go/option"
-	"github.com/linanwx/nagobot/internal/runtimecfg"
 	"github.com/linanwx/nagobot/logger"
 )
 
@@ -86,7 +85,7 @@ func NewAnthropicProvider(apiKey, apiBase, modelType, modelName string, maxToken
 	client := anthropic.NewClient(
 		aoption.WithAPIKey(apiKey),
 		aoption.WithBaseURL(baseURL),
-		aoption.WithMaxRetries(runtimecfg.ProviderSDKMaxRetries),
+		aoption.WithMaxRetries(sdkMaxRetries),
 	)
 
 	return &AnthropicProvider{
@@ -254,7 +253,7 @@ func (p *AnthropicProvider) Chat(ctx context.Context, req *Request) (*Response, 
 
 	maxTokens := p.maxTokens
 	if maxTokens <= 0 {
-		maxTokens = runtimecfg.AnthropicFallbackMaxTokens
+		maxTokens = anthropicFallbackMaxTokens
 	}
 	if thinkingEnabled && maxTokens <= anthropicThinkingMinBudget {
 		logger.Warn(

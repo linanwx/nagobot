@@ -9,7 +9,6 @@ import (
 	"sync"
 	"time"
 
-	"github.com/linanwx/nagobot/internal/runtimecfg"
 	"github.com/linanwx/nagobot/provider"
 )
 
@@ -28,9 +27,8 @@ type Manager struct {
 	mu          sync.RWMutex
 }
 
-// NewManager creates a new session manager rooted at workspace/sessions.
-func NewManager(workspace string) (*Manager, error) {
-	sessionsDir := filepath.Join(workspace, runtimecfg.WorkspaceSessionsDirName)
+// NewManager creates a new session manager rooted at the given sessions directory.
+func NewManager(sessionsDir string) (*Manager, error) {
 	if err := os.MkdirAll(sessionsDir, 0755); err != nil {
 		return nil, err
 	}

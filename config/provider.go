@@ -3,8 +3,34 @@ package config
 import (
 	"errors"
 	"os"
+	"path/filepath"
 	"strings"
+
+	"github.com/linanwx/nagobot/logger"
 )
+
+const (
+	sessionsDirName = "sessions"
+	skillsDirName   = "skills"
+)
+
+// SessionsDir returns the full path to the sessions directory.
+func (c *Config) SessionsDir() (string, error) {
+	ws, err := c.WorkspacePath()
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(ws, sessionsDirName), nil
+}
+
+// SkillsDir returns the full path to the skills directory.
+func (c *Config) SkillsDir() (string, error) {
+	ws, err := c.WorkspacePath()
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(ws, skillsDirName), nil
+}
 
 // GetProvider returns the configured default thread provider.
 func (c *Config) GetProvider() string {
@@ -71,6 +97,131 @@ func (c *Config) GetAdminUserID() string {
 		return ""
 	}
 	return c.Channels.AdminUserID
+}
+
+// GetWebAddr returns the configured web channel listen address.
+func (c *Config) GetWebAddr() string {
+	if c == nil || c.Channels == nil || c.Channels.Web == nil {
+		return ""
+	}
+	return strings.TrimSpace(c.Channels.Web.Addr)
+}
+
+// GetTelegramToken returns the Telegram bot token (env overrides config).
+func (c *Config) GetTelegramToken() string {
+	if v := strings.TrimSpace(os.Getenv("TELEGRAM_BOT_TOKEN")); v != "" {
+		return v
+	}
+	if c == nil || c.Channels == nil || c.Channels.Telegram == nil {
+		return ""
+	}
+	return c.Channels.Telegram.Token
+}
+
+// GetTelegramAllowedIDs returns the Telegram allowed user/chat IDs.
+func (c *Config) GetTelegramAllowedIDs() []int64 {
+	if c == nil || c.Channels == nil || c.Channels.Telegram == nil {
+		return nil
+	}
+	return c.Channels.Telegram.AllowedIDs
+}
+
+// ensureProviderConfig returns a mutable *ProviderConfig for the current
+// provider, creating it if nil.
+func (c *Config) ensureProviderConfig() *ProviderConfig {
+	switch c.GetProvider() {
+	case "openrouter":
+		if c.Providers.OpenRouter == nil {
+			c.Providers.OpenRouter = &ProviderConfig{}
+		}
+		return c.Providers.OpenRouter
+	case "anthropic":
+		if c.Providers.Anthropic == nil {
+			c.Providers.Anthropic = &ProviderConfig{}
+		}
+		return c.Providers.Anthropic
+	case "deepseek":
+		if c.Providers.DeepSeek == nil {
+			c.Providers.DeepSeek = &ProviderConfig{}
+		}
+		return c.Providers.DeepSeek
+	case "moonshot-cn":
+		if c.Providers.MoonshotCN == nil {
+			c.Providers.MoonshotCN = &ProviderConfig{}
+		}
+		return c.Providers.MoonshotCN
+	case "moonshot-global":
+		if c.Providers.MoonshotGlobal == nil {
+			c.Providers.MoonshotGlobal = &ProviderConfig{}
+		}
+		return c.Providers.MoonshotGlobal
+	default:
+		return &ProviderConfig{}
+	}
+}
+
+// SetProviderAPIKey sets the API key on the current provider config.
+func (c *Config) SetProviderAPIKey(key string) {
+	c.ensureProviderConfig().APIKey = key
+}
+
+// SetProviderAPIBase sets the API base URL on the current provider config.
+func (c *Config) SetProviderAPIBase(base string) {
+	c.ensureProviderConfig().APIBase = base
+}
+
+// GetExecTimeout returns the exec tool timeout in seconds.
+func (c *Config) GetExecTimeout() int {
+	if c == nil {
+		return 0
+	}
+	return c.Tools.Exec.Timeout
+}
+
+// GetExecRestrictToWorkspace returns whether exec is restricted to workspace.
+func (c *Config) GetExecRestrictToWorkspace() bool {
+	if c == nil {
+		return false
+	}
+	return c.Tools.Exec.RestrictToWorkspace
+}
+
+// GetWebSearchMaxResults returns the web search max results.
+func (c *Config) GetWebSearchMaxResults() int {
+	if c == nil {
+		return 0
+	}
+	return c.Tools.Web.Search.MaxResults
+}
+
+// BuildLoggerConfig returns a logger.Config ready for logger.Init().
+func (c *Config) BuildLoggerConfig() logger.Config {
+	enabled := true
+	if c != nil && c.Logging.Enabled != nil {
+		enabled = *c.Logging.Enabled
+	}
+	return logger.Config{
+		Enabled: enabled,
+		Level:   c.Logging.Level,
+		Stdout:  c.Logging.Stdout,
+		File:    c.Logging.File,
+	}
+}
+
+// SetLoggingLevel sets the logging level.
+func (c *Config) SetLoggingLevel(level string) {
+	c.Logging.Level = level
+}
+
+// SetProvider overrides the provider name.
+func (c *Config) SetProvider(name string) {
+	c.Thread.Provider = name
+}
+
+// SetModelType overrides the model type and clears the model name.
+func (c *Config) SetModelType(modelType string) {
+	c.Thread.ModelType = modelType
+	c.Thread.ModelName = ""
 }
 
 // GetAPIKey returns the API key for the configured provider.

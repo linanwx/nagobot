@@ -24,7 +24,9 @@ func formatResolvedPath(input, resolved string) string {
 	return fmt.Sprintf("%s (resolved: %s)", input, resolved)
 }
 
-// ReadFileTool reads the contents of a file.
+const readFileDefaultLimit = 100
+
+// ReadFileTool reads the contents of a file with line-based pagination.
 type ReadFileTool struct {
 	workspace string
 }
@@ -34,14 +36,24 @@ func (t *ReadFileTool) Def() provider.ToolDef {
 	return provider.ToolDef{
 		Type: "function",
 		Function: provider.FunctionDef{
-			Name:        "read_file",
-			Description: "Read the contents of a file at the given path. Relative paths are resolved from workspace root.",
+			Name: "read_file",
+			Description: "Read lines from a file. Returns up to 100 lines starting from offset (default 1). " +
+				"If the file has more lines than the limit, a notice is appended showing total line count " +
+				"so you can make follow-up calls with offset to read the rest.",
 			Parameters: map[string]any{
 				"type": "object",
 				"properties": map[string]any{
 					"path": map[string]any{
 						"type":        "string",
 						"description": "The path to the file to read.",
+					},
+					"offset": map[string]any{
+						"type":        "integer",
+						"description": "Starting line number (1-based). Defaults to 1.",
+					},
+					"limit": map[string]any{
+						"type":        "integer",
+						"description": "Maximum number of lines to return. Defaults to 100.",
 					},
 				},
 				"required": []string{"path"},
@@ -52,7 +64,9 @@ func (t *ReadFileTool) Def() provider.ToolDef {
 
 // readFileArgs are the arguments for read_file.
 type readFileArgs struct {
-	Path string `json:"path"`
+	Path   string `json:"path"`
+	Offset int    `json:"offset,omitempty"`
+	Limit  int    `json:"limit,omitempty"`
 }
 
 // Run executes the tool.
@@ -86,7 +100,38 @@ func (t *ReadFileTool) Run(ctx context.Context, args json.RawMessage) string {
 		return fmt.Sprintf("Error: file exists but is empty: %s", resolvedPath)
 	}
 
-	return string(content)
+	allLines := strings.Split(string(content), "\n")
+	totalLines := len(allLines)
+
+	offset := a.Offset
+	if offset <= 0 {
+		offset = 1
+	}
+	limit := a.Limit
+	if limit <= 0 {
+		limit = readFileDefaultLimit
+	}
+
+	startIdx := offset - 1
+	if startIdx >= totalLines {
+		return fmt.Sprintf("[File has %d lines. Offset %d is beyond end of file.]", totalLines, offset)
+	}
+	endIdx := startIdx + limit
+	if endIdx > totalLines {
+		endIdx = totalLines
+	}
+
+	var sb strings.Builder
+	for i := startIdx; i < endIdx; i++ {
+		fmt.Fprintf(&sb, "%d\t%s\n", i+1, allLines[i])
+	}
+
+	if endIdx < totalLines {
+		fmt.Fprintf(&sb, "\n[File too large: showing lines %d-%d of %d total. Use offset=%d to read more.]",
+			offset, endIdx, totalLines, endIdx+1)
+	}
+
+	return sb.String()
 }
 
 // WriteFileTool writes content to a file.

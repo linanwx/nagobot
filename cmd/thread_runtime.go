@@ -2,11 +2,9 @@ package cmd
 
 import (
 	"fmt"
-	"path/filepath"
 
 	"github.com/linanwx/nagobot/agent"
 	"github.com/linanwx/nagobot/config"
-	"github.com/linanwx/nagobot/internal/runtimecfg"
 	"github.com/linanwx/nagobot/logger"
 	"github.com/linanwx/nagobot/provider"
 	"github.com/linanwx/nagobot/session"
@@ -34,17 +32,19 @@ func buildThreadManager(cfg *config.Config, enableSessions bool) (*thread.Manage
 		return nil, fmt.Errorf("failed to create default provider: %w", err)
 	}
 
+	skillsDir, _ := cfg.SkillsDir()
+	sessionsDir, _ := cfg.SessionsDir()
+
 	skillRegistry := skills.NewRegistry()
-	skillsDir := filepath.Join(workspace, runtimecfg.WorkspaceSkillsDirName)
 	if err := skillRegistry.LoadFromDirectory(skillsDir); err != nil {
 		logger.Warn("failed to load skills", "dir", skillsDir, "err", err)
 	}
 
 	toolRegistry := tools.NewRegistry()
 	toolRegistry.RegisterDefaultTools(workspace, tools.DefaultToolsConfig{
-		ExecTimeout:         cfg.Tools.Exec.Timeout,
-		WebSearchMaxResults: cfg.Tools.Web.Search.MaxResults,
-		RestrictToWorkspace: cfg.Tools.Exec.RestrictToWorkspace,
+		ExecTimeout:         cfg.GetExecTimeout(),
+		WebSearchMaxResults: cfg.GetWebSearchMaxResults(),
+		RestrictToWorkspace: cfg.GetExecRestrictToWorkspace(),
 		Skills:              skillRegistry,
 	})
 
@@ -52,7 +52,7 @@ func buildThreadManager(cfg *config.Config, enableSessions bool) (*thread.Manage
 
 	var sessions *session.Manager
 	if enableSessions {
-		sessions, err = session.NewManager(workspace)
+		sessions, err = session.NewManager(sessionsDir)
 		if err != nil {
 			logger.Warn("session manager unavailable", "err", err)
 		}
@@ -64,6 +64,8 @@ func buildThreadManager(cfg *config.Config, enableSessions bool) (*thread.Manage
 		Skills:              skillRegistry,
 		Agents:              agentRegistry,
 		Workspace:           workspace,
+		SkillsDir:           skillsDir,
+		SessionsDir:         sessionsDir,
 		ContextWindowTokens: cfg.GetContextWindowTokens(),
 		ContextWarnRatio:    cfg.GetContextWarnRatio(),
 		Sessions:            sessions,

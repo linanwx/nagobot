@@ -9,7 +9,6 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/linanwx/nagobot/config"
-	"github.com/linanwx/nagobot/internal/runtimecfg"
 )
 
 //go:embed templates/*
@@ -102,13 +101,18 @@ func writeTemplate(workspace, templateName, destName string) error {
 }
 
 func createBootstrapFiles(workspace string) error {
+	const (
+		skillsDir   = "skills"
+		sessionsDir = "sessions"
+	)
+
 	// Create default workspace directories first.
 	for _, dir := range []string{
 		"agents",
 		"docs",
-		runtimecfg.WorkspaceSkillsDirName,
-		filepath.Join(runtimecfg.WorkspaceSessionsDirName, "main"),
-		filepath.Join(runtimecfg.WorkspaceSessionsDirName, "cron"),
+		skillsDir,
+		filepath.Join(sessionsDir, "main"),
+		filepath.Join(sessionsDir, "cron"),
 	} {
 		if err := os.MkdirAll(filepath.Join(workspace, dir), 0755); err != nil {
 			return err
@@ -120,9 +124,9 @@ func createBootstrapFiles(workspace string) error {
 		{"SOUL.md", "SOUL.md"},
 		{"USER.md", "USER.md"},
 		{"GENERAL.md", filepath.Join("agents", "GENERAL.md")},
-		{"EXPLAIN_RUNTIME.md", filepath.Join(runtimecfg.WorkspaceSkillsDirName, "EXPLAIN_RUNTIME.md")},
-		{"COMPRESS_CONTEXT.md", filepath.Join(runtimecfg.WorkspaceSkillsDirName, "COMPRESS_CONTEXT.md")},
-		{"MANAGE_CRON.md", filepath.Join(runtimecfg.WorkspaceSkillsDirName, "MANAGE_CRON.md")},
+		{"EXPLAIN_RUNTIME.md", filepath.Join(skillsDir, "EXPLAIN_RUNTIME.md")},
+		{"COMPRESS_CONTEXT.md", filepath.Join(skillsDir, "COMPRESS_CONTEXT.md")},
+		{"MANAGE_CRON.md", filepath.Join(skillsDir, "MANAGE_CRON.md")},
 	}
 	for _, t := range templates {
 		if err := writeTemplate(workspace, t.src, t.dst); err != nil {

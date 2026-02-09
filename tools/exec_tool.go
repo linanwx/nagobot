@@ -10,8 +10,12 @@ import (
 	"strings"
 	"time"
 
-	"github.com/linanwx/nagobot/internal/runtimecfg"
 	"github.com/linanwx/nagobot/provider"
+)
+
+const (
+	execDefaultTimeoutSeconds = 60
+	execOutputMaxChars        = 50000
 )
 
 // ExecTool executes shell commands.
@@ -69,7 +73,7 @@ func (t *ExecTool) Run(ctx context.Context, args json.RawMessage) string {
 		if t.defaultTimeout > 0 {
 			timeout = t.defaultTimeout
 		} else {
-			timeout = runtimecfg.ToolExecDefaultTimeoutSeconds
+			timeout = execDefaultTimeoutSeconds
 		}
 	}
 
@@ -111,7 +115,7 @@ func (t *ExecTool) Run(ctx context.Context, args json.RawMessage) string {
 	if result == "" {
 		return "(no output)"
 	}
-	result, _ = truncateWithNotice(result, runtimecfg.ToolExecOutputMaxChars)
+	result, _ = truncateWithNotice(result, execOutputMaxChars)
 
 	return result
 }

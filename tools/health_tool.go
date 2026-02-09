@@ -4,11 +4,9 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"path/filepath"
 	"strings"
 
 	healthsnap "github.com/linanwx/nagobot/internal/health"
-	"github.com/linanwx/nagobot/internal/runtimecfg"
 	"github.com/linanwx/nagobot/provider"
 )
 
@@ -24,15 +22,19 @@ type HealthContextProvider func() HealthRuntimeContext
 
 // HealthTool reports runtime health info for the current process.
 type HealthTool struct {
-	workspace string
-	ctxFn     HealthContextProvider
+	workspace    string
+	sessionsRoot string
+	skillsRoot   string
+	ctxFn        HealthContextProvider
 }
 
 // NewHealthTool creates a health tool with optional workspace and runtime context provider.
-func NewHealthTool(workspace string, ctxFn HealthContextProvider) *HealthTool {
+func NewHealthTool(workspace, sessionsRoot, skillsRoot string, ctxFn HealthContextProvider) *HealthTool {
 	return &HealthTool{
-		workspace: strings.TrimSpace(workspace),
-		ctxFn:     ctxFn,
+		workspace:    strings.TrimSpace(workspace),
+		sessionsRoot: strings.TrimSpace(sessionsRoot),
+		skillsRoot:   strings.TrimSpace(skillsRoot),
+		ctxFn:        ctxFn,
 	}
 }
 
@@ -80,12 +82,8 @@ func (t *HealthTool) Run(ctx context.Context, args json.RawMessage) string {
 		runtimeCtx = t.ctxFn()
 	}
 
-	sessionsRoot := ""
-	skillsRoot := ""
-	if t.workspace != "" {
-		sessionsRoot = filepath.Join(t.workspace, runtimecfg.WorkspaceSessionsDirName)
-		skillsRoot = filepath.Join(t.workspace, runtimecfg.WorkspaceSkillsDirName)
-	}
+	sessionsRoot := t.sessionsRoot
+	skillsRoot := t.skillsRoot
 
 	snapshot := healthsnap.Collect(healthsnap.Options{
 		Workspace:      t.workspace,

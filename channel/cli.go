@@ -9,8 +9,12 @@ import (
 	"sync"
 	"time"
 
-	"github.com/linanwx/nagobot/internal/runtimecfg"
 	"github.com/linanwx/nagobot/logger"
+)
+
+const (
+	cliMessageBufferSize = 10
+	cliStopWaitTimeout   = 500 * time.Millisecond
 )
 
 // CLIChannel implements the Channel interface for interactive CLI.
@@ -25,21 +29,11 @@ type CLIChannel struct {
 	waitingResp  bool
 }
 
-// CLIConfig holds CLI channel configuration.
-type CLIConfig struct {
-	Prompt string // Input prompt (default: "> ")
-}
-
 // NewCLIChannel creates a new CLI channel.
-func NewCLIChannel(cfg CLIConfig) *CLIChannel {
-	prompt := cfg.Prompt
-	if prompt == "" {
-		prompt = "> "
-	}
-
+func NewCLIChannel() Channel {
 	return &CLIChannel{
-		prompt:       prompt,
-		messages:     make(chan *Message, runtimecfg.CLIChannelMessageBufferSize),
+		prompt:       "nagobot> ",
+		messages:     make(chan *Message, cliMessageBufferSize),
 		done:         make(chan struct{}),
 		responseDone: make(chan struct{}, 1),
 	}
@@ -77,7 +71,7 @@ func (c *CLIChannel) Stop() error {
 	select {
 	case <-waitDone:
 		close(c.messages)
-	case <-time.After(runtimecfg.CLIChannelStopWaitTimeout):
+	case <-time.After(cliStopWaitTimeout):
 		// stdin reads can block indefinitely on some terminals; don't block process shutdown.
 		logger.Warn("cli channel stop timed out waiting for input loop")
 	}

@@ -11,10 +11,11 @@ import (
 	"strings"
 	"time"
 
-	"github.com/linanwx/nagobot/internal/runtimecfg"
 	"github.com/linanwx/nagobot/logger"
 	"github.com/linanwx/nagobot/provider"
 )
+
+const toolResultMaxChars = 100000
 
 // Tool is the interface for agent tools.
 type Tool interface {
@@ -95,7 +96,7 @@ func (r *Registry) Run(ctx context.Context, name string, args json.RawMessage) s
 
 	result := t.Run(ctx, args)
 	originalChars := len(result)
-	result, truncated := truncateWithNotice(result, runtimecfg.ToolResultMaxChars)
+	result, truncated := truncateWithNotice(result, toolResultMaxChars)
 	okResult := !strings.HasPrefix(result, "Error:")
 	logger.Debug(
 		"tool call finished",
@@ -126,7 +127,8 @@ func (r *Registry) RegisterDefaultTools(workspace string, cfg DefaultToolsConfig
 	r.Register(&AppendFileTool{workspace: workspace})
 	r.Register(&EditFileTool{workspace: workspace})
 	r.Register(&ExecTool{workspace: workspace, defaultTimeout: cfg.ExecTimeout, restrictToWorkspace: cfg.RestrictToWorkspace})
-	r.Register(NewHealthTool(workspace, nil))
+	r.Register(NewHealthTool(workspace, "", "", nil))
+	r.Register(&ScriptEvalTool{workspace: workspace})
 	r.Register(&WebSearchTool{defaultMaxResults: cfg.WebSearchMaxResults})
 	r.Register(&WebFetchTool{})
 	if cfg.Skills != nil {

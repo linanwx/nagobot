@@ -1,6 +1,9 @@
 package health
 
 import (
+	"bufio"
+	"bytes"
+	"encoding/json"
 	"errors"
 	"os"
 	"sort"
@@ -8,7 +11,6 @@ import (
 	"time"
 
 	cronpkg "github.com/linanwx/nagobot/cron"
-	"gopkg.in/yaml.v3"
 )
 
 func inspectCronFile(path string) *CronInfo {
@@ -28,14 +30,28 @@ func inspectCronFile(path string) *CronInfo {
 	info.FileSizeBytes = stat.Size()
 	info.UpdatedAt = stat.ModTime().Format(time.RFC3339)
 
-	data, err := os.ReadFile(path)
+	f, err := os.Open(path)
 	if err != nil {
 		info.ParseError = err.Error()
 		return info
 	}
+	defer f.Close()
 
 	var jobs []cronpkg.Job
-	if err := yaml.Unmarshal(data, &jobs); err != nil {
+	scanner := bufio.NewScanner(f)
+	for scanner.Scan() {
+		line := bytes.TrimSpace(scanner.Bytes())
+		if len(line) == 0 {
+			continue
+		}
+		var job cronpkg.Job
+		if err := json.Unmarshal(line, &job); err != nil {
+			info.ParseError = err.Error()
+			return info
+		}
+		jobs = append(jobs, job)
+	}
+	if err := scanner.Err(); err != nil {
 		info.ParseError = err.Error()
 		return info
 	}

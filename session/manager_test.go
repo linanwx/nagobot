@@ -11,8 +11,8 @@ import (
 )
 
 func TestManagerSaveAndReloadRoundTrip(t *testing.T) {
-	workspace := t.TempDir()
-	mgr, err := NewManager(workspace)
+	sessionsDir := filepath.Join(t.TempDir(), "sessions")
+	mgr, err := NewManager(sessionsDir)
 	if err != nil {
 		t.Fatalf("NewManager() error = %v", err)
 	}
@@ -48,8 +48,8 @@ func TestManagerSaveAndReloadRoundTrip(t *testing.T) {
 }
 
 func TestManagerPathForKeySanitizesAndDefaults(t *testing.T) {
-	workspace := t.TempDir()
-	mgr, err := NewManager(workspace)
+	sessionsDir := filepath.Join(t.TempDir(), "sessions")
+	mgr, err := NewManager(sessionsDir)
 	if err != nil {
 		t.Fatalf("NewManager() error = %v", err)
 	}
@@ -69,8 +69,8 @@ func TestManagerPathForKeySanitizesAndDefaults(t *testing.T) {
 }
 
 func TestManagerGetUsesCache(t *testing.T) {
-	workspace := t.TempDir()
-	mgr, err := NewManager(workspace)
+	sessionsDir := filepath.Join(t.TempDir(), "sessions")
+	mgr, err := NewManager(sessionsDir)
 	if err != nil {
 		t.Fatalf("NewManager() error = %v", err)
 	}

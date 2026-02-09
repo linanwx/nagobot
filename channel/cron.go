@@ -8,6 +8,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/linanwx/nagobot/config"
 	cronpkg "github.com/linanwx/nagobot/cron"
 	"github.com/linanwx/nagobot/logger"
 	"github.com/linanwx/nagobot/thread"
@@ -23,10 +24,11 @@ type CronChannel struct {
 	done      chan struct{}
 }
 
-// NewCronChannel creates a CronChannel backed by a cron.yaml in the workspace.
-func NewCronChannel(workspace string) *CronChannel {
+// NewCronChannel creates a CronChannel from config.
+func NewCronChannel(cfg *config.Config) Channel {
+	workspace, _ := cfg.WorkspacePath()
 	ch := &CronChannel{
-		storePath: filepath.Join(workspace, "cron.yaml"),
+		storePath: filepath.Join(workspace, "cron.jsonl"),
 		messages:  make(chan *Message, 64),
 		done:      make(chan struct{}),
 	}

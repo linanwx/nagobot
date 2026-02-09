@@ -5,7 +5,6 @@ import (
 	"strings"
 	"unicode/utf8"
 
-	"github.com/linanwx/nagobot/internal/runtimecfg"
 	"github.com/linanwx/nagobot/logger"
 	"github.com/linanwx/nagobot/provider"
 )
@@ -24,16 +23,7 @@ func (t *Thread) sessionFilePath() (string, bool) {
 
 func (t *Thread) contextBudget() (tokens int, warnRatio float64) {
 	cfg := t.cfg()
-	tokens = runtimecfg.ThreadDefaultContextWindowTokens
-	warnRatio = runtimecfg.ThreadDefaultContextWarnRatio
-
-	if cfg.ContextWindowTokens > 0 {
-		tokens = cfg.ContextWindowTokens
-	}
-	if cfg.ContextWarnRatio > 0 && cfg.ContextWarnRatio < 1 {
-		warnRatio = cfg.ContextWarnRatio
-	}
-	return tokens, warnRatio
+	return cfg.ContextWindowTokens, cfg.ContextWarnRatio
 }
 
 func (t *Thread) buildCompressionNotice(requestTokens, contextWindowTokens int, usageRatio float64, sessionPath string) string {

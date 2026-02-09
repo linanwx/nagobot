@@ -86,22 +86,10 @@ func applyRuntimeLogOverrides(cmd *cobra.Command, args []string) error {
 	if err != nil {
 		cfg = config.DefaultConfig()
 	}
-	cfg.Logging.Level = level
+	cfg.SetLoggingLevel(level)
 
 	configDir, _ := config.ConfigDir()
-	logEnabled := true
-	if cfg.Logging.Enabled != nil {
-		logEnabled = *cfg.Logging.Enabled
-	}
-
-	logCfg := logger.Config{
-		Enabled: logEnabled,
-		Level:   cfg.Logging.Level,
-		Stdout:  cfg.Logging.Stdout,
-		File:    cfg.Logging.File,
-	}
-
-	if err := logger.Init(logCfg, configDir); err != nil {
+	if err := logger.Init(cfg.BuildLoggerConfig(), configDir); err != nil {
 		return fmt.Errorf("logger init error: %w", err)
 	}
 	return nil

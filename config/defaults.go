@@ -1,9 +1,15 @@
 package config
 
-import (
-	"path/filepath"
+import "path/filepath"
 
-	"github.com/linanwx/nagobot/internal/runtimecfg"
+const (
+	defaultProvider            = "deepseek"
+	defaultModelType           = "deepseek-reasoner"
+	defaultMaxTokens           = 8192
+	defaultTemperature         = 0.95
+	defaultContextWindowTokens = 128000
+	defaultContextWarnRatio    = 0.8
+	defaultWebAddr             = "127.0.0.1:8080"
 )
 
 // DefaultConfig returns a config with sensible defaults.
@@ -11,12 +17,12 @@ func DefaultConfig() *Config {
 	logDefaults := defaultLoggingConfig()
 	return &Config{
 		Thread: ThreadConfig{
-			Provider:            runtimecfg.ThreadDefaultProvider,
-			ModelType:           runtimecfg.ThreadDefaultModelType,
-			MaxTokens:           runtimecfg.ThreadDefaultMaxTokens,
-			Temperature:         runtimecfg.ThreadDefaultTemperature,
-			ContextWindowTokens: runtimecfg.ThreadDefaultContextWindowTokens,
-			ContextWarnRatio:    runtimecfg.ThreadDefaultContextWarnRatio,
+			Provider:            defaultProvider,
+			ModelType:           defaultModelType,
+			MaxTokens:           defaultMaxTokens,
+			Temperature:         defaultTemperature,
+			ContextWindowTokens: defaultContextWindowTokens,
+			ContextWarnRatio:    defaultContextWarnRatio,
 		},
 		Providers: ProvidersConfig{
 			DeepSeek: &ProviderConfig{
@@ -30,7 +36,7 @@ func DefaultConfig() *Config {
 				AllowedIDs: []int64{},
 			},
 			Web: &WebChannelConfig{
-				Addr: runtimecfg.WebChannelDefaultAddr,
+				Addr: defaultWebAddr,
 			},
 		},
 		Logging: logDefaults,
@@ -54,22 +60,22 @@ func defaultLoggingConfig() LoggingConfig {
 
 func (c *Config) applyDefaults() {
 	if c.Thread.Provider == "" {
-		c.Thread.Provider = runtimecfg.ThreadDefaultProvider
+		c.Thread.Provider = defaultProvider
 	}
 	if c.Thread.ModelType == "" {
-		c.Thread.ModelType = runtimecfg.ThreadDefaultModelType
+		c.Thread.ModelType = defaultModelType
 	}
 	if c.Thread.MaxTokens <= 0 {
-		c.Thread.MaxTokens = runtimecfg.ThreadDefaultMaxTokens
+		c.Thread.MaxTokens = defaultMaxTokens
 	}
 	if c.Thread.Temperature == 0 {
-		c.Thread.Temperature = runtimecfg.ThreadDefaultTemperature
+		c.Thread.Temperature = defaultTemperature
 	}
 	if c.Thread.ContextWindowTokens <= 0 {
-		c.Thread.ContextWindowTokens = runtimecfg.ThreadDefaultContextWindowTokens
+		c.Thread.ContextWindowTokens = defaultContextWindowTokens
 	}
 	if c.Thread.ContextWarnRatio <= 0 || c.Thread.ContextWarnRatio >= 1 {
-		c.Thread.ContextWarnRatio = runtimecfg.ThreadDefaultContextWarnRatio
+		c.Thread.ContextWarnRatio = defaultContextWarnRatio
 	}
 
 	if c.Channels == nil {
@@ -87,7 +93,7 @@ func (c *Config) applyDefaults() {
 		c.Channels.Web = &WebChannelConfig{}
 	}
 	if c.Channels.Web.Addr == "" {
-		c.Channels.Web.Addr = runtimecfg.WebChannelDefaultAddr
+		c.Channels.Web.Addr = defaultWebAddr
 	}
 
 	def := defaultLoggingConfig()
