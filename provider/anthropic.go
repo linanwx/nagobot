@@ -241,7 +241,7 @@ func (p *AnthropicProvider) Chat(ctx context.Context, req *Request) (*Response, 
 	tools := toAnthropicTools(req.Tools)
 	thinkingEnabled := anthropicThinkingEnabled(p.modelType)
 
-	logger.Debug(
+	logger.Info(
 		"anthropic request",
 		"provider", "anthropic",
 		"modelType", p.modelType,
@@ -336,7 +336,7 @@ func (p *AnthropicProvider) Chat(ctx context.Context, req *Request) (*Response, 
 
 	content := strings.Join(textParts, "\n")
 	reasoningContent := strings.Join(reasoningParts, "\n")
-	logger.Debug(
+	logger.Info(
 		"anthropic response",
 		"provider", "anthropic",
 		"modelType", p.modelType,

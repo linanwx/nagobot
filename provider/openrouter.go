@@ -213,7 +213,7 @@ func (p *OpenRouterProvider) Chat(ctx context.Context, req *Request) (*Response,
 	}
 
 	thinkingEnabled := IsKimiModel(p.modelType)
-	logger.Debug(
+	logger.Info(
 		"openrouter request",
 		"provider", "openrouter",
 		"modelType", p.modelType,
@@ -263,7 +263,7 @@ func (p *OpenRouterProvider) Chat(ctx context.Context, req *Request) (*Response,
 		finalContent = reasoningText
 	}
 
-	logger.Debug(
+	logger.Info(
 		"openrouter response",
 		"provider", "openrouter",
 		"modelType", p.modelType,

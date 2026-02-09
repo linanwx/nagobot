@@ -74,7 +74,7 @@ func (p *DeepSeekProvider) Chat(ctx context.Context, req *Request) (*Response, e
 	}
 
 	thinkingEnabled := strings.TrimSpace(p.modelType) == "deepseek-reasoner"
-	logger.Debug(
+	logger.Info(
 		"deepseek request",
 		"provider", "deepseek",
 		"modelType", p.modelType,
@@ -125,7 +125,7 @@ func (p *DeepSeekProvider) Chat(ctx context.Context, req *Request) (*Response, e
 		finalContent = reasoningText
 	}
 
-	logger.Debug(
+	logger.Info(
 		"deepseek response",
 		"provider", "deepseek",
 		"modelType", p.modelType,

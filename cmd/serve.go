@@ -91,15 +91,14 @@ func runServe(cmd *cobra.Command, args []string) error {
 		cancel()
 	}()
 
+	logger.Info("nagobot is running. Press Ctrl+C to stop.")
+
 	if err := chManager.StartAll(ctx); err != nil {
 		return fmt.Errorf("failed to start channels: %w", err)
 	}
 
 	// Start thread manager run loop in background.
 	go threadMgr.Run(ctx)
-
-	logger.Info("nagobot service started")
-	fmt.Println("nagobot is running. Press Ctrl+C to stop.")
 
 	// Dispatcher reads from channels and dispatches to threads. Blocks until ctx done.
 	dispatcher := NewDispatcher(chManager, threadMgr, cfg)

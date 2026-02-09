@@ -92,7 +92,7 @@ func (p *MoonshotProvider) Chat(ctx context.Context, req *Request) (*Response, e
 		return nil, fmt.Errorf("failed to convert messages: %w", err)
 	}
 
-	logger.Debug(
+	logger.Info(
 		"moonshot request",
 		"provider", p.providerName,
 		"modelType", p.modelType,
@@ -146,7 +146,7 @@ func (p *MoonshotProvider) Chat(ctx context.Context, req *Request) (*Response, e
 		finalContent = reasoningText
 	}
 
-	logger.Debug(
+	logger.Info(
 		"moonshot response",
 		"provider", p.providerName,
 		"modelType", p.modelType,
