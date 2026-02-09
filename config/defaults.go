@@ -1,7 +1,5 @@
 package config
 
-import "path/filepath"
-
 const (
 	defaultProvider            = "deepseek"
 	defaultModelType           = "deepseek-reasoner"
@@ -44,17 +42,12 @@ func DefaultConfig() *Config {
 }
 
 func defaultLoggingConfig() LoggingConfig {
-	dir, err := ConfigDir()
-	if err != nil {
-		dir = ""
-	}
-	logFile := filepath.Join(dir, "logs", "nagobot.log")
 	enabled := true
 	return LoggingConfig{
 		Enabled: &enabled,
 		Level:   "info",
 		Stdout:  true,
-		File:    logFile,
+		File:    "logs/nagobot.log",
 	}
 }
 

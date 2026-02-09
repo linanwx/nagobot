@@ -15,8 +15,8 @@ func main() {
 	if err != nil {
 		cfg = config.DefaultConfig()
 	}
-	configDir, _ := config.ConfigDir()
-	if err := logger.Init(cfg.BuildLoggerConfig(), configDir); err != nil {
+	workspace, _ := cfg.WorkspacePath()
+	if err := logger.Init(cfg.BuildLoggerConfig(), workspace); err != nil {
 		fmt.Fprintln(os.Stderr, "logger init error:", err)
 	}
 	cmd.Execute()

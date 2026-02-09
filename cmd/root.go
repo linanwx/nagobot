@@ -88,8 +88,8 @@ func applyRuntimeLogOverrides(cmd *cobra.Command, args []string) error {
 	}
 	cfg.SetLoggingLevel(level)
 
-	configDir, _ := config.ConfigDir()
-	if err := logger.Init(cfg.BuildLoggerConfig(), configDir); err != nil {
+	workspace, _ := cfg.WorkspacePath()
+	if err := logger.Init(cfg.BuildLoggerConfig(), workspace); err != nil {
 		return fmt.Errorf("logger init error: %w", err)
 	}
 	return nil
