@@ -6,7 +6,7 @@ Tired of endless configuration and unstable runtime? Try nagobot.
   <img src="img/head.png" alt="nagobot head" width="120" />
 </p>
 
-`nagobot` is a ultra light AI assistant built with Go.
+`nagobot` is an ultra-light AI assistant built with Go.
 
 Inspired by nanobot (`github.com/HKUDS/nanobot`) and openclaw (`github.com/openclaw`).
 
@@ -19,7 +19,10 @@ This project is evolving rapidly.
 - Skills
 - Agent
 - Cron
+- Async
 - Multi Thread
+
+- Web search
 
 ## Supported Providers and Model Types
 
@@ -54,28 +57,11 @@ go build -o nagobot .
 ```
 
 2. Edit config (default: `~/.nagobot/config.yaml`) and set your API key.
-If you don't have a provider preference, start with `deepseek-reasoner`.
+If you don't have a provider preference, start with `deepseek-reasoner` (it offers good performance and low cost, with a low startup charge starting from about 2 dollars).
 
 ### Provider Config Examples
 
-OpenRouter (Kimi K2.5):
-
-```yaml
-agents:
-  defaults:
-    provider: openrouter
-    modelType: moonshotai/kimi-k2.5
-    # modelName: your-openrouter-preset-or-alias # optional
-
-providers:
-  openrouter:
-    apiKey: sk-or-v1-xxx
-```
-
-When using `moonshotai/kimi-k2.5`, route to OpenRouter's official `moonshot` provider.
-If routing falls back to other upstream providers, chain-of-thought and tool-calling can fail.
-
-DeepSeek config example (recommended: `deepseek-reasoner`):
+DeepSeek config example:
 
 ```yaml
 agents:
@@ -85,51 +71,11 @@ agents:
 
 providers:
   deepseek:
-    apiKey: sk-xxx
+    apiKey: sk-xxx # get via platform.deepseek.com
     # apiBase: https://api.deepseek.com # optional
 ```
 
-Anthropic config example:
-
-```yaml
-agents:
-  defaults:
-    provider: anthropic
-    modelType: claude-opus-4-6 # or claude-sonnet-4-5
-
-providers:
-  anthropic:
-    apiKey: sk-ant-xxx
-    # apiBase: https://api.anthropic.com # optional
-```
-
-Moonshot CN (official) config example:
-
-```yaml
-agents:
-  defaults:
-    provider: moonshot-cn
-    modelType: kimi-k2.5
-
-providers:
-  moonshotCN:
-    apiKey: sk-xxx
-    # apiBase: https://api.moonshot.cn/v1 # optional
-```
-
-Moonshot Global (official) config example:
-
-```yaml
-agents:
-  defaults:
-    provider: moonshot-global
-    modelType: kimi-k2.5
-
-providers:
-  moonshotGlobal:
-    apiKey: sk-xxx
-    # apiBase: https://api.moonshot.ai/v1 # optional
-```
+Other provider config examples: [docs/provider.md](docs/provider.md)
 
 3. Start service:
 
@@ -143,10 +89,7 @@ providers:
 # CLI (default)
 ./nagobot serve
 
-# Enable Telegram
-./nagobot serve --telegram
-
-# Enable all configured channels
+# Enable all configured channels, including Telegram
 ./nagobot serve --all
 ```
 
@@ -159,4 +102,16 @@ channels:
     token: "1234567890:AA***************" # Open @BotFather in Telegram, run /newbot, and paste the generated token here
     allowedIds:
       - 1234567890 # Open @userinfobot in Telegram, send /start, and paste allowed user IDs here
+```
+
+## Play
+
+Don't know how to use it? Try these example prompts:
+
+```
+Create a job that runs at 9am, 12pm, and 6pm every day. Based on my conversation history, search news for me.
+```
+
+```
+I want you to search for recent stock market topics and do it in async mode.
 ```

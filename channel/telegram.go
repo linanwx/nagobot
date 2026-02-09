@@ -9,6 +9,7 @@ import (
 	tgbotapi "github.com/go-telegram-bot-api/telegram-bot-api/v5"
 	"github.com/linanwx/nagobot/internal/runtimecfg"
 	"github.com/linanwx/nagobot/logger"
+	"github.com/linanwx/nagobot/tgmd"
 )
 
 // TelegramChannel implements the Channel interface for Telegram.
@@ -102,13 +103,14 @@ func (t *TelegramChannel) Send(ctx context.Context, resp *Response) error {
 	messages := splitMessage(resp.Text, runtimecfg.TelegramMaxMessageLength)
 
 	for _, chunk := range messages {
-		msg := tgbotapi.NewMessage(chatID, chunk)
-		msg.ParseMode = "Markdown"
+		htmlChunk := tgmd.Convert(chunk)
+		msg := tgbotapi.NewMessage(chatID, htmlChunk)
+		msg.ParseMode = tgbotapi.ModeHTML
 
 		if _, err := t.bot.Send(msg); err != nil {
-			// Retry without markdown formatting.
-			msg.ParseMode = ""
-			if _, retryErr := t.bot.Send(msg); retryErr != nil {
+			// Retry without formatting using the original markdown text.
+			plainMsg := tgbotapi.NewMessage(chatID, chunk)
+			if _, retryErr := t.bot.Send(plainMsg); retryErr != nil {
 				return fmt.Errorf("telegram send error: %w", retryErr)
 			}
 		}
