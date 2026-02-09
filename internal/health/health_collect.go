@@ -18,6 +18,8 @@ func Collect(opts Options) Snapshot {
 
 	s := Snapshot{
 		Status:     "healthy",
+		Provider:   opts.Provider,
+		Model:      opts.Model,
 		Goroutines: runtime.NumGoroutine(),
 		Memory: MemoryInfo{
 			AllocMB:      float64(mem.Alloc) / 1024 / 1024,

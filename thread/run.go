@@ -127,14 +127,21 @@ func (t *Thread) buildTools() *tools.Registry {
 		reg = cfg.Tools.Clone()
 	}
 
-	reg.Register(tools.NewHealthTool(cfg.Workspace, cfg.SessionsDir, cfg.SkillsDir, func() tools.HealthRuntimeContext {
-		sessionPath, _ := t.sessionFilePath()
-		return tools.HealthRuntimeContext{
-			ThreadID:    t.id,
-			SessionKey:  t.sessionKey,
-			SessionFile: sessionPath,
-		}
-	}))
+	reg.Register(&tools.HealthTool{
+		Workspace:    cfg.Workspace,
+		SessionsRoot: cfg.SessionsDir,
+		SkillsRoot:   cfg.SkillsDir,
+		ProviderName: cfg.ProviderName,
+		ModelName:    cfg.ModelName,
+		CtxFn: func() tools.HealthRuntimeContext {
+			sessionPath, _ := t.sessionFilePath()
+			return tools.HealthRuntimeContext{
+				ThreadID:    t.id,
+				SessionKey:  t.sessionKey,
+				SessionFile: sessionPath,
+			}
+		},
+	})
 
 	reg.Register(tools.NewSpawnThreadTool(t))
 

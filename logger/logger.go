@@ -95,8 +95,7 @@ func log(level slog.Level, msg string, args ...any) {
 		return
 	}
 
-	safeArgs := sanitizeKeyvals(args)
-	l.Log(nil, level, msg, safeArgs...)
+	l.Log(nil, level, msg, args...)
 }
 
 func parseLevel(level string) slog.Level {
@@ -128,53 +127,3 @@ func expandPath(path, configDir string) string {
 	return path
 }
 
-func sanitizeKeyvals(args []any) []any {
-	if len(args) == 0 {
-		return args
-	}
-	if len(args)%2 == 1 {
-		args = append(args, "(missing)")
-	}
-
-	safe := make([]any, 0, len(args))
-	for i := 0; i < len(args); i += 2 {
-		key, _ := args[i].(string)
-		val := args[i+1]
-		if isSensitiveKey(key) && !isTokenCount(key, val) {
-			safe = append(safe, key, "[REDACTED]")
-			continue
-		}
-		safe = append(safe, key, val)
-	}
-	return safe
-}
-
-func isSensitiveKey(key string) bool {
-	k := strings.ToLower(key)
-	if strings.Contains(k, "apikey") || strings.Contains(k, "api_key") {
-		return true
-	}
-	if strings.Contains(k, "secret") {
-		return true
-	}
-	if strings.Contains(k, "authorization") || strings.Contains(k, "bearer") {
-		return true
-	}
-	if strings.Contains(k, "token") {
-		return true
-	}
-	return false
-}
-
-func isTokenCount(key string, val any) bool {
-	k := strings.ToLower(key)
-	if !strings.Contains(k, "token") {
-		return false
-	}
-	switch val.(type) {
-	case int, int32, int64, uint, uint32, uint64, float32, float64:
-		return true
-	default:
-		return false
-	}
-}

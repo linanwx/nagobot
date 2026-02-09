@@ -22,20 +22,12 @@ type HealthContextProvider func() HealthRuntimeContext
 
 // HealthTool reports runtime health info for the current process.
 type HealthTool struct {
-	workspace    string
-	sessionsRoot string
-	skillsRoot   string
-	ctxFn        HealthContextProvider
-}
-
-// NewHealthTool creates a health tool with optional workspace and runtime context provider.
-func NewHealthTool(workspace, sessionsRoot, skillsRoot string, ctxFn HealthContextProvider) *HealthTool {
-	return &HealthTool{
-		workspace:    strings.TrimSpace(workspace),
-		sessionsRoot: strings.TrimSpace(sessionsRoot),
-		skillsRoot:   strings.TrimSpace(skillsRoot),
-		ctxFn:        ctxFn,
-	}
+	Workspace    string
+	SessionsRoot string
+	SkillsRoot   string
+	ProviderName string
+	ModelName    string
+	CtxFn        HealthContextProvider
 }
 
 // Def returns the tool definition.
@@ -78,17 +70,16 @@ func (t *HealthTool) Run(ctx context.Context, args json.RawMessage) string {
 	)
 
 	runtimeCtx := HealthRuntimeContext{}
-	if t.ctxFn != nil {
-		runtimeCtx = t.ctxFn()
+	if t.CtxFn != nil {
+		runtimeCtx = t.CtxFn()
 	}
 
-	sessionsRoot := t.sessionsRoot
-	skillsRoot := t.skillsRoot
-
 	snapshot := healthsnap.Collect(healthsnap.Options{
-		Workspace:      t.workspace,
-		SessionsRoot:   sessionsRoot,
-		SkillsRoot:     skillsRoot,
+		Workspace:      t.Workspace,
+		SessionsRoot:   t.SessionsRoot,
+		SkillsRoot:     t.SkillsRoot,
+		Provider:       t.ProviderName,
+		Model:          t.ModelName,
 		ThreadID:       runtimeCtx.ThreadID,
 		SessionKey:     runtimeCtx.SessionKey,
 		SessionFile:    runtimeCtx.SessionFile,

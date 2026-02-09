@@ -10,8 +10,10 @@ func FormatText(s Snapshot) string {
 	var b strings.Builder
 	b.WriteString("nagobot Health\n")
 	b.WriteString("==============\n\n")
-	b.WriteString(fmt.Sprintf("Status: %s\n\n", s.Status))
-	b.WriteString("Memory:\n")
+	b.WriteString(fmt.Sprintf("Status: %s\n", s.Status))
+	b.WriteString(fmt.Sprintf("Provider: %s\n", s.Provider))
+	b.WriteString(fmt.Sprintf("Model: %s\n", s.Model))
+	b.WriteString("\nMemory:\n")
 	b.WriteString(fmt.Sprintf("  Allocated: %.2f MB\n", s.Memory.AllocMB))
 	b.WriteString(fmt.Sprintf("  Total Allocated: %.2f MB\n", s.Memory.TotalAllocMB))
 	b.WriteString(fmt.Sprintf("  System: %.2f MB\n", s.Memory.SysMB))

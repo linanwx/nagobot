@@ -30,6 +30,8 @@ const (
 // ThreadConfig contains shared dependencies for creating threads.
 type ThreadConfig struct {
 	DefaultProvider     provider.Provider
+	ProviderName        string
+	ModelName           string
 	Tools               *tools.Registry
 	Skills              *skills.Registry
 	Agents              *agent.AgentRegistry

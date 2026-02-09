@@ -60,6 +60,8 @@ func buildThreadManager(cfg *config.Config, enableSessions bool) (*thread.Manage
 
 	return thread.NewManager(&thread.ThreadConfig{
 		DefaultProvider:     defaultProvider,
+		ProviderName:        cfg.Thread.Provider,
+		ModelName:           cfg.GetModelName(),
 		Tools:               toolRegistry,
 		Skills:              skillRegistry,
 		Agents:              agentRegistry,

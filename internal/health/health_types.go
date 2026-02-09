@@ -5,6 +5,8 @@ import "strings"
 // Snapshot is a runtime health snapshot of the current process.
 type Snapshot struct {
 	Status        string         `json:"status"`
+	Provider      string         `json:"provider,omitempty"`
+	Model         string         `json:"model,omitempty"`
 	Goroutines    int            `json:"goroutines"`
 	Memory        MemoryInfo     `json:"memory"`
 	Runtime       RuntimeInfo    `json:"runtime"`
@@ -49,6 +51,9 @@ type Options struct {
 	Workspace    string
 	SessionsRoot string
 	SkillsRoot   string
+
+	Provider string
+	Model    string
 
 	ThreadID    string
 	SessionKey  string

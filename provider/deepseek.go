@@ -138,6 +138,8 @@ func (p *DeepSeekProvider) Chat(ctx context.Context, req *Request) (*Response, e
 		"completionTokens", chatResp.Usage.CompletionTokens,
 		"reasoningTokens", reasoningTokens,
 		"totalTokens", chatResp.Usage.TotalTokens,
+		"promptCacheHitTokens", chatResp.Usage.JSON.ExtraFields["prompt_cache_hit_tokens"].Raw(),
+		"promptCacheMissTokens", chatResp.Usage.JSON.ExtraFields["prompt_cache_miss_tokens"].Raw(),
 		"outputChars", len(choice.Message.Content),
 		"latencyMs", time.Since(start).Milliseconds(),
 	)
