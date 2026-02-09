@@ -21,9 +21,8 @@ type Job struct {
 	Task              string    `json:"task" yaml:"task"`
 	Agent             string    `json:"agent,omitempty" yaml:"agent,omitempty"`
 	CreatorSessionKey string    `json:"creator_session_key,omitempty" yaml:"creator_session_key,omitempty"`
-	Silent            bool      `json:"silent,omitempty" yaml:"silent,omitempty"`
-	Enabled           bool      `json:"enabled" yaml:"enabled"`
-	CreatedAt         time.Time `json:"created_at" yaml:"created_at"`
+	Silent    bool      `json:"silent,omitempty" yaml:"silent,omitempty"`
+	CreatedAt time.Time `json:"created_at" yaml:"created_at"`
 }
 
 type ThreadFactory func(job *Job) (string, error)

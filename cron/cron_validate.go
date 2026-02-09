@@ -16,7 +16,7 @@ func validateStored(job Job, now time.Time) (ok bool, expiredAt bool) {
 		if job.AtTime.IsZero() {
 			return false, false
 		}
-		if job.Enabled && !job.AtTime.After(now) {
+		if !job.AtTime.After(now) {
 			return false, true
 		}
 		return true, false

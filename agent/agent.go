@@ -14,106 +14,102 @@ import (
 
 const timeLayout = "2006-01-02 (Monday)"
 
-// PromptContext is the runtime context passed into prompt builders.
-type PromptContext struct {
-	Workspace string
-	Time      time.Time
-	ToolNames []string
-	Skills    string
-}
-
 // Agent builds a system prompt for a thread run.
 type Agent struct {
-	Name        string
-	BuildPrompt func(PromptContext) string
+	Name      string
+	workspace string
+	vars      map[string]any // lazy placeholder overrides, applied at Build time
 }
 
-// NewSoulAgent creates the default SOUL.md-based agent.
-func NewSoulAgent(workspace string) *Agent {
-	return NewTemplateAgent("soul", filepath.Join(workspace, "SOUL.md"), workspace)
+// Set records a placeholder replacement applied lazily at Build time.
+// Supported value types: string, time.Time, []string.
+func (a *Agent) Set(key string, value any) *Agent {
+	if a.vars == nil {
+		a.vars = make(map[string]any)
+	}
+	a.vars[key] = value
+	return a
 }
 
-// NewTemplateAgent creates an agent from any markdown template file.
-func NewTemplateAgent(name, templatePath, workspace string) *Agent {
-	return &Agent{
-		Name: name,
-		BuildPrompt: func(ctx PromptContext) string {
-			tpl, err := os.ReadFile(templatePath)
-			if err != nil {
-				logger.Warn("agent template read failed, using fallback prompt", "name", name, "path", templatePath, "err", err)
-				return fallbackPrompt(ctx)
-			}
-
-			userContent, _ := os.ReadFile(filepath.Join(workspace, "USER.md"))
-			agentsContent := buildAgentsPromptSection(workspace)
-			vars := map[string]string{
-				"USER":   strings.TrimSpace(string(userContent)),
-				"AGENTS": strings.TrimSpace(agentsContent),
-			}
-
-			return renderPrompt(stripFrontMatter(string(tpl)), ctx, vars)
-		},
+// Build constructs the final prompt: reads template, applies vars.
+// For "TASK": if {{TASK}} is not found in the prompt, appends the task.
+// For time.Time values: also replaces {{CALENDAR}} automatically.
+func (a *Agent) Build() string {
+	if a == nil {
+		return ""
 	}
-}
+	prompt := a.readTemplate()
 
-// NewRawAgent creates an agent directly from a prompt string.
-func NewRawAgent(name, prompt string) *Agent {
-	return &Agent{
-		Name: name,
-		BuildPrompt: func(ctx PromptContext) string {
-			return renderPrompt(prompt, ctx, nil)
-		},
-	}
-}
-
-func renderPrompt(tpl string, ctx PromptContext, vars map[string]string) string {
-	if ctx.Time.IsZero() {
-		ctx.Time = time.Now()
+	if a.workspace != "" {
+		prompt = strings.ReplaceAll(prompt, "{{WORKSPACE}}", a.workspace)
+		userContent, _ := os.ReadFile(filepath.Join(a.workspace, "USER.md"))
+		prompt = strings.ReplaceAll(prompt, "{{USER}}", strings.TrimSpace(string(userContent)))
+		prompt = strings.ReplaceAll(prompt, "{{AGENTS}}", buildAgentsPromptSection(a.workspace))
 	}
 
-	calendar := formatCalendar(ctx.Time)
-	replacements := map[string]string{
-		"TIME":      ctx.Time.Format(timeLayout),
-		"CALENDAR":  calendar,
-		"WORKSPACE": ctx.Workspace,
-		"TOOLS":     strings.Join(ctx.ToolNames, ", "),
-		"SKILLS":    ctx.Skills,
-		"USER":      "",
-		"AGENTS":    "",
-	}
-
-	for k, v := range vars {
-		replacements[k] = v
-	}
-
-	prompt := tpl
-	for key, value := range replacements {
-		prompt = strings.ReplaceAll(prompt, "{{"+key+"}}", value)
+	for key, value := range a.vars {
+		formatted := formatVar(value)
+		placeholder := "{{" + key + "}}"
+		if strings.Contains(prompt, placeholder) {
+			prompt = strings.ReplaceAll(prompt, placeholder, formatted)
+		} else if key == "TASK" && strings.TrimSpace(formatted) != "" {
+			prompt = strings.TrimSpace(prompt) + "\n\n[Task]\n" + formatted
+		}
+		if t, ok := value.(time.Time); ok && !t.IsZero() {
+			prompt = strings.ReplaceAll(prompt, "{{CALENDAR}}", formatCalendar(t))
+		}
 	}
 
 	return prompt
 }
 
-func fallbackPrompt(ctx PromptContext) string {
-	if ctx.Time.IsZero() {
-		ctx.Time = time.Now()
+// formatVar converts a var value to its string representation.
+func formatVar(value any) string {
+	switch v := value.(type) {
+	case string:
+		return v
+	case time.Time:
+		if v.IsZero() {
+			v = time.Now()
+		}
+		return v.Format(timeLayout)
+	case []string:
+		return strings.Join(v, ", ")
+	default:
+		return fmt.Sprintf("%v", v)
 	}
+}
 
-	return fmt.Sprintf(`You are nagobot, a helpful AI assistant.
+// newAgent creates an agent. Template path is derived from name and workspace:
+// "soul" → workspace/SOUL.md, others → workspace/agents/<name>.md.
+func newAgent(name, workspace string) *Agent {
+	return &Agent{
+		Name:      name,
+		workspace: workspace,
+	}
+}
 
-Current Time: %s
-Calendar:
-%s
-Workspace: %s
-Available Tools: %s
+func (a *Agent) templatePath() string {
+	if a.workspace == "" {
+		return ""
+	}
+	if a.Name == "soul" {
+		return filepath.Join(a.workspace, "SOUL.md")
+	}
+	return filepath.Join(a.workspace, "agents", a.Name+".md")
+}
 
-%s`,
-		ctx.Time.Format(timeLayout),
-		formatCalendar(ctx.Time),
-		ctx.Workspace,
-		strings.Join(ctx.ToolNames, ", "),
-		ctx.Skills,
-	)
+func (a *Agent) readTemplate() string {
+	path := a.templatePath()
+	if path == "" {
+		return "You are nagobot, a helpful AI assistant."
+	}
+	tpl, err := os.ReadFile(path)
+	if err != nil {
+		logger.Warn("agent template read failed, using fallback prompt", "name", a.Name, "path", path, "err", err)
+		return "You are nagobot, a helpful AI assistant."
+	}
+	return stripFrontMatter(string(tpl))
 }
 
 func formatCalendar(now time.Time) string {

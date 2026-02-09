@@ -9,9 +9,6 @@ import (
 )
 
 func (s *Scheduler) scheduleLocked(job Job) (func(), error) {
-	if !job.Enabled {
-		return nil, nil
-	}
 	if s.cron == nil {
 		return nil, fmt.Errorf("scheduler is not initialized")
 	}

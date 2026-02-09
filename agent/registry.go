@@ -92,21 +92,18 @@ func (r *AgentRegistry) load() {
 	r.mu.Unlock()
 }
 
-// Get returns a prompt-builder agent by name, or nil if not found.
-func (r *AgentRegistry) Get(name string) *Agent {
-	key := normalizeAgentName(name)
-	if key == "" {
-		return nil
+// New creates an agent by name. Defaults to "soul" if name is empty.
+// Template path is derived by convention; missing files fall back automatically.
+func (r *AgentRegistry) New(name string) *Agent {
+	name = strings.TrimSpace(name)
+	if name == "" {
+		name = "soul"
 	}
-
-	r.mu.RLock()
-	def, ok := r.agents[key]
-	r.mu.RUnlock()
-	if !ok {
-		return nil
+	workspace := ""
+	if r != nil {
+		workspace = r.workspace
 	}
-
-	return NewTemplateAgent(def.Name, def.Path, r.workspace)
+	return newAgent(name, workspace)
 }
 
 // List returns all available agent names.

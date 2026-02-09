@@ -7,7 +7,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/linanwx/nagobot/agent"
 	"github.com/linanwx/nagobot/internal/runtimecfg"
 	"github.com/linanwx/nagobot/logger"
 	"github.com/linanwx/nagobot/provider"
@@ -15,53 +14,39 @@ import (
 	"github.com/linanwx/nagobot/tools"
 )
 
-// run executes one thread turn.
+// run executes one thread turn. Called by RunOnce; callers must not invoke
+// this directly.
 func (t *Thread) run(ctx context.Context, userMessage string) (string, error) {
-	t.runMu.Lock()
-	defer t.runMu.Unlock()
-
 	userMessage = strings.TrimSpace(userMessage)
 	if userMessage == "" {
 		return "", nil
 	}
 
+	cfg := t.cfg()
+
 	t.mu.Lock()
-	activeAgent := t.agent
-	activeSink := t.sink
+	activeAgent := t.Agent
 	t.mu.Unlock()
 
-	prov, err := t.resolveProvider()
-	if err != nil {
-		return "", err
-	}
-
-	runtimeTools := t.runtimeTools()
 	skillsSection := t.buildSkillsSection()
 
-	promptCtx := agent.PromptContext{
-		Workspace: t.workspace,
-		Time:      time.Now(),
-		ToolNames: runtimeTools.Names(),
-		Skills:    skillsSection,
-	}
-
 	systemPrompt := ""
-	if activeAgent != nil && activeAgent.BuildPrompt != nil {
-		systemPrompt = activeAgent.BuildPrompt(promptCtx)
+	if activeAgent != nil {
+		activeAgent.Set("TIME", time.Now())
+		activeAgent.Set("TOOLS", t.tools.Names())
+		activeAgent.Set("SKILLS", skillsSection)
+		systemPrompt = activeAgent.Build()
 	}
 	if strings.TrimSpace(systemPrompt) == "" {
-		systemPrompt = agent.NewRawAgent("fallback", "You are a helpful AI assistant.").BuildPrompt(promptCtx)
-	}
-	if runtimeContext := t.buildRuntimeContext(); runtimeContext != "" {
-		systemPrompt = strings.TrimSpace(systemPrompt) + "\n\n" + runtimeContext
+		systemPrompt = "You are a helpful AI assistant."
 	}
 
 	messages := make([]provider.Message, 0, 2)
 	messages = append(messages, provider.SystemMessage(systemPrompt))
 
-	session := t.loadSession()
-	if session != nil {
-		messages = append(messages, session.Messages...)
+	sess := t.loadSession()
+	if sess != nil {
+		messages = append(messages, sess.Messages...)
 	}
 
 	turnUserMessages := make([]provider.Message, 0, 4)
@@ -70,15 +55,14 @@ func (t *Thread) run(ctx context.Context, userMessage string) (string, error) {
 	turnUserMessages = append(turnUserMessages, userMsg)
 
 	sessionEstimatedTokens := 0
-	if session != nil {
-		sessionEstimatedTokens = estimateMessagesTokens(session.Messages)
+	if sess != nil {
+		sessionEstimatedTokens = estimateMessagesTokens(sess.Messages)
 	}
 	requestEstimatedTokens := estimateMessagesTokens(messages)
 	contextWindowTokens, contextWarnRatio := t.contextBudget()
 	logger.Debug(
 		"context estimate",
 		"threadID", t.id,
-		"threadType", t.kind,
 		"sessionKey", t.sessionKey,
 		"sessionEstimatedTokens", sessionEstimatedTokens,
 		"requestEstimatedTokens", requestEstimatedTokens,
@@ -89,7 +73,6 @@ func (t *Thread) run(ctx context.Context, userMessage string) (string, error) {
 	sessionPath, _ := t.sessionFilePath()
 	hookInjections := t.runHooks(TurnContext{
 		ThreadID:               t.id,
-		ThreadType:             t.kind,
 		SessionKey:             t.sessionKey,
 		SessionPath:            sessionPath,
 		UserMessage:            userMessage,
@@ -110,15 +93,15 @@ func (t *Thread) run(ctx context.Context, userMessage string) (string, error) {
 
 	runCtx := tools.WithRuntimeContext(ctx, tools.RuntimeContext{
 		SessionKey: t.sessionKey,
-		Workspace:  t.workspace,
+		Workspace:  cfg.Workspace,
 	})
-	runner := NewRunner(prov, runtimeTools)
+	runner := NewRunner(t.provider, t.tools)
 	response, err := runner.RunWithMessages(runCtx, messages)
 	if err != nil {
 		return "", err
 	}
 
-	if session != nil {
+	if sess != nil {
 		latestSession, reloadErr := t.reloadSessionForSave()
 		if reloadErr != nil {
 			logger.Warn(
@@ -130,88 +113,43 @@ func (t *Thread) run(ctx context.Context, userMessage string) (string, error) {
 			latestSession.Messages = append(latestSession.Messages, turnUserMessages...)
 			latestSession.Messages = append(latestSession.Messages, provider.AssistantMessage(response))
 
-			if saveErr := t.cfg.Sessions.Save(latestSession); saveErr != nil {
+			if saveErr := cfg.Sessions.Save(latestSession); saveErr != nil {
 				logger.Warn("failed to save session", "key", t.sessionKey, "err", saveErr)
 			}
-		}
-	}
-
-	if activeSink != nil && !isSinkSuppressed(ctx) {
-		if err := activeSink(ctx, response); err != nil {
-			return "", err
 		}
 	}
 
 	return response, nil
 }
 
-func (t *Thread) buildRuntimeContext() string {
-	t.mu.Lock()
-	threadID := t.id
-	threadType := t.kind
-	sessionKey := strings.TrimSpace(t.sessionKey)
-	sinkLabel := strings.TrimSpace(t.sinkLabel)
-	sinkRegistered := t.sink != nil
-	t.mu.Unlock()
-
-	if sessionKey == "" {
-		sessionKey = "none"
-	}
-	if sinkLabel == "" {
-		sinkLabel = "none"
+func (t *Thread) buildTools() *tools.Registry {
+	cfg := t.cfg()
+	reg := tools.NewRegistry()
+	if cfg.Tools != nil {
+		reg = cfg.Tools.Clone()
 	}
 
-	return fmt.Sprintf(
-		"[Thread Runtime Context]\n- thread_id: %s\n- thread_type: %s\n- session_key: %s\n- sink_label: %s\n- sink_registered: %t",
-		threadID,
-		threadType,
-		sessionKey,
-		sinkLabel,
-		sinkRegistered,
-	)
-}
-
-func (t *Thread) resolveProvider() (provider.Provider, error) {
-	if t.provider == nil {
-		if t.cfg.ProviderFactory == nil {
-			return nil, fmt.Errorf("default provider is not configured")
-		}
-		return t.cfg.ProviderFactory("", "")
-	}
-
-	return t.provider, nil
-}
-
-func (t *Thread) runtimeTools() *tools.Registry {
-	runtimeTools := tools.NewRegistry()
-	if t.tools != nil {
-		runtimeTools = t.tools.Clone()
-	}
-
-	runtimeTools.Register(tools.NewHealthTool(t.workspace, func() tools.HealthRuntimeContext {
+	reg.Register(tools.NewHealthTool(cfg.Workspace, func() tools.HealthRuntimeContext {
 		sessionPath, _ := t.sessionFilePath()
 		return tools.HealthRuntimeContext{
 			ThreadID:    t.id,
-			ThreadType:  string(t.kind),
 			SessionKey:  t.sessionKey,
 			SessionFile: sessionPath,
 		}
 	}))
 
-	if t.allowSpawn {
-		runtimeTools.Register(tools.NewSpawnThreadTool(t, t.agents))
-		runtimeTools.Register(tools.NewCheckThreadTool(t))
-	}
+	reg.Register(tools.NewSpawnThreadTool(t))
 
-	return runtimeTools
+	return reg
 }
 
 func (t *Thread) loadSession() *session.Session {
-	if t.cfg == nil || strings.TrimSpace(t.sessionKey) == "" || t.cfg.Sessions == nil {
+	cfg := t.cfg()
+	if cfg.Sessions == nil || strings.TrimSpace(t.sessionKey) == "" {
 		return nil
 	}
 
-	loadedSession, err := t.cfg.Sessions.Reload(t.sessionKey)
+	loadedSession, err := cfg.Sessions.Reload(t.sessionKey)
 	if err != nil {
 		logger.Warn("failed to load session", "key", t.sessionKey, "err", err)
 		return nil
@@ -220,20 +158,22 @@ func (t *Thread) loadSession() *session.Session {
 }
 
 func (t *Thread) reloadSessionForSave() (*session.Session, error) {
-	if t.cfg == nil || strings.TrimSpace(t.sessionKey) == "" || t.cfg.Sessions == nil {
+	cfg := t.cfg()
+	if cfg.Sessions == nil || strings.TrimSpace(t.sessionKey) == "" {
 		return nil, fmt.Errorf("session manager unavailable")
 	}
-	return t.cfg.Sessions.Reload(t.sessionKey)
+	return cfg.Sessions.Reload(t.sessionKey)
 }
 
 func (t *Thread) buildSkillsSection() string {
-	if t.skills == nil || strings.TrimSpace(t.workspace) == "" {
+	cfg := t.cfg()
+	if cfg.Skills == nil || strings.TrimSpace(cfg.Workspace) == "" {
 		return ""
 	}
 
-	skillsDir := filepath.Join(t.workspace, runtimecfg.WorkspaceSkillsDirName)
-	if err := t.skills.ReloadFromDirectory(skillsDir); err != nil {
+	skillsDir := filepath.Join(cfg.Workspace, runtimecfg.WorkspaceSkillsDirName)
+	if err := cfg.Skills.ReloadFromDirectory(skillsDir); err != nil {
 		logger.Warn("failed to reload skills", "dir", skillsDir, "err", err)
 	}
-	return t.skills.BuildPromptSection()
+	return cfg.Skills.BuildPromptSection()
 }

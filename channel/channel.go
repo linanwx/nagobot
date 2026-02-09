@@ -43,20 +43,15 @@ type Channel interface {
 	Messages() <-chan *Message
 }
 
-// Handler is a function that processes incoming messages.
-type Handler func(ctx context.Context, msg *Message) (*Response, error)
-
-// Manager manages multiple channels with a single message handler.
+// Manager manages multiple channels as a pure registry.
 type Manager struct {
 	channels map[string]Channel
-	handler  Handler
 }
 
 // NewManager creates a new channel manager.
-func NewManager(handler Handler) *Manager {
+func NewManager() *Manager {
 	return &Manager{
 		channels: make(map[string]Channel),
-		handler:  handler,
 	}
 }
 
@@ -83,14 +78,14 @@ func (m *Manager) SendTo(ctx context.Context, channelName, text, replyTo string)
 // StartAll starts all registered channels.
 func (m *Manager) StartAll(ctx context.Context) error {
 	if webCh, ok := m.channels["web"]; ok {
-		if err := m.startChannel(ctx, webCh); err != nil {
+		if err := webCh.Start(ctx); err != nil {
 			return err
 		}
 	}
 
 	telegramCh, hasTelegram := m.channels["telegram"]
 	if hasTelegram {
-		if err := m.startChannel(ctx, telegramCh); err != nil {
+		if err := telegramCh.Start(ctx); err != nil {
 			return err
 		}
 	}
@@ -99,7 +94,17 @@ func (m *Manager) StartAll(ctx context.Context) error {
 		if hasTelegram {
 			time.Sleep(1 * time.Second)
 		}
-		if err := m.startChannel(ctx, cliCh); err != nil {
+		if err := cliCh.Start(ctx); err != nil {
+			return err
+		}
+	}
+
+	// Start any remaining channels not handled above.
+	for name, ch := range m.channels {
+		if name == "web" || name == "telegram" || name == "cli" {
+			continue
+		}
+		if err := ch.Start(ctx); err != nil {
 			return err
 		}
 	}
@@ -116,35 +121,9 @@ func (m *Manager) StopAll() error {
 	return nil
 }
 
-// processMessages handles incoming messages from a channel.
-func (m *Manager) processMessages(ctx context.Context, ch Channel) {
-	for {
-		select {
-		case <-ctx.Done():
-			return
-		case msg, ok := <-ch.Messages():
-			if !ok {
-				return
-			}
-
-			resp, err := m.handler(ctx, msg)
-			if err != nil {
-				continue
-			}
-
-			if resp != nil {
-				_ = ch.Send(ctx, resp)
-			}
-		}
+// Each iterates over all registered channels.
+func (m *Manager) Each(fn func(Channel)) {
+	for _, ch := range m.channels {
+		fn(ch)
 	}
-}
-
-func (m *Manager) startChannel(ctx context.Context, ch Channel) error {
-	if err := ch.Start(ctx); err != nil {
-		return err
-	}
-
-	// Start message processing goroutine for this channel
-	go m.processMessages(ctx, ch)
-	return nil
 }

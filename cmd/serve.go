@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"strings"
 	"syscall"
 
@@ -56,58 +57,12 @@ func runServe(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("failed to load config: %w", err)
 	}
 
-	rt, err := buildThreadRuntime(cfg, true)
+	tcfg, err := buildThreadConfig(cfg, true)
 	if err != nil {
 		return err
 	}
-	threadMgr := thread.NewManager(rt.threadConfig)
-	var manager *channel.Manager
-
-	handler := func(ctx context.Context, msg *channel.Message) (*channel.Response, error) {
-		logger.Debug("received message",
-			"channel", msg.ChannelID,
-			"user", msg.Username,
-			"text", truncate(msg.Text, 50),
-		)
-
-		sessionKey := buildSessionKey(msg, cfg)
-
-		userMessage := msg.Text
-		if mediaType := msg.Metadata["media_type"]; mediaType != "" {
-			var mediaParts []string
-			mediaParts = append(mediaParts, fmt.Sprintf("media_type: %s", mediaType))
-			if fn := msg.Metadata["file_name"]; fn != "" {
-				mediaParts = append(mediaParts, fmt.Sprintf("file_name: %s", fn))
-			}
-			if mime := msg.Metadata["mime_type"]; mime != "" {
-				mediaParts = append(mediaParts, fmt.Sprintf("mime_type: %s", mime))
-			}
-			if url := msg.Metadata["file_url"]; url != "" {
-				mediaParts = append(mediaParts, fmt.Sprintf("file_url: %s", url))
-			}
-			if dur := msg.Metadata["duration"]; dur != "" {
-				mediaParts = append(mediaParts, fmt.Sprintf("duration: %ss", dur))
-			}
-			userMessage = fmt.Sprintf("[Media: %s]\n%s\n\n%s", mediaType, strings.Join(mediaParts, "\n"), msg.Text)
-		}
-
-		t := threadMgr.GetOrCreateChannel(sessionKey, rt.soulAgent, buildThreadSink(manager, msg), msg.ChannelID)
-		response, err := t.Wake(thread.WithoutSink(ctx), "user_message", userMessage)
-		if err != nil {
-			logger.Error("thread error", "err", err)
-			return &channel.Response{
-				Text:    fmt.Sprintf("Error: %v", err),
-				ReplyTo: msg.Metadata["chat_id"],
-			}, nil
-		}
-
-		return &channel.Response{
-			Text:    response,
-			ReplyTo: msg.Metadata["chat_id"],
-		}, nil
-	}
-
-	manager = channel.NewManager(handler)
+	threadMgr := thread.NewManager(tcfg)
+	manager := channel.NewManager()
 
 	finalServeCLI, finalServeTelegram, finalServeWeb, err := resolveServeTargets(cmd)
 	if err != nil {
@@ -123,7 +78,7 @@ func runServe(cmd *cobra.Command, args []string) error {
 		}
 		manager.Register(channel.NewWebChannel(channel.WebConfig{
 			Addr:      addr,
-			Workspace: rt.threadConfig.Workspace,
+			Workspace: tcfg.Workspace,
 		}))
 		logger.Info("Web channel enabled", "addr", addr)
 	}
@@ -157,22 +112,20 @@ func runServe(cmd *cobra.Command, args []string) error {
 		}
 	}
 
+	// Register cron channel.
+	cronStorePath := filepath.Join(tcfg.Workspace, "cron.yaml")
+	manager.Register(channel.NewCronChannel(cronStorePath))
+
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	// wake_thread and send_message are shared, and each thread clones this registry at runtime.
-	rt.toolRegistry.Register(tools.NewWakeThreadTool(threadMgr))
+	// Register shared tools.
+	tcfg.Tools.Register(tools.NewWakeThreadTool(threadMgr))
 	adminUserID := ""
 	if cfg.Channels != nil {
 		adminUserID = cfg.Channels.AdminUserID
 	}
-	rt.toolRegistry.Register(tools.NewSendMessageTool(manager, adminUserID))
-
-	scheduler, err := startCronRuntime(ctx, rt, threadMgr)
-	if err != nil {
-		return err
-	}
-	defer scheduler.Stop()
+	tcfg.Tools.Register(tools.NewSendMessageTool(manager, adminUserID))
 
 	sigChan := make(chan os.Signal, 1)
 	signal.Notify(sigChan, syscall.SIGINT, syscall.SIGTERM)
@@ -186,10 +139,15 @@ func runServe(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("failed to start channels: %w", err)
 	}
 
+	// Start thread manager run loop in background.
+	go threadMgr.Run(ctx)
+
 	logger.Info("nagobot service started")
 	fmt.Println("nagobot is running. Press Ctrl+C to stop.")
 
-	<-ctx.Done()
+	// Dispatcher reads from channels and dispatches to threads. Blocks until ctx done.
+	dispatcher := NewDispatcher(manager, threadMgr, cfg)
+	dispatcher.Run(ctx)
 
 	if err := manager.StopAll(); err != nil {
 		logger.Error("error stopping channels", "err", err)
@@ -234,77 +192,3 @@ func resolveServeTargets(cmd *cobra.Command) (finalServeCLI, finalServeTelegram,
 	return finalServeCLI, finalServeTelegram, finalServeWeb, nil
 }
 
-func buildSessionKey(msg *channel.Message, cfg *config.Config) string {
-	if msg == nil {
-		return "main"
-	}
-
-	if msg.ChannelID == "cli:local" {
-		return "main"
-	}
-	if strings.HasPrefix(msg.ChannelID, "web:") {
-		return "main"
-	}
-
-	if strings.HasPrefix(msg.ChannelID, "telegram:") {
-		userID := strings.TrimSpace(msg.UserID)
-		adminID := ""
-		if cfg != nil && cfg.Channels != nil {
-			adminID = strings.TrimSpace(cfg.Channels.AdminUserID)
-		}
-		if userID != "" && adminID != "" && userID == adminID {
-			return "main"
-		}
-		if userID != "" {
-			return "telegram:" + userID
-		}
-		return msg.ChannelID
-	}
-
-	sessionKey := msg.ChannelID
-	if msg.UserID != "" {
-		sessionKey = msg.ChannelID + ":" + msg.UserID
-	}
-	return sessionKey
-}
-
-func truncate(s string, maxLen int) string {
-	if len(s) <= maxLen {
-		return s
-	}
-	return s[:maxLen] + "..."
-}
-
-func buildThreadSink(manager *channel.Manager, msg *channel.Message) thread.Sink {
-	if manager == nil || msg == nil {
-		return nil
-	}
-
-	channelName := channelNameFromID(msg.ChannelID)
-	if channelName == "" {
-		return nil
-	}
-
-	replyTo := strings.TrimSpace(msg.Metadata["chat_id"])
-	if replyTo == "" {
-		replyTo = strings.TrimSpace(msg.ReplyTo)
-	}
-
-	return func(ctx context.Context, response string) error {
-		if strings.TrimSpace(response) == "" {
-			return nil
-		}
-		return manager.SendTo(ctx, channelName, response, replyTo)
-	}
-}
-
-func channelNameFromID(channelID string) string {
-	channelID = strings.TrimSpace(channelID)
-	if channelID == "" {
-		return ""
-	}
-	if idx := strings.Index(channelID, ":"); idx > 0 {
-		return channelID[:idx]
-	}
-	return channelID
-}

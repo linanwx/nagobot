@@ -51,7 +51,6 @@ type Options struct {
 	SkillsRoot   string
 
 	ThreadID    string
-	ThreadType  string
 	SessionKey  string
 	SessionFile string
 
@@ -65,7 +64,6 @@ func (o Options) normalize() Options {
 	o.SessionsRoot = strings.TrimSpace(o.SessionsRoot)
 	o.SkillsRoot = strings.TrimSpace(o.SkillsRoot)
 	o.ThreadID = strings.TrimSpace(o.ThreadID)
-	o.ThreadType = strings.TrimSpace(o.ThreadType)
 	o.SessionKey = strings.TrimSpace(o.SessionKey)
 	o.SessionFile = strings.TrimSpace(o.SessionFile)
 	return o
@@ -81,7 +79,6 @@ type PathsInfo struct {
 // ThreadInfo contains current thread metadata.
 type ThreadInfo struct {
 	ID          string `json:"id,omitempty"`
-	Type        string `json:"type,omitempty"`
 	SessionKey  string `json:"sessionKey,omitempty"`
 	SessionFile string `json:"sessionFile,omitempty"`
 }
@@ -132,7 +129,6 @@ type CronJobInfo struct {
 	AtTime            string `json:"atTime,omitempty"`
 	Agent             string `json:"agent,omitempty"`
 	CreatorSessionKey string `json:"creatorSessionKey,omitempty"`
-	Enabled           bool   `json:"enabled"`
 	Silent            bool   `json:"silent"`
 }
 

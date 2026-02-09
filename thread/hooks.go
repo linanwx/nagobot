@@ -6,8 +6,7 @@ type TurnHook func(ctx TurnContext) []string
 
 // TurnContext carries read-only request context for hook evaluation.
 type TurnContext struct {
-	ThreadID   string
-	ThreadType ThreadType
+	ThreadID string
 
 	SessionKey  string
 	SessionPath string

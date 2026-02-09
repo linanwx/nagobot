@@ -11,28 +11,27 @@ import (
 )
 
 func (t *Thread) sessionFilePath() (string, bool) {
-	if t.cfg == nil || t.cfg.Sessions == nil {
+	cfg := t.cfg()
+	if cfg.Sessions == nil {
 		return "", false
 	}
 	key := strings.TrimSpace(t.sessionKey)
 	if key == "" {
 		return "", false
 	}
-	return t.cfg.Sessions.PathForKey(key), true
+	return cfg.Sessions.PathForKey(key), true
 }
 
 func (t *Thread) contextBudget() (tokens int, warnRatio float64) {
+	cfg := t.cfg()
 	tokens = runtimecfg.ThreadDefaultContextWindowTokens
 	warnRatio = runtimecfg.ThreadDefaultContextWarnRatio
-	if t.cfg == nil {
-		return tokens, warnRatio
-	}
 
-	if t.cfg.ContextWindowTokens > 0 {
-		tokens = t.cfg.ContextWindowTokens
+	if cfg.ContextWindowTokens > 0 {
+		tokens = cfg.ContextWindowTokens
 	}
-	if t.cfg.ContextWarnRatio > 0 && t.cfg.ContextWarnRatio < 1 {
-		warnRatio = t.cfg.ContextWarnRatio
+	if cfg.ContextWarnRatio > 0 && cfg.ContextWarnRatio < 1 {
+		warnRatio = cfg.ContextWarnRatio
 	}
 	return tokens, warnRatio
 }
@@ -120,7 +119,6 @@ func (t *Thread) contextPressureHook() TurnHook {
 		logger.Info(
 			"context threshold reached, compression reminder injected into current turn",
 			"threadID", ctx.ThreadID,
-			"threadType", ctx.ThreadType,
 			"sessionKey", ctx.SessionKey,
 			"sessionPath", ctx.SessionPath,
 			"requestEstimatedTokens", ctx.RequestEstimatedTokens,

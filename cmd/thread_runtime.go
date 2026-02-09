@@ -15,19 +15,10 @@ import (
 	"github.com/linanwx/nagobot/tools"
 )
 
-type threadRuntime struct {
-	threadConfig *thread.Config
-	toolRegistry *tools.Registry
-	soulAgent    *agent.Agent
-	workspace    string
-}
-
-func buildThreadRuntime(cfg *config.Config, enableSessions bool) (*threadRuntime, error) {
+func buildThreadConfig(cfg *config.Config, enableSessions bool) (*thread.ThreadConfig, error) {
 	if cfg == nil {
 		return nil, fmt.Errorf("config is nil")
 	}
-	printModelRoutingNotice(cfg)
-
 	workspace, err := cfg.WorkspacePath()
 	if err != nil {
 		return nil, fmt.Errorf("failed to get workspace: %w", err)
@@ -67,9 +58,8 @@ func buildThreadRuntime(cfg *config.Config, enableSessions bool) (*threadRuntime
 		}
 	}
 
-	tcfg := &thread.Config{
+	return &thread.ThreadConfig{
 		DefaultProvider:     defaultProvider,
-		ProviderFactory:     providerFactory.Create,
 		Tools:               toolRegistry,
 		Skills:              skillRegistry,
 		Agents:              agentRegistry,
@@ -77,12 +67,5 @@ func buildThreadRuntime(cfg *config.Config, enableSessions bool) (*threadRuntime
 		ContextWindowTokens: cfg.GetContextWindowTokens(),
 		ContextWarnRatio:    cfg.GetContextWarnRatio(),
 		Sessions:            sessions,
-	}
-
-	return &threadRuntime{
-		threadConfig: tcfg,
-		toolRegistry: toolRegistry,
-		soulAgent:    agent.NewSoulAgent(workspace),
-		workspace:    workspace,
 	}, nil
 }

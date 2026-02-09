@@ -46,9 +46,6 @@ func FormatText(s Snapshot) string {
 		if s.Thread.ID != "" {
 			b.WriteString(fmt.Sprintf("  ID: %s\n", s.Thread.ID))
 		}
-		if s.Thread.Type != "" {
-			b.WriteString(fmt.Sprintf("  Type: %s\n", s.Thread.Type))
-		}
 		if s.Thread.SessionKey != "" {
 			b.WriteString(fmt.Sprintf("  Session Key: %s\n", s.Thread.SessionKey))
 		}
@@ -124,7 +121,7 @@ func FormatText(s Snapshot) string {
 				if schedule == "" {
 					schedule = "-"
 				}
-				b.WriteString(fmt.Sprintf("    - %s | kind=%s | schedule=%s | enabled=%t | silent=%t\n", job.ID, job.Kind, schedule, job.Enabled, job.Silent))
+				b.WriteString(fmt.Sprintf("    - %s | kind=%s | schedule=%s | silent=%t\n", job.ID, job.Kind, schedule, job.Silent))
 			}
 		}
 	}

@@ -64,18 +64,30 @@ func runAgent(cmd *cobra.Command, args []string) error {
 
 	applyAgentOverrides(cfg)
 
-	rt, err := buildThreadRuntime(cfg, false)
+	tcfg, err := buildThreadConfig(cfg, false)
 	if err != nil {
 		return err
 	}
 
-	t := thread.NewPlain(rt.threadConfig, rt.soulAgent, nil, "agent")
-	response, err := t.Wake(context.Background(), "user_message", messageFlag)
-	if err != nil {
-		return fmt.Errorf("agent error: %w", err)
-	}
+	mgr := thread.NewManager(tcfg)
+	t := mgr.NewThread("agent", "")
 
-	fmt.Println(response)
+	// For one-shot agent mode, run synchronously via Enqueue + runOnce.
+	var result string
+	done := make(chan struct{})
+	t.Enqueue(&thread.WakeMessage{
+		Source:  "user_message",
+		Message: messageFlag,
+		Sink: func(_ context.Context, response string) error {
+			result = response
+			close(done)
+			return nil
+		},
+	})
+	t.RunOnce(context.Background())
+	<-done
+
+	fmt.Println(result)
 	return nil
 }
 

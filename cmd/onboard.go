@@ -105,6 +105,7 @@ func createBootstrapFiles(workspace string) error {
 	// Create default workspace directories first.
 	for _, dir := range []string{
 		"agents",
+		"docs",
 		runtimecfg.WorkspaceSkillsDirName,
 		filepath.Join(runtimecfg.WorkspaceSessionsDirName, "main"),
 		filepath.Join(runtimecfg.WorkspaceSessionsDirName, "cron"),

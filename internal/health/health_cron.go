@@ -62,7 +62,6 @@ func inspectCronFile(path string) *CronInfo {
 			Expr:              strings.TrimSpace(job.Expr),
 			Agent:             strings.TrimSpace(job.Agent),
 			CreatorSessionKey: strings.TrimSpace(job.CreatorSessionKey),
-			Enabled:           job.Enabled,
 			Silent:            job.Silent,
 		}
 		if !job.AtTime.IsZero() {

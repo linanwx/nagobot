@@ -15,7 +15,6 @@ import (
 // HealthRuntimeContext is thread/session metadata injected at runtime.
 type HealthRuntimeContext struct {
 	ThreadID    string
-	ThreadType  string
 	SessionKey  string
 	SessionFile string
 }
@@ -93,7 +92,6 @@ func (t *HealthTool) Run(ctx context.Context, args json.RawMessage) string {
 		SessionsRoot:   sessionsRoot,
 		SkillsRoot:     skillsRoot,
 		ThreadID:       runtimeCtx.ThreadID,
-		ThreadType:     runtimeCtx.ThreadType,
 		SessionKey:     runtimeCtx.SessionKey,
 		SessionFile:    runtimeCtx.SessionFile,
 		IncludeTree:    true,

@@ -18,7 +18,6 @@ Use this skill to manage scheduled jobs by editing `{{WORKSPACE}}/cron.yaml`.
   agent: GENERAL
   creator_session_key: main
   silent: false
-  enabled: true
   created_at: 2026-02-07T09:00:00Z
 ```
 
@@ -31,7 +30,6 @@ Fields:
 - `agent`: optional agent template name from `agents/*.md`.
 - `creator_session_key`: session key to wake when `silent=false`.
 - `silent`: `true` means no wake/push; `false` means wake creator session with result.
-- `enabled`: enable/disable job.
 - `created_at`: creation timestamp in RFC3339.
 
 ## Cron Expression Notes
@@ -58,7 +56,6 @@ Add one recurring and one one-time job:
   agent: GENERAL
   creator_session_key: main
   silent: false
-  enabled: true
   created_at: 2026-02-07T09:00:00Z
 
 - id: one-shot-cleanup
@@ -68,6 +65,5 @@ Add one recurring and one one-time job:
   agent: GENERAL
   creator_session_key: main
   silent: true
-  enabled: true
   created_at: 2026-02-07T10:00:00Z
 ```
