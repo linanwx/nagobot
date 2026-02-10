@@ -3,11 +3,29 @@ package thread
 import (
 	"fmt"
 	"strings"
-	"unicode/utf8"
+	"sync"
 
 	"github.com/linanwx/nagobot/logger"
 	"github.com/linanwx/nagobot/provider"
+	"github.com/tiktoken-go/tokenizer"
 )
+
+var (
+	tiktokenOnce sync.Once
+	tiktokenCodec tokenizer.Codec
+)
+
+func getCodec() tokenizer.Codec {
+	tiktokenOnce.Do(func() {
+		enc, err := tokenizer.Get(tokenizer.O200kBase)
+		if err != nil {
+			logger.Warn("failed to init tiktoken codec, token estimates will be zero", "err", err)
+			return
+		}
+		tiktokenCodec = enc
+	})
+	return tiktokenCodec
+}
 
 func (t *Thread) sessionFilePath() (string, bool) {
 	cfg := t.cfg()
@@ -43,15 +61,12 @@ func estimateTextTokens(text string) int {
 	if text == "" {
 		return 0
 	}
-	chars := utf8.RuneCountInString(text)
-	tokens := chars / 4
-	if chars%4 != 0 {
-		tokens++
+	codec := getCodec()
+	if codec == nil {
+		return len(text) / 3 // rough fallback
 	}
-	if tokens < 1 {
-		tokens = 1
-	}
-	return tokens
+	ids, _, _ := codec.Encode(text)
+	return len(ids)
 }
 
 func estimateMessageTokens(message provider.Message) int {

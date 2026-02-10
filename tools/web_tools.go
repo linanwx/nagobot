@@ -20,7 +20,7 @@ const (
 	webSearchHTTPTimeout       = 15 * time.Second
 	webFetchHTTPTimeout        = 30 * time.Second
 	webFetchMaxReadBytes       = 500000
-	webFetchMaxContentChars    = 100000
+	webFetchMaxContentChars    = 10000
 )
 
 // WebSearchTool searches the web using DuckDuckGo.
