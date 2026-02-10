@@ -311,7 +311,9 @@ func createBootstrapFiles(workspace string) error {
 	)
 
 	for _, dir := range []string{
+		".tmp",
 		"agents",
+		"bin",
 		"docs",
 		skillsDir,
 		filepath.Join(sessionsDir, "main"),

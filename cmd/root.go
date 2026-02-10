@@ -61,6 +61,8 @@ func init() {
 	rootCmd.PersistentFlags().StringVar(&configDirFlag, "config-dir", "", "Override config directory (default: ~/.nagobot)")
 	rootCmd.PersistentFlags().StringVar(&logLevelOverride, "log-level", "", "Override log level for this run (debug, info, warn, error)")
 	rootCmd.PersistentPreRunE = applyRuntimeOverrides
+
+	rootCmd.AddGroup(&cobra.Group{ID: "internal", Title: "Internal (used by skills):"})
 }
 
 func applyRuntimeOverrides(cmd *cobra.Command, args []string) error {

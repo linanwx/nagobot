@@ -241,6 +241,17 @@ func (r *Registry) BuildPromptSection() string {
 	return sb.String()
 }
 
+// SkillNames returns the names of all registered skills.
+func (r *Registry) SkillNames() []string {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	names := make([]string, 0, len(r.skills))
+	for name := range r.skills {
+		names = append(names, name)
+	}
+	return names
+}
+
 // GetSkillPrompt returns the full prompt for a skill by name.
 func (r *Registry) GetSkillPrompt(name string) (string, bool) {
 	r.mu.RLock()

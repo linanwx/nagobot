@@ -1,36 +1,35 @@
 ---
 name: compress-context
-description: The guidance for compressing session context with simple backup and atomic replace.
+description: Compress session context to free up token budget.
 ---
 # Context Compression Skill
 
-Required workflow:
-1. Determine `session_file`:
-   - First choice: use the runtime notice value.
-   - Fallback: `{{WORKSPACE}}/sessions/main/session.json` (`{{WORKSPACE}}` is the configured project root path).
-   - If neither exists, stop and ask for an explicit path.
-2. Count lines and read content if needed.
-3. Set `session_dir = dirname(session_file)`.
-4. Generate `timestamp` in format `<unix>_<local-time>`, where:
-   - `<unix>` is Unix seconds (for global monotonic ordering),
-   - `<local-time>` is local timezone time `YYYYMMDDTHHMMSS±ZZZZ` (for readability),
-   - example: `1738926930_20260207T191530+0800`.
-5. Backup original file to `<session_dir>/history/<timestamp>.json`.
-6. Write compressed result to `<session_dir>/.tmp/session.next.json`.
-7. Validate temp file:
-   - valid JSON
-   - has `key`, `messages`, `created_at`, `updated_at`
-   - `messages` is an array
-8. If validation passes, atomically replace `<session_dir>/session.json` with `session.next.json`.
-9. If replacement fails, delete leftover `session.next.json`.
-10. Call `health` and verify all session files are valid (no session parse errors / invalid sessions count is 0).
-11. Continue the original task.
+## Workflow
 
-Compression content guidance:
-- Keep top-level structure unchanged.
-- Summarize in the same language as the original conversation.
-- Preserve high-value context only:
-  - user preferences and constraints
-  - active goals and decisions
-  - unresolved issues and pending actions
-  - critical IDs, paths, commands, and references
+1. Determine `session_file`:
+   - First choice: use the path from the Context Pressure Notice.
+   - Fallback: `{{WORKSPACE}}/sessions/main/session.json`.
+2. Write a compressed summary of the conversation so far (see guidance below) to `{{WORKSPACE}}/.tmp/compressed.txt` with `write_file`.
+3. Run:
+   ```
+   {{WORKSPACE}}/bin/nagobot compress-session <session_file> {{WORKSPACE}}/.tmp/compressed.txt
+   ```
+4. Continue the original task.
+
+## Compression Guidance
+
+Write a summary whose purpose is to provide continuity so you can continue making progress in a future context, where the raw conversation history will be replaced with this summary.
+
+Write in the same language as the original conversation. Use plain text, not JSON.
+
+Include:
+- Current state of work: what has been completed, what is in progress.
+- Next steps and pending actions.
+- Key decisions, preferences, and constraints the user expressed.
+- Important learnings: mistakes that were fixed, insights discovered.
+- Critical references: IDs, file paths, commands, configuration values.
+
+Discard:
+- Verbose tool call arguments and raw tool outputs — keep only outcomes.
+- Intermediate debugging steps that were already resolved.
+- Repetitive or redundant exchanges that don't affect future work.

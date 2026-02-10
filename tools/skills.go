@@ -12,6 +12,7 @@ import (
 // SkillProvider retrieves skill prompts.
 type SkillProvider interface {
 	GetSkillPrompt(name string) (string, bool)
+	SkillNames() []string
 }
 
 // UseSkillTool loads the full prompt for a named skill.
@@ -59,7 +60,8 @@ func (t *UseSkillTool) Run(ctx context.Context, args json.RawMessage) string {
 
 	prompt, ok := t.provider.GetSkillPrompt(a.Name)
 	if !ok {
-		return fmt.Sprintf("Error: skill not found: %s", a.Name)
+		names := t.provider.SkillNames()
+		return fmt.Sprintf("Error: skill %q not found. Available skills: %s", a.Name, strings.Join(names, ", "))
 	}
 
 	rt := RuntimeContextFrom(ctx)

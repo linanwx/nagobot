@@ -3,8 +3,10 @@ package cmd
 import (
 	"context"
 	"fmt"
+	"io"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"strings"
 	"syscall"
 
@@ -54,6 +56,12 @@ func runServe(cmd *cobra.Command, args []string) error {
 	if err != nil {
 		return fmt.Errorf("failed to load config: %w", err)
 	}
+
+	workspace, err := cfg.WorkspacePath()
+	if err != nil {
+		return fmt.Errorf("failed to get workspace: %w", err)
+	}
+	installBinary(workspace)
 
 	threadMgr, err := buildThreadManager(cfg, true)
 	if err != nil {
@@ -172,4 +180,50 @@ func resolveServeTargets(cmd *cobra.Command) (finalServeCLI, finalServeTelegram,
 		return false, false, false, fmt.Errorf("no channels enabled; use --cli, --telegram, --web, or --all")
 	}
 	return finalServeCLI, finalServeTelegram, finalServeWeb, nil
+}
+
+// installBinary copies the running executable to workspace/bin/nagobot.
+// Skips the copy if the destination already has the same file size.
+func installBinary(workspace string) {
+	exe, err := os.Executable()
+	if err != nil {
+		logger.Warn("failed to resolve executable path, skipping binary install", "err", err)
+		return
+	}
+	binDir := filepath.Join(workspace, "bin")
+	if err := os.MkdirAll(binDir, 0755); err != nil {
+		logger.Warn("failed to create bin directory", "err", err)
+		return
+	}
+	dest := filepath.Join(binDir, "nagobot")
+
+	// Skip if same size.
+	srcInfo, err := os.Stat(exe)
+	if err != nil {
+		logger.Warn("failed to stat executable", "err", err)
+		return
+	}
+	if dstInfo, err := os.Stat(dest); err == nil && dstInfo.Size() == srcInfo.Size() {
+		return
+	}
+
+	src, err := os.Open(exe)
+	if err != nil {
+		logger.Warn("failed to open executable for copy", "err", err)
+		return
+	}
+	defer src.Close()
+
+	dst, err := os.OpenFile(dest, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0755)
+	if err != nil {
+		logger.Warn("failed to create bin/nagobot", "err", err)
+		return
+	}
+	defer dst.Close()
+
+	if _, err := io.Copy(dst, src); err != nil {
+		logger.Warn("failed to copy executable", "err", err)
+		return
+	}
+	logger.Info("installed binary", "path", dest)
 }
