@@ -1,18 +1,21 @@
 package thread
 
 import (
-	"context"
 	"sync"
 
 	"github.com/linanwx/nagobot/agent"
 	"github.com/linanwx/nagobot/provider"
 	"github.com/linanwx/nagobot/session"
 	"github.com/linanwx/nagobot/skills"
+	"github.com/linanwx/nagobot/thread/msg"
 	"github.com/linanwx/nagobot/tools"
 )
 
-// Sink defines how thread output is delivered.
-type Sink func(ctx context.Context, response string) error
+// Sink is an alias for msg.Sink.
+type Sink = msg.Sink
+
+// WakeMessage is an alias for msg.WakeMessage.
+type WakeMessage = msg.WakeMessage
 
 // ThreadState represents the runtime state of a thread.
 type ThreadState int

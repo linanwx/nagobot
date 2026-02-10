@@ -9,16 +9,6 @@ import (
 	"github.com/linanwx/nagobot/logger"
 )
 
-// WakeMessage is an item in a thread's wake queue.
-type WakeMessage struct {
-	Source    string            // Wake source: "user_message", "cron", "child_completed", etc.
-	Message   string            // Wake payload text.
-	Sink      Sink              // Per-wake response delivery (nil = drop response).
-	SinkLabel string            // Descriptive label for this sink.
-	AgentName string            // Optional agent name override for this wake.
-	Vars      map[string]string // Optional vars override for this wake.
-}
-
 // Enqueue adds a wake message to the thread's inbox and notifies the manager.
 func (t *Thread) Enqueue(msg *WakeMessage) {
 	if msg == nil {
@@ -42,9 +32,14 @@ func (t *Thread) RunOnce(ctx context.Context) {
 	select {
 	case msg := <-t.inbox:
 		if name := strings.TrimSpace(msg.AgentName); name != "" {
-			t.mu.Lock()
-			t.Agent = t.cfg().Agents.New(name)
-			t.mu.Unlock()
+			a, err := t.cfg().Agents.New(name)
+			if err != nil {
+				logger.Warn("agent not found, keeping current agent", "agent", name, "err", err)
+			} else {
+				t.mu.Lock()
+				t.Agent = a
+				t.mu.Unlock()
+			}
 		}
 		for k, v := range msg.Vars {
 			t.Set(k, v)

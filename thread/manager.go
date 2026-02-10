@@ -7,6 +7,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/linanwx/nagobot/logger"
 	"github.com/linanwx/nagobot/tools"
 )
 
@@ -90,22 +91,17 @@ func (m *Manager) Wake(sessionKey string, msg *WakeMessage) {
 	if sessionKey == "" {
 		sessionKey = "channel:default"
 	}
-	t := m.NewThread(sessionKey, msg.AgentName)
+	t, err := m.NewThread(sessionKey, msg.AgentName)
+	if err != nil {
+		logger.Error("failed to create thread", "sessionKey", sessionKey, "agent", msg.AgentName, "err", err)
+		return
+	}
 	t.Enqueue(msg)
 	m.notify()
 }
 
-// WakeWith is a convenience method that constructs a WakeMessage from simple
-// parameters. Satisfies the tools.ThreadWaker interface.
-func (m *Manager) WakeWith(sessionKey, source, message string) {
-	m.Wake(sessionKey, &WakeMessage{
-		Source:  source,
-		Message: message,
-	})
-}
-
 // NewThread returns an existing thread, or creates one with the given agent name.
-func (m *Manager) NewThread(sessionKey, agentName string) *Thread {
+func (m *Manager) NewThread(sessionKey, agentName string) (*Thread, error) {
 	sessionKey = strings.TrimSpace(sessionKey)
 	if sessionKey == "" {
 		sessionKey = "channel:default"
@@ -115,7 +111,7 @@ func (m *Manager) NewThread(sessionKey, agentName string) *Thread {
 	defer m.mu.Unlock()
 
 	if t, ok := m.threads[sessionKey]; ok {
-		return t
+		return t, nil
 	}
 
 	t := &Thread{
@@ -126,12 +122,16 @@ func (m *Manager) NewThread(sessionKey, agentName string) *Thread {
 		inbox:      make(chan *WakeMessage, defaultInboxSize),
 		signal:     m.signal,
 	}
-	t.Agent = m.cfg.Agents.New(agentName)
+	a, err := m.cfg.Agents.New(agentName)
+	if err != nil {
+		return nil, err
+	}
+	t.Agent = a
 	t.provider = m.cfg.DefaultProvider
 	t.tools = t.buildTools()
 	t.RegisterHook(t.contextPressureHook())
 	m.threads[sessionKey] = t
-	return t
+	return t, nil
 }
 
 // RegisterTool adds a tool to the shared tool registry.

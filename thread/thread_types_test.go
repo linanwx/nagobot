@@ -6,7 +6,10 @@ import (
 
 func TestNewThread(t *testing.T) {
 	mgr := NewManager(nil)
-	th := mgr.NewThread("test:1", "")
+	th, err := mgr.NewThread("test:1", "")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
 	if th == nil {
 		t.Fatal("thread should be initialized")
 	}
@@ -17,7 +20,10 @@ func TestNewThread(t *testing.T) {
 
 func TestNewThreadWithSession(t *testing.T) {
 	mgr := NewManager(nil)
-	th := mgr.NewThread("chat:user", "")
+	th, err := mgr.NewThread("chat:user", "")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
 	if th == nil {
 		t.Fatal("thread should be initialized")
 	}
@@ -29,8 +35,14 @@ func TestNewThreadWithSession(t *testing.T) {
 func TestManagerNewThreadReuses(t *testing.T) {
 	mgr := NewManager(&ThreadConfig{})
 
-	first := mgr.NewThread("room:1", "a")
-	second := mgr.NewThread("room:1", "")
+	first, err := mgr.NewThread("room:1", "a")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	second, err := mgr.NewThread("room:1", "")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
 	if first != second {
 		t.Fatal("expected thread reuse")
 	}
@@ -38,7 +50,10 @@ func TestManagerNewThreadReuses(t *testing.T) {
 
 func TestThreadSet(t *testing.T) {
 	mgr := NewManager(nil)
-	th := mgr.NewThread("test:set", "")
+	th, err := mgr.NewThread("test:set", "")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
 	th.Set("TASK", "do something")
 	if th.Agent == nil {
 		t.Fatal("agent should be initialized")

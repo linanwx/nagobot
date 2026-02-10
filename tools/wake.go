@@ -7,11 +7,12 @@ import (
 	"strings"
 
 	"github.com/linanwx/nagobot/provider"
+	"github.com/linanwx/nagobot/thread/msg"
 )
 
 // ThreadWaker wakes a session-bound thread with an injected message.
 type ThreadWaker interface {
-	WakeWith(sessionKey, source, message string)
+	Wake(sessionKey string, msg *msg.WakeMessage)
 }
 
 // WakeThreadTool wakes an existing thread by session key.
@@ -74,6 +75,9 @@ func (t *WakeThreadTool) Run(ctx context.Context, args json.RawMessage) string {
 		return "Error: message is required"
 	}
 
-	t.waker.WakeWith(sessionKey, "user_active", message)
+	t.waker.Wake(sessionKey, &msg.WakeMessage{
+		Source:  "user_active",
+		Message: message,
+	})
 	return fmt.Sprintf("Thread awakened: %s", sessionKey)
 }

@@ -93,17 +93,29 @@ func (r *AgentRegistry) load() {
 }
 
 // New creates an agent by name. Defaults to "soul" if name is empty.
-// Template path is derived by convention; missing files fall back automatically.
-func (r *AgentRegistry) New(name string) *Agent {
-	name = strings.TrimSpace(name)
-	if name == "" {
-		name = "soul"
+// Reloads templates from disk before resolving. Returns an error if an
+// explicit name is provided but not found in the registry.
+func (r *AgentRegistry) New(name string) (*Agent, error) {
+	explicit := strings.TrimSpace(name)
+	if explicit == "" {
+		explicit = "soul"
 	}
-	workspace := ""
-	if r != nil {
-		workspace = r.workspace
+
+	if r == nil {
+		return newAgent(explicit, ""), nil
 	}
-	return newAgent(name, workspace)
+
+	r.load()
+
+	r.mu.RLock()
+	_, found := r.agents[normalizeAgentName(explicit)]
+	r.mu.RUnlock()
+
+	if !found && strings.TrimSpace(name) != "" {
+		return nil, fmt.Errorf("agent %q not found", explicit)
+	}
+
+	return newAgent(explicit, r.workspace), nil
 }
 
 // List returns all available agent names.
@@ -145,11 +157,6 @@ func (r *AgentRegistry) BuildPromptSection() string {
 		sb.WriteString(fmt.Sprintf("- %s\n", def.Name))
 	}
 	return strings.TrimSpace(sb.String())
-}
-
-// Reload reloads agent templates from disk.
-func (r *AgentRegistry) Reload() {
-	r.load()
 }
 
 func normalizeAgentName(name string) string {

@@ -68,7 +68,10 @@ func runAgent(cmd *cobra.Command, args []string) error {
 	if err != nil {
 		return err
 	}
-	t := mgr.NewThread("agent", "")
+	t, err := mgr.NewThread("agent", "")
+	if err != nil {
+		return fmt.Errorf("failed to create agent thread: %w", err)
+	}
 
 	// For one-shot agent mode, run synchronously via Enqueue + runOnce.
 	var result string

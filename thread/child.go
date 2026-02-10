@@ -24,7 +24,10 @@ func (t *Thread) SpawnChild(ctx context.Context, agentName string, task string) 
 	}
 
 	childSessionKey := t.generateChildSessionKey()
-	child := t.mgr.NewThread(childSessionKey, agentName)
+	child, err := t.mgr.NewThread(childSessionKey, agentName)
+	if err != nil {
+		return "", fmt.Errorf("spawn child: %w", err)
+	}
 	child.Set("TASK", task)
 
 	parentThread := t

@@ -168,7 +168,10 @@ func (d *Dispatcher) buildCronSink(msg *channel.Message) thread.Sink {
 			jobID,
 			strings.TrimSpace(response),
 		)
-		d.threads.WakeWith(creatorKey, "cron_finished", wakeMsg)
+		d.threads.Wake(creatorKey, &thread.WakeMessage{
+			Source:  "cron_finished",
+			Message: wakeMsg,
+		})
 		return nil
 	}
 }
