@@ -44,7 +44,7 @@ type ThreadConfig struct {
 	ContextWindowTokens int
 	ContextWarnRatio    float64
 	Sessions            *session.Manager
-	MainDefaultSink     Sink
+	DefaultSinkFor      func(sessionKey string) Sink
 	HealthChannels      *tools.HealthChannelsInfo
 }
 
@@ -65,7 +65,7 @@ type Thread struct {
 
 	mu          sync.Mutex
 	hooks       []turnHook
-	defaultSink Sink // Fallback sink set at creation for "main" thread only.
+	defaultSink Sink // Fallback sink when WakeMessage.Sink is nil.
 }
 
 // cfg returns the shared config from the manager.

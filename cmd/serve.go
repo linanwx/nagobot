@@ -88,8 +88,8 @@ func runServe(cmd *cobra.Command, args []string) error {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	// Set default sink for the "main" thread: telegram (admin) -> cli.
-	threadMgr.SetMainDefaultSink(buildDefaultSink(chManager, cfg))
+	// Set default sink factory: resolves fallback sink per session key.
+	threadMgr.SetDefaultSinkFor(buildDefaultSinkFor(chManager, cfg))
 
 	// Register shared tools.
 	threadMgr.RegisterTool(tools.NewWakeThreadTool(threadMgr))
@@ -124,30 +124,47 @@ func runServe(cmd *cobra.Command, args []string) error {
 	return nil
 }
 
-// buildDefaultSink creates a fallback sink for the "main" thread: telegram (admin) -> cli.
-func buildDefaultSink(chMgr *channel.Manager, cfg *config.Config) thread.Sink {
+// buildDefaultSinkFor returns a factory that resolves the fallback sink for a given session key.
+func buildDefaultSinkFor(chMgr *channel.Manager, cfg *config.Config) func(string) thread.Sink {
 	adminID := strings.TrimSpace(cfg.GetAdminUserID())
 
-	if _, ok := chMgr.Get("telegram"); ok && adminID != "" {
-		return func(ctx context.Context, response string) error {
-			if strings.TrimSpace(response) == "" {
-				return nil
+	return func(sessionKey string) thread.Sink {
+		// telegram:{userID} → send to that user.
+		if strings.HasPrefix(sessionKey, "telegram:") {
+			userID := strings.TrimPrefix(sessionKey, "telegram:")
+			if userID != "" {
+				return func(ctx context.Context, response string) error {
+					if strings.TrimSpace(response) == "" {
+						return nil
+					}
+					return chMgr.SendTo(ctx, "telegram", response, userID)
+				}
 			}
-			return chMgr.SendTo(ctx, "telegram", response, adminID)
 		}
-	}
 
-	if _, ok := chMgr.Get("cli"); ok {
-		return func(ctx context.Context, response string) error {
-			if strings.TrimSpace(response) == "" {
-				return nil
+		// "main" → telegram admin > cli.
+		if sessionKey == "main" {
+			if _, ok := chMgr.Get("telegram"); ok && adminID != "" {
+				return func(ctx context.Context, response string) error {
+					if strings.TrimSpace(response) == "" {
+						return nil
+					}
+					return chMgr.SendTo(ctx, "telegram", response, adminID)
+				}
 			}
-			fmt.Println(response)
-			return nil
+			if _, ok := chMgr.Get("cli"); ok {
+				return func(ctx context.Context, response string) error {
+					if strings.TrimSpace(response) == "" {
+						return nil
+					}
+					fmt.Println(response)
+					return nil
+				}
+			}
 		}
-	}
 
-	return nil
+		return nil
+	}
 }
 
 func resolveServeTargets(cmd *cobra.Command) (finalServeCLI, finalServeTelegram, finalServeWeb bool, err error) {
