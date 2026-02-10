@@ -14,29 +14,24 @@ This project is evolving rapidly.
 
 ## Features
 
-- Providers: `openrouter`, `anthropic`, `deepseek`, `moonshot-cn`, `moonshot-global`
+- Providers: `deepseek`, `openrouter`, `anthropic`, `moonshot-cn`, `moonshot-global`
 - Tools
 - Skills
 - Agent
 - Cron
 - Async
 - Multi Thread
-
 - Web search
 
 ## Supported Providers and Model Types
 
 `nagobot` enforces a model whitelist. Only validated provider/model pairs are supported:
 
-Default recommendation (unless you need a specific vendor): `provider=deepseek`, `modelType=deepseek-reasoner`.
-
 - `deepseek`: `deepseek-reasoner`, `deepseek-chat` (recommended default)
 - `openrouter`: `moonshotai/kimi-k2.5`
 - `anthropic`: `claude-sonnet-4-5`, `claude-opus-4-6`
 - `moonshot-cn`: `kimi-k2.5`
 - `moonshot-global`: `kimi-k2.5`
-
-For OpenRouter, support is currently **whitelist-only**. Only verified model routes are treated as supported. In particular, reasoning/chain-of-thought behavior and tool-calling are guaranteed only for validated routes.
 
 ## Requirements
 
@@ -50,58 +45,24 @@ go build -o nagobot .
 
 ## Quick Start
 
-1. Initialize config and workspace:
+1. Run the interactive setup wizard:
 
 ```bash
 ./nagobot onboard
 ```
 
-2. Edit config (default: `~/.nagobot/config.yaml`) and set your API key.
-If you don't have a provider preference, start with `deepseek-reasoner` (it offers good performance and low cost, with a low startup charge starting from about 2 dollars).
+The wizard will guide you through provider selection, API key setup, and optional Telegram configuration.
 
-### Provider Config Examples
-
-DeepSeek config example:
-
-```yaml
-thread:
-  provider: deepseek
-  modelType: deepseek-reasoner
-
-providers:
-  deepseek:
-    apiKey: sk-xxx # get via platform.deepseek.com
-    # apiBase: https://api.deepseek.com # optional
-```
-
-Other provider config examples: [docs/provider.md](docs/provider.md)
-
-3. Start service:
+2. Start the service:
 
 ```bash
 ./nagobot serve
 ```
 
-## Channels (`serve`)
+## Documentation
 
-```bash
-# CLI (default)
-./nagobot serve
-
-# Enable all configured channels, including Telegram
-./nagobot serve --all
-```
-
-Telegram config example (token redacted):
-
-```yaml
-channels:
-  adminUserID: "1234567890" # Optional: open @userinfobot in Telegram, send /start, and paste your user ID here
-  telegram:
-    token: "1234567890:AA***************" # Open @BotFather in Telegram, run /newbot, and paste the generated token here
-    allowedIds:
-      - 1234567890 # Open @userinfobot in Telegram, send /start, and paste allowed user IDs here
-```
+- [Provider config examples](docs/provider.md)
+- [Channels (Telegram, Web, CLI)](docs/channels.md)
 
 ## Play
 

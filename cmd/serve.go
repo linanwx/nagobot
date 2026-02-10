@@ -25,16 +25,16 @@ Supported channels:
   - web: Browser chat UI (http + websocket)
 
 Examples:
-  nagobot serve              # Start with CLI channel
-  nagobot serve --telegram   # Start with Telegram bot
-  nagobot serve --web        # Start Web chat channel
-  nagobot serve --all        # Start all configured channels`,
+  nagobot serve              # Start all configured channels (default)
+  nagobot serve --cli        # Start with CLI channel only
+  nagobot serve --telegram   # Start with Telegram bot only
+  nagobot serve --web        # Start Web chat channel only`,
 	RunE: runServe,
 }
 
 var (
 	serveTelegram bool
-	serveAll      bool
+
 	serveCLI      bool
 	serveWeb      bool
 )
@@ -42,7 +42,7 @@ var (
 func init() {
 	serveCmd.Flags().BoolVar(&serveTelegram, "telegram", false, "Enable Telegram bot channel")
 	serveCmd.Flags().BoolVar(&serveWeb, "web", false, "Enable Web chat channel")
-	serveCmd.Flags().BoolVar(&serveAll, "all", false, "Enable all configured channels")
+
 	serveCmd.Flags().BoolVar(&serveCLI, "cli", true, "Enable CLI channel (default: true)")
 	rootCmd.AddCommand(serveCmd)
 }
@@ -116,18 +116,14 @@ func resolveServeTargets(cmd *cobra.Command) (finalServeCLI, finalServeTelegram,
 	if cmd == nil {
 		return false, false, false, fmt.Errorf("serve command is nil")
 	}
-	if serveAll {
-		return true, true, true, nil
-	}
-
 	flags := cmd.Flags()
 	cliChanged := flags.Changed("cli")
 	telegramChanged := flags.Changed("telegram")
 	webChanged := flags.Changed("web")
 
-	// No explicit channel flags -> default to CLI only.
+	// No explicit channel flags -> default to all channels.
 	if !cliChanged && !telegramChanged && !webChanged {
-		return true, false, false, nil
+		return true, true, true, nil
 	}
 
 	// Any explicit channel flag -> use explicit switches only.

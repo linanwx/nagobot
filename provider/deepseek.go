@@ -19,7 +19,7 @@ const (
 
 func init() {
 	RegisterProvider("deepseek", ProviderRegistration{
-		Models:  []string{"deepseek-chat", "deepseek-reasoner"},
+		Models:  []string{"deepseek-reasoner", "deepseek-chat"},
 		EnvKey:  "DEEPSEEK_API_KEY",
 		EnvBase: "DEEPSEEK_API_BASE",
 		Constructor: func(apiKey, apiBase, modelType, modelName string, maxTokens int, temperature float64) Provider {
