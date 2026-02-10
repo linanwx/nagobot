@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/linanwx/nagobot/channel"
 	"github.com/linanwx/nagobot/config"
@@ -106,8 +107,12 @@ func (d *Dispatcher) route(msg *channel.Message) string {
 		if jobID == "" {
 			jobID = "job"
 		}
-		now := strings.ReplaceAll(msg.ID, "cron-"+jobID+"-", "")
-		return fmt.Sprintf("cron:%s:%s", jobID, now)
+		datePart := time.Now().Format("2006-01-02")
+		suffix := thread.RandomHex(4)
+		if suffix == "" {
+			suffix = fmt.Sprintf("%d", time.Now().UnixNano())
+		}
+		return fmt.Sprintf("cron:%s:%s-%s", jobID, datePart, suffix)
 	}
 
 	sessionKey := msg.ChannelID

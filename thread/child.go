@@ -63,13 +63,12 @@ func (t *Thread) generateChildSessionKey() string {
 		parent = "main"
 	}
 
-	now := time.Now().UTC()
-	datePart := now.Format("2006-01-02")
-	timePart := now.Format("20060102T150405Z")
-	if suffix := RandomHex(4); suffix != "" {
-		return fmt.Sprintf("%s:threads:%s:%s-%s", parent, datePart, timePart, suffix)
+	datePart := time.Now().Format("2006-01-02")
+	suffix := RandomHex(4)
+	if suffix == "" {
+		suffix = fmt.Sprintf("%d", time.Now().UnixNano())
 	}
-	return fmt.Sprintf("%s:threads:%s:%d", parent, datePart, now.UnixNano())
+	return fmt.Sprintf("%s:threads:%s-%s", parent, datePart, suffix)
 }
 
 // RandomHex returns a random lowercase hex string of length n*2.
