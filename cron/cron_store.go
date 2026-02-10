@@ -10,11 +10,10 @@ import (
 	"sort"
 )
 
-func (s *Scheduler) readStore() ([]Job, error) {
-	if s.storePath == "" {
-		return nil, nil
-	}
-	f, err := os.Open(s.storePath)
+// ReadJobs reads all jobs from a JSONL file.
+// Returns nil slice (not error) if the file does not exist.
+func ReadJobs(path string) ([]Job, error) {
+	f, err := os.Open(path)
 	if err != nil {
 		if errors.Is(err, os.ErrNotExist) {
 			return nil, nil
@@ -39,19 +38,15 @@ func (s *Scheduler) readStore() ([]Job, error) {
 	return list, scanner.Err()
 }
 
-func (s *Scheduler) saveLocked() error {
-	if s.storePath == "" {
-		return nil
-	}
-
-	list := make([]Job, 0, len(s.jobs))
-	for _, job := range s.jobs {
-		list = append(list, job)
-	}
-	sort.Slice(list, func(i, j int) bool { return list[i].ID < list[j].ID })
+// WriteJobs writes jobs to a JSONL file atomically (tmp + rename).
+// Jobs are sorted by ID before writing.
+func WriteJobs(path string, jobs []Job) error {
+	sorted := make([]Job, len(jobs))
+	copy(sorted, jobs)
+	sort.Slice(sorted, func(i, j int) bool { return sorted[i].ID < sorted[j].ID })
 
 	var buf bytes.Buffer
-	for _, job := range list {
+	for _, job := range sorted {
 		data, err := json.Marshal(job)
 		if err != nil {
 			return err
@@ -60,12 +55,30 @@ func (s *Scheduler) saveLocked() error {
 		buf.WriteByte('\n')
 	}
 
-	if err := os.MkdirAll(filepath.Dir(s.storePath), 0o755); err != nil {
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		return err
 	}
-	tmp := s.storePath + ".tmp"
+	tmp := path + ".tmp"
 	if err := os.WriteFile(tmp, buf.Bytes(), 0o644); err != nil {
 		return err
 	}
-	return os.Rename(tmp, s.storePath)
+	return os.Rename(tmp, path)
+}
+
+func (s *Scheduler) readStore() ([]Job, error) {
+	if s.storePath == "" {
+		return nil, nil
+	}
+	return ReadJobs(s.storePath)
+}
+
+func (s *Scheduler) saveLocked() error {
+	if s.storePath == "" {
+		return nil
+	}
+	list := make([]Job, 0, len(s.jobs))
+	for _, job := range s.jobs {
+		list = append(list, job)
+	}
+	return WriteJobs(s.storePath, list)
 }

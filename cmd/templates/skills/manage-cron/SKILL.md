@@ -1,53 +1,70 @@
 ---
 name: manage-cron
-description: Use this skill when you need to inspect, read, create, update, or delete scheduled cron jobs, including recurring and one-time tasks, under the project root path.
+description: Manage scheduled cron jobs (create, update, remove, list).
 ---
-# Manage Cron via File Editing
+# Manage Cron Jobs
 
-Use this skill to manage scheduled jobs by editing `{{WORKSPACE}}/cron.jsonl`.
+## Workflow
 
-## File Schema
+1. **Add/update a recurring job**:
+   ```
+   exec: {{WORKSPACE}}/bin/nagobot cron set-cron --id <id> --expr "<cron-expr>" --task "<task>" [--agent <name>] [--creator-session-key <key>] [--silent]
+   ```
+2. **Add/update a one-time job**:
+   ```
+   exec: {{WORKSPACE}}/bin/nagobot cron set-at --id <id> --at "<RFC3339>" --task "<task>" [--agent <name>] [--creator-session-key <key>] [--silent]
+   ```
+3. **Remove jobs**:
+   ```
+   exec: {{WORKSPACE}}/bin/nagobot cron remove <id1> [id2...]
+   ```
+4. **List jobs**:
+   ```
+   exec: {{WORKSPACE}}/bin/nagobot cron list
+   ```
 
-`cron.jsonl` is a JSONL file (one JSON object per line):
+Using the same `--id` with `set-cron` or `set-at` will update (upsert) the existing job.
 
-```jsonl
-{"id":"daily-summary","kind":"cron","expr":"0 9 * * *","task":"Prepare a daily operational summary from recent session activity. Include completed items, unresolved blockers, risk signals, and top priorities for the next cycle. Keep it concise, actionable, and reference key files or commands when relevant.","agent":"GENERAL","creator_session_key":"main","created_at":"2026-02-07T09:00:00Z"}
-```
+## Flag Reference
 
-Fields:
-- `id`: unique job id.
-- `kind`: `cron` or `at`.
-- `expr`: required when `kind=cron`.
-- `at_time`: required when `kind=at` (RFC3339 with timezone, e.g. `2026-02-07T15:04:05+08:00`).
-- `task`: Detailed instructions (prompt content) describing exactly what the child thread should do. For test scenarios, use explicit low-risk wording such as: "You are running a test task. Do not perform external actions. Output only: task completed." For non-test scenarios, include objective, scope, constraints, expected output format, and completion criteria. Keep the content sufficiently detailed (at least ~100 characters; around ~800 is recommended). Prompts that are too short can cause execution failure.
-- `agent`: optional agent template name from `agents/*.md`.
-- `creator_session_key`: session key to wake when `silent=false`.
-- `silent`: `true` means no wake/push; `false` means wake creator session with result.
-- `created_at`: creation timestamp in RFC3339.
-
-## Cron Expression Notes
-
-For `kind=cron`, use standard 5-field cron:
-- `min hour day month weekday`
-- example: `0 9 * * *` (every day 09:00)
-
-## Operating Procedure
-
-1. Check whether `{{WORKSPACE}}/cron.jsonl` exists, and create it if it does not.
-2. To add a job, use `append_file` to append a single JSON line. Each line must be a complete JSON object ending with a newline.
-3. To remove or update a job, use `read_file` to find the line, then `edit_file` to replace or delete it.
-4. Call `health` to confirm the cron job appears in runtime status; if it does not, investigate and fix it.
+- `--id`: unique job identifier (required).
+- `--expr`: 5-field cron expression, e.g. `"0 9 * * *"` (required for set-cron).
+- `--at`: execution time in RFC3339, e.g. `"2026-02-07T18:30:00+08:00"` (required for set-at).
+- `--task`: detailed instructions for the child thread. Include objective, scope, constraints, and expected output. ~100–800 characters recommended. Wrap in double quotes; escape inner double quotes with `\"`.
+- `--agent`: optional agent template name from `agents/*.md`.
+- `--creator-session-key`: session key to wake with result when job completes (omit or leave empty for no wake).
+- `--silent`: suppress result delivery entirely.
 
 ## Examples
 
-Add one recurring job (append a single line):
+Add a daily summary job at 09:00:
+```
+{{WORKSPACE}}/bin/nagobot cron set-cron --id daily-summary --expr "0 9 * * *" --task "Review recent session activity and produce a daily summary: completed work, pending actions, immediate next steps. Highlight blockers and reference key files." --agent GENERAL --creator-session-key main
+```
 
+Add a one-time cleanup job:
 ```
-{"id":"daily-summary","kind":"cron","expr":"0 9 * * *","task":"Review recent execution logs and session updates, then produce a daily summary with three sections: (1) completed work, (2) pending actions, and (3) immediate next steps. Highlight blockers, owner assumptions, and any commands or files that require follow-up.","agent":"GENERAL","creator_session_key":"main","created_at":"2026-02-07T09:00:00Z"}
+{{WORKSPACE}}/bin/nagobot cron set-at --id one-shot-cleanup --at "2026-02-10T18:30:00+08:00" --task "Clean up stale temp artifacts under the project root. Remove only known temp outputs and cache leftovers, keep source files untouched. Output a short report of what was deleted." --agent GENERAL --silent
 ```
 
-Add one one-time job (append a single line):
+Update an existing job (same `--id` overwrites):
+```
+{{WORKSPACE}}/bin/nagobot cron set-cron --id daily-summary --expr "0 8 * * 1-5" --task "Weekday morning briefing: summarize overnight changes, open issues, and today's priorities." --agent GENERAL --creator-session-key main
+```
 
+Remove jobs:
 ```
-{"id":"one-shot-cleanup","kind":"at","at_time":"2026-02-07T18:30:00+08:00","task":"Run a one-time cleanup for stale temporary artifacts under the project root path. Remove only known temp outputs and cache leftovers, keep source files untouched, and finish with a short report that lists what was deleted and what was skipped.","agent":"GENERAL","creator_session_key":"main","silent":true,"created_at":"2026-02-07T10:00:00Z"}
+{{WORKSPACE}}/bin/nagobot cron remove daily-summary one-shot-cleanup
 ```
+
+List all jobs:
+```
+{{WORKSPACE}}/bin/nagobot cron list
+```
+
+## Cron Expression Notes
+
+Standard 5-field: `min hour day month weekday`
+- `0 9 * * *` — every day at 09:00
+- `*/15 * * * *` — every 15 minutes
+- `0 9 * * 1-5` — weekdays at 09:00

@@ -5,7 +5,7 @@ import (
 	"time"
 )
 
-func validateStored(job Job, now time.Time) (ok bool, expiredAt bool) {
+func ValidateStored(job Job, now time.Time) (ok bool, expiredAt bool) {
 	if job.ID == "" || job.Task == "" {
 		return false, false
 	}
@@ -24,7 +24,7 @@ func validateStored(job Job, now time.Time) (ok bool, expiredAt bool) {
 	return false, false
 }
 
-func normalize(job Job) Job {
+func Normalize(job Job) Job {
 	job.ID = strings.TrimSpace(job.ID)
 	job.Kind = strings.ToLower(strings.TrimSpace(job.Kind))
 	job.Expr = strings.TrimSpace(job.Expr)

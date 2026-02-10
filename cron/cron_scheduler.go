@@ -21,8 +21,8 @@ func (s *Scheduler) Load() error {
 	now := time.Now().UTC()
 	dirty := false
 	for _, raw := range list {
-		job := normalize(raw)
-		ok, expired := validateStored(job, now)
+		job := Normalize(raw)
+		ok, expired := ValidateStored(job, now)
 		if !ok {
 			if expired {
 				dirty = true
