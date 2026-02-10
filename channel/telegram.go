@@ -15,7 +15,7 @@ import (
 const (
 	telegramMessageBufferSize    = 100
 	telegramUpdateTimeoutSeconds = 30
-	telegramMaxMessageLength     = 4096
+	TelegramMaxMessageLength     = 4096
 )
 
 // TelegramChannel implements the Channel interface for Telegram.
@@ -107,7 +107,7 @@ func (t *TelegramChannel) Send(ctx context.Context, resp *Response) error {
 	}
 
 	// Split long messages
-	messages := splitMessage(resp.Text, telegramMaxMessageLength)
+	messages := SplitMessage(resp.Text, TelegramMaxMessageLength)
 
 	for _, chunk := range messages {
 		htmlChunk := tgmd.Convert(chunk)

@@ -133,8 +133,8 @@ func (t *TelegramChannel) getFileURL(fileID string) string {
 	return file.Link(t.token)
 }
 
-// splitMessage splits a long message into chunks.
-func splitMessage(text string, maxLen int) []string {
+// SplitMessage splits a long message into chunks.
+func SplitMessage(text string, maxLen int) []string {
 	if len(text) <= maxLen {
 		return []string{text}
 	}

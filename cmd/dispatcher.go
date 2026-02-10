@@ -107,12 +107,12 @@ func (d *Dispatcher) route(msg *channel.Message) string {
 		if jobID == "" {
 			jobID = "job"
 		}
-		datePart := time.Now().Format("2006-01-02")
+		timePart := time.Now().Local().Format("2006-01-02-15-04-05")
 		suffix := thread.RandomHex(4)
 		if suffix == "" {
 			suffix = fmt.Sprintf("%d", time.Now().UnixNano())
 		}
-		return fmt.Sprintf("cron:%s:%s-%s", jobID, datePart, suffix)
+		return fmt.Sprintf("cron:%s:%s-%s", jobID, timePart, suffix)
 	}
 
 	sessionKey := msg.ChannelID
