@@ -8,6 +8,7 @@ import (
 
 	healthsnap "github.com/linanwx/nagobot/internal/health"
 	"github.com/linanwx/nagobot/provider"
+	"gopkg.in/yaml.v3"
 )
 
 // HealthRuntimeContext is thread/session metadata injected at runtime.
@@ -42,8 +43,8 @@ func (t *HealthTool) Def() provider.ToolDef {
 				"properties": map[string]any{
 					"format": map[string]any{
 						"type":        "string",
-						"description": "Optional output format: 'json' or 'text'. Defaults to 'json'.",
-						"enum":        []string{"json", "text"},
+						"description": "Output format. Defaults to 'yaml'.",
+						"enum":        []string{"yaml", "json"},
 					},
 				},
 			},
@@ -87,11 +88,16 @@ func (t *HealthTool) Run(ctx context.Context, args json.RawMessage) string {
 		TreeDepth:      treeDepth,
 		TreeMaxEntries: treeMaxEntries,
 	})
-	if strings.EqualFold(a.Format, "text") {
-		return healthsnap.FormatText(snapshot)
+
+	if strings.EqualFold(a.Format, "json") {
+		data, err := json.MarshalIndent(snapshot, "", "  ")
+		if err != nil {
+			return fmt.Sprintf("Error: failed to serialize health snapshot: %v", err)
+		}
+		return string(data)
 	}
 
-	data, err := json.MarshalIndent(snapshot, "", "  ")
+	data, err := yaml.Marshal(snapshot)
 	if err != nil {
 		return fmt.Sprintf("Error: failed to serialize health snapshot: %v", err)
 	}

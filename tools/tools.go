@@ -3,6 +3,8 @@ package tools
 
 import (
 	"context"
+	"crypto/rand"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -13,9 +15,13 @@ import (
 
 	"github.com/linanwx/nagobot/logger"
 	"github.com/linanwx/nagobot/provider"
+	"gopkg.in/yaml.v3"
 )
 
-const toolResultMaxChars = 100000
+const (
+	toolResultMaxChars  = 100000
+	toolLogMaxChars     = 50000
+)
 
 // Tool is the interface for agent tools.
 type Tool interface {
@@ -35,7 +41,8 @@ func parseArgs[T any](args json.RawMessage, target *T) string {
 
 // Registry holds registered tools.
 type Registry struct {
-	tools map[string]Tool
+	tools   map[string]Tool
+	logsDir string
 }
 
 // DefaultToolsConfig provides defaults for built-in tools.
@@ -53,9 +60,15 @@ func NewRegistry() *Registry {
 	}
 }
 
+// SetLogsDir sets the directory for tool call log files.
+func (r *Registry) SetLogsDir(dir string) {
+	r.logsDir = strings.TrimSpace(dir)
+}
+
 // Clone returns a shallow copy of the registry.
 func (r *Registry) Clone() *Registry {
 	cloned := NewRegistry()
+	cloned.logsDir = r.logsDir
 	for name, tool := range r.tools {
 		cloned.tools[name] = tool
 	}
@@ -95,6 +108,7 @@ func (r *Registry) Run(ctx context.Context, name string, args json.RawMessage) s
 	}
 
 	result := t.Run(ctx, args)
+	latency := time.Since(start)
 	originalChars := len(result)
 	result, truncated := truncateWithNotice(result, toolResultMaxChars)
 	okResult := !strings.HasPrefix(result, "Error:")
@@ -105,8 +119,13 @@ func (r *Registry) Run(ctx context.Context, name string, args json.RawMessage) s
 		"truncated", truncated,
 		"resultChars", len(result),
 		"originalChars", originalChars,
-		"latencyMs", time.Since(start).Milliseconds(),
+		"latencyMs", latency.Milliseconds(),
 	)
+
+	if r.logsDir != "" {
+		go r.writeToolLog(name, args, result, start, latency, okResult)
+	}
+
 	return result
 }
 
@@ -153,4 +172,59 @@ func resolveToolPath(path, workspace string) string {
 		return path
 	}
 	return filepath.Join(workspace, path)
+}
+
+func (r *Registry) writeToolLog(name string, args json.RawMessage, result string, start time.Time, latency time.Duration, ok bool) {
+	if err := os.MkdirAll(r.logsDir, 0755); err != nil {
+		logger.Warn("failed to create tool logs dir", "dir", r.logsDir, "err", err)
+		return
+	}
+
+	suffix := randomHex(3)
+	fileName := fmt.Sprintf("%s-%s-%s.md", start.Format("2006-01-02"), name, suffix)
+
+	status := "ok"
+	if !ok {
+		status = "error"
+	}
+
+	logResult := result
+	if len(logResult) > toolLogMaxChars {
+		logResult = logResult[:toolLogMaxChars] + "\n\n...(truncated)"
+	}
+
+	var sb strings.Builder
+	sb.WriteString(fmt.Sprintf("# %s\n\n", name))
+	sb.WriteString(fmt.Sprintf("- **Time**: %s\n", start.Format("2006-01-02 15:04:05")))
+	sb.WriteString(fmt.Sprintf("- **Latency**: %dms\n", latency.Milliseconds()))
+	sb.WriteString(fmt.Sprintf("- **Status**: %s\n", status))
+	sb.WriteString("\n## Request\n\n")
+	sb.WriteString(formatArgsReadable(args))
+	sb.WriteString("\n## Response\n\n")
+	sb.WriteString(logResult)
+	sb.WriteByte('\n')
+
+	if err := os.WriteFile(filepath.Join(r.logsDir, fileName), []byte(sb.String()), 0644); err != nil {
+		logger.Warn("failed to write tool log", "file", fileName, "err", err)
+	}
+}
+
+func formatArgsReadable(args json.RawMessage) string {
+	var m map[string]any
+	if err := json.Unmarshal(args, &m); err != nil || len(m) == 0 {
+		return "(none)\n"
+	}
+	data, err := yaml.Marshal(m)
+	if err != nil {
+		return string(args) + "\n"
+	}
+	return "```yaml\n" + string(data) + "```\n"
+}
+
+func randomHex(n int) string {
+	buf := make([]byte, n)
+	if _, err := rand.Read(buf); err != nil {
+		return fmt.Sprintf("%d", time.Now().UnixNano()%1000000)
+	}
+	return hex.EncodeToString(buf)
 }

@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"fmt"
+	"path/filepath"
 
 	"github.com/linanwx/nagobot/agent"
 	"github.com/linanwx/nagobot/config"
@@ -47,6 +48,7 @@ func buildThreadManager(cfg *config.Config, enableSessions bool) (*thread.Manage
 	}
 
 	toolRegistry := tools.NewRegistry()
+	toolRegistry.SetLogsDir(filepath.Join(workspace, "logs", "tool_calls"))
 	toolRegistry.RegisterDefaultTools(workspace, tools.DefaultToolsConfig{
 		ExecTimeout:         cfg.GetExecTimeout(),
 		WebSearchMaxResults: cfg.GetWebSearchMaxResults(),
