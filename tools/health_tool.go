@@ -104,7 +104,7 @@ func (t *HealthTool) Run(ctx context.Context, args json.RawMessage) string {
 	})
 
 	if t.ThreadsListFn != nil {
-		snapshot.ActiveThreads = t.ThreadsListFn()
+		snapshot.AllThreads = t.ThreadsListFn()
 	}
 
 	if strings.EqualFold(a.Format, "json") {

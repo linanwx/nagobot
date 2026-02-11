@@ -22,7 +22,7 @@ type Snapshot struct {
 	Sessions      *SessionsInfo  `json:"sessions,omitempty" yaml:"sessions,omitempty"`
 	Channels      *ChannelsInfo   `json:"channels,omitempty" yaml:"channels,omitempty"`
 	Cron          *CronInfo      `json:"cron,omitempty" yaml:"cron,omitempty"`
-	ActiveThreads []msg.ThreadInfo `json:"activeThreads,omitempty" yaml:"active_threads,omitempty"`
+	AllThreads []msg.ThreadInfo `json:"allThreads,omitempty" yaml:"all_threads,omitempty"`
 	WorkspaceTree *WorkspaceTree  `json:"workspaceTree,omitempty" yaml:"workspace_tree,omitempty"`
 }
 
