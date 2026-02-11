@@ -26,25 +26,28 @@ var serveCmd = &cobra.Command{
 Supported channels:
   - cli: Interactive command line (default)
   - telegram: Telegram bot (requires TELEGRAM_BOT_TOKEN)
+  - feishu: Feishu (Lark) bot (requires FEISHU_APP_ID + FEISHU_APP_SECRET)
   - web: Browser chat UI (http + websocket)
 
 Examples:
   nagobot serve              # Start all configured channels (default)
   nagobot serve --cli        # Start with CLI channel only
   nagobot serve --telegram   # Start with Telegram bot only
+  nagobot serve --feishu     # Start with Feishu bot only
   nagobot serve --web        # Start Web chat channel only`,
 	RunE: runServe,
 }
 
 var (
 	serveTelegram bool
-
-	serveCLI bool
-	serveWeb bool
+	serveFeishu   bool
+	serveCLI      bool
+	serveWeb      bool
 )
 
 func init() {
 	serveCmd.Flags().BoolVar(&serveTelegram, "telegram", false, "Enable Telegram bot channel")
+	serveCmd.Flags().BoolVar(&serveFeishu, "feishu", false, "Enable Feishu (Lark) bot channel")
 	serveCmd.Flags().BoolVar(&serveWeb, "web", false, "Enable Web chat channel")
 
 	serveCmd.Flags().BoolVar(&serveCLI, "cli", true, "Enable CLI channel (default: true)")
@@ -69,7 +72,7 @@ func runServe(cmd *cobra.Command, args []string) error {
 	}
 	chManager := channel.NewManager()
 
-	finalServeCLI, finalServeTelegram, finalServeWeb, err := resolveServeTargets(cmd)
+	finalServeCLI, finalServeTelegram, finalServeFeishu, finalServeWeb, err := resolveServeTargets(cmd)
 	if err != nil {
 		return err
 	}
@@ -82,6 +85,9 @@ func runServe(cmd *cobra.Command, args []string) error {
 	}
 	if finalServeTelegram {
 		chManager.Register(channel.NewTelegramChannel(cfg))
+	}
+	if finalServeFeishu {
+		chManager.Register(channel.NewFeishuChannel(cfg))
 	}
 	chManager.Register(channel.NewCronChannel(cfg))
 
@@ -127,6 +133,7 @@ func runServe(cmd *cobra.Command, args []string) error {
 // buildDefaultSinkFor returns a factory that resolves the fallback sink for a given session key.
 func buildDefaultSinkFor(chMgr *channel.Manager, cfg *config.Config) func(string) thread.Sink {
 	adminID := strings.TrimSpace(cfg.GetAdminUserID())
+	feishuAdminID := strings.TrimSpace(cfg.GetFeishuAdminOpenID())
 
 	return func(sessionKey string) thread.Sink {
 		// telegram:{userID} → send to that user.
@@ -145,7 +152,23 @@ func buildDefaultSinkFor(chMgr *channel.Manager, cfg *config.Config) func(string
 			}
 		}
 
-		// "main" → telegram admin > cli.
+		// feishu:{openID} → send to that user via feishu.
+		if strings.HasPrefix(sessionKey, "feishu:") {
+			openID := strings.TrimPrefix(sessionKey, "feishu:")
+			if openID != "" {
+				return thread.Sink{
+					Label: "your response will be sent to feishu user " + openID,
+					Send: func(ctx context.Context, response string) error {
+						if strings.TrimSpace(response) == "" {
+							return nil
+						}
+						return chMgr.SendTo(ctx, "feishu", response, "p2p:"+openID)
+					},
+				}
+			}
+		}
+
+		// "main" → telegram admin > feishu admin > cli.
 		if sessionKey == "main" {
 			if _, ok := chMgr.Get("telegram"); ok && adminID != "" {
 				return thread.Sink{
@@ -155,6 +178,17 @@ func buildDefaultSinkFor(chMgr *channel.Manager, cfg *config.Config) func(string
 							return nil
 						}
 						return chMgr.SendTo(ctx, "telegram", response, adminID)
+					},
+				}
+			}
+			if _, ok := chMgr.Get("feishu"); ok && feishuAdminID != "" {
+				return thread.Sink{
+					Label: "your response will be sent to feishu admin",
+					Send: func(ctx context.Context, response string) error {
+						if strings.TrimSpace(response) == "" {
+							return nil
+						}
+						return chMgr.SendTo(ctx, "feishu", response, "p2p:"+feishuAdminID)
 					},
 				}
 			}
@@ -176,18 +210,19 @@ func buildDefaultSinkFor(chMgr *channel.Manager, cfg *config.Config) func(string
 	}
 }
 
-func resolveServeTargets(cmd *cobra.Command) (finalServeCLI, finalServeTelegram, finalServeWeb bool, err error) {
+func resolveServeTargets(cmd *cobra.Command) (finalServeCLI, finalServeTelegram, finalServeFeishu, finalServeWeb bool, err error) {
 	if cmd == nil {
-		return false, false, false, fmt.Errorf("serve command is nil")
+		return false, false, false, false, fmt.Errorf("serve command is nil")
 	}
 	flags := cmd.Flags()
 	cliChanged := flags.Changed("cli")
 	telegramChanged := flags.Changed("telegram")
+	feishuChanged := flags.Changed("feishu")
 	webChanged := flags.Changed("web")
 
 	// No explicit channel flags -> default to all channels.
-	if !cliChanged && !telegramChanged && !webChanged {
-		return true, true, true, nil
+	if !cliChanged && !telegramChanged && !feishuChanged && !webChanged {
+		return true, true, true, true, nil
 	}
 
 	// Any explicit channel flag -> use explicit switches only.
@@ -197,14 +232,17 @@ func resolveServeTargets(cmd *cobra.Command) (finalServeCLI, finalServeTelegram,
 	if telegramChanged {
 		finalServeTelegram = serveTelegram
 	}
+	if feishuChanged {
+		finalServeFeishu = serveFeishu
+	}
 	if webChanged {
 		finalServeWeb = serveWeb
 	}
 
-	if !finalServeCLI && !finalServeTelegram && !finalServeWeb {
-		return false, false, false, fmt.Errorf("no channels enabled; use --cli, --telegram, --web, or --all")
+	if !finalServeCLI && !finalServeTelegram && !finalServeFeishu && !finalServeWeb {
+		return false, false, false, false, fmt.Errorf("no channels enabled; use --cli, --telegram, --feishu, --web, or --all")
 	}
-	return finalServeCLI, finalServeTelegram, finalServeWeb, nil
+	return finalServeCLI, finalServeTelegram, finalServeFeishu, finalServeWeb, nil
 }
 
 // installBinary copies the running executable to workspace/bin/nagobot.

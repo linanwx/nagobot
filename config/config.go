@@ -87,6 +87,7 @@ type ChannelsConfig struct {
 	AdminUserID string                 `json:"adminUserID" yaml:"adminUserID"`                   // Cross-channel admin user id for shared "main" session
 	UserAgents  map[string]string      `json:"userAgents,omitempty" yaml:"userAgents,omitempty"` // userID → default agent name
 	Telegram    *TelegramChannelConfig `json:"telegram" yaml:"telegram"`
+	Feishu      *FeishuChannelConfig   `json:"feishu,omitempty" yaml:"feishu,omitempty"`
 	Web         *WebChannelConfig      `json:"web,omitempty" yaml:"web,omitempty"`
 }
 
@@ -94,6 +95,16 @@ type ChannelsConfig struct {
 type TelegramChannelConfig struct {
 	Token      string  `json:"token" yaml:"token"`           // Bot token from BotFather
 	AllowedIDs []int64 `json:"allowedIds" yaml:"allowedIds"` // Allowed user/chat IDs
+}
+
+// FeishuChannelConfig contains Feishu (Lark) bot configuration.
+type FeishuChannelConfig struct {
+	AppID             string `json:"appId" yaml:"appId"`
+	AppSecret         string `json:"appSecret" yaml:"appSecret"`
+	VerificationToken string `json:"verificationToken,omitempty" yaml:"verificationToken,omitempty"`
+	EncryptKey        string `json:"encryptKey,omitempty" yaml:"encryptKey,omitempty"`
+	WebhookAddr       string `json:"webhookAddr,omitempty" yaml:"webhookAddr,omitempty"` // default: 127.0.0.1:9090
+	AdminOpenID       string `json:"adminOpenId,omitempty" yaml:"adminOpenId,omitempty"`
 }
 
 // WebChannelConfig contains Web chat configuration.

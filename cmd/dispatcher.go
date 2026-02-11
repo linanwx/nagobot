@@ -101,6 +101,18 @@ func (d *Dispatcher) route(msg *channel.Message) string {
 		return msg.ChannelID
 	}
 
+	if strings.HasPrefix(msg.ChannelID, "feishu:") {
+		userID := strings.TrimSpace(msg.UserID)
+		adminID := strings.TrimSpace(d.cfg.GetFeishuAdminOpenID())
+		if userID != "" && adminID != "" && userID == adminID {
+			return "main"
+		}
+		if userID != "" {
+			return "feishu:" + userID
+		}
+		return msg.ChannelID
+	}
+
 	if strings.HasPrefix(msg.ChannelID, "cron:") {
 		jobID := strings.TrimSpace(msg.Metadata["job_id"])
 		if jobID == "" {

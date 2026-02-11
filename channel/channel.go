@@ -96,6 +96,12 @@ func (m *Manager) StartAll(ctx context.Context) error {
 		}
 	}
 
+	if feishuCh, ok := m.channels["feishu"]; ok {
+		if err := feishuCh.Start(ctx); err != nil {
+			return err
+		}
+	}
+
 	if cliCh, ok := m.channels["cli"]; ok {
 		if hasTelegram {
 			time.Sleep(1 * time.Second)
@@ -107,7 +113,7 @@ func (m *Manager) StartAll(ctx context.Context) error {
 
 	// Start any remaining channels not handled above.
 	for name, ch := range m.channels {
-		if name == "web" || name == "telegram" || name == "cli" {
+		if name == "web" || name == "telegram" || name == "feishu" || name == "cli" {
 			continue
 		}
 		if err := ch.Start(ctx); err != nil {
