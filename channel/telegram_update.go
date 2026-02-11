@@ -92,6 +92,57 @@ func (t *TelegramChannel) processUpdate(update tgbotapi.Update) {
 		if text == "" {
 			text = "[Voice message received]"
 		}
+	case msg.Video != nil:
+		metadata["media_type"] = "video"
+		metadata["file_id"] = msg.Video.FileID
+		metadata["duration"] = strconv.Itoa(msg.Video.Duration)
+		if msg.Video.MimeType != "" {
+			metadata["mime_type"] = msg.Video.MimeType
+		}
+		if msg.Video.FileName != "" {
+			metadata["file_name"] = msg.Video.FileName
+		}
+		if text == "" {
+			text = msg.Caption
+		}
+		if text == "" {
+			text = "[Video received]"
+		}
+	case msg.VideoNote != nil:
+		metadata["media_type"] = "video_note"
+		metadata["file_id"] = msg.VideoNote.FileID
+		metadata["duration"] = strconv.Itoa(msg.VideoNote.Duration)
+		if text == "" {
+			text = "[Video note received]"
+		}
+	case msg.Audio != nil:
+		metadata["media_type"] = "audio"
+		metadata["file_id"] = msg.Audio.FileID
+		metadata["duration"] = strconv.Itoa(msg.Audio.Duration)
+		if msg.Audio.MimeType != "" {
+			metadata["mime_type"] = msg.Audio.MimeType
+		}
+		if msg.Audio.FileName != "" {
+			metadata["file_name"] = msg.Audio.FileName
+		}
+		if text == "" {
+			text = msg.Caption
+		}
+		if text == "" {
+			text = "[Audio received]"
+		}
+	case msg.Sticker != nil:
+		metadata["media_type"] = "sticker"
+		metadata["file_id"] = msg.Sticker.FileID
+		if msg.Sticker.Emoji != "" {
+			metadata["emoji"] = msg.Sticker.Emoji
+		}
+		if msg.Sticker.SetName != "" {
+			metadata["sticker_set"] = msg.Sticker.SetName
+		}
+		if text == "" {
+			text = "[Sticker received]"
+		}
 	}
 
 	// Skip empty messages (no text and no media)

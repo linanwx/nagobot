@@ -205,6 +205,17 @@ type feishuTextContent struct {
 	Text string `json:"text"`
 }
 
+// feishuImageContent is the JSON structure for image message content.
+type feishuImageContent struct {
+	ImageKey string `json:"image_key"`
+}
+
+// feishuFileContent is the JSON structure for file message content.
+type feishuFileContent struct {
+	FileKey  string `json:"file_key"`
+	FileName string `json:"file_name"`
+}
+
 // processMessageEvent extracts a message from a Feishu message event.
 func (f *FeishuChannel) processMessageEvent(event lark.EventV2) {
 	received, err := event.GetMessageReceived()
@@ -213,20 +224,47 @@ func (f *FeishuChannel) processMessageEvent(event lark.EventV2) {
 		return
 	}
 
-	// Only handle text messages for now.
-	if received.Message.MessageType != "text" {
-		logger.Debug("feishu ignoring non-text message", "type", received.Message.MessageType)
+	var text string
+	metadata := map[string]string{}
+
+	switch received.Message.MessageType {
+	case "text":
+		var content feishuTextContent
+		if err := json.Unmarshal([]byte(received.Message.Content), &content); err != nil {
+			logger.Error("feishu content parse error", "err", err)
+			return
+		}
+		text = strings.TrimSpace(content.Text)
+	case "image":
+		var content feishuImageContent
+		if err := json.Unmarshal([]byte(received.Message.Content), &content); err != nil {
+			logger.Error("feishu image content parse error", "err", err)
+			return
+		}
+		metadata["media_type"] = "image"
+		metadata["image_key"] = content.ImageKey
+		text = "[Image received]"
+	case "file":
+		var content feishuFileContent
+		if err := json.Unmarshal([]byte(received.Message.Content), &content); err != nil {
+			logger.Error("feishu file content parse error", "err", err)
+			return
+		}
+		metadata["media_type"] = "file"
+		metadata["file_key"] = content.FileKey
+		metadata["file_name"] = content.FileName
+		text = fmt.Sprintf("[File: %s]", content.FileName)
+	case "audio":
+		metadata["media_type"] = "audio"
+		text = "[Audio received]"
+	case "sticker":
+		metadata["media_type"] = "sticker"
+		text = "[Sticker received]"
+	default:
+		logger.Debug("feishu ignoring unsupported message type", "type", received.Message.MessageType)
 		return
 	}
 
-	// Parse text content.
-	var content feishuTextContent
-	if err := json.Unmarshal([]byte(received.Message.Content), &content); err != nil {
-		logger.Error("feishu content parse error", "err", err)
-		return
-	}
-
-	text := strings.TrimSpace(content.Text)
 	if text == "" {
 		return
 	}
@@ -242,17 +280,17 @@ func (f *FeishuChannel) processMessageEvent(event lark.EventV2) {
 		replyTarget = "p2p:" + openID
 	}
 
+	metadata["chat_id"] = replyTarget
+	metadata["chat_type"] = chatType
+	metadata["message_id"] = received.Message.MessageID
+
 	n := f.msgID.Add(1)
 	msg := &Message{
 		ID:        fmt.Sprintf("feishu-%d", n),
 		ChannelID: "feishu:" + openID,
 		UserID:    openID,
 		Text:      text,
-		Metadata: map[string]string{
-			"chat_id":    replyTarget,
-			"chat_type":  chatType,
-			"message_id": received.Message.MessageID,
-		},
+		Metadata:  metadata,
 	}
 
 	select {
