@@ -13,7 +13,7 @@ func ValidateStored(job Job, now time.Time) (ok bool, expiredAt bool) {
 	case JobKindCron:
 		return job.Expr != "", false
 	case JobKindAt:
-		if job.AtTime.IsZero() {
+		if job.AtTime == nil {
 			return false, false
 		}
 		if !job.AtTime.After(now) {
@@ -31,12 +31,13 @@ func Normalize(job Job) Job {
 	job.Task = strings.TrimSpace(job.Task)
 	job.Agent = strings.TrimSpace(job.Agent)
 	job.WakeSession = strings.TrimSpace(job.WakeSession)
-	if !job.AtTime.IsZero() {
-		job.AtTime = job.AtTime.UTC()
+	if job.AtTime != nil {
+		utc := job.AtTime.UTC()
+		job.AtTime = &utc
 	}
 
 	if job.Kind == "" {
-		if job.AtTime.IsZero() {
+		if job.AtTime == nil {
 			job.Kind = JobKindCron
 		} else {
 			job.Kind = JobKindAt

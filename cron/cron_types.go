@@ -18,7 +18,7 @@ type Job struct {
 	ID                string    `json:"id"`
 	Kind              string    `json:"kind,omitempty"`
 	Expr              string    `json:"expr,omitempty"`
-	AtTime            time.Time `json:"at_time,omitempty"`
+	AtTime            *time.Time `json:"at_time,omitempty"`
 	Task              string    `json:"task"`
 	Agent             string    `json:"agent,omitempty"`
 	WakeSession       string    `json:"wake_session,omitempty"`

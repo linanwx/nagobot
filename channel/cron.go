@@ -141,7 +141,7 @@ func buildCronStartMessage(job *cronpkg.Job) string {
 	}
 
 	atTime := ""
-	if !job.AtTime.IsZero() {
+	if job.AtTime != nil {
 		atTime = job.AtTime.UTC().Format(time.RFC3339)
 	}
 

@@ -100,7 +100,7 @@ func runSetAt(_ *cobra.Command, _ []string) error {
 	job := cronsvc.Job{
 		ID:     setAtID,
 		Kind:   cronsvc.JobKindAt,
-		AtTime: t,
+		AtTime: &t,
 		Task:   setAtTask,
 	}
 	applyCommonJobFlags(&job)
@@ -200,7 +200,9 @@ func runCronList(_ *cobra.Command, _ []string) error {
 	for _, job := range jobs {
 		schedule := job.Expr
 		if job.Kind == cronsvc.JobKindAt {
-			schedule = job.AtTime.Format(time.RFC3339)
+			if job.AtTime != nil {
+				schedule = job.AtTime.Format(time.RFC3339)
+			}
 		}
 		fmt.Printf("%s\t%s\t%s\t%s\t%s\n", job.ID, job.Kind, schedule, job.Agent, job.Task)
 	}

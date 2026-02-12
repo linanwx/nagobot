@@ -34,7 +34,7 @@ func (s *Scheduler) scheduleLocked(job Job) (func(), error) {
 
 	case JobKindAt:
 		registered, err := s.cron.NewJob(
-			gocron.OneTimeJob(gocron.OneTimeJobStartDateTime(job.AtTime)),
+			gocron.OneTimeJob(gocron.OneTimeJobStartDateTime(*job.AtTime)),
 			gocron.NewTask(func(j Job) {
 				if s.factory != nil {
 					jc := j
