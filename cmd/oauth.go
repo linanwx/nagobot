@@ -14,6 +14,7 @@ import (
 	"net/url"
 	"os/exec"
 	"runtime"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -33,90 +34,73 @@ const (
 	oauthMaxBodySize  = 1 << 20 // 1MB
 )
 
-// oauthProvider defines OAuth endpoints for a provider.
-type oauthProvider struct {
-	Name     string
+// oauthConfig holds OAuth endpoints for PKCE flow.
+type oauthConfig struct {
 	AuthURL  string
 	TokenURL string
 	ClientID string
 	Scopes   []string
 }
 
-var oauthProviders = map[string]oauthProvider{
+// authProviders is the registry of providers that support OAuth login.
+var authProviders = map[string]*oauthConfig{
 	"openai": {
-		Name:     "openai",
 		AuthURL:  "https://auth.openai.com/oauth/authorize",
 		TokenURL: "https://auth.openai.com/oauth/token",
 		ClientID: "app_EMoamEEZ73f0CkXaXp7hrann",
 		Scopes:   []string{"openid", "profile", "email", "offline_access"},
 	},
-	"anthropic": {
-		Name:     "anthropic",
-		AuthURL:  "https://claude.ai/oauth/authorize",
-		TokenURL: "https://console.anthropic.com/v1/oauth/token",
-		ClientID: "9d1c250a-e61b-44d9-88ed-5944d1962f5e",
-		Scopes:   []string{"user:inference", "user:profile"},
-	},
 }
 
-var oauthCmd = &cobra.Command{
-	Use:   "oauth",
-	Short: "Manage OAuth authentication for LLM providers",
-	Long: `Authenticate with OpenAI or Anthropic using OAuth.
+var authCmd = &cobra.Command{
+	Use:     "auth",
+	Aliases: []string{"oauth"},
+	Short:   "Manage OAuth authentication for LLM providers",
+	Long: `Authenticate with LLM providers via OAuth.
 
 Examples:
-  nagobot oauth openai         # Login with OpenAI account
-  nagobot oauth anthropic      # Login with Anthropic account (coming soon)
-  nagobot oauth status         # Show current OAuth status
-  nagobot oauth logout openai  # Remove OpenAI OAuth token`,
+  nagobot auth openai         # Login with OpenAI via OAuth
+  nagobot auth status         # Show current token status
+  nagobot auth logout openai  # Remove token for a provider`,
 }
 
-var oauthStatusCmd = &cobra.Command{
+var authStatusCmd = &cobra.Command{
 	Use:   "status",
-	Short: "Show current OAuth token status",
-	RunE:  runOAuthStatus,
+	Short: "Show current auth token status",
+	RunE:  runAuthStatus,
 }
 
-var oauthLogoutCmd = &cobra.Command{
+var authLogoutCmd = &cobra.Command{
 	Use:   "logout <provider>",
-	Short: "Remove OAuth token for a provider",
+	Short: "Remove auth token for a provider",
 	Args:  cobra.ExactArgs(1),
-	RunE:  runOAuthLogout,
+	RunE:  runAuthLogout,
 }
 
-var oauthOpenAICmd = &cobra.Command{
+var authOpenAICmd = &cobra.Command{
 	Use:   "openai",
-	Short: "Login with OpenAI account",
+	Short: "Login with OpenAI account via OAuth",
 	RunE: func(cmd *cobra.Command, args []string) error {
 		return runOAuthLogin("openai")
 	},
 }
 
-var oauthAnthropicCmd = &cobra.Command{
-	Use:   "anthropic",
-	Short: "Login with Anthropic account",
-	RunE: func(cmd *cobra.Command, args []string) error {
-		return runOAuthLogin("anthropic")
-	},
-}
-
 func init() {
-	oauthCmd.AddCommand(oauthStatusCmd)
-	oauthCmd.AddCommand(oauthLogoutCmd)
-	oauthCmd.AddCommand(oauthOpenAICmd)
-	oauthCmd.AddCommand(oauthAnthropicCmd)
-	rootCmd.AddCommand(oauthCmd)
+	authCmd.AddCommand(authStatusCmd)
+	authCmd.AddCommand(authLogoutCmd)
+	authCmd.AddCommand(authOpenAICmd)
+	rootCmd.AddCommand(authCmd)
 
 	// Wire OAuth token refresh into the provider factory.
 	provider.SetOAuthRefresher(RefreshOAuthToken)
 }
 
 func runOAuthLogin(providerName string) error {
-	prov, ok := oauthProviders[providerName]
+	oa, ok := authProviders[providerName]
 	if !ok {
-		return fmt.Errorf("unsupported OAuth provider: %s (supported: openai, anthropic)", providerName)
+		return fmt.Errorf("unsupported OAuth provider: %s", providerName)
 	}
-	if prov.ClientID == "" {
+	if oa.ClientID == "" {
 		return fmt.Errorf("%s OAuth is not yet available (client_id not configured)", providerName)
 	}
 
@@ -141,7 +125,7 @@ func runOAuthLogin(providerName string) error {
 	redirectURI := "http://" + oauthCallbackAddr + oauthCallbackPath
 
 	// Build authorization URL.
-	authURL := buildAuthURL(prov, redirectURI, challenge, state)
+	authURL := buildAuthURL(oa, redirectURI, challenge, state)
 
 	// Start local callback server.
 	codeCh := make(chan string, 1)
@@ -219,7 +203,7 @@ func runOAuthLogin(providerName string) error {
 
 	// Exchange code for token.
 	fmt.Println("Exchanging authorization code for token...")
-	token, err := exchangeCodeForToken(prov, code, verifier, redirectURI)
+	token, err := exchangeCodeForToken(oa, code, verifier, redirectURI)
 	if err != nil {
 		return fmt.Errorf("token exchange failed: %w", err)
 	}
@@ -242,14 +226,20 @@ func runOAuthLogin(providerName string) error {
 	return nil
 }
 
-func runOAuthStatus(_ *cobra.Command, _ []string) error {
+func runAuthStatus(_ *cobra.Command, _ []string) error {
 	cfg, err := config.Load()
 	if err != nil {
 		return fmt.Errorf("failed to load config: %w", err)
 	}
 
+	names := make([]string, 0, len(authProviders))
+	for name := range authProviders {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+
 	found := false
-	for _, name := range []string{"openai", "anthropic"} {
+	for _, name := range names {
 		token := cfg.GetOAuthToken(name)
 		if token == nil || token.AccessToken == "" {
 			continue
@@ -277,16 +267,21 @@ func runOAuthStatus(_ *cobra.Command, _ []string) error {
 	}
 
 	if !found {
-		fmt.Println("No OAuth tokens configured.")
-		fmt.Println("Run 'nagobot oauth openai' or 'nagobot oauth anthropic' to authenticate.")
+		fmt.Println("No auth tokens configured.")
+		fmt.Println("Run 'nagobot auth openai' to authenticate.")
 	}
 	return nil
 }
 
-func runOAuthLogout(_ *cobra.Command, args []string) error {
+func runAuthLogout(_ *cobra.Command, args []string) error {
 	providerName := strings.TrimSpace(args[0])
-	if _, ok := oauthProviders[providerName]; !ok {
-		return fmt.Errorf("unsupported provider: %s (supported: openai, anthropic)", providerName)
+	if _, ok := authProviders[providerName]; !ok {
+		names := make([]string, 0, len(authProviders))
+		for name := range authProviders {
+			names = append(names, name)
+		}
+		sort.Strings(names)
+		return fmt.Errorf("unsupported provider: %s (supported: %s)", providerName, strings.Join(names, ", "))
 	}
 
 	cfg, err := config.Load()
@@ -295,7 +290,7 @@ func runOAuthLogout(_ *cobra.Command, args []string) error {
 	}
 
 	if token := cfg.GetOAuthToken(providerName); token == nil || token.AccessToken == "" {
-		fmt.Printf("No OAuth token found for %s.\n", providerName)
+		fmt.Printf("No token found for %s.\n", providerName)
 		return nil
 	}
 
@@ -303,7 +298,7 @@ func runOAuthLogout(_ *cobra.Command, args []string) error {
 	if err := cfg.Save(); err != nil {
 		return fmt.Errorf("failed to save config: %w", err)
 	}
-	fmt.Printf("OAuth token for %s removed.\n", providerName)
+	fmt.Printf("Token for %s removed.\n", providerName)
 	return nil
 }
 
@@ -330,17 +325,17 @@ func generateRandomHex(n int) (string, error) {
 	return hex.EncodeToString(b), nil
 }
 
-func buildAuthURL(prov oauthProvider, redirectURI, challenge, state string) string {
+func buildAuthURL(oa *oauthConfig, redirectURI, challenge, state string) string {
 	params := url.Values{
 		"response_type":         {"code"},
-		"client_id":             {prov.ClientID},
+		"client_id":             {oa.ClientID},
 		"redirect_uri":          {redirectURI},
-		"scope":                 {strings.Join(prov.Scopes, " ")},
+		"scope":                 {strings.Join(oa.Scopes, " ")},
 		"state":                 {state},
 		"code_challenge":        {challenge},
 		"code_challenge_method": {"S256"},
 	}
-	return prov.AuthURL + "?" + params.Encode()
+	return oa.AuthURL + "?" + params.Encode()
 }
 
 // oauthTokenResponse is the JSON response from the token endpoint.
@@ -356,18 +351,18 @@ type oauthTokenResponse struct {
 
 var oauthHTTPClient = &http.Client{Timeout: oauthHTTPTimeout}
 
-func exchangeCodeForToken(prov oauthProvider, code, verifier, redirectURI string) (*config.OAuthTokenConfig, error) {
+func exchangeCodeForToken(oa *oauthConfig, code, verifier, redirectURI string) (*config.OAuthTokenConfig, error) {
 	data := url.Values{
 		"grant_type":    {"authorization_code"},
 		"code":          {code},
 		"redirect_uri":  {redirectURI},
-		"client_id":     {prov.ClientID},
+		"client_id":     {oa.ClientID},
 		"code_verifier": {verifier},
 	}
 
-	resp, err := oauthHTTPClient.PostForm(prov.TokenURL, data)
+	resp, err := oauthHTTPClient.PostForm(oa.TokenURL, data)
 	if err != nil {
-		return nil, fmt.Errorf("POST %s: %w", prov.TokenURL, err)
+		return nil, fmt.Errorf("POST %s: %w", oa.TokenURL, err)
 	}
 	defer resp.Body.Close()
 
@@ -447,18 +442,18 @@ func RefreshOAuthToken(cfg *config.Config, providerName string) string {
 		return ""
 	}
 
-	prov, ok := oauthProviders[providerName]
-	if !ok || prov.TokenURL == "" || prov.ClientID == "" {
+	oa, ok := authProviders[providerName]
+	if !ok || oa.TokenURL == "" || oa.ClientID == "" {
 		return ""
 	}
 
 	data := url.Values{
 		"grant_type":    {"refresh_token"},
 		"refresh_token": {token.RefreshToken},
-		"client_id":     {prov.ClientID},
+		"client_id":     {oa.ClientID},
 	}
 
-	resp, err := oauthHTTPClient.PostForm(prov.TokenURL, data)
+	resp, err := oauthHTTPClient.PostForm(oa.TokenURL, data)
 	if err != nil {
 		logger.Warn("oauth token refresh failed", "provider", providerName, "err", err)
 		return ""

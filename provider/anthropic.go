@@ -83,16 +83,8 @@ func newAnthropicProvider(apiKey, apiBase, modelType, modelName string, maxToken
 
 	baseURL := normalizeSDKBaseURL(apiBase, anthropicAPIBase, "/v1/messages")
 
-	// OAuth tokens (sk-ant-oat*) use Authorization: Bearer header;
-	// API keys (sk-ant-api*) use x-api-key header.
-	var authOpt aoption.RequestOption
-	if strings.HasPrefix(apiKey, "sk-ant-oat") {
-		authOpt = aoption.WithAuthToken(apiKey)
-	} else {
-		authOpt = aoption.WithAPIKey(apiKey)
-	}
 	client := anthropic.NewClient(
-		authOpt,
+		aoption.WithAPIKey(apiKey),
 		aoption.WithBaseURL(baseURL),
 		aoption.WithMaxRetries(sdkMaxRetries),
 	)

@@ -47,6 +47,9 @@ func runOnboard(_ *cobra.Command, _ []string) error {
 
 	// Load existing config as defaults, or start fresh.
 	existing, _ := config.Load()
+	if existing == nil {
+		existing = config.DefaultConfig()
+	}
 	defaults := loadOnboardDefaults(existing)
 
 	// --- interactive wizard ---
@@ -98,40 +101,41 @@ func runOnboard(_ *cobra.Command, _ []string) error {
 	}
 	hasOAuthToken := existing != nil && existing.GetOAuthToken(selectedProvider) != nil &&
 		existing.GetOAuthToken(selectedProvider).AccessToken != ""
-	_, supportsOAuth := oauthProviders[selectedProvider]
+	_, supportsOAuth := authProviders[selectedProvider]
+	needAPIKey := false
 
 	if hasOAuthToken {
 		// Already authenticated via OAuth — ask whether to keep it.
-		authMethod := "keep"
+		authChoice := "keep"
 		err = huh.NewForm(
 			huh.NewGroup(
 				huh.NewSelect[string]().
-					Title("Already authenticated with " + selectedProvider + " via OAuth").
+					Title("Already authenticated with " + selectedProvider).
 					Options(
-						huh.NewOption("Keep existing OAuth token", "keep"),
-						huh.NewOption("Re-login with OAuth", "oauth"),
+						huh.NewOption("Keep existing token", "keep"),
+						huh.NewOption("Re-login with OAuth", "reauth"),
 						huh.NewOption("Switch to API key", "apikey"),
 					).
-					Value(&authMethod),
+					Value(&authChoice),
 			),
 		).Run()
 		if err != nil {
 			return err
 		}
-		switch authMethod {
+		switch authChoice {
 		case "keep":
 			// nothing to do
-		case "oauth":
+		case "reauth":
 			if err := runOAuthLogin(selectedProvider); err != nil {
-				return fmt.Errorf("OAuth login failed: %w", err)
+				return fmt.Errorf("login failed: %w", err)
 			}
 			existing, _ = config.Load()
 		case "apikey":
-			supportsOAuth = false // fall through to API key input
+			needAPIKey = true
 		}
 	} else if supportsOAuth {
-		// No existing token but provider supports OAuth.
-		authMethod := "oauth"
+		// Provider supports OAuth (e.g. OpenAI).
+		authChoice := "oauth"
 		err = huh.NewForm(
 			huh.NewGroup(
 				huh.NewSelect[string]().
@@ -140,22 +144,24 @@ func runOnboard(_ *cobra.Command, _ []string) error {
 						huh.NewOption("Login with OAuth (use your existing account)", "oauth"),
 						huh.NewOption("Enter API key manually", "apikey"),
 					).
-					Value(&authMethod),
+					Value(&authChoice),
 			),
 		).Run()
 		if err != nil {
 			return err
 		}
-		if authMethod == "oauth" {
+		if authChoice == "oauth" {
 			if err := runOAuthLogin(selectedProvider); err != nil {
-				return fmt.Errorf("OAuth login failed: %w", err)
+				return fmt.Errorf("login failed: %w", err)
 			}
 			existing, _ = config.Load()
 		} else {
-			supportsOAuth = false // fall through to API key input
+			needAPIKey = true
 		}
+	} else {
+		needAPIKey = true
 	}
-	if !hasOAuthToken && !supportsOAuth {
+	if needAPIKey {
 		keyURL := providerURLs[selectedProvider]
 		err = huh.NewForm(
 			huh.NewGroup(
