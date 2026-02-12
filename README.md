@@ -14,7 +14,7 @@ This project is evolving rapidly.
 
 ## Features
 
-- Providers: `deepseek`, `openrouter`, `anthropic`, `moonshot-cn`, `moonshot-global`
+- Providers: `openai`, `deepseek`, `openrouter`, `anthropic`, `moonshot-cn`, `moonshot-global`
 - Tools
 - Skills
   - context compression
@@ -28,6 +28,7 @@ This project is evolving rapidly.
 
 `nagobot` enforces a model whitelist. Only validated provider/model pairs are supported:
 
+- `openai`: `gpt-5.2` (OAuth or API key)
 - `deepseek`: `deepseek-reasoner`, `deepseek-chat` (recommended default)
 - `openrouter`: `moonshotai/kimi-k2.5`
 - `anthropic`: `claude-sonnet-4-5`, `claude-opus-4-6`
@@ -65,7 +66,7 @@ The project may change drastically between versions. Please re-run `onboard` aft
 ## Documentation
 
 - [Provider config examples](docs/provider.md)
-- [Channels (Telegram, Web, CLI)](docs/channels.md)
+- [Channels (Telegram, Feishu, Web, CLI)](docs/channels.md)
 
 ## Play
 
