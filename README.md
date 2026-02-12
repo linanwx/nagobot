@@ -66,7 +66,7 @@ The project may change drastically between versions. Please re-run `onboard` aft
 ## Documentation
 
 - [Provider config examples](docs/provider.md)
-- [Channels (Telegram, Feishu, Web, CLI)](docs/channels.md)
+- [Channels (Telegram, Web, CLI)](docs/channels.md)
 
 ## Play
 
