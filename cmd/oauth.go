@@ -26,7 +26,7 @@ import (
 )
 
 const (
-	oauthCallbackAddr = "127.0.0.1:14155"
+	oauthCallbackAddr = "localhost:1455"
 	oauthCallbackPath = "/auth/callback"
 	oauthTimeout      = 5 * time.Minute
 	oauthHTTPTimeout  = 30 * time.Second

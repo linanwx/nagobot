@@ -224,6 +224,11 @@ func (c *Config) ClearOAuthToken(providerName string) {
 // provider, creating it if nil.
 func (c *Config) ensureProviderConfig() *ProviderConfig {
 	switch c.GetProvider() {
+	case "openai":
+		if c.Providers.OpenAI == nil {
+			c.Providers.OpenAI = &ProviderConfig{}
+		}
+		return c.Providers.OpenAI
 	case "openrouter":
 		if c.Providers.OpenRouter == nil {
 			c.Providers.OpenRouter = &ProviderConfig{}
@@ -354,6 +359,8 @@ func (c *Config) GetAPIBase() string {
 
 func (c *Config) providerConfigEnv() (*ProviderConfig, string, string, error) {
 	switch c.GetProvider() {
+	case "openai":
+		return c.Providers.OpenAI, "OPENAI_API_KEY", "OPENAI_API_BASE", nil
 	case "openrouter":
 		return c.Providers.OpenRouter, "OPENROUTER_API_KEY", "OPENROUTER_API_BASE", nil
 	case "anthropic":

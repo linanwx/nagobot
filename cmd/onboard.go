@@ -31,6 +31,7 @@ func init() {
 
 // providerURLs maps provider names to their API key portal URLs.
 var providerURLs = map[string]string{
+	"openai":          "https://platform.openai.com/api-keys",
 	"deepseek":        "https://platform.deepseek.com",
 	"openrouter":      "https://openrouter.ai/keys",
 	"anthropic":       "https://console.anthropic.com",
@@ -91,29 +92,58 @@ func runOnboard(_ *cobra.Command, _ []string) error {
 		return err
 	}
 
-	// Step 3: API key
-	// Reset key if provider changed.
+	// Step 3: Authentication
 	if selectedProvider != defaults.provider {
 		apiKey = ""
 	}
-	keyURL := providerURLs[selectedProvider]
-	err = huh.NewForm(
-		huh.NewGroup(
-			huh.NewInput().
-				Title("Enter your "+selectedProvider+" API key").
-				Description("Create one at "+keyURL).
-				EchoMode(huh.EchoModePassword).
-				Validate(func(s string) error {
-					if strings.TrimSpace(s) == "" {
-						return fmt.Errorf("API key is required")
-					}
-					return nil
-				}).
-				Value(&apiKey),
-		),
-	).Run()
-	if err != nil {
-		return err
+	_, supportsOAuth := oauthProviders[selectedProvider]
+	if supportsOAuth {
+		authMethod := "oauth"
+		err = huh.NewForm(
+			huh.NewGroup(
+				huh.NewSelect[string]().
+					Title("How to authenticate with " + selectedProvider + "?").
+					Options(
+						huh.NewOption("Login with OAuth (use your existing account)", "oauth"),
+						huh.NewOption("Enter API key manually", "apikey"),
+					).
+					Value(&authMethod),
+			),
+		).Run()
+		if err != nil {
+			return err
+		}
+		if authMethod == "oauth" {
+			if err := runOAuthLogin(selectedProvider); err != nil {
+				return fmt.Errorf("OAuth login failed: %w", err)
+			}
+			// Reload config to pick up the newly stored OAuth token.
+			existing, _ = config.Load()
+			apiKey = ""
+		} else {
+			supportsOAuth = false // fall through to API key input
+		}
+	}
+	if !supportsOAuth {
+		keyURL := providerURLs[selectedProvider]
+		err = huh.NewForm(
+			huh.NewGroup(
+				huh.NewInput().
+					Title("Enter your "+selectedProvider+" API key").
+					Description("Create one at "+keyURL).
+					EchoMode(huh.EchoModePassword).
+					Validate(func(s string) error {
+						if strings.TrimSpace(s) == "" {
+							return fmt.Errorf("API key is required")
+						}
+						return nil
+					}).
+					Value(&apiKey),
+			),
+		).Run()
+		if err != nil {
+			return err
+		}
 	}
 
 	// Step 4: optional Telegram
@@ -164,9 +194,16 @@ func runOnboard(_ *cobra.Command, _ []string) error {
 	// --- apply config ---
 
 	cfg := config.DefaultConfig()
+	// Preserve existing OAuth tokens.
+	if existing != nil {
+		cfg.Providers.OpenAIOAuth = existing.Providers.OpenAIOAuth
+		cfg.Providers.AnthropicOAuth = existing.Providers.AnthropicOAuth
+	}
 	cfg.SetProvider(selectedProvider)
 	cfg.SetModelType(selectedModel)
-	cfg.SetProviderAPIKey(strings.TrimSpace(apiKey))
+	if strings.TrimSpace(apiKey) != "" {
+		cfg.SetProviderAPIKey(strings.TrimSpace(apiKey))
+	}
 
 	if configureTG {
 		cfg.Channels.AdminUserID = strings.TrimSpace(tgAdminID)

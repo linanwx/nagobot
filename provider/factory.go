@@ -217,6 +217,8 @@ func providerConfigFor(cfg *config.Config, providerName string) *config.Provider
 	}
 
 	switch providerName {
+	case "openai":
+		return cfg.Providers.OpenAI
 	case "openrouter":
 		return cfg.Providers.OpenRouter
 	case "anthropic":
