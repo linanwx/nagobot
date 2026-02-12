@@ -54,7 +54,7 @@ var oauthProviders = map[string]oauthProvider{
 		Name:     "anthropic",
 		AuthURL:  "https://claude.ai/oauth/authorize",
 		TokenURL: "https://console.anthropic.com/v1/oauth/token",
-		ClientID: "", // not yet available
+		ClientID: "9d1c250a-e61b-44d9-88ed-5944d1962f5e",
 		Scopes:   []string{"user:inference", "user:profile"},
 	},
 }
@@ -94,7 +94,7 @@ var oauthOpenAICmd = &cobra.Command{
 
 var oauthAnthropicCmd = &cobra.Command{
 	Use:   "anthropic",
-	Short: "Login with Anthropic account (coming soon)",
+	Short: "Login with Anthropic account",
 	RunE: func(cmd *cobra.Command, args []string) error {
 		return runOAuthLogin("anthropic")
 	},

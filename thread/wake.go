@@ -122,11 +122,11 @@ func wakeActionHint(source string) string {
 	case "child_task":
 		return "Execute this delegated task and return a result."
 	case "child_completed":
-		return "A child thread completed. Summarize the result and report to the user."
+		return "A child thread completed. Summarize the result and report the original result."
 	case "cron":
 		return "A scheduled cron task has started. Execute it based on the provided job context."
 	case "cron_finished":
-		return "A cron task has finished. Summarize the result and report to the user."
+		return "A cron task has finished. Summarize the result and report the original result."
 	case "external":
 		return "Process this external wake message and continue the session."
 	default:
