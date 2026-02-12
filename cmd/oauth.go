@@ -48,7 +48,7 @@ var oauthProviders = map[string]oauthProvider{
 		AuthURL:  "https://auth.openai.com/oauth/authorize",
 		TokenURL: "https://auth.openai.com/oauth/token",
 		ClientID: "app_EMoamEEZ73f0CkXaXp7hrann",
-		Scopes:   []string{"openid", "profile", "email", "offline_access"},
+		Scopes:   []string{"openid", "profile", "email", "offline_access", "model.request"},
 	},
 	"anthropic": {
 		Name:     "anthropic",
