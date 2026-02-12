@@ -44,8 +44,7 @@ type ProvidersConfig struct {
 	MoonshotCN     *ProviderConfig   `json:"moonshotCN,omitempty" yaml:"moonshotCN,omitempty"`
 	MoonshotGlobal *ProviderConfig   `json:"moonshotGlobal,omitempty" yaml:"moonshotGlobal,omitempty"`
 	OpenAI         *ProviderConfig   `json:"openai,omitempty" yaml:"openai,omitempty"`
-	OpenAIOAuth    *OAuthTokenConfig `json:"openaiOAuth,omitempty" yaml:"openaiOAuth,omitempty"`
-	AnthropicOAuth *OAuthTokenConfig `json:"anthropicOAuth,omitempty" yaml:"anthropicOAuth,omitempty"`
+	OpenAIOAuth *OAuthTokenConfig `json:"openaiOAuth,omitempty" yaml:"openaiOAuth,omitempty"`
 }
 
 // OAuthTokenConfig stores an OAuth token with optional refresh capability.

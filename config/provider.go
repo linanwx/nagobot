@@ -199,8 +199,6 @@ func (c *Config) GetOAuthToken(providerName string) *OAuthTokenConfig {
 	switch providerName {
 	case "openai":
 		return c.Providers.OpenAIOAuth
-	case "anthropic":
-		return c.Providers.AnthropicOAuth
 	}
 	return nil
 }
@@ -210,8 +208,6 @@ func (c *Config) SetOAuthToken(providerName string, token *OAuthTokenConfig) {
 	switch providerName {
 	case "openai":
 		c.Providers.OpenAIOAuth = token
-	case "anthropic":
-		c.Providers.AnthropicOAuth = token
 	}
 }
 

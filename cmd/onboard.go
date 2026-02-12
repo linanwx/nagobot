@@ -234,7 +234,6 @@ func runOnboard(_ *cobra.Command, _ []string) error {
 	// Preserve existing OAuth tokens.
 	if existing != nil {
 		cfg.Providers.OpenAIOAuth = existing.Providers.OpenAIOAuth
-		cfg.Providers.AnthropicOAuth = existing.Providers.AnthropicOAuth
 	}
 	cfg.SetProvider(selectedProvider)
 	cfg.SetModelType(selectedModel)
