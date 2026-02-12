@@ -93,56 +93,63 @@ func runOnboard(_ *cobra.Command, _ []string) error {
 	}
 
 	// Step 3: Authentication
+	// Skip if we already have a valid OAuth token or static API key for this provider.
 	if selectedProvider != defaults.provider {
 		apiKey = ""
 	}
-	_, supportsOAuth := oauthProviders[selectedProvider]
-	if supportsOAuth {
-		authMethod := "oauth"
-		err = huh.NewForm(
-			huh.NewGroup(
-				huh.NewSelect[string]().
-					Title("How to authenticate with " + selectedProvider + "?").
-					Options(
-						huh.NewOption("Login with OAuth (use your existing account)", "oauth"),
-						huh.NewOption("Enter API key manually", "apikey"),
-					).
-					Value(&authMethod),
-			),
-		).Run()
-		if err != nil {
-			return err
-		}
-		if authMethod == "oauth" {
-			if err := runOAuthLogin(selectedProvider); err != nil {
-				return fmt.Errorf("OAuth login failed: %w", err)
+	hasOAuthToken := existing != nil && existing.GetOAuthToken(selectedProvider) != nil &&
+		existing.GetOAuthToken(selectedProvider).AccessToken != ""
+	hasAPIKey := strings.TrimSpace(apiKey) != ""
+
+	if !hasOAuthToken && !hasAPIKey {
+		_, supportsOAuth := oauthProviders[selectedProvider]
+		if supportsOAuth {
+			authMethod := "oauth"
+			err = huh.NewForm(
+				huh.NewGroup(
+					huh.NewSelect[string]().
+						Title("How to authenticate with " + selectedProvider + "?").
+						Options(
+							huh.NewOption("Login with OAuth (use your existing account)", "oauth"),
+							huh.NewOption("Enter API key manually", "apikey"),
+						).
+						Value(&authMethod),
+				),
+			).Run()
+			if err != nil {
+				return err
 			}
-			// Reload config to pick up the newly stored OAuth token.
-			existing, _ = config.Load()
-			apiKey = ""
-		} else {
-			supportsOAuth = false // fall through to API key input
+			if authMethod == "oauth" {
+				if err := runOAuthLogin(selectedProvider); err != nil {
+					return fmt.Errorf("OAuth login failed: %w", err)
+				}
+				// Reload config to pick up the newly stored OAuth token.
+				existing, _ = config.Load()
+				apiKey = ""
+			} else {
+				supportsOAuth = false // fall through to API key input
+			}
 		}
-	}
-	if !supportsOAuth {
-		keyURL := providerURLs[selectedProvider]
-		err = huh.NewForm(
-			huh.NewGroup(
-				huh.NewInput().
-					Title("Enter your "+selectedProvider+" API key").
-					Description("Create one at "+keyURL).
-					EchoMode(huh.EchoModePassword).
-					Validate(func(s string) error {
-						if strings.TrimSpace(s) == "" {
-							return fmt.Errorf("API key is required")
-						}
-						return nil
-					}).
-					Value(&apiKey),
-			),
-		).Run()
-		if err != nil {
-			return err
+		if !supportsOAuth {
+			keyURL := providerURLs[selectedProvider]
+			err = huh.NewForm(
+				huh.NewGroup(
+					huh.NewInput().
+						Title("Enter your "+selectedProvider+" API key").
+						Description("Create one at "+keyURL).
+						EchoMode(huh.EchoModePassword).
+						Validate(func(s string) error {
+							if strings.TrimSpace(s) == "" {
+								return fmt.Errorf("API key is required")
+							}
+							return nil
+						}).
+						Value(&apiKey),
+				),
+			).Run()
+			if err != nil {
+				return err
+			}
 		}
 	}
 
