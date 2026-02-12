@@ -134,7 +134,16 @@ func (f *Factory) Create(providerName, modelType string) (Provider, error) {
 	}
 
 	apiBase := provCfg.APIBase
-	return reg.Constructor(apiKey, apiBase, modelType, modelName, f.maxTokens, f.temperature), nil
+	p := reg.Constructor(apiKey, apiBase, modelType, modelName, f.maxTokens, f.temperature)
+
+	// Set account ID from OAuth token if available (e.g. OpenAI ChatGPT-Account-ID).
+	if setter, ok := p.(AccountIDSetter); ok {
+		if token := f.cfg.GetOAuthToken(providerName); token != nil && token.AccountID != "" {
+			setter.SetAccountID(token.AccountID)
+		}
+	}
+
+	return p, nil
 }
 
 func providerAPIKey(cfg *config.Config, providerName string) string {

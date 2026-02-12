@@ -14,6 +14,12 @@ type Provider interface {
 	Chat(ctx context.Context, req *Request) (*Response, error)
 }
 
+// AccountIDSetter is optionally implemented by providers that need an account ID
+// (e.g. OpenAI OAuth with ChatGPT-Account-ID header).
+type AccountIDSetter interface {
+	SetAccountID(id string)
+}
+
 // Request represents a chat completion request.
 type Request struct {
 	Messages []Message

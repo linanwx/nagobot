@@ -52,8 +52,9 @@ type ProvidersConfig struct {
 type OAuthTokenConfig struct {
 	AccessToken  string `json:"accessToken" yaml:"accessToken"`
 	RefreshToken string `json:"refreshToken,omitempty" yaml:"refreshToken,omitempty"`
-	ExpiresAt    int64  `json:"expiresAt,omitempty" yaml:"expiresAt,omitempty"` // unix timestamp, 0 = no expiry
-	TokenType    string `json:"tokenType,omitempty" yaml:"tokenType,omitempty"` // "bearer"
+	ExpiresAt    int64  `json:"expiresAt,omitempty" yaml:"expiresAt,omitempty"`   // unix timestamp, 0 = no expiry
+	TokenType    string `json:"tokenType,omitempty" yaml:"tokenType,omitempty"`   // "bearer"
+	AccountID    string `json:"accountId,omitempty" yaml:"accountId,omitempty"`   // e.g. ChatGPT account ID from id_token
 }
 
 // ProviderConfig contains API credentials for a provider.

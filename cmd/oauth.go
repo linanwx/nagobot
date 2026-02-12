@@ -48,7 +48,7 @@ var oauthProviders = map[string]oauthProvider{
 		AuthURL:  "https://auth.openai.com/oauth/authorize",
 		TokenURL: "https://auth.openai.com/oauth/token",
 		ClientID: "app_EMoamEEZ73f0CkXaXp7hrann",
-		Scopes:   []string{"openid", "profile", "email", "offline_access", "model.request"},
+		Scopes:   []string{"openid", "profile", "email", "offline_access"},
 	},
 	"anthropic": {
 		Name:     "anthropic",
@@ -347,6 +347,7 @@ func buildAuthURL(prov oauthProvider, redirectURI, challenge, state string) stri
 type oauthTokenResponse struct {
 	AccessToken  string `json:"access_token"`
 	RefreshToken string `json:"refresh_token"`
+	IDToken      string `json:"id_token"`
 	ExpiresIn    int64  `json:"expires_in"`
 	TokenType    string `json:"token_type"`
 	Error        string `json:"error"`
@@ -404,7 +405,38 @@ func exchangeCodeForToken(prov oauthProvider, code, verifier, redirectURI string
 	if tokenResp.ExpiresIn > 0 {
 		token.ExpiresAt = time.Now().Unix() + tokenResp.ExpiresIn
 	}
+	// Extract account ID from id_token JWT claims.
+	if tokenResp.IDToken != "" {
+		if accountID := extractAccountIDFromIDToken(tokenResp.IDToken); accountID != "" {
+			token.AccountID = accountID
+		}
+	}
 	return token, nil
+}
+
+// extractAccountIDFromIDToken parses an unverified JWT id_token and extracts
+// the chatgpt_account_id from the https://api.openai.com/auth claim.
+func extractAccountIDFromIDToken(idToken string) string {
+	parts := strings.SplitN(idToken, ".", 3)
+	if len(parts) < 2 {
+		return ""
+	}
+	// Decode the payload (second segment).
+	payload, err := base64.RawURLEncoding.DecodeString(parts[1])
+	if err != nil {
+		return ""
+	}
+	var claims map[string]any
+	if err := json.Unmarshal(payload, &claims); err != nil {
+		return ""
+	}
+	// Look for chatgpt_account_id in the https://api.openai.com/auth claim.
+	if auth, ok := claims["https://api.openai.com/auth"].(map[string]any); ok {
+		if id, ok := auth["chatgpt_account_id"].(string); ok {
+			return id
+		}
+	}
+	return ""
 }
 
 // RefreshOAuthToken attempts to refresh an expired OAuth token.
@@ -463,12 +495,19 @@ func RefreshOAuthToken(cfg *config.Config, providerName string) string {
 		AccessToken:  tokenResp.AccessToken,
 		RefreshToken: tokenResp.RefreshToken,
 		TokenType:    tokenResp.TokenType,
+		AccountID:    token.AccountID, // preserve existing account ID
 	}
 	if newToken.RefreshToken == "" {
 		newToken.RefreshToken = token.RefreshToken // keep old refresh token
 	}
 	if tokenResp.ExpiresIn > 0 {
 		newToken.ExpiresAt = time.Now().Unix() + tokenResp.ExpiresIn
+	}
+	// Update account ID if refresh response includes a new id_token.
+	if tokenResp.IDToken != "" {
+		if accountID := extractAccountIDFromIDToken(tokenResp.IDToken); accountID != "" {
+			newToken.AccountID = accountID
+		}
 	}
 
 	cfg.SetOAuthToken(providerName, newToken)
