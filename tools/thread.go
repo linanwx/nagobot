@@ -40,7 +40,7 @@ func (t *SpawnThreadTool) Def() provider.ToolDef {
 		Type: "function",
 		Function: provider.FunctionDef{
 			Name:        "spawn_thread",
-			Description: "Spawn a child thread for a delegated task. Always asynchronous: returns a child ID immediately. The child will wake the parent thread with a message when done.",
+			Description: "Spawn a child thread for a delegated task. Use this when you need to run a subtask, invoke a sub-agent, or orchestrate parallel work. The child thread uses the selected agent template and task text as its prompt, and has an independent context. Always asynchronous: returns a child ID immediately. The child will wake the parent thread with a message when done.",
 			Parameters: map[string]any{
 				"type": "object",
 				"properties": map[string]any{
@@ -99,13 +99,13 @@ func (t *CheckThreadTool) Def() provider.ToolDef {
 		Type: "function",
 		Function: provider.FunctionDef{
 			Name:        "check_thread",
-			Description: "Check the status of a spawned child thread by its ID.",
+			Description: "Check the status of a spawned child thread by its ID. Returns thread metadata and execution status.",
 			Parameters: map[string]any{
 				"type": "object",
 				"properties": map[string]any{
 					"thread_id": map[string]any{
 						"type":        "string",
-						"description": "The thread ID returned by spawn_thread.",
+						"description": "The thread ID, for example one returned by spawn_thread or any other thread ID.",
 					},
 				},
 				"required": []string{"thread_id"},

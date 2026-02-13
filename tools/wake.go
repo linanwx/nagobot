@@ -31,7 +31,7 @@ func (t *WakeThreadTool) Def() provider.ToolDef {
 		Type: "function",
 		Function: provider.FunctionDef{
 			Name:        "wake_thread",
-			Description: "Wake an existing thread by session key and inject a message for follow-up reasoning.",
+			Description: "Wake an existing thread by session key and inject a message for follow-up reasoning. The same wake logic is used for normal user-to-LLM messages and when scheduled jobs start or finish. Use this when you need to delegate work to another thread, control another thread's behavior, or orchestrate and manage complex multi-agent flows. Waking a thread forces it to run reasoning and may notify the user with the result, especially when that thread has a default sink.",
 			Parameters: map[string]any{
 				"type": "object",
 				"properties": map[string]any{
