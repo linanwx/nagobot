@@ -238,6 +238,10 @@ func providerConfigFor(cfg *config.Config, providerName string) *config.Provider
 		return cfg.Providers.MoonshotCN
 	case "moonshot-global":
 		return cfg.Providers.MoonshotGlobal
+	case "zhipu-cn":
+		return cfg.Providers.ZhipuCN
+	case "zhipu-global":
+		return cfg.Providers.ZhipuGlobal
 	}
 	return nil
 }

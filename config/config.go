@@ -43,6 +43,8 @@ type ProvidersConfig struct {
 	DeepSeek       *ProviderConfig   `json:"deepseek,omitempty" yaml:"deepseek,omitempty"`
 	MoonshotCN     *ProviderConfig   `json:"moonshotCN,omitempty" yaml:"moonshotCN,omitempty"`
 	MoonshotGlobal *ProviderConfig   `json:"moonshotGlobal,omitempty" yaml:"moonshotGlobal,omitempty"`
+	ZhipuCN        *ProviderConfig   `json:"zhipuCN,omitempty" yaml:"zhipuCN,omitempty"`
+	ZhipuGlobal    *ProviderConfig   `json:"zhipuGlobal,omitempty" yaml:"zhipuGlobal,omitempty"`
 	OpenAI         *ProviderConfig   `json:"openai,omitempty" yaml:"openai,omitempty"`
 	OpenAIOAuth *OAuthTokenConfig `json:"openaiOAuth,omitempty" yaml:"openaiOAuth,omitempty"`
 }

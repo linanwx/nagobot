@@ -37,6 +37,8 @@ var providerURLs = map[string]string{
 	"anthropic":       "https://console.anthropic.com",
 	"moonshot-cn":     "https://platform.moonshot.cn",
 	"moonshot-global": "https://platform.moonshot.ai",
+	"zhipu-cn":        "https://open.bigmodel.cn",
+	"zhipu-global":    "https://z.ai",
 }
 
 func runOnboard(_ *cobra.Command, _ []string) error {

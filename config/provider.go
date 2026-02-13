@@ -250,6 +250,16 @@ func (c *Config) ensureProviderConfig() *ProviderConfig {
 			c.Providers.MoonshotGlobal = &ProviderConfig{}
 		}
 		return c.Providers.MoonshotGlobal
+	case "zhipu-cn":
+		if c.Providers.ZhipuCN == nil {
+			c.Providers.ZhipuCN = &ProviderConfig{}
+		}
+		return c.Providers.ZhipuCN
+	case "zhipu-global":
+		if c.Providers.ZhipuGlobal == nil {
+			c.Providers.ZhipuGlobal = &ProviderConfig{}
+		}
+		return c.Providers.ZhipuGlobal
 	default:
 		return &ProviderConfig{}
 	}
@@ -367,6 +377,10 @@ func (c *Config) providerConfigEnv() (*ProviderConfig, string, string, error) {
 		return c.Providers.MoonshotCN, "MOONSHOT_API_KEY", "MOONSHOT_API_BASE", nil
 	case "moonshot-global":
 		return c.Providers.MoonshotGlobal, "MOONSHOT_GLOBAL_API_KEY", "MOONSHOT_GLOBAL_API_BASE", nil
+	case "zhipu-cn":
+		return c.Providers.ZhipuCN, "ZHIPU_API_KEY", "ZHIPU_API_BASE", nil
+	case "zhipu-global":
+		return c.Providers.ZhipuGlobal, "ZHIPU_GLOBAL_API_KEY", "ZHIPU_GLOBAL_API_BASE", nil
 	default:
 		return nil, "", "", errors.New("unknown provider: " + c.GetProvider())
 	}
