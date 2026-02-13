@@ -14,7 +14,7 @@ This project is evolving rapidly.
 
 ## Features
 
-- Providers: `openai`, `deepseek`, `openrouter`, `anthropic`, `moonshot-cn`, `moonshot-global`
+- Providers: `openai`, `deepseek`, `openrouter`, `anthropic`, `moonshot-cn`, `moonshot-global`, `zhipu-cn`, `zhipu-global`
 - Tools
 - Skills
   - context compression
@@ -34,6 +34,8 @@ This project is evolving rapidly.
 - `anthropic`: `claude-sonnet-4-5`, `claude-opus-4-6`
 - `moonshot-cn`: `kimi-k2.5`
 - `moonshot-global`: `kimi-k2.5`
+- `zhipu-cn`: `glm-5`
+- `zhipu-global`: `glm-5`
 
 ## Requirements
 
