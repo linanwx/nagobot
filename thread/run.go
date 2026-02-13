@@ -89,16 +89,38 @@ func (t *Thread) run(ctx context.Context, userMessage string) (string, error) {
 		turnUserMessages = append(turnUserMessages, msg)
 	}
 
+	// Write-ahead: persist user messages before LLM call so they survive a crash.
+	if sess != nil {
+		if waSess, waErr := t.reloadSessionForSave(); waErr == nil {
+			waSess.Messages = append(waSess.Messages, turnUserMessages...)
+			if saveErr := cfg.Sessions.Save(waSess); saveErr != nil {
+				logger.Warn("write-ahead save failed", "key", t.sessionKey, "err", saveErr)
+			}
+		}
+	}
+
+	// Set up execution metrics for observability by other threads.
+	metrics := &ExecMetrics{TurnStart: time.Now()}
+	t.mu.Lock()
+	t.execMetrics = metrics
+	t.mu.Unlock()
+	defer func() {
+		t.mu.Lock()
+		t.execMetrics = nil
+		t.mu.Unlock()
+	}()
+
 	runCtx := tools.WithRuntimeContext(ctx, tools.RuntimeContext{
 		SessionKey: t.sessionKey,
 		Workspace:  cfg.Workspace,
 	})
-	runner := NewRunner(t.provider, t.tools)
+	runner := NewRunner(t.provider, t.tools, metrics)
 	response, err := runner.RunWithMessages(runCtx, messages)
 	if err != nil {
 		return "", err
 	}
 
+	// End-of-turn: append only the assistant response (user messages already saved).
 	if sess != nil {
 		latestSession, reloadErr := t.reloadSessionForSave()
 		if reloadErr != nil {
@@ -108,9 +130,7 @@ func (t *Thread) run(ctx context.Context, userMessage string) (string, error) {
 				"err", reloadErr,
 			)
 		} else {
-			latestSession.Messages = append(latestSession.Messages, turnUserMessages...)
 			latestSession.Messages = append(latestSession.Messages, provider.AssistantMessage(response))
-
 			if saveErr := cfg.Sessions.Save(latestSession); saveErr != nil {
 				logger.Warn("failed to save session", "key", t.sessionKey, "err", saveErr)
 			}

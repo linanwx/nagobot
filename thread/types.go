@@ -70,6 +70,21 @@ type Thread struct {
 	hooks        []turnHook
 	defaultSink  Sink      // Fallback sink when WakeMessage.Sink is nil.
 	lastActiveAt time.Time // Last time this thread completed work.
+
+	execMetrics *ExecMetrics // Non-nil only while a turn is executing.
+}
+
+// ToolCallRecord is an alias for msg.ToolCallRecord.
+type ToolCallRecord = msg.ToolCallRecord
+
+// ExecMetrics tracks real-time execution metrics for a running turn.
+type ExecMetrics struct {
+	mu             sync.Mutex
+	TurnStart      time.Time
+	Iterations     int
+	TotalToolCalls int
+	CurrentTool    string           // empty when not executing a tool
+	ToolCalls      []ToolCallRecord
 }
 
 // cfg returns the shared config from the manager.

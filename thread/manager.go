@@ -74,9 +74,21 @@ func (m *Manager) scheduleReady(ctx context.Context, sem chan struct{}) {
 			t.state = threadRunning
 
 			go func(thread *Thread) {
-				// Acquire concurrency slot (may block).
 				sem <- struct{}{}
-				defer func() { <-sem }()
+				defer func() {
+					<-sem
+					if r := recover(); r != nil {
+						logger.Error("thread panic recovered",
+							"threadID", thread.id,
+							"sessionKey", thread.sessionKey,
+							"panic", r,
+						)
+						m.mu.Lock()
+						thread.lastActiveAt = time.Now()
+						thread.state = threadIdle
+						m.mu.Unlock()
+					}
+				}()
 
 				thread.RunOnce(ctx)
 
@@ -205,5 +217,19 @@ func threadInfo(t *Thread) tools.ThreadInfo {
 		}
 	}
 	info.Pending = len(t.inbox)
+
+	// Populate runtime metrics for running threads.
+	t.mu.Lock()
+	if t.execMetrics != nil {
+		t.execMetrics.mu.Lock()
+		info.Iterations = t.execMetrics.Iterations
+		info.TotalToolCalls = t.execMetrics.TotalToolCalls
+		info.CurrentTool = t.execMetrics.CurrentTool
+		info.ElapsedSec = int(time.Since(t.execMetrics.TurnStart).Seconds())
+		info.ToolTrace = append([]ToolCallRecord(nil), t.execMetrics.ToolCalls...)
+		t.execMetrics.mu.Unlock()
+	}
+	t.mu.Unlock()
+
 	return info
 }
