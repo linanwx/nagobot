@@ -195,6 +195,7 @@ func (p *MinimaxProvider) Chat(ctx context.Context, req *Request) (*Response, er
 	toolCalls := fromOpenAIChatToolCalls(choice.Message.ToolCalls)
 	reasoningTokens := chatResp.Usage.CompletionTokensDetails.ReasoningTokens
 	rawMessage := choice.Message.RawJSON()
+	rawResponse := chatResp.RawJSON()
 	reasoningText := extractMinimaxReasoning(rawMessage)
 	finalContent := choice.Message.Content
 	if strings.TrimSpace(finalContent) == "" && len(toolCalls) == 0 && strings.TrimSpace(reasoningText) != "" {
@@ -216,7 +217,14 @@ func (p *MinimaxProvider) Chat(ctx context.Context, req *Request) (*Response, er
 		"reasoningTokens", reasoningTokens,
 		"totalTokens", chatResp.Usage.TotalTokens,
 		"outputChars", len(choice.Message.Content),
+		"reasoningChars", len(reasoningText),
 		"latencyMs", time.Since(start).Milliseconds(),
+	)
+	logger.Debug(
+		"minimax raw output",
+		"rawMessage", rawMessage,
+		"rawResponse", rawResponse,
+		"reasoningText", reasoningText,
 	)
 
 	return &Response{
