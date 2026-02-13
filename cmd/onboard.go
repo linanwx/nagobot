@@ -100,8 +100,14 @@ func runOnboard(_ *cobra.Command, _ []string) error {
 	}
 
 	// Step 3: Authentication
+	// Try to load existing API key for the selected provider.
 	if selectedProvider != defaults.provider {
-		apiKey = ""
+		existing.SetProvider(selectedProvider)
+		if key, err := existing.GetAPIKey(); err == nil && key != "" {
+			apiKey = key
+		} else {
+			apiKey = ""
+		}
 	}
 	hasOAuthToken := existing != nil && existing.GetOAuthToken(selectedProvider) != nil &&
 		existing.GetOAuthToken(selectedProvider).AccessToken != ""
@@ -234,10 +240,10 @@ func runOnboard(_ *cobra.Command, _ []string) error {
 
 	// --- apply config ---
 
-	cfg := config.DefaultConfig()
-	// Preserve existing OAuth tokens.
-	if existing != nil {
-		cfg.Providers.OpenAIOAuth = existing.Providers.OpenAIOAuth
+	// Start from existing config to preserve all provider keys and settings.
+	cfg := existing
+	if cfg == nil {
+		cfg = config.DefaultConfig()
 	}
 	cfg.SetProvider(selectedProvider)
 	cfg.SetModelType(selectedModel)
