@@ -31,6 +31,15 @@ Multi-provider AI assistant with tool calling, async multi-threading, cron sched
 - `minimax-cn`: `minimax-m2.5`
 - `minimax-global`: `minimax-m2.5`
 
+### Developer notes
+
+- **deepseek**: Incredibly good. No image support and reasoning speed could be better, but otherwise excellent.
+- **gpt-5.2**: Fast and pleasant, but the model is argumentative — it prefers debating details over executing tasks.
+- **kimi-k2.5**: Fast, but occasionally hallucinates tool calls. Not fully stable.
+- **glm-5**: Average speed. Occasional hallucinated tool calls.
+- **minimax-m2.5**: Very poor real-world experience — frequent hallucinated tool calls and fabricated results. Not recommended.
+- **anthropic**: Great at everything, except the price.
+
 ## Requirements
 
 - Go `1.23.3+`
