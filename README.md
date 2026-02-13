@@ -14,15 +14,7 @@ This project is evolving rapidly.
 
 ## Features
 
-- Providers: `openai`, `deepseek`, `openrouter`, `anthropic`, `moonshot-cn`, `moonshot-global`, `zhipu-cn`, `zhipu-global`
-- Tools
-- Skills
-  - context compression
-- Agent
-- Cron
-- Async
-- Multi Thread
-- Web search
+Multi-provider AI assistant with tool calling, async multi-threading, cron scheduling, web search, and context compression — deployable via Telegram, Web, or CLI.
 
 ## Supported Providers and Model Types
 
@@ -36,6 +28,8 @@ This project is evolving rapidly.
 - `moonshot-global`: `kimi-k2.5`
 - `zhipu-cn`: `glm-5`
 - `zhipu-global`: `glm-5`
+- `minimax-cn`: `minimax-m2.5`
+- `minimax-global`: `minimax-m2.5`
 
 ## Requirements
 
