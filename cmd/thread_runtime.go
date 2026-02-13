@@ -48,7 +48,9 @@ func buildThreadManager(cfg *config.Config, enableSessions bool) (*thread.Manage
 	}
 
 	toolRegistry := tools.NewRegistry()
-	toolRegistry.SetLogsDir(filepath.Join(workspace, "logs", "tool_calls"))
+	toolLogsDir := filepath.Join(workspace, "logs", "tool_calls")
+	toolRegistry.SetLogsDir(toolLogsDir)
+	tools.CleanupLogsDir(toolLogsDir)
 	toolRegistry.RegisterDefaultTools(workspace, tools.DefaultToolsConfig{
 		ExecTimeout:         cfg.GetExecTimeout(),
 		WebSearchMaxResults: cfg.GetWebSearchMaxResults(),

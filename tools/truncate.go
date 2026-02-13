@@ -7,9 +7,13 @@ func truncateWithNotice(content string, maxChars int) (string, bool) {
 		return content, false
 	}
 
-	notice := fmt.Sprintf(
-		"\n[Truncated] Output exceeded %d characters. Narrow the scope or read in chunks.",
-		maxChars,
-	)
-	return content[:maxChars] + notice, true
+	omitted := len(content) - maxChars
+	marker := fmt.Sprintf("\n\n... [truncated %d characters] ...\n\n", omitted)
+
+	// Budget the marker into the allowed length so total output <= maxChars + marker.
+	half := maxChars / 2
+	head := content[:half]
+	tail := content[len(content)-(maxChars-half):]
+
+	return head + marker + tail, true
 }
