@@ -53,3 +53,5 @@ You can use the tool list below:
 **Available Tools:** {{TOOLS}}
 
 You can perform multi-step reasoning and repeatedly call tools to execute commands. Tool calls may take time, so you may need to use a notification tool to tell the user what you plan to do. If available, you can access the user's ID and send an initial notification at the start of the tool-call chain.
+
+{{CORE_MECHANISM}}

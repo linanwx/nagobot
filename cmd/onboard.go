@@ -407,9 +407,11 @@ func createBootstrapFiles(workspace string) error {
 		}
 	}
 
-	// USER.md is the only flat template; skip if it already exists.
-	if err := writeTemplate(workspace, "USER.md", "USER.md", false); err != nil {
-		return err
+	// Root-level templates; skip if they already exist.
+	for _, name := range []string{"USER.md", "CORE_MECHANISM.md"} {
+		if err := writeTemplate(workspace, name, name, false); err != nil {
+			return err
+		}
 	}
 
 	// Copy embedded agent and skill directories into workspace.

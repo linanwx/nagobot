@@ -45,6 +45,8 @@ func (a *Agent) Build() string {
 		userContent, _ := os.ReadFile(filepath.Join(a.workspace, "USER.md"))
 		prompt = strings.ReplaceAll(prompt, "{{USER}}", strings.TrimSpace(string(userContent)))
 		prompt = strings.ReplaceAll(prompt, "{{AGENTS}}", buildAgentsPromptSection(a.workspace))
+		coreContent, _ := os.ReadFile(filepath.Join(a.workspace, "CORE_MECHANISM.md"))
+		prompt = strings.ReplaceAll(prompt, "{{CORE_MECHANISM}}", strings.TrimSpace(string(coreContent)))
 	}
 
 	for key, value := range a.vars {
