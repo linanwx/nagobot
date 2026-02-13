@@ -260,6 +260,16 @@ func (c *Config) ensureProviderConfig() *ProviderConfig {
 			c.Providers.ZhipuGlobal = &ProviderConfig{}
 		}
 		return c.Providers.ZhipuGlobal
+	case "minimax-cn":
+		if c.Providers.MinimaxCN == nil {
+			c.Providers.MinimaxCN = &ProviderConfig{}
+		}
+		return c.Providers.MinimaxCN
+	case "minimax-global":
+		if c.Providers.MinimaxGlobal == nil {
+			c.Providers.MinimaxGlobal = &ProviderConfig{}
+		}
+		return c.Providers.MinimaxGlobal
 	default:
 		return &ProviderConfig{}
 	}
@@ -381,6 +391,10 @@ func (c *Config) providerConfigEnv() (*ProviderConfig, string, string, error) {
 		return c.Providers.ZhipuCN, "ZHIPU_API_KEY", "ZHIPU_API_BASE", nil
 	case "zhipu-global":
 		return c.Providers.ZhipuGlobal, "ZHIPU_GLOBAL_API_KEY", "ZHIPU_GLOBAL_API_BASE", nil
+	case "minimax-cn":
+		return c.Providers.MinimaxCN, "MINIMAX_API_KEY", "MINIMAX_API_BASE", nil
+	case "minimax-global":
+		return c.Providers.MinimaxGlobal, "MINIMAX_GLOBAL_API_KEY", "MINIMAX_GLOBAL_API_BASE", nil
 	default:
 		return nil, "", "", errors.New("unknown provider: " + c.GetProvider())
 	}

@@ -39,6 +39,8 @@ var providerURLs = map[string]string{
 	"moonshot-global": "https://platform.moonshot.ai",
 	"zhipu-cn":        "https://open.bigmodel.cn",
 	"zhipu-global":    "https://z.ai",
+	"minimax-cn":      "https://platform.minimaxi.com",
+	"minimax-global":  "https://platform.minimax.io",
 }
 
 func runOnboard(_ *cobra.Command, _ []string) error {

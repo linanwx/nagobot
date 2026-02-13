@@ -242,6 +242,10 @@ func providerConfigFor(cfg *config.Config, providerName string) *config.Provider
 		return cfg.Providers.ZhipuCN
 	case "zhipu-global":
 		return cfg.Providers.ZhipuGlobal
+	case "minimax-cn":
+		return cfg.Providers.MinimaxCN
+	case "minimax-global":
+		return cfg.Providers.MinimaxGlobal
 	}
 	return nil
 }

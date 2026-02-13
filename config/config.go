@@ -45,6 +45,8 @@ type ProvidersConfig struct {
 	MoonshotGlobal *ProviderConfig   `json:"moonshotGlobal,omitempty" yaml:"moonshotGlobal,omitempty"`
 	ZhipuCN        *ProviderConfig   `json:"zhipuCN,omitempty" yaml:"zhipuCN,omitempty"`
 	ZhipuGlobal    *ProviderConfig   `json:"zhipuGlobal,omitempty" yaml:"zhipuGlobal,omitempty"`
+	MinimaxCN      *ProviderConfig   `json:"minimaxCN,omitempty" yaml:"minimaxCN,omitempty"`
+	MinimaxGlobal  *ProviderConfig   `json:"minimaxGlobal,omitempty" yaml:"minimaxGlobal,omitempty"`
 	OpenAI         *ProviderConfig   `json:"openai,omitempty" yaml:"openai,omitempty"`
 	OpenAIOAuth *OAuthTokenConfig `json:"openaiOAuth,omitempty" yaml:"openaiOAuth,omitempty"`
 }
