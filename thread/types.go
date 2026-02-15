@@ -5,6 +5,7 @@ import (
 	"time"
 
 	"github.com/linanwx/nagobot/agent"
+	"github.com/linanwx/nagobot/config"
 	"github.com/linanwx/nagobot/provider"
 	"github.com/linanwx/nagobot/session"
 	"github.com/linanwx/nagobot/skills"
@@ -49,6 +50,8 @@ type ThreadConfig struct {
 	Sessions            *session.Manager
 	DefaultSinkFor      func(sessionKey string) Sink
 	HealthChannels      *tools.HealthChannelsInfo
+	ProviderFactory     *provider.Factory              // For per-agent model routing
+	Models              map[string]*config.ModelConfig  // Model type → provider/model mapping
 }
 
 // Thread is a single execution unit with an agent, wake queue, and optional session.

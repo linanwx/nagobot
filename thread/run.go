@@ -114,13 +114,17 @@ func (t *Thread) run(ctx context.Context, userMessage string) (string, error) {
 		SessionKey: t.sessionKey,
 		Workspace:  cfg.Workspace,
 	})
-	runner := NewRunner(t.provider, t.tools, metrics)
+	var intermediates []provider.Message
+	runner := NewRunner(t.resolveProvider(), t.tools, metrics)
+	runner.OnMessage(func(m provider.Message) {
+		intermediates = append(intermediates, m)
+	})
 	response, err := runner.RunWithMessages(runCtx, messages)
 	if err != nil {
 		return "", err
 	}
 
-	// End-of-turn: append only the assistant response (user messages already saved).
+	// End-of-turn: append intermediate tool chain + final assistant response.
 	if sess != nil {
 		latestSession, reloadErr := t.reloadSessionForSave()
 		if reloadErr != nil {
@@ -130,6 +134,7 @@ func (t *Thread) run(ctx context.Context, userMessage string) (string, error) {
 				"err", reloadErr,
 			)
 		} else {
+			latestSession.Messages = append(latestSession.Messages, intermediates...)
 			latestSession.Messages = append(latestSession.Messages, provider.AssistantMessage(response))
 			if saveErr := cfg.Sessions.Save(latestSession); saveErr != nil {
 				logger.Warn("failed to save session", "key", t.sessionKey, "err", saveErr)
@@ -138,6 +143,33 @@ func (t *Thread) run(ctx context.Context, userMessage string) (string, error) {
 	}
 
 	return response, nil
+}
+
+// resolveProvider returns the provider for the current agent's model type,
+// falling back to t.provider (the default set at thread creation).
+func (t *Thread) resolveProvider() provider.Provider {
+	cfg := t.cfg()
+	if t.Agent == nil || cfg.Agents == nil {
+		return t.provider
+	}
+	def := cfg.Agents.Def(t.Agent.Name)
+	if def == nil || def.Model == "" {
+		return t.provider
+	}
+	if cfg.ProviderFactory == nil || len(cfg.Models) == 0 {
+		return t.provider
+	}
+	mc, ok := cfg.Models[def.Model]
+	if !ok || mc == nil {
+		logger.Warn("model type not mapped, using default", "agent", t.Agent.Name, "model", def.Model)
+		return t.provider
+	}
+	p, err := cfg.ProviderFactory.Create(mc.Provider, mc.ModelType)
+	if err != nil {
+		logger.Warn("failed to create provider, using default", "agent", t.Agent.Name, "model", def.Model, "err", err)
+		return t.provider
+	}
+	return p
 }
 
 func (t *Thread) buildTools() *tools.Registry {

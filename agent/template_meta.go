@@ -9,6 +9,7 @@ import (
 type templateMeta struct {
 	Name        string `yaml:"name"`
 	Description string `yaml:"description"`
+	Model       string `yaml:"model"`
 }
 
 func parseTemplate(content string) (meta templateMeta, body string, hasHeader bool, err error) {

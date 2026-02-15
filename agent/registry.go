@@ -15,6 +15,7 @@ import (
 type AgentDef struct {
 	Name        string // Callable name used by spawn_thread.agent
 	Description string // Short description shown in system prompt context
+	Model       string // Model type declared in frontmatter (e.g. "chat", "search")
 	Path        string // Full path to the template file
 }
 
@@ -78,6 +79,7 @@ func (r *AgentRegistry) load() {
 		next[key] = &AgentDef{
 			Name:        name,
 			Description: strings.TrimSpace(meta.Description),
+			Model:       strings.TrimSpace(meta.Model),
 			Path:        path,
 		}
 	}
@@ -140,6 +142,16 @@ func (r *AgentRegistry) BuildPromptSection() string {
 		sb.WriteString(fmt.Sprintf("- %s\n", def.Name))
 	}
 	return strings.TrimSpace(sb.String())
+}
+
+// Def returns the AgentDef for the given name, or nil if not found.
+func (r *AgentRegistry) Def(name string) *AgentDef {
+	if r == nil {
+		return nil
+	}
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	return r.agents[normalizeAgentName(name)]
 }
 
 func normalizeAgentName(name string) string {

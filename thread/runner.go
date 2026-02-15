@@ -14,10 +14,15 @@ import (
 
 // Runner is a generic agent loop executor.
 type Runner struct {
-	provider provider.Provider
-	tools    *tools.Registry
-	metrics  *ExecMetrics // optional; nil disables metrics collection
+	provider  provider.Provider
+	tools     *tools.Registry
+	metrics   *ExecMetrics              // optional; nil disables metrics collection
+	onMessage func(provider.Message)    // optional observer for intermediate messages
 }
+
+// OnMessage sets a callback invoked for each intermediate message
+// (assistant-with-tools and tool results) generated during the agentic loop.
+func (r *Runner) OnMessage(fn func(provider.Message)) { r.onMessage = fn }
 
 // NewRunner creates a new Runner. Pass a non-nil ExecMetrics to enable
 // real-time metrics collection visible to other threads.
@@ -53,7 +58,11 @@ func (r *Runner) RunWithMessages(ctx context.Context, messages []provider.Messag
 			return resp.Content, nil
 		}
 
-		messages = append(messages, provider.AssistantMessageWithTools(resp.Content, resp.ReasoningContent, resp.ToolCalls))
+		assistantMsg := provider.AssistantMessageWithTools(resp.Content, resp.ReasoningContent, resp.ToolCalls)
+		messages = append(messages, assistantMsg)
+		if r.onMessage != nil {
+			r.onMessage(assistantMsg)
+		}
 
 		for _, tc := range resp.ToolCalls {
 			if r.metrics != nil {
@@ -67,7 +76,11 @@ func (r *Runner) RunWithMessages(ctx context.Context, messages []provider.Messag
 			if strings.HasPrefix(result, "Error:") {
 				logger.Error("tool error", "tool", tc.Function.Name, "err", result)
 			}
-			messages = append(messages, provider.ToolResultMessage(tc.ID, tc.Function.Name, result))
+			toolMsg := provider.ToolResultMessage(tc.ID, tc.Function.Name, result)
+			messages = append(messages, toolMsg)
+			if r.onMessage != nil {
+				r.onMessage(toolMsg)
+			}
 
 			if r.metrics != nil {
 				r.metrics.mu.Lock()

@@ -101,5 +101,7 @@ func buildThreadManager(cfg *config.Config, enableSessions bool) (*thread.Manage
 		ContextWarnRatio:    cfg.GetContextWarnRatio(),
 		Sessions:            sessions,
 		HealthChannels:      healthChannels,
+		ProviderFactory:     providerFactory,
+		Models:              cfg.Thread.Models,
 	}), nil
 }
