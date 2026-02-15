@@ -47,6 +47,21 @@ const (
 	openRouterAPIBase = "https://openrouter.ai/api/v1"
 )
 
+// openRouterModelMeta holds per-model OpenRouter request options.
+type openRouterModelMeta struct {
+	ThinkingOpts  []oaioption.RequestOption // thinking/reasoning mode activation
+	ProviderOrder []string                  // preferred upstream provider(s)
+}
+
+var openRouterModels = map[string]openRouterModelMeta{
+	"moonshotai/kimi-k2.5": {
+		ThinkingOpts: []oaioption.RequestOption{
+			oaioption.WithJSONSet("extra_body.chat_template_kwargs.thinking", true),
+		},
+		ProviderOrder: []string{"moonshotai"},
+	},
+}
+
 func init() {
 	RegisterProvider("openrouter", ProviderRegistration{
 		Models:  []string{"moonshotai/kimi-k2.5"},
@@ -212,7 +227,8 @@ func (p *OpenRouterProvider) Chat(ctx context.Context, req *Request) (*Response,
 		return nil, fmt.Errorf("failed to convert messages: %w", err)
 	}
 
-	thinkingEnabled := IsKimiModel(p.modelType)
+	meta := openRouterModels[p.modelType]
+	thinkingEnabled := len(meta.ThinkingOpts) > 0
 	logger.Info(
 		"openrouter request",
 		"provider", "openrouter",
@@ -236,8 +252,11 @@ func (p *OpenRouterProvider) Chat(ctx context.Context, req *Request) (*Response,
 	}
 
 	requestOpts := []oaioption.RequestOption{}
-	if thinkingEnabled {
-		requestOpts = append(requestOpts, oaioption.WithJSONSet("extra_body.chat_template_kwargs.thinking", true))
+	requestOpts = append(requestOpts, meta.ThinkingOpts...)
+	if len(meta.ProviderOrder) > 0 {
+		requestOpts = append(requestOpts,
+			oaioption.WithJSONSet("provider.order", meta.ProviderOrder),
+		)
 	}
 
 	chatResp, err := p.client.Chat.Completions.New(ctx, chatReq, requestOpts...)

@@ -13,15 +13,13 @@ OpenRouter (Kimi K2.5):
 thread:
   provider: openrouter
   modelType: moonshotai/kimi-k2.5
-  # modelName: your-openrouter-preset-or-alias # optional
 
 providers:
   openrouter:
     apiKey: sk-or-v1-xxx
 ```
 
-When using `moonshotai/kimi-k2.5`, route to OpenRouter's official `moonshot` provider.
-If routing falls back to other upstream providers, chain-of-thought and tool-calling can fail.
+When using `moonshotai/kimi-k2.5`, provider routing to Moonshot is applied automatically.
 
 Anthropic config example:
 
