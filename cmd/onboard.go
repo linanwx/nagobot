@@ -5,12 +5,14 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sort"
 	"strconv"
 	"strings"
 
 	"github.com/charmbracelet/huh"
 	"github.com/spf13/cobra"
 
+	"github.com/linanwx/nagobot/agent"
 	"github.com/linanwx/nagobot/config"
 	"github.com/linanwx/nagobot/provider"
 )
@@ -61,7 +63,6 @@ func runOnboard(_ *cobra.Command, _ []string) error {
 	var (
 		selectedProvider = defaults.provider
 		selectedModel    = defaults.model
-		apiKey           = defaults.apiKey
 		configureTG      bool
 	)
 
@@ -99,101 +100,100 @@ func runOnboard(_ *cobra.Command, _ []string) error {
 		return err
 	}
 
-	// Step 3: Authentication
-	// Try to load existing API key for the selected provider.
-	if selectedProvider != defaults.provider {
-		existing.SetProvider(selectedProvider)
-		if key, err := existing.GetAPIKey(); err == nil && key != "" {
-			apiKey = key
-		} else {
-			apiKey = ""
+	// Step 3: Per-agent model override
+	defaultLabel := selectedProvider + " / " + selectedModel
+	slots := scanAgentModelSlots()
+	modelOverrides := make(map[string]*config.ModelConfig)
+	for _, slot := range slots {
+		// Check existing override from prior onboard.
+		var existingMC *config.ModelConfig
+		if existing.Thread.Models != nil {
+			existingMC = existing.Thread.Models[slot.ModelType]
 		}
-	}
-	hasOAuthToken := existing != nil && existing.GetOAuthToken(selectedProvider) != nil &&
-		existing.GetOAuthToken(selectedProvider).AccessToken != ""
-	_, supportsOAuth := authProviders[selectedProvider]
-	needAPIKey := false
+		hasExistingOverride := existingMC != nil &&
+			(existingMC.Provider != selectedProvider || existingMC.ModelType != selectedModel)
 
-	if hasOAuthToken {
-		// Already authenticated via OAuth — ask whether to keep it.
-		authChoice := "keep"
-		err = huh.NewForm(
-			huh.NewGroup(
-				huh.NewSelect[string]().
-					Title("Already authenticated with " + selectedProvider).
-					Options(
-						huh.NewOption("Keep existing token", "keep"),
-						huh.NewOption("Re-login with OAuth", "reauth"),
-						huh.NewOption("Switch to API key", "apikey"),
-					).
-					Value(&authChoice),
-			),
-		).Run()
-		if err != nil {
-			return err
-		}
-		switch authChoice {
-		case "keep":
-			// nothing to do
-		case "reauth":
-			if err := runOAuthLogin(selectedProvider); err != nil {
-				return fmt.Errorf("login failed: %w", err)
+		if !hasExistingOverride {
+			// No prior override: 2-choice (use default / pick new).
+			useDefault := true
+			err = huh.NewForm(huh.NewGroup(
+				huh.NewConfirm().
+					Title(fmt.Sprintf("Agent '%s' (%s): use default (%s)?", slot.AgentName, slot.ModelType, defaultLabel)).
+					Value(&useDefault),
+			)).Run()
+			if err != nil {
+				return err
 			}
-			existing, _ = config.Load()
-		case "apikey":
-			needAPIKey = true
-		}
-	} else if supportsOAuth {
-		// Provider supports OAuth (e.g. OpenAI).
-		authChoice := "oauth"
-		err = huh.NewForm(
-			huh.NewGroup(
-				huh.NewSelect[string]().
-					Title("How to authenticate with " + selectedProvider + "?").
-					Options(
-						huh.NewOption("Login with OAuth (use your existing account)", "oauth"),
-						huh.NewOption("Enter API key manually", "apikey"),
-					).
-					Value(&authChoice),
-			),
-		).Run()
-		if err != nil {
-			return err
-		}
-		if authChoice == "oauth" {
-			if err := runOAuthLogin(selectedProvider); err != nil {
-				return fmt.Errorf("login failed: %w", err)
+			if useDefault {
+				modelOverrides[slot.ModelType] = &config.ModelConfig{
+					Provider: selectedProvider, ModelType: selectedModel,
+				}
+				continue
 			}
-			existing, _ = config.Load()
 		} else {
-			needAPIKey = true
+			// Has prior override: 3-choice (keep / default / new).
+			choice := "keep"
+			currentLabel := existingMC.Provider + " / " + existingMC.ModelType
+			err = huh.NewForm(huh.NewGroup(
+				huh.NewSelect[string]().
+					Title(fmt.Sprintf("Agent '%s' (%s):", slot.AgentName, slot.ModelType)).
+					Options(
+						huh.NewOption("Keep current ("+currentLabel+")", "keep"),
+						huh.NewOption("Use default ("+defaultLabel+")", "default"),
+						huh.NewOption("Choose different", "new"),
+					).
+					Value(&choice),
+			)).Run()
+			if err != nil {
+				return err
+			}
+			if choice == "keep" {
+				modelOverrides[slot.ModelType] = existingMC
+				continue
+			}
+			if choice == "default" {
+				modelOverrides[slot.ModelType] = &config.ModelConfig{
+					Provider: selectedProvider, ModelType: selectedModel,
+				}
+				continue
+			}
 		}
-	} else {
-		needAPIKey = true
-	}
-	if needAPIKey {
-		keyURL := providerURLs[selectedProvider]
-		err = huh.NewForm(
-			huh.NewGroup(
-				huh.NewInput().
-					Title("Enter your "+selectedProvider+" API key").
-					Description("Create one at "+keyURL).
-					EchoMode(huh.EchoModePassword).
-					Validate(func(s string) error {
-						if strings.TrimSpace(s) == "" {
-							return fmt.Errorf("API key is required")
-						}
-						return nil
-					}).
-					Value(&apiKey),
-			),
-		).Run()
+
+		// Pick new provider + model for this agent.
+		var overrideProvider string
+		err = huh.NewForm(huh.NewGroup(
+			huh.NewSelect[string]().
+				Title(fmt.Sprintf("Choose provider for '%s' (%s)", slot.AgentName, slot.ModelType)).
+				Options(buildProviderOptions()...).
+				Value(&overrideProvider),
+		)).Run()
 		if err != nil {
 			return err
+		}
+		var overrideModel string
+		err = huh.NewForm(huh.NewGroup(
+			huh.NewSelect[string]().
+				Title(fmt.Sprintf("Choose model for '%s' (%s)", slot.AgentName, slot.ModelType)).
+				Options(buildModelOptions(overrideProvider)...).
+				Value(&overrideModel),
+		)).Run()
+		if err != nil {
+			return err
+		}
+		modelOverrides[slot.ModelType] = &config.ModelConfig{
+			Provider: overrideProvider, ModelType: overrideModel,
 		}
 	}
 
-	// Step 4: optional Telegram
+	// Step 4: Authentication for all unique providers.
+	uniqueProviders := collectUniqueProviders(selectedProvider, modelOverrides)
+	for _, provName := range uniqueProviders {
+		if err := authenticateProvider(existing, provName); err != nil {
+			return err
+		}
+	}
+
+	// Step 5: optional Telegram
 	configureTG = defaults.tgToken != ""
 	err = huh.NewForm(
 		huh.NewGroup(
@@ -247,8 +247,11 @@ func runOnboard(_ *cobra.Command, _ []string) error {
 	}
 	cfg.SetProvider(selectedProvider)
 	cfg.SetModelType(selectedModel)
-	if strings.TrimSpace(apiKey) != "" {
-		cfg.SetProviderAPIKey(strings.TrimSpace(apiKey))
+	if cfg.Thread.Models == nil {
+		cfg.Thread.Models = make(map[string]*config.ModelConfig)
+	}
+	for k, v := range modelOverrides {
+		cfg.Thread.Models[k] = v
 	}
 
 	if configureTG {
@@ -285,8 +288,13 @@ func runOnboard(_ *cobra.Command, _ []string) error {
 	fmt.Println()
 	fmt.Println("  Config:", configPath)
 	fmt.Println("  Workspace:", workspace)
-	fmt.Println("  Provider:", selectedProvider)
-	fmt.Println("  Model:", selectedModel)
+	fmt.Println("  Default:", selectedProvider+"/"+selectedModel)
+	if len(cfg.Thread.Models) > 0 {
+		fmt.Println("  Models:")
+		for modelType, mc := range cfg.Thread.Models {
+			fmt.Printf("    %s: %s/%s\n", modelType, mc.Provider, mc.ModelType)
+		}
+	}
 	fmt.Println()
 	fmt.Println("Run 'nagobot serve' to start.")
 	return nil
@@ -296,7 +304,6 @@ func runOnboard(_ *cobra.Command, _ []string) error {
 type onboardDefaults struct {
 	provider     string
 	model        string
-	apiKey       string
 	tgToken      string
 	tgAdminID    string
 	tgAllowedIDs string
@@ -306,11 +313,9 @@ func loadOnboardDefaults(cfg *config.Config) onboardDefaults {
 	if cfg == nil {
 		return onboardDefaults{}
 	}
-	apiKey, _ := cfg.GetAPIKey()
 	return onboardDefaults{
 		provider:      cfg.GetProvider(),
 		model:         cfg.GetModelType(),
-		apiKey:        apiKey,
 		tgToken:       cfg.GetTelegramToken(),
 		tgAdminID:     cfg.GetAdminUserID(),
 		tgAllowedIDs: formatAllowedIDs(cfg.GetTelegramAllowedIDs()),
@@ -422,6 +427,120 @@ func createBootstrapFiles(workspace string) error {
 		return err
 	}
 
+	return nil
+}
+
+// agentModelSlot represents an agent that declares a model type in its frontmatter.
+type agentModelSlot struct {
+	AgentName string
+	ModelType string
+}
+
+// scanAgentModelSlots reads embedded agent templates and returns those with a model: field.
+func scanAgentModelSlots() []agentModelSlot {
+	entries, err := templateFS.ReadDir("templates/agents")
+	if err != nil {
+		return nil
+	}
+	var slots []agentModelSlot
+	for _, e := range entries {
+		if e.IsDir() || !strings.HasSuffix(e.Name(), ".md") {
+			continue
+		}
+		raw, err := templateFS.ReadFile("templates/agents/" + e.Name())
+		if err != nil {
+			continue
+		}
+		meta, _, _, _ := agent.ParseTemplate(string(raw))
+		if strings.TrimSpace(meta.Model) != "" {
+			name := strings.TrimSpace(meta.Name)
+			if name == "" {
+				name = strings.TrimSuffix(e.Name(), ".md")
+			}
+			slots = append(slots, agentModelSlot{
+				AgentName: name,
+				ModelType: strings.TrimSpace(meta.Model),
+			})
+		}
+	}
+	sort.Slice(slots, func(i, j int) bool {
+		return slots[i].AgentName < slots[j].AgentName
+	})
+	return slots
+}
+
+// collectUniqueProviders returns a sorted list of unique provider names
+// from the default provider and all model overrides.
+func collectUniqueProviders(defaultProv string, models map[string]*config.ModelConfig) []string {
+	seen := map[string]bool{defaultProv: true}
+	for _, mc := range models {
+		if mc != nil {
+			seen[mc.Provider] = true
+		}
+	}
+	providers := make([]string, 0, len(seen))
+	for p := range seen {
+		providers = append(providers, p)
+	}
+	sort.Strings(providers)
+	return providers
+}
+
+// authenticateProvider handles authentication for a single provider,
+// supporting both OAuth and API key flows.
+func authenticateProvider(existing *config.Config, providerName string) error {
+	// Check existing OAuth token.
+	hasOAuth := existing.GetOAuthToken(providerName) != nil &&
+		existing.GetOAuthToken(providerName).AccessToken != ""
+
+	// Check existing API key.
+	pc := existing.EnsureProviderConfigFor(providerName)
+	hasAPIKey := strings.TrimSpace(pc.APIKey) != ""
+
+	if hasOAuth || hasAPIKey {
+		return nil // Already authenticated.
+	}
+
+	_, supportsOAuth := authProviders[providerName]
+	if supportsOAuth {
+		authChoice := "oauth"
+		err := huh.NewForm(huh.NewGroup(
+			huh.NewSelect[string]().
+				Title("How to authenticate with " + providerName + "?").
+				Options(
+					huh.NewOption("Login with OAuth (use your existing account)", "oauth"),
+					huh.NewOption("Enter API key manually", "apikey"),
+				).
+				Value(&authChoice),
+		)).Run()
+		if err != nil {
+			return err
+		}
+		if authChoice == "oauth" {
+			return runOAuthLogin(providerName)
+		}
+	}
+
+	// API key input.
+	keyURL := providerURLs[providerName]
+	var apiKey string
+	err := huh.NewForm(huh.NewGroup(
+		huh.NewInput().
+			Title("Enter your " + providerName + " API key").
+			Description("Create one at " + keyURL).
+			EchoMode(huh.EchoModePassword).
+			Validate(func(s string) error {
+				if strings.TrimSpace(s) == "" {
+					return fmt.Errorf("API key is required")
+				}
+				return nil
+			}).
+			Value(&apiKey),
+	)).Run()
+	if err != nil {
+		return err
+	}
+	existing.EnsureProviderConfigFor(providerName).APIKey = strings.TrimSpace(apiKey)
 	return nil
 }
 

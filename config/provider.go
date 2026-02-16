@@ -218,8 +218,10 @@ func (c *Config) ClearOAuthToken(providerName string) {
 
 // ensureProviderConfig returns a mutable *ProviderConfig for the current
 // provider, creating it if nil.
-func (c *Config) ensureProviderConfig() *ProviderConfig {
-	switch c.GetProvider() {
+// EnsureProviderConfigFor returns the ProviderConfig for the given provider name,
+// creating it if it does not exist.
+func (c *Config) EnsureProviderConfigFor(providerName string) *ProviderConfig {
+	switch providerName {
 	case "openai":
 		if c.Providers.OpenAI == nil {
 			c.Providers.OpenAI = &ProviderConfig{}
@@ -273,6 +275,10 @@ func (c *Config) ensureProviderConfig() *ProviderConfig {
 	default:
 		return &ProviderConfig{}
 	}
+}
+
+func (c *Config) ensureProviderConfig() *ProviderConfig {
+	return c.EnsureProviderConfigFor(c.GetProvider())
 }
 
 // SetProviderAPIKey sets the API key on the current provider config.

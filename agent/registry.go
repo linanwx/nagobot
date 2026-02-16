@@ -60,7 +60,7 @@ func (r *AgentRegistry) load() {
 			continue
 		}
 
-		meta, _, _, parseErr := parseTemplate(string(raw))
+		meta, _, _, parseErr := ParseTemplate(string(raw))
 		if parseErr != nil {
 			logger.Warn("invalid agent template front matter", "path", path, "err", parseErr)
 		}

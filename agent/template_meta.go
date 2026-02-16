@@ -6,13 +6,15 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
-type templateMeta struct {
+// TemplateMeta holds the YAML frontmatter fields of an agent template.
+type TemplateMeta struct {
 	Name        string `yaml:"name"`
 	Description string `yaml:"description"`
 	Model       string `yaml:"model"`
 }
 
-func parseTemplate(content string) (meta templateMeta, body string, hasHeader bool, err error) {
+// ParseTemplate extracts YAML frontmatter and body from a template string.
+func ParseTemplate(content string) (meta TemplateMeta, body string, hasHeader bool, err error) {
 	header, body, hasHeader := splitFrontMatter(content)
 	if !hasHeader {
 		return meta, content, false, nil
@@ -25,7 +27,7 @@ func parseTemplate(content string) (meta templateMeta, body string, hasHeader bo
 }
 
 func stripFrontMatter(content string) string {
-	_, body, hasHeader, err := parseTemplate(content)
+	_, body, hasHeader, err := ParseTemplate(content)
 	if err != nil || !hasHeader {
 		return content
 	}

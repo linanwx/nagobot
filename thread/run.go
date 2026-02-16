@@ -14,7 +14,7 @@ import (
 
 // run executes one thread turn. Called by RunOnce; callers must not invoke
 // this directly.
-func (t *Thread) run(ctx context.Context, userMessage string) (string, error) {
+func (t *Thread) run(ctx context.Context, userMessage string, sink Sink) (string, error) {
 	userMessage = strings.TrimSpace(userMessage)
 	if userMessage == "" {
 		return "", nil
@@ -118,6 +118,10 @@ func (t *Thread) run(ctx context.Context, userMessage string) (string, error) {
 	runner := NewRunner(t.resolveProvider(), t.tools, metrics)
 	runner.OnMessage(func(m provider.Message) {
 		intermediates = append(intermediates, m)
+		// Deliver intermediate assistant content (e.g. DeepSeek-chat thinking aloud) to user in real time.
+		if m.Role == "assistant" && strings.TrimSpace(m.Content) != "" && !sink.IsZero() {
+			_ = sink.Send(ctx, m.Content)
+		}
 	})
 	response, err := runner.RunWithMessages(runCtx, messages)
 	if err != nil {

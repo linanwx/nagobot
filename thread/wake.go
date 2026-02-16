@@ -60,7 +60,7 @@ func (t *Thread) RunOnce(ctx context.Context) {
 		}
 
 		userMessage := buildWakePayload(msg.Source, msg.Message, t.id, t.sessionKey, deliveryLabel)
-		response, err := t.run(ctx, userMessage)
+		response, err := t.run(ctx, userMessage, sink)
 		if err != nil {
 			logger.Error("thread run error", "threadID", t.id, "sessionKey", t.sessionKey, "source", msg.Source, "err", err)
 			response = fmt.Sprintf("[Error] %v", err)

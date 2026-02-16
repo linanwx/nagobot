@@ -13,6 +13,7 @@ require (
 	github.com/openai/openai-go/v3 v3.18.0
 	github.com/robfig/cron/v3 v3.0.1
 	github.com/spf13/cobra v1.10.2
+	github.com/tidwall/sjson v1.2.5
 	github.com/tiktoken-go/tokenizer v0.7.0
 	github.com/yuin/goldmark v1.5.6
 	gopkg.in/yaml.v3 v3.0.1
@@ -54,7 +55,6 @@ require (
 	github.com/tidwall/gjson v1.18.0 // indirect
 	github.com/tidwall/match v1.1.1 // indirect
 	github.com/tidwall/pretty v1.2.1 // indirect
-	github.com/tidwall/sjson v1.2.5 // indirect
 	github.com/xo/terminfo v0.0.0-20220910002029-abceb7e1c41e // indirect
 	golang.org/x/net v0.41.0 // indirect
 	golang.org/x/sync v0.16.0 // indirect
