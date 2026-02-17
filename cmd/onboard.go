@@ -114,15 +114,17 @@ func runOnboard(_ *cobra.Command, _ []string) error {
 		}
 	}
 
-	// Step 3: Per-agent model override
+	// Step 3: Per-model-type override (deduplicated across agents)
 	defaultLabel := selectedProvider + " / " + selectedModel
-	slots := scanAgentModelSlots()
+	groups := groupAgentModelSlots(scanAgentModelSlots())
 	modelOverrides := make(map[string]*config.ModelConfig)
-	for _, slot := range slots {
+	for _, g := range groups {
+		agentsLabel := strings.Join(g.AgentNames, ", ")
+
 		// Check existing override from prior onboard.
 		var existingMC *config.ModelConfig
 		if existing.Thread.Models != nil {
-			existingMC = existing.Thread.Models[slot.ModelType]
+			existingMC = existing.Thread.Models[g.ModelType]
 		}
 		hasExistingOverride := existingMC != nil &&
 			(existingMC.Provider != selectedProvider || existingMC.ModelType != selectedModel)
@@ -132,14 +134,14 @@ func runOnboard(_ *cobra.Command, _ []string) error {
 			useDefault := true
 			err = huh.NewForm(huh.NewGroup(
 				huh.NewConfirm().
-					Title(fmt.Sprintf("Agent '%s' (%s): use default (%s)?", slot.AgentName, slot.ModelType, defaultLabel)).
+					Title(fmt.Sprintf("Model '%s' (used by: %s): use default (%s)?", g.ModelType, agentsLabel, defaultLabel)).
 					Value(&useDefault),
 			)).Run()
 			if err != nil {
 				return err
 			}
 			if useDefault {
-				modelOverrides[slot.ModelType] = &config.ModelConfig{
+				modelOverrides[g.ModelType] = &config.ModelConfig{
 					Provider: selectedProvider, ModelType: selectedModel,
 				}
 				continue
@@ -150,7 +152,7 @@ func runOnboard(_ *cobra.Command, _ []string) error {
 			currentLabel := existingMC.Provider + " / " + existingMC.ModelType
 			err = huh.NewForm(huh.NewGroup(
 				huh.NewSelect[string]().
-					Title(fmt.Sprintf("Agent '%s' (%s):", slot.AgentName, slot.ModelType)).
+					Title(fmt.Sprintf("Model '%s' (used by: %s):", g.ModelType, agentsLabel)).
 					Options(
 						huh.NewOption("Keep current ("+currentLabel+")", "keep"),
 						huh.NewOption("Use default ("+defaultLabel+")", "default"),
@@ -162,22 +164,22 @@ func runOnboard(_ *cobra.Command, _ []string) error {
 				return err
 			}
 			if choice == "keep" {
-				modelOverrides[slot.ModelType] = existingMC
+				modelOverrides[g.ModelType] = existingMC
 				continue
 			}
 			if choice == "default" {
-				modelOverrides[slot.ModelType] = &config.ModelConfig{
+				modelOverrides[g.ModelType] = &config.ModelConfig{
 					Provider: selectedProvider, ModelType: selectedModel,
 				}
 				continue
 			}
 		}
 
-		// Pick new provider + model for this agent.
+		// Pick new provider + model for this model type.
 		var overrideProvider string
 		err = huh.NewForm(huh.NewGroup(
 			huh.NewSelect[string]().
-				Title(fmt.Sprintf("Choose provider for '%s' (%s)", slot.AgentName, slot.ModelType)).
+				Title(fmt.Sprintf("Choose provider for '%s' (used by: %s)", g.ModelType, agentsLabel)).
 				Options(buildProviderOptions()...).
 				Value(&overrideProvider),
 		)).Run()
@@ -187,14 +189,14 @@ func runOnboard(_ *cobra.Command, _ []string) error {
 		var overrideModel string
 		err = huh.NewForm(huh.NewGroup(
 			huh.NewSelect[string]().
-				Title(fmt.Sprintf("Choose model for '%s' (%s)", slot.AgentName, slot.ModelType)).
+				Title(fmt.Sprintf("Choose model for '%s' (used by: %s)", g.ModelType, agentsLabel)).
 				Options(buildModelOptions(overrideProvider)...).
 				Value(&overrideModel),
 		)).Run()
 		if err != nil {
 			return err
 		}
-		modelOverrides[slot.ModelType] = &config.ModelConfig{
+		modelOverrides[g.ModelType] = &config.ModelConfig{
 			Provider: overrideProvider, ModelType: overrideModel,
 		}
 	}
@@ -448,6 +450,31 @@ func createBootstrapFiles(workspace string) error {
 type agentModelSlot struct {
 	AgentName string
 	ModelType string
+}
+
+// modelSlotGroup groups agents that share the same model type.
+type modelSlotGroup struct {
+	ModelType  string
+	AgentNames []string
+}
+
+// groupAgentModelSlots deduplicates slots by ModelType, returning one group
+// per unique model type with all agent names that use it.
+func groupAgentModelSlots(slots []agentModelSlot) []modelSlotGroup {
+	order := make([]string, 0)
+	byType := make(map[string][]string)
+	for _, s := range slots {
+		if _, seen := byType[s.ModelType]; !seen {
+			order = append(order, s.ModelType)
+		}
+		byType[s.ModelType] = append(byType[s.ModelType], s.AgentName)
+	}
+	sort.Strings(order)
+	groups := make([]modelSlotGroup, 0, len(order))
+	for _, mt := range order {
+		groups = append(groups, modelSlotGroup{ModelType: mt, AgentNames: byType[mt]})
+	}
+	return groups
 }
 
 // scanAgentModelSlots reads embedded agent templates and returns those with a model: field.
