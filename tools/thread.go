@@ -50,7 +50,7 @@ func (t *SpawnThreadTool) Def() provider.ToolDef {
 					},
 					"task": map[string]any{
 						"type":        "string",
-						"description": "Task description for the child thread, including specific instructions and task background context. Recommended length: 100-800 words.",
+						"description": "Task description for the child thread, including specific instructions and task background context. Recommended length: 20-800 words.",
 					},
 				},
 				"required": []string{"task"},
