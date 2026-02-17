@@ -7,6 +7,7 @@ import (
 	"os"
 	"sync"
 	"sync/atomic"
+	"syscall"
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/linanwx/nagobot/channel/tui"
@@ -49,11 +50,16 @@ func (c *TUIChannel) Start(ctx context.Context) error {
 		if _, err := c.program.Run(); err != nil {
 			fmt.Fprintf(os.Stderr, "tui error: %v\n", err)
 		}
-		// TUI exited — signal stop.
+		// TUI exited — signal stop and terminate the process.
 		select {
 		case <-c.done:
 		default:
 			close(c.done)
+		}
+		// Send SIGINT to trigger serve.go's graceful shutdown.
+		p, _ := os.FindProcess(os.Getpid())
+		if p != nil {
+			_ = p.Signal(syscall.SIGINT)
 		}
 	}()
 

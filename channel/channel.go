@@ -5,7 +5,6 @@ import (
 	"context"
 	"fmt"
 	"strings"
-	"time"
 	"unicode/utf8"
 
 	"github.com/linanwx/nagobot/logger"
@@ -85,6 +84,12 @@ func (m *Manager) SendTo(ctx context.Context, channelName, text, replyTo string)
 
 // StartAll starts all registered channels.
 func (m *Manager) StartAll(ctx context.Context) error {
+	if cliCh, ok := m.channels["cli"]; ok {
+		if err := cliCh.Start(ctx); err != nil {
+			return err
+		}
+	}
+	
 	if webCh, ok := m.channels["web"]; ok {
 		if err := webCh.Start(ctx); err != nil {
 			return err
@@ -100,15 +105,6 @@ func (m *Manager) StartAll(ctx context.Context) error {
 
 	if feishuCh, ok := m.channels["feishu"]; ok {
 		if err := feishuCh.Start(ctx); err != nil {
-			return err
-		}
-	}
-
-	if cliCh, ok := m.channels["cli"]; ok {
-		if hasTelegram {
-			time.Sleep(1 * time.Second)
-		}
-		if err := cliCh.Start(ctx); err != nil {
 			return err
 		}
 	}
