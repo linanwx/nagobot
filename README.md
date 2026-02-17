@@ -31,6 +31,8 @@ Multi-provider AI assistant with tool calling, async multi-threading, cron sched
 - `minimax-cn`: `minimax-m2.5`
 - `minimax-global`: `minimax-m2.5`
 
+Recommended: deepseek-chat for chat, kimi-k2.5 for tool calls.
+
 ### Developer notes
 
 - **deepseek**: Incredibly good. No image support and reasoning is very slow, but otherwise excellent.
