@@ -136,9 +136,9 @@ func buildDefaultSinkFor(chMgr *channel.Manager, cfg *config.Config) func(string
 	feishuAdminID := strings.TrimSpace(cfg.GetFeishuAdminOpenID())
 
 	return func(sessionKey string) thread.Sink {
-		// telegram:{userID} → send to that user.
+		// telegram:{chatID}[:{userID}[:threads:...]] → send to that chat.
 		if strings.HasPrefix(sessionKey, "telegram:") {
-			userID := strings.TrimPrefix(sessionKey, "telegram:")
+			userID := extractFirstSegment(strings.TrimPrefix(sessionKey, "telegram:"))
 			if userID != "" {
 				return thread.Sink{
 					Label:      "your response will be sent to telegram user " + userID,
@@ -158,7 +158,7 @@ func buildDefaultSinkFor(chMgr *channel.Manager, cfg *config.Config) func(string
 		// The per-wake sink from buildSink uses the original chat_id for reply routing,
 		// while this fallback sink (for cron/spawn) always replies via P2P.
 		if strings.HasPrefix(sessionKey, "feishu:") {
-			openID := strings.TrimPrefix(sessionKey, "feishu:")
+			openID := extractFirstSegment(strings.TrimPrefix(sessionKey, "feishu:"))
 			if openID != "" {
 				return thread.Sink{
 					Label:      "your response will be sent to feishu user " + openID,
@@ -216,6 +216,14 @@ func buildDefaultSinkFor(chMgr *channel.Manager, cfg *config.Config) func(string
 
 		return thread.Sink{}
 	}
+}
+
+// extractFirstSegment returns the part before the first ':' in s, or all of s if no ':' exists.
+func extractFirstSegment(s string) string {
+	if idx := strings.Index(s, ":"); idx >= 0 {
+		return s[:idx]
+	}
+	return s
 }
 
 func resolveServeTargets(cmd *cobra.Command) (finalServeCLI, finalServeTelegram, finalServeFeishu, finalServeWeb bool, err error) {
