@@ -36,7 +36,7 @@ func (c *TUIChannel) Name() string { return "cli" }
 
 func (c *TUIChannel) Start(ctx context.Context) error {
 	c.app = tui.NewApp()
-	c.program = tea.NewProgram(c.app, tea.WithAltScreen())
+	c.program = tea.NewProgram(c.app, tea.WithAltScreen(), tea.WithMouseCellMotion())
 
 	// Redirect logger output to the TUI log panel.
 	lw := &logWriter{program: c.program}

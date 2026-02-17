@@ -20,6 +20,10 @@ type App struct {
 	width, height int
 	logRatio      float64
 
+	// Layout boundaries (y-offsets) for mouse routing.
+	logEndY  int
+	chatEndY int
+
 	// InputCh receives user input text from the input panel.
 	InputCh chan string
 }
@@ -36,7 +40,7 @@ func NewApp() *App {
 }
 
 func (m *App) Init() tea.Cmd {
-	return textinputBlink()
+	return nil
 }
 
 func (m *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
@@ -58,6 +62,24 @@ func (m *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		p, cmd := m.inputPanel.Update(msg)
 		m.inputPanel = p
 		cmds = append(cmds, cmd)
+
+	case tea.MouseMsg:
+		// Route mouse events to the panel under the cursor for scrolling.
+		y := msg.Y
+		switch {
+		case y < m.logEndY:
+			p, cmd := m.logPanel.Update(msg)
+			m.logPanel = p
+			cmds = append(cmds, cmd)
+		case y < m.chatEndY:
+			p, cmd := m.chatPanel.Update(msg)
+			m.chatPanel = p
+			cmds = append(cmds, cmd)
+		default:
+			p, cmd := m.inputPanel.Update(msg)
+			m.inputPanel = p
+			cmds = append(cmds, cmd)
+		}
 
 	case InputSubmitMsg:
 		// Echo user message to chat panel.
@@ -117,9 +139,8 @@ func (m *App) recalcLayout() {
 	m.logPanel.SetSize(m.width, logH)
 	m.chatPanel.SetSize(m.width, chatH)
 	m.inputPanel.SetSize(m.width, inputH)
-}
 
-// textinputBlink returns the initial blink command for the textinput cursor.
-func textinputBlink() tea.Cmd {
-	return nil // textinput handles its own blink when focused
+	// Track y-offsets for mouse routing.
+	m.logEndY = logH + 1  // +1 for separator
+	m.chatEndY = m.logEndY + chatH + 1
 }

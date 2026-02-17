@@ -15,8 +15,9 @@ var logLineStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("8")) // dim gr
 // LogPanel displays log output in a scrollable viewport.
 type LogPanel struct {
 	viewport viewport.Model
-	lines    []string
+	rawLines []string // raw log lines for re-wrapping on resize
 	maxLines int
+	width    int
 }
 
 // NewLogPanel creates a log panel.
@@ -33,11 +34,11 @@ func (p *LogPanel) Update(msg tea.Msg) (Panel, tea.Cmd) {
 	switch msg := msg.(type) {
 	case LogLineMsg:
 		line := strings.TrimRight(msg.Line, "\n")
-		p.lines = append(p.lines, logLineStyle.Render(line))
-		if len(p.lines) > p.maxLines {
-			p.lines = p.lines[len(p.lines)-p.maxLines:]
+		p.rawLines = append(p.rawLines, line)
+		if len(p.rawLines) > p.maxLines {
+			p.rawLines = p.rawLines[len(p.rawLines)-p.maxLines:]
 		}
-		p.viewport.SetContent(strings.Join(p.lines, "\n"))
+		p.rebuildContent()
 		p.viewport.GotoBottom()
 		return p, nil
 	}
@@ -51,6 +52,20 @@ func (p *LogPanel) View() string {
 }
 
 func (p *LogPanel) SetSize(width, height int) {
+	p.width = width
 	p.viewport.Width = width
 	p.viewport.Height = height
+	p.rebuildContent()
+}
+
+func (p *LogPanel) rebuildContent() {
+	if p.width <= 0 {
+		return
+	}
+	wrap := lipgloss.NewStyle().Width(p.width)
+	lines := make([]string, 0, len(p.rawLines))
+	for _, raw := range p.rawLines {
+		lines = append(lines, wrap.Render(logLineStyle.Render(raw)))
+	}
+	p.viewport.SetContent(strings.Join(lines, "\n"))
 }

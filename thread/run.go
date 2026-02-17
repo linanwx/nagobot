@@ -118,8 +118,8 @@ func (t *Thread) run(ctx context.Context, userMessage string, sink Sink) (string
 	runner := NewRunner(t.resolveProvider(), t.tools, metrics)
 	runner.OnMessage(func(m provider.Message) {
 		intermediates = append(intermediates, m)
-		// Deliver intermediate assistant content (e.g. DeepSeek-chat thinking aloud) to user in real time.
-		if m.Role == "assistant" && strings.TrimSpace(m.Content) != "" && !sink.IsZero() && sink.Idempotent {
+		// Deliver intermediate assistant content (e.g. thinking aloud) to user in real time.
+		if m.Role == "assistant" && isUserFacingContent(m.Content) && !sink.IsZero() && sink.Idempotent {
 			_ = sink.Send(ctx, m.Content)
 		}
 	})
@@ -147,6 +147,20 @@ func (t *Thread) run(ctx context.Context, userMessage string, sink Sink) (string
 	}
 
 	return response, nil
+}
+
+// isUserFacingContent returns true if the content is meaningful for the user,
+// filtering out known provider-injected placeholders.
+func isUserFacingContent(s string) bool {
+	s = strings.TrimSpace(s)
+	if s == "" {
+		return false
+	}
+	switch s {
+	case "(tool call)", "(empty assistant message)":
+		return false
+	}
+	return true
 }
 
 // resolveProvider returns the provider for the current agent's model type,
