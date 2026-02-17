@@ -94,7 +94,8 @@ func runServe(cmd *cobra.Command, args []string) error {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	// Set default sink factory: resolves fallback sink per session key.
+	// Set default agent/sink factories: resolve fallback agent and sink per session key.
+	threadMgr.SetDefaultAgentFor(buildDefaultAgentFor(cfg))
 	threadMgr.SetDefaultSinkFor(buildDefaultSinkFor(chManager, cfg))
 
 	// Register shared tools.
@@ -128,6 +129,30 @@ func runServe(cmd *cobra.Command, args []string) error {
 
 	logger.Info("nagobot service stopped")
 	return nil
+}
+
+// buildDefaultAgentFor returns a factory that resolves the default agent name for a given session key.
+func buildDefaultAgentFor(cfg *config.Config) func(string) string {
+	return func(sessionKey string) string {
+		if cfg.Channels == nil || len(cfg.Channels.UserAgents) == 0 {
+			return ""
+		}
+		// Extract userID from session key: "telegram:12345" → "12345", "feishu:ou_xxx" → "ou_xxx".
+		parts := strings.SplitN(sessionKey, ":", 2)
+		if len(parts) == 2 {
+			if agent := cfg.Channels.UserAgents[parts[1]]; agent != "" {
+				return agent
+			}
+		}
+		// "main" session → admin user's agent.
+		if sessionKey == "main" {
+			adminID := strings.TrimSpace(cfg.Channels.AdminUserID)
+			if adminID != "" {
+				return cfg.Channels.UserAgents[adminID]
+			}
+		}
+		return ""
+	}
 }
 
 // buildDefaultSinkFor returns a factory that resolves the fallback sink for a given session key.

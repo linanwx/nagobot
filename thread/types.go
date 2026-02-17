@@ -49,6 +49,7 @@ type ThreadConfig struct {
 	ContextWarnRatio    float64
 	Sessions            *session.Manager
 	DefaultSinkFor      func(sessionKey string) Sink
+	DefaultAgentFor     func(sessionKey string) string // Session key → default agent name
 	HealthChannels      *tools.HealthChannelsInfo
 	ProviderFactory     *provider.Factory              // For per-agent model routing
 	Models              map[string]*config.ModelConfig  // Model type → provider/model mapping

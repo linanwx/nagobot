@@ -152,6 +152,9 @@ func (m *Manager) NewThread(sessionKey, agentName string) (*Thread, error) {
 		signal:       m.signal,
 		lastActiveAt: time.Now(),
 	}
+	if strings.TrimSpace(agentName) == "" && m.cfg.DefaultAgentFor != nil {
+		agentName = m.cfg.DefaultAgentFor(sessionKey)
+	}
 	a, err := m.cfg.Agents.New(agentName)
 	if err != nil {
 		return nil, err
@@ -170,6 +173,11 @@ func (m *Manager) NewThread(sessionKey, agentName string) (*Thread, error) {
 // SetDefaultSinkFor configures a factory that returns the fallback sink for a given session key.
 func (m *Manager) SetDefaultSinkFor(fn func(string) Sink) {
 	m.cfg.DefaultSinkFor = fn
+}
+
+// SetDefaultAgentFor configures a factory that returns the default agent name for a given session key.
+func (m *Manager) SetDefaultAgentFor(fn func(string) string) {
+	m.cfg.DefaultAgentFor = fn
 }
 
 // RegisterTool adds a tool to the shared tool registry.
