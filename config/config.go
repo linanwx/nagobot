@@ -1,7 +1,11 @@
 // Package config handles configuration loading and saving.
 package config
 
-import "strings"
+import (
+	"strings"
+
+	cronpkg "github.com/linanwx/nagobot/cron"
+)
 
 const (
 	configFileName = "config.yaml"
@@ -22,6 +26,7 @@ type Config struct {
 	Tools     ToolsConfig     `json:"tools,omitempty" yaml:"tools,omitempty"`
 	Channels  *ChannelsConfig `json:"channels" yaml:"channels"`
 	Logging   LoggingConfig   `json:"logging,omitempty" yaml:"logging,omitempty"`
+	Cron      []cronpkg.Job   `json:"cron,omitempty" yaml:"cron,omitempty"`
 }
 
 // ThreadConfig contains thread runtime defaults.

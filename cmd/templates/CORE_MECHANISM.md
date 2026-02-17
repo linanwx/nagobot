@@ -1,3 +1,10 @@
+## Context
+
+- Time: {{TIME}}
+- Calendar:
+{{CALENDAR}}
+- Root Path: {{WORKSPACE}}
+
 # How nagobot works
 
 ## channel
@@ -19,3 +26,21 @@ For silent cron jobs, the cron thread does not set a default sink. This means me
 Messages from `cli` and `telegram` may include a sink override, which overrides the sink held by the thread. For example, messages received from Telegram are always sent back to that user.
 
 Each thread has a message queue. Wake messages are pushed into the queue, and the thread manager selects queued threads from all threads to run reasoning.
+
+## Agent Definitions
+
+The available agent names in the current system are listed below. You may need these names when creating threads or scheduled jobs.
+
+{{AGENTS}}
+
+## Tools
+
+**Available Tools:** {{TOOLS}}
+
+You can perform multi-step reasoning and repeatedly call tools to execute commands.
+
+## Skills
+
+The skills available in this system are listed below. The `use_skill` tool is the single source of truth for skill instructions, and these instructions may change during a session. Whenever you need to use a skill, you must call `use_skill` to load its latest instructions.
+
+{{SKILLS}}

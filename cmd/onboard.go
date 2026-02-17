@@ -66,38 +66,52 @@ func runOnboard(_ *cobra.Command, _ []string) error {
 		configureTG      bool
 	)
 
-	// Step 1: select provider
-	providerOptions := buildProviderOptions()
-	err = huh.NewForm(
-		huh.NewGroup(
-			huh.NewSelect[string]().
-				Title("Choose your LLM provider").
-				Description("nagobot supports multiple LLM providers. Choose one to get started.").
-				Options(providerOptions...).
-				Value(&selectedProvider),
-		),
-	).Run()
-	if err != nil {
-		return err
+	// Step 1+2: select default provider + model
+	if defaults.provider != "" && defaults.model != "" {
+		keepDefault := true
+		err = huh.NewForm(huh.NewGroup(
+			huh.NewConfirm().
+				Title(fmt.Sprintf("Keep current default (%s/%s)?", defaults.provider, defaults.model)).
+				Value(&keepDefault),
+		)).Run()
+		if err != nil {
+			return err
+		}
+		if !keepDefault {
+			selectedProvider = ""
+			selectedModel = ""
+		}
 	}
-
-	// Step 2: select model (dynamic based on provider)
-	// Reset model if provider changed.
-	if selectedProvider != defaults.provider {
-		selectedModel = ""
-	}
-	modelOptions := buildModelOptions(selectedProvider)
-	err = huh.NewForm(
-		huh.NewGroup(
-			huh.NewSelect[string]().
-				Title("Choose model for "+selectedProvider).
-				Description("Only whitelisted models are supported. The first option is the recommended default.").
-				Options(modelOptions...).
-				Value(&selectedModel),
-		),
-	).Run()
-	if err != nil {
-		return err
+	if selectedProvider == "" || selectedModel == "" {
+		providerOptions := buildProviderOptions()
+		err = huh.NewForm(
+			huh.NewGroup(
+				huh.NewSelect[string]().
+					Title("Choose your default LLM provider").
+					Description("nagobot supports multiple LLM providers. Choose one to get started.").
+					Options(providerOptions...).
+					Value(&selectedProvider),
+			),
+		).Run()
+		if err != nil {
+			return err
+		}
+		if selectedProvider != defaults.provider {
+			selectedModel = ""
+		}
+		modelOptions := buildModelOptions(selectedProvider)
+		err = huh.NewForm(
+			huh.NewGroup(
+				huh.NewSelect[string]().
+					Title("Choose default model for "+selectedProvider).
+					Description("Only whitelisted models are supported. The first option is the recommended default.").
+					Options(modelOptions...).
+					Value(&selectedModel),
+			),
+		).Run()
+		if err != nil {
+			return err
+		}
 	}
 
 	// Step 3: Per-agent model override

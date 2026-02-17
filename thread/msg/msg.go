@@ -5,8 +5,9 @@ import "context"
 
 // Sink defines how thread output is delivered.
 type Sink struct {
-	Label string
-	Send  func(ctx context.Context, response string) error
+	Label      string
+	Send       func(ctx context.Context, response string) error
+	Idempotent bool // True for display-only sinks (telegram, feishu, cli) safe for intermediate streaming.
 }
 
 // IsZero reports whether the sink has no delivery function.

@@ -119,7 +119,7 @@ func (t *Thread) run(ctx context.Context, userMessage string, sink Sink) (string
 	runner.OnMessage(func(m provider.Message) {
 		intermediates = append(intermediates, m)
 		// Deliver intermediate assistant content (e.g. DeepSeek-chat thinking aloud) to user in real time.
-		if m.Role == "assistant" && strings.TrimSpace(m.Content) != "" && !sink.IsZero() {
+		if m.Role == "assistant" && strings.TrimSpace(m.Content) != "" && !sink.IsZero() && sink.Idempotent {
 			_ = sink.Send(ctx, m.Content)
 		}
 	})

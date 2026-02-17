@@ -19,6 +19,7 @@ import (
 // delivered via thread sinks.
 type CronChannel struct {
 	storePath string
+	seedJobs  []cronpkg.Job // config-defined seeds
 	scheduler *cronpkg.Scheduler
 	messages  chan *Message
 	done      chan struct{}
@@ -32,6 +33,7 @@ func NewCronChannel(cfg *config.Config) Channel {
 	}
 	ch := &CronChannel{
 		storePath: filepath.Join(workspace, "cron.jsonl"),
+		seedJobs:  cfg.Cron,
 		messages:  make(chan *Message, 64),
 		done:      make(chan struct{}),
 	}
@@ -46,7 +48,7 @@ func (c *CronChannel) Start(ctx context.Context) error {
 		return "", nil // fire-and-forget
 	}
 
-	sch, err := cronpkg.NewScheduler(c.storePath, factory)
+	sch, err := cronpkg.NewScheduler(c.storePath, factory, c.seedJobs)
 	if err != nil {
 		return fmt.Errorf("failed to create cron scheduler: %w", err)
 	}

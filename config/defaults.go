@@ -1,5 +1,7 @@
 package config
 
+import cronpkg "github.com/linanwx/nagobot/cron"
+
 const (
 	defaultProvider            = "deepseek"
 	defaultModelType           = "deepseek-reasoner"
@@ -38,6 +40,16 @@ func DefaultConfig() *Config {
 			},
 		},
 		Logging: logDefaults,
+		Cron: []cronpkg.Job{
+			{
+				ID:          "heartbeat",
+				Expr:        "*/30 * * * *",
+				Task:        "heartbeat",
+				Agent:       "heartbeat",
+				Silent:      true,
+				WakeSession: "",
+			},
+		},
 	}
 }
 
@@ -87,6 +99,20 @@ func (c *Config) applyDefaults() {
 	}
 	if c.Channels.Web.Addr == "" {
 		c.Channels.Web.Addr = defaultWebAddr
+	}
+
+	// Merge default cron seeds by ID (new defaults auto-appear for existing users).
+	for _, seed := range DefaultConfig().Cron {
+		found := false
+		for _, j := range c.Cron {
+			if j.ID == seed.ID {
+				found = true
+				break
+			}
+		}
+		if !found {
+			c.Cron = append(c.Cron, seed)
+		}
 	}
 
 	def := defaultLoggingConfig()

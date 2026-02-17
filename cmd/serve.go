@@ -141,7 +141,8 @@ func buildDefaultSinkFor(chMgr *channel.Manager, cfg *config.Config) func(string
 			userID := strings.TrimPrefix(sessionKey, "telegram:")
 			if userID != "" {
 				return thread.Sink{
-					Label: "your response will be sent to telegram user " + userID,
+					Label:      "your response will be sent to telegram user " + userID,
+					Idempotent: true,
 					Send: func(ctx context.Context, response string) error {
 						if strings.TrimSpace(response) == "" {
 							return nil
@@ -160,7 +161,8 @@ func buildDefaultSinkFor(chMgr *channel.Manager, cfg *config.Config) func(string
 			openID := strings.TrimPrefix(sessionKey, "feishu:")
 			if openID != "" {
 				return thread.Sink{
-					Label: "your response will be sent to feishu user " + openID,
+					Label:      "your response will be sent to feishu user " + openID,
+					Idempotent: true,
 					Send: func(ctx context.Context, response string) error {
 						if strings.TrimSpace(response) == "" {
 							return nil
@@ -175,7 +177,8 @@ func buildDefaultSinkFor(chMgr *channel.Manager, cfg *config.Config) func(string
 		if sessionKey == "main" {
 			if _, ok := chMgr.Get("telegram"); ok && adminID != "" {
 				return thread.Sink{
-					Label: "your response will be sent to telegram admin",
+					Label:      "your response will be sent to telegram admin",
+					Idempotent: true,
 					Send: func(ctx context.Context, response string) error {
 						if strings.TrimSpace(response) == "" {
 							return nil
@@ -186,7 +189,8 @@ func buildDefaultSinkFor(chMgr *channel.Manager, cfg *config.Config) func(string
 			}
 			if _, ok := chMgr.Get("feishu"); ok && feishuAdminID != "" {
 				return thread.Sink{
-					Label: "your response will be sent to feishu admin",
+					Label:      "your response will be sent to feishu admin",
+					Idempotent: true,
 					Send: func(ctx context.Context, response string) error {
 						if strings.TrimSpace(response) == "" {
 							return nil
@@ -197,7 +201,8 @@ func buildDefaultSinkFor(chMgr *channel.Manager, cfg *config.Config) func(string
 			}
 			if _, ok := chMgr.Get("cli"); ok {
 				return thread.Sink{
-					Label: "your response will be printed to cli",
+					Label:      "your response will be printed to cli",
+					Idempotent: true,
 					Send: func(ctx context.Context, response string) error {
 						if strings.TrimSpace(response) == "" {
 							return nil
