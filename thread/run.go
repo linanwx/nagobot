@@ -6,6 +6,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/linanwx/nagobot/config"
 	"github.com/linanwx/nagobot/logger"
 	"github.com/linanwx/nagobot/provider"
 	"github.com/linanwx/nagobot/session"
@@ -163,28 +164,41 @@ func isUserFacingContent(s string) bool {
 	return true
 }
 
-// resolveProvider returns the provider for the current agent's model type,
-// falling back to t.provider (the default set at thread creation).
-func (t *Thread) resolveProvider() provider.Provider {
+// resolvedModelConfig returns the model config for the current agent's model type,
+// or nil if the agent uses the default provider.
+func (t *Thread) resolvedModelConfig() *config.ModelConfig {
 	cfg := t.cfg()
 	if t.Agent == nil || cfg.Agents == nil {
-		return t.provider
+		return nil
 	}
 	def := cfg.Agents.Def(t.Agent.Name)
 	if def == nil || def.Model == "" {
-		return t.provider
+		return nil
 	}
-	if cfg.ProviderFactory == nil || len(cfg.Models) == 0 {
-		return t.provider
+	if len(cfg.Models) == 0 {
+		return nil
 	}
 	mc, ok := cfg.Models[def.Model]
 	if !ok || mc == nil {
-		logger.Warn("model type not mapped, using default", "agent", t.Agent.Name, "model", def.Model)
+		return nil
+	}
+	return mc
+}
+
+// resolveProvider returns the provider for the current agent's model type,
+// falling back to t.provider (the default set at thread creation).
+func (t *Thread) resolveProvider() provider.Provider {
+	mc := t.resolvedModelConfig()
+	if mc == nil {
+		return t.provider
+	}
+	cfg := t.cfg()
+	if cfg.ProviderFactory == nil {
 		return t.provider
 	}
 	p, err := cfg.ProviderFactory.Create(mc.Provider, mc.ModelType)
 	if err != nil {
-		logger.Warn("failed to create provider, using default", "agent", t.Agent.Name, "model", def.Model, "err", err)
+		logger.Warn("failed to create provider, using default", "agent", t.Agent.Name, "model", mc.ModelType, "err", err)
 		return t.provider
 	}
 	return p

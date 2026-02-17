@@ -64,9 +64,10 @@ var openRouterModels = map[string]openRouterModelMeta{
 
 func init() {
 	RegisterProvider("openrouter", ProviderRegistration{
-		Models:  []string{"moonshotai/kimi-k2.5"},
-		EnvKey:  "OPENROUTER_API_KEY",
-		EnvBase: "OPENROUTER_API_BASE",
+		Models:       []string{"moonshotai/kimi-k2.5"},
+		VisionModels: []string{"moonshotai/kimi-k2.5"},
+		EnvKey:       "OPENROUTER_API_KEY",
+		EnvBase:      "OPENROUTER_API_BASE",
 		Constructor: func(apiKey, apiBase, modelType, modelName string, maxTokens int, temperature float64) Provider {
 			return newOpenRouterProvider(apiKey, apiBase, modelType, modelName, maxTokens, temperature)
 		},

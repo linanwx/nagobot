@@ -14,6 +14,7 @@ import (
 
 var (
 	messageFlag  string
+	agentFlag    string
 	providerFlag string
 	modelFlag    string
 	apiKeyFlag   string
@@ -38,6 +39,7 @@ Examples:
 func init() {
 	rootCmd.AddCommand(agentCmd)
 	agentCmd.Flags().StringVarP(&messageFlag, "message", "m", "", "Message to send (required)")
+	agentCmd.Flags().StringVar(&agentFlag, "agent", "", "Override agent name (default: soul agent)")
 	agentCmd.Flags().StringVar(&providerFlag, "provider", "", providerFlagHelp())
 	agentCmd.Flags().StringVar(&modelFlag, "model", "", "Override model type (e.g. claude-sonnet-4-5)")
 	agentCmd.Flags().StringVar(&apiKeyFlag, "api-key", "", "Override API key")
@@ -68,15 +70,20 @@ func runAgent(cmd *cobra.Command, args []string) error {
 	if err != nil {
 		return err
 	}
-	t, err := mgr.NewThread("agent", "")
+	t, err := mgr.NewThread("agent", agentFlag)
 	if err != nil {
 		return fmt.Errorf("failed to create agent thread: %w", err)
+	}
+	// When --provider is explicitly set, clear the agent so resolveProvider()
+	// uses the CLI-specified provider instead of per-agent model config.
+	if providerFlag != "" {
+		t.Agent = nil
 	}
 
 	// For one-shot agent mode, run synchronously via Enqueue + runOnce.
 	var result string
 	done := make(chan struct{})
-	t.Enqueue(&thread.WakeMessage{
+	wake := &thread.WakeMessage{
 		Source:  "user_message",
 		Message: messageFlag,
 		Sink: thread.Sink{
@@ -87,7 +94,8 @@ func runAgent(cmd *cobra.Command, args []string) error {
 				return nil
 			},
 		},
-	})
+	}
+	t.Enqueue(wake)
 	t.RunOnce(context.Background())
 	<-done
 

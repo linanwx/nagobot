@@ -31,6 +31,8 @@ func init() {
 	rootCmd.AddCommand(onboardCmd)
 }
 
+const backSentinel = "__back__"
+
 // providerURLs maps provider names to their API key portal URLs.
 var providerURLs = map[string]string{
 	"openai":          "https://platform.openai.com/api-keys",
@@ -83,34 +85,41 @@ func runOnboard(_ *cobra.Command, _ []string) error {
 		}
 	}
 	if selectedProvider == "" || selectedModel == "" {
-		providerOptions := buildProviderOptions()
-		err = huh.NewForm(
-			huh.NewGroup(
-				huh.NewSelect[string]().
-					Title("Choose your default LLM provider").
-					Description("nagobot supports multiple LLM providers. Choose one to get started.").
-					Options(providerOptions...).
-					Value(&selectedProvider),
-			),
-		).Run()
-		if err != nil {
-			return err
-		}
-		if selectedProvider != defaults.provider {
+		for {
+			providerOptions := buildProviderOptions()
+			err = huh.NewForm(
+				huh.NewGroup(
+					huh.NewSelect[string]().
+						Title("Choose your default LLM provider").
+						Description("nagobot supports multiple LLM providers. Choose one to get started.").
+						Options(providerOptions...).
+						Value(&selectedProvider),
+				),
+			).Run()
+			if err != nil {
+				return err
+			}
+			if selectedProvider != defaults.provider {
+				selectedModel = ""
+			}
+			modelOptions := buildModelOptions(selectedProvider)
+			modelOptions = append(modelOptions, huh.NewOption("← Back", backSentinel))
 			selectedModel = ""
-		}
-		modelOptions := buildModelOptions(selectedProvider)
-		err = huh.NewForm(
-			huh.NewGroup(
-				huh.NewSelect[string]().
-					Title("Choose default model for "+selectedProvider).
-					Description("Only whitelisted models are supported. The first option is the recommended default.").
-					Options(modelOptions...).
-					Value(&selectedModel),
-			),
-		).Run()
-		if err != nil {
-			return err
+			err = huh.NewForm(
+				huh.NewGroup(
+					huh.NewSelect[string]().
+						Title("Choose default model for "+selectedProvider).
+						Description("Only whitelisted models are supported. The first option is the recommended default.").
+						Options(modelOptions...).
+						Value(&selectedModel),
+				),
+			).Run()
+			if err != nil {
+				return err
+			}
+			if selectedModel != backSentinel {
+				break
+			}
 		}
 	}
 
@@ -176,25 +185,32 @@ func runOnboard(_ *cobra.Command, _ []string) error {
 		}
 
 		// Pick new provider + model for this model type.
-		var overrideProvider string
-		err = huh.NewForm(huh.NewGroup(
-			huh.NewSelect[string]().
-				Title(fmt.Sprintf("Choose provider for '%s' (used by: %s)", g.ModelType, agentsLabel)).
-				Options(buildProviderOptions()...).
-				Value(&overrideProvider),
-		)).Run()
-		if err != nil {
-			return err
-		}
-		var overrideModel string
-		err = huh.NewForm(huh.NewGroup(
-			huh.NewSelect[string]().
-				Title(fmt.Sprintf("Choose model for '%s' (used by: %s)", g.ModelType, agentsLabel)).
-				Options(buildModelOptions(overrideProvider)...).
-				Value(&overrideModel),
-		)).Run()
-		if err != nil {
-			return err
+		var overrideProvider, overrideModel string
+		for {
+			err = huh.NewForm(huh.NewGroup(
+				huh.NewSelect[string]().
+					Title(fmt.Sprintf("Choose provider for '%s' (used by: %s)", g.ModelType, agentsLabel)).
+					Options(buildProviderOptions()...).
+					Value(&overrideProvider),
+			)).Run()
+			if err != nil {
+				return err
+			}
+			modelOpts := buildModelOptions(overrideProvider)
+			modelOpts = append(modelOpts, huh.NewOption("← Back", backSentinel))
+			overrideModel = ""
+			err = huh.NewForm(huh.NewGroup(
+				huh.NewSelect[string]().
+					Title(fmt.Sprintf("Choose model for '%s' (used by: %s)", g.ModelType, agentsLabel)).
+					Options(modelOpts...).
+					Value(&overrideModel),
+			)).Run()
+			if err != nil {
+				return err
+			}
+			if overrideModel != backSentinel {
+				break
+			}
 		}
 		modelOverrides[g.ModelType] = &config.ModelConfig{
 			Provider: overrideProvider, ModelType: overrideModel,
@@ -373,7 +389,11 @@ func buildModelOptions(providerName string) []huh.Option[string] {
 	models := provider.SupportedModelsForProvider(providerName)
 	options := make([]huh.Option[string], 0, len(models))
 	for _, m := range models {
-		options = append(options, huh.NewOption(m, m))
+		label := m
+		if provider.SupportsVision(providerName, m) {
+			label += " [vision]"
+		}
+		options = append(options, huh.NewOption(label, m))
 	}
 	return options
 }
