@@ -23,6 +23,11 @@ var (
 	mu      sync.RWMutex
 	base    *slog.Logger
 	enabled = true
+
+	// Saved state for Intercept/Restore.
+	savedCfg  Config
+	savedFile *os.File    // log file opened during Init
+	intercept io.Writer   // non-nil when TUI has intercepted stdout
 )
 
 // Init initializes the logger with the provided config.
@@ -30,20 +35,15 @@ func Init(cfg Config, configDir string) error {
 	mu.Lock()
 	defer mu.Unlock()
 
+	savedCfg = cfg
+
 	if !cfg.Enabled {
 		enabled = false
 		base = slog.New(slog.NewTextHandler(io.Discard, &slog.HandlerOptions{}))
 		return nil
 	}
 
-	level := parseLevel(cfg.Level)
-	opts := &slog.HandlerOptions{Level: level}
-
-	var writers []io.Writer
 	var initErr error
-	if cfg.Stdout {
-		writers = append(writers, os.Stdout)
-	}
 	if cfg.File != "" {
 		path := expandPath(cfg.File, configDir)
 		if err := os.MkdirAll(filepath.Dir(path), 0755); err != nil {
@@ -53,16 +53,52 @@ func Init(cfg Config, configDir string) error {
 		if err != nil {
 			initErr = fmt.Errorf("logger: open log file: %w", err)
 		} else {
-			writers = append(writers, f)
+			savedFile = f
 		}
+	}
+
+	rebuild()
+	return initErr
+}
+
+// Intercept replaces stdout with a custom writer (e.g. TUI log panel).
+// The file writer (if any) is preserved.
+func Intercept(w io.Writer) {
+	mu.Lock()
+	defer mu.Unlock()
+	intercept = w
+	rebuild()
+}
+
+// Restore undoes Intercept and restores stdout logging.
+func Restore() {
+	mu.Lock()
+	defer mu.Unlock()
+	intercept = nil
+	rebuild()
+}
+
+// rebuild reconstructs the slog handler from current state.
+// Must be called with mu held.
+func rebuild() {
+	level := parseLevel(savedCfg.Level)
+	opts := &slog.HandlerOptions{Level: level}
+
+	var writers []io.Writer
+	if intercept != nil {
+		writers = append(writers, intercept)
+	} else if savedCfg.Stdout {
+		writers = append(writers, os.Stdout)
+	}
+	if savedFile != nil {
+		writers = append(writers, savedFile)
 	}
 	if len(writers) == 0 {
 		writers = append(writers, os.Stdout)
 	}
-	handler := slog.NewTextHandler(io.MultiWriter(writers...), opts)
-	base = slog.New(handler)
+
+	base = slog.New(slog.NewTextHandler(io.MultiWriter(writers...), opts))
 	enabled = true
-	return initErr
 }
 
 // Debug logs a debug message.
@@ -126,4 +162,3 @@ func expandPath(path, configDir string) string {
 	}
 	return path
 }
-

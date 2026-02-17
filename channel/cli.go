@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/linanwx/nagobot/logger"
+	"golang.org/x/term"
 )
 
 const (
@@ -17,8 +18,17 @@ const (
 	cliStopWaitTimeout   = 500 * time.Millisecond
 )
 
-// CLIChannel implements the Channel interface for interactive CLI.
-type CLIChannel struct {
+// NewCLIChannel creates a CLI channel.
+// If stdin is a terminal, it returns a TUI-based channel; otherwise a plain scanner.
+func NewCLIChannel() Channel {
+	if term.IsTerminal(int(os.Stdin.Fd())) {
+		return newTUIChannel()
+	}
+	return newPlainCLIChannel()
+}
+
+// plainCLIChannel implements the Channel interface using bufio.Scanner (for non-TTY).
+type plainCLIChannel struct {
 	prompt       string
 	messages     chan *Message
 	done         chan struct{}
@@ -29,9 +39,8 @@ type CLIChannel struct {
 	waitingResp  bool
 }
 
-// NewCLIChannel creates a new CLI channel.
-func NewCLIChannel() Channel {
-	return &CLIChannel{
+func newPlainCLIChannel() *plainCLIChannel {
+	return &plainCLIChannel{
 		prompt:       "nagobot> ",
 		messages:     make(chan *Message, cliMessageBufferSize),
 		done:         make(chan struct{}),
@@ -39,14 +48,12 @@ func NewCLIChannel() Channel {
 	}
 }
 
-// Name returns the channel name.
-func (c *CLIChannel) Name() string {
+func (c *plainCLIChannel) Name() string {
 	return "cli"
 }
 
-// Start begins reading from stdin.
-func (c *CLIChannel) Start(ctx context.Context) error {
-	logger.Info("cli channel started")
+func (c *plainCLIChannel) Start(ctx context.Context) error {
+	logger.Info("cli channel started (plain mode)")
 
 	c.wg.Add(1)
 	go c.readInput(ctx)
@@ -54,8 +61,7 @@ func (c *CLIChannel) Start(ctx context.Context) error {
 	return nil
 }
 
-// Stop gracefully shuts down the channel.
-func (c *CLIChannel) Stop() error {
+func (c *plainCLIChannel) Stop() error {
 	select {
 	case <-c.done:
 	default:
@@ -72,7 +78,6 @@ func (c *CLIChannel) Stop() error {
 	case <-waitDone:
 		close(c.messages)
 	case <-time.After(cliStopWaitTimeout):
-		// stdin reads can block indefinitely on some terminals; don't block process shutdown.
 		logger.Warn("cli channel stop timed out waiting for input loop")
 	}
 
@@ -80,12 +85,10 @@ func (c *CLIChannel) Stop() error {
 	return nil
 }
 
-// Send prints a response to stdout.
-func (c *CLIChannel) Send(ctx context.Context, resp *Response) error {
-	// Keep output visually separate from any already-printed prompt.
+func (c *plainCLIChannel) Send(_ context.Context, resp *Response) error {
 	fmt.Println()
 	fmt.Println(resp.Text)
-	fmt.Println() // Empty line after response
+	fmt.Println()
 
 	if c.completeWaitingResponse() {
 		select {
@@ -93,20 +96,17 @@ func (c *CLIChannel) Send(ctx context.Context, resp *Response) error {
 		default:
 		}
 	} else {
-		// Preserve a visible prompt for out-of-band notifications.
 		fmt.Print(c.prompt)
 	}
 
 	return nil
 }
 
-// Messages returns the incoming message channel.
-func (c *CLIChannel) Messages() <-chan *Message {
+func (c *plainCLIChannel) Messages() <-chan *Message {
 	return c.messages
 }
 
-// readInput reads lines from stdin.
-func (c *CLIChannel) readInput(ctx context.Context) {
+func (c *plainCLIChannel) readInput(ctx context.Context) {
 	defer c.wg.Done()
 
 	scanner := bufio.NewScanner(os.Stdin)
@@ -121,7 +121,6 @@ func (c *CLIChannel) readInput(ctx context.Context) {
 			fmt.Print(c.prompt)
 
 			if !scanner.Scan() {
-				// EOF or error
 				return
 			}
 
@@ -130,7 +129,6 @@ func (c *CLIChannel) readInput(ctx context.Context) {
 				continue
 			}
 
-			// Check for exit commands
 			if text == "exit" || text == "quit" || text == "/exit" || text == "/quit" {
 				fmt.Println("Goodbye!")
 				return
@@ -146,7 +144,6 @@ func (c *CLIChannel) readInput(ctx context.Context) {
 				Metadata:  make(map[string]string),
 			}
 
-			// Start a request/response turn, so next prompt appears after reply.
 			select {
 			case <-c.responseDone:
 			default:
@@ -176,13 +173,13 @@ func (c *CLIChannel) readInput(ctx context.Context) {
 	}
 }
 
-func (c *CLIChannel) setWaitingResponse(v bool) {
+func (c *plainCLIChannel) setWaitingResponse(v bool) {
 	c.mu.Lock()
 	c.waitingResp = v
 	c.mu.Unlock()
 }
 
-func (c *CLIChannel) completeWaitingResponse() bool {
+func (c *plainCLIChannel) completeWaitingResponse() bool {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	if !c.waitingResp {

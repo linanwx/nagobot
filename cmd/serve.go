@@ -207,8 +207,7 @@ func buildDefaultSinkFor(chMgr *channel.Manager, cfg *config.Config) func(string
 						if strings.TrimSpace(response) == "" {
 							return nil
 						}
-						fmt.Println(response)
-						return nil
+						return chMgr.SendTo(ctx, "cli", response, "")
 					},
 				}
 			}
