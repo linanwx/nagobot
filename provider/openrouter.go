@@ -120,7 +120,7 @@ func openRouterInputChars(messages []Message) int {
 	return total
 }
 
-func toOpenAIChatMessages(messages []Message) ([]openai.ChatCompletionMessageParamUnion, error) {
+func toOpenAIChatMessages(messages []Message, visionCapable bool) ([]openai.ChatCompletionMessageParamUnion, error) {
 	result := make([]openai.ChatCompletionMessageParamUnion, 0, len(messages))
 
 	for _, m := range messages {
@@ -130,7 +130,35 @@ func toOpenAIChatMessages(messages []Message) ([]openai.ChatCompletionMessagePar
 		case "user":
 			result = append(result, openai.UserMessage(m.Content))
 		case "tool":
-			result = append(result, openai.ToolMessage(m.Content, m.ToolCallID))
+			cleanedText, markers := ParseMediaMarkers(m.Content)
+			result = append(result, openai.ToolMessage(cleanedText, m.ToolCallID))
+			// Chat Completions doesn't support images in tool messages.
+			// Inject a synthetic user message with the image as a workaround.
+			if visionCapable && len(markers) > 0 {
+				var parts []openai.ChatCompletionContentPartUnionParam
+				for _, marker := range markers {
+					b64, err := ReadFileAsBase64(marker.FilePath)
+					if err != nil {
+						continue
+					}
+					parts = append(parts, openai.ChatCompletionContentPartUnionParam{
+						OfImageURL: &openai.ChatCompletionContentPartImageParam{
+							ImageURL: openai.ChatCompletionContentPartImageImageURLParam{
+								URL: "data:" + marker.MimeType + ";base64," + b64,
+							},
+						},
+					})
+				}
+				if len(parts) > 0 {
+					result = append(result, openai.ChatCompletionMessageParamUnion{
+						OfUser: &openai.ChatCompletionUserMessageParam{
+							Content: openai.ChatCompletionUserMessageParamContentUnion{
+								OfArrayOfContentParts: parts,
+							},
+						},
+					})
+				}
+			}
 		case "assistant":
 			assistant := openai.ChatCompletionAssistantMessageParam{}
 			if m.Content != "" {
@@ -223,7 +251,7 @@ func (p *OpenRouterProvider) Chat(ctx context.Context, req *Request) (*Response,
 	start := time.Now()
 	inputChars := openRouterInputChars(req.Messages)
 
-	messages, err := toOpenAIChatMessages(req.Messages)
+	messages, err := toOpenAIChatMessages(req.Messages, SupportsVision("openrouter", p.modelType))
 	if err != nil {
 		return nil, fmt.Errorf("failed to convert messages: %w", err)
 	}

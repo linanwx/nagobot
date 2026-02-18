@@ -112,8 +112,9 @@ func (t *Thread) run(ctx context.Context, userMessage string, sink Sink) (string
 	}()
 
 	runCtx := tools.WithRuntimeContext(ctx, tools.RuntimeContext{
-		SessionKey: t.sessionKey,
-		Workspace:  cfg.Workspace,
+		SessionKey:     t.sessionKey,
+		Workspace:      cfg.Workspace,
+		SupportsVision: t.currentModelSupportsVision(),
 	})
 	var intermediates []provider.Message
 	runner := NewRunner(t.resolveProvider(), t.tools, metrics)
@@ -183,6 +184,16 @@ func (t *Thread) resolvedModelConfig() *config.ModelConfig {
 		return nil
 	}
 	return mc
+}
+
+// currentModelSupportsVision returns whether the current thread's model supports vision.
+func (t *Thread) currentModelSupportsVision() bool {
+	mc := t.resolvedModelConfig()
+	if mc != nil {
+		return provider.SupportsVision(mc.Provider, mc.ModelType)
+	}
+	cfg := t.cfg()
+	return provider.SupportsVision(cfg.ProviderName, cfg.ModelName)
 }
 
 // resolveProvider returns the provider for the current agent's model type,

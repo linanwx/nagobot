@@ -68,7 +68,7 @@ func (p *DeepSeekProvider) Chat(ctx context.Context, req *Request) (*Response, e
 	start := time.Now()
 	inputChars := openRouterInputChars(req.Messages)
 
-	messages, err := toOpenAIChatMessages(req.Messages)
+	messages, err := toOpenAIChatMessages(req.Messages, false)
 	if err != nil {
 		return nil, fmt.Errorf("failed to convert messages: %w", err)
 	}

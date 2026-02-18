@@ -216,11 +216,37 @@ func toAnthropicMessages(messages []Message) (string, []anthropic.MessageParam, 
 				msgList = append(msgList, anthropic.NewAssistantMessage(blocks...))
 			}
 		case "tool":
+			cleanedText, markers := ParseMediaMarkers(m.Content)
+			var content []anthropic.ToolResultBlockParamContentUnion
+			if cleanedText != "" {
+				content = append(content, anthropic.ToolResultBlockParamContentUnion{
+					OfText: &anthropic.TextBlockParam{Text: cleanedText},
+				})
+			}
+			for _, marker := range markers {
+				b64, err := ReadFileAsBase64(marker.FilePath)
+				if err != nil {
+					continue // File missing or unreadable; skip silently.
+				}
+				content = append(content, anthropic.ToolResultBlockParamContentUnion{
+					OfImage: &anthropic.ImageBlockParam{
+						Source: anthropic.ImageBlockParamSourceUnion{
+							OfBase64: &anthropic.Base64ImageSourceParam{
+								MediaType: anthropic.Base64ImageSourceMediaType(marker.MimeType),
+								Data:      b64,
+							},
+						},
+					},
+				})
+			}
+			if len(content) == 0 {
+				content = append(content, anthropic.ToolResultBlockParamContentUnion{
+					OfText: &anthropic.TextBlockParam{Text: "(empty)"},
+				})
+			}
 			pendingToolResults = append(pendingToolResults, anthropic.ContentBlockParamUnion{OfToolResult: &anthropic.ToolResultBlockParam{
 				ToolUseID: m.ToolCallID,
-				Content: []anthropic.ToolResultBlockParamContentUnion{{
-					OfText: &anthropic.TextBlockParam{Text: m.Content},
-				}},
+				Content:   content,
 			}})
 		default:
 			return "", nil, fmt.Errorf("unsupported message role: %s", m.Role)

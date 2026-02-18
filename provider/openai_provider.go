@@ -181,11 +181,33 @@ func (p *OpenAIProvider) buildRequestBody(req *Request) ([]byte, error) {
 			}
 
 		case "tool":
-			input = append(input, map[string]any{
-				"type":    "function_call_output",
-				"call_id": msg.ToolCallID,
-				"output":  msg.Content,
-			})
+			cleanedText, markers := ParseMediaMarkers(msg.Content)
+			output := []map[string]any{
+				{"type": "output_text", "text": cleanedText},
+			}
+			for _, marker := range markers {
+				b64, err := ReadFileAsBase64(marker.FilePath)
+				if err != nil {
+					continue
+				}
+				output = append(output, map[string]any{
+					"type":      "input_image",
+					"image_url": "data:" + marker.MimeType + ";base64," + b64,
+				})
+			}
+			if len(markers) > 0 {
+				input = append(input, map[string]any{
+					"type":    "function_call_output",
+					"call_id": msg.ToolCallID,
+					"output":  output,
+				})
+			} else {
+				input = append(input, map[string]any{
+					"type":    "function_call_output",
+					"call_id": msg.ToolCallID,
+					"output":  msg.Content,
+				})
+			}
 		}
 	}
 

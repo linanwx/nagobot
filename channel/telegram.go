@@ -2,8 +2,16 @@ package channel
 
 import (
 	"context"
+	"crypto/rand"
+	"encoding/hex"
 	"fmt"
+	"io"
+	"net/http"
+	"os"
+	"path/filepath"
 	"strconv"
+	"strings"
+	"time"
 
 	"github.com/go-telegram/bot"
 	"github.com/go-telegram/bot/models"
@@ -22,6 +30,7 @@ type TelegramChannel struct {
 	token      string
 	allowedIDs map[int64]bool // Allowed user/chat IDs (nil = allow all)
 	messages   chan *Message
+	mediaDir   string // Local directory for downloaded media files
 
 	b         *bot.Bot
 	cancel    context.CancelFunc
@@ -42,10 +51,20 @@ func NewTelegramChannel(cfg *config.Config) Channel {
 		allowedIDs[id] = true
 	}
 
+	var mediaDir string
+	if ws, err := cfg.WorkspacePath(); err == nil {
+		mediaDir = filepath.Join(ws, "media")
+		if err := os.MkdirAll(mediaDir, 0755); err != nil {
+			logger.Warn("failed to create media directory", "dir", mediaDir, "err", err)
+			mediaDir = ""
+		}
+	}
+
 	return &TelegramChannel{
 		token:      token,
 		allowedIDs: allowedIDs,
 		messages:   make(chan *Message, telegramMessageBufferSize),
+		mediaDir:   mediaDir,
 	}
 }
 
@@ -137,4 +156,65 @@ func (t *TelegramChannel) Send(ctx context.Context, resp *Response) error {
 // Messages returns the incoming message channel.
 func (t *TelegramChannel) Messages() <-chan *Message {
 	return t.messages
+}
+
+// downloadToMedia downloads a URL to the media directory, returning the local path.
+// Returns empty string on error (caller should fall back to URL).
+func (t *TelegramChannel) downloadToMedia(url string) string {
+	if t.mediaDir == "" || url == "" {
+		return ""
+	}
+
+	resp, err := http.Get(url)
+	if err != nil {
+		logger.Warn("failed to download media", "url", url, "err", err)
+		return ""
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		logger.Warn("media download returned non-200", "url", url, "status", resp.StatusCode)
+		return ""
+	}
+
+	// Detect extension: try URL path first, then Content-Type, then fallback.
+	ext := filepath.Ext(url)
+	switch ext {
+	case ".jpg", ".jpeg", ".png", ".gif", ".webp", ".bmp":
+		// URL already has a recognized extension.
+	default:
+		ct := resp.Header.Get("Content-Type")
+		switch {
+		case strings.HasPrefix(ct, "image/jpeg"):
+			ext = ".jpg"
+		case strings.HasPrefix(ct, "image/png"):
+			ext = ".png"
+		case strings.HasPrefix(ct, "image/gif"):
+			ext = ".gif"
+		case strings.HasPrefix(ct, "image/webp"):
+			ext = ".webp"
+		default:
+			ext = ".dat"
+		}
+	}
+
+	buf := make([]byte, 4)
+	rand.Read(buf)
+	fileName := fmt.Sprintf("img-%s-%s%s", time.Now().Format("20060102-150405"), hex.EncodeToString(buf), ext)
+	filePath := filepath.Join(t.mediaDir, fileName)
+
+	f, err := os.Create(filePath)
+	if err != nil {
+		logger.Warn("failed to create media file", "path", filePath, "err", err)
+		return ""
+	}
+	defer f.Close()
+
+	if _, err := io.Copy(f, resp.Body); err != nil {
+		logger.Warn("failed to write media file", "path", filePath, "err", err)
+		os.Remove(filePath)
+		return ""
+	}
+
+	return filePath
 }

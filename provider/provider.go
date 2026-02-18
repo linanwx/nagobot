@@ -3,7 +3,10 @@ package provider
 
 import (
 	"context"
+	"encoding/base64"
 	"errors"
+	"os"
+	"regexp"
 	"sort"
 	"strings"
 )
@@ -209,4 +212,42 @@ func AssistantMessageWithTools(content, reasoningContent string, toolCalls []Too
 // ToolResultMessage creates a tool result message.
 func ToolResultMessage(toolCallID, name, content string) Message {
 	return Message{Role: "tool", ToolCallID: toolCallID, Name: name, Content: content}
+}
+
+// MediaMarker represents an embedded media reference in tool output.
+type MediaMarker struct {
+	MimeType string
+	FilePath string
+}
+
+var mediaMarkerRe = regexp.MustCompile(`<<media:([^:>]+):([^>]+)>>`)
+
+// ParseMediaMarkers extracts <<media:mime:path>> markers from text,
+// returning the cleaned text (markers removed) and the parsed markers.
+func ParseMediaMarkers(text string) (string, []MediaMarker) {
+	matches := mediaMarkerRe.FindAllStringSubmatchIndex(text, -1)
+	if len(matches) == 0 {
+		return text, nil
+	}
+	var markers []MediaMarker
+	cleaned := text
+	// Process in reverse order to keep indices valid.
+	for i := len(matches) - 1; i >= 0; i-- {
+		m := matches[i]
+		mime := text[m[2]:m[3]]
+		path := text[m[4]:m[5]]
+		markers = append([]MediaMarker{{MimeType: mime, FilePath: path}}, markers...)
+		cleaned = cleaned[:m[0]] + cleaned[m[1]:]
+	}
+	cleaned = strings.TrimSpace(cleaned)
+	return cleaned, markers
+}
+
+// ReadFileAsBase64 reads a file and returns its contents as a base64-encoded string.
+func ReadFileAsBase64(path string) (string, error) {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return "", err
+	}
+	return base64.StdEncoding.EncodeToString(data), nil
 }
