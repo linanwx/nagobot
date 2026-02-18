@@ -12,7 +12,7 @@ require (
 	github.com/coder/websocket v1.8.14
 	github.com/go-co-op/gocron/v2 v2.19.1
 	github.com/go-lark/lark v1.16.0
-	github.com/go-telegram-bot-api/telegram-bot-api/v5 v5.5.1
+	github.com/go-telegram/bot v1.19.0
 	github.com/openai/openai-go/v3 v3.18.0
 	github.com/robfig/cron/v3 v3.0.1
 	github.com/spf13/cobra v1.10.2

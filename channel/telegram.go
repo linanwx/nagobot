@@ -4,18 +4,17 @@ import (
 	"context"
 	"fmt"
 	"strconv"
-	"sync"
 
-	tgbotapi "github.com/go-telegram-bot-api/telegram-bot-api/v5"
+	"github.com/go-telegram/bot"
+	"github.com/go-telegram/bot/models"
 	"github.com/linanwx/nagobot/config"
 	"github.com/linanwx/nagobot/logger"
 	"github.com/linanwx/nagobot/tgmd"
 )
 
 const (
-	telegramMessageBufferSize    = 100
-	telegramUpdateTimeoutSeconds = 30
-	TelegramMaxMessageLength     = 4096
+	telegramMessageBufferSize = 100
+	TelegramMaxMessageLength  = 4096
 )
 
 // TelegramChannel implements the Channel interface for Telegram.
@@ -23,11 +22,10 @@ type TelegramChannel struct {
 	token      string
 	allowedIDs map[int64]bool // Allowed user/chat IDs (nil = allow all)
 	messages   chan *Message
-	done       chan struct{}
-	wg         sync.WaitGroup
 
-	bot    *tgbotapi.BotAPI
-	offset int
+	b         *bot.Bot
+	cancel    context.CancelFunc
+	startDone chan struct{}
 }
 
 // NewTelegramChannel creates a new Telegram channel from config.
@@ -48,7 +46,6 @@ func NewTelegramChannel(cfg *config.Config) Channel {
 		token:      token,
 		allowedIDs: allowedIDs,
 		messages:   make(chan *Message, telegramMessageBufferSize),
-		done:       make(chan struct{}),
 	}
 }
 
@@ -59,37 +56,41 @@ func (t *TelegramChannel) Name() string {
 
 // Start begins polling for updates.
 func (t *TelegramChannel) Start(ctx context.Context) error {
-	bot, err := tgbotapi.NewBotAPI(t.token)
+	opts := []bot.Option{
+		bot.WithDefaultHandler(t.handleUpdate),
+	}
+
+	b, err := bot.New(t.token, opts...)
+	if err != nil {
+		return fmt.Errorf("telegram bot creation failed: %w", err)
+	}
+	t.b = b
+
+	me, err := b.GetMe(ctx)
 	if err != nil {
 		return fmt.Errorf("telegram connection failed: %w", err)
 	}
+	logger.Info("telegram bot connected", "username", me.Username)
 
-	me, err := bot.GetMe()
-	if err != nil {
-		return fmt.Errorf("telegram connection failed: %w", err)
-	}
+	startCtx, cancel := context.WithCancel(ctx)
+	t.cancel = cancel
+	t.startDone = make(chan struct{})
 
-	t.bot = bot
-	logger.Info("telegram bot connected", "username", me.UserName)
+	go func() {
+		defer close(t.startDone)
+		t.b.Start(startCtx)
+	}()
+
 	logger.Info("telegram channel started")
-
-	u := tgbotapi.NewUpdate(t.offset)
-	u.Timeout = telegramUpdateTimeoutSeconds
-	updates := bot.GetUpdatesChan(u)
-
-	t.wg.Add(1)
-	go t.pollUpdates(ctx, updates)
-
 	return nil
 }
 
 // Stop gracefully shuts down the channel.
 func (t *TelegramChannel) Stop() error {
-	close(t.done)
-	if t.bot != nil {
-		t.bot.StopReceivingUpdates()
+	if t.cancel != nil {
+		t.cancel()
+		<-t.startDone
 	}
-	t.wg.Wait()
 	close(t.messages)
 	logger.Info("telegram channel stopped")
 	return nil
@@ -97,7 +98,7 @@ func (t *TelegramChannel) Stop() error {
 
 // Send sends a response message.
 func (t *TelegramChannel) Send(ctx context.Context, resp *Response) error {
-	if t.bot == nil {
+	if t.b == nil {
 		return fmt.Errorf("telegram bot not started")
 	}
 
@@ -106,18 +107,22 @@ func (t *TelegramChannel) Send(ctx context.Context, resp *Response) error {
 		return fmt.Errorf("invalid chat ID: %w", err)
 	}
 
-	// Split long messages
-	messages := SplitMessage(resp.Text, TelegramMaxMessageLength)
+	chunks := SplitMessage(resp.Text, TelegramMaxMessageLength)
 
-	for _, chunk := range messages {
+	for _, chunk := range chunks {
 		htmlChunk := tgmd.Convert(chunk)
-		msg := tgbotapi.NewMessage(chatID, htmlChunk)
-		msg.ParseMode = tgbotapi.ModeHTML
-
-		if _, err := t.bot.Send(msg); err != nil {
+		_, sendErr := t.b.SendMessage(ctx, &bot.SendMessageParams{
+			ChatID:    chatID,
+			Text:      htmlChunk,
+			ParseMode: models.ParseModeHTML,
+		})
+		if sendErr != nil {
 			// Retry without formatting using the original markdown text.
-			plainMsg := tgbotapi.NewMessage(chatID, chunk)
-			if _, retryErr := t.bot.Send(plainMsg); retryErr != nil {
+			_, retryErr := t.b.SendMessage(ctx, &bot.SendMessageParams{
+				ChatID: chatID,
+				Text:   chunk,
+			})
+			if retryErr != nil {
 				return fmt.Errorf("telegram send error: %w", retryErr)
 			}
 		}
@@ -129,26 +134,4 @@ func (t *TelegramChannel) Send(ctx context.Context, resp *Response) error {
 // Messages returns the incoming message channel.
 func (t *TelegramChannel) Messages() <-chan *Message {
 	return t.messages
-}
-
-// pollUpdates continuously polls for new messages.
-func (t *TelegramChannel) pollUpdates(ctx context.Context, updates tgbotapi.UpdatesChannel) {
-	defer t.wg.Done()
-
-	for {
-		select {
-		case <-ctx.Done():
-			return
-		case <-t.done:
-			return
-		case update, ok := <-updates:
-			if !ok {
-				return
-			}
-			if update.UpdateID >= t.offset {
-				t.offset = update.UpdateID + 1
-			}
-			t.processUpdate(update)
-		}
-	}
 }

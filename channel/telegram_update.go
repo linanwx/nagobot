@@ -1,33 +1,32 @@
 package channel
 
 import (
+	"context"
 	"fmt"
 	"strconv"
 
-	tgbotapi "github.com/go-telegram-bot-api/telegram-bot-api/v5"
+	"github.com/go-telegram/bot"
+	"github.com/go-telegram/bot/models"
 	"github.com/linanwx/nagobot/logger"
 )
 
-// processUpdate handles a single update.
-func (t *TelegramChannel) processUpdate(update tgbotapi.Update) {
+// handleUpdate is the default handler for incoming Telegram updates.
+func (t *TelegramChannel) handleUpdate(ctx context.Context, b *bot.Bot, update *models.Update) {
 	if update.Message == nil {
 		return
 	}
 
 	msg := update.Message
 	chat := msg.Chat
-	if chat == nil {
-		return
-	}
-
 	from := msg.From
+
 	fromID := int64(0)
 	username := ""
 	firstName := ""
 	lastName := ""
 	if from != nil {
 		fromID = from.ID
-		username = from.UserName
+		username = from.Username
 		firstName = from.FirstName
 		lastName = from.LastName
 	}
@@ -47,7 +46,7 @@ func (t *TelegramChannel) processUpdate(update tgbotapi.Update) {
 	text := msg.Text
 	metadata := map[string]string{
 		"chat_id":    strconv.FormatInt(chat.ID, 10),
-		"chat_type":  chat.Type,
+		"chat_type":  string(chat.Type),
 		"first_name": firstName,
 		"last_name":  lastName,
 	}
@@ -56,7 +55,7 @@ func (t *TelegramChannel) processUpdate(update tgbotapi.Update) {
 	case len(msg.Photo) > 0:
 		photo := msg.Photo[len(msg.Photo)-1]
 		metadata["media_summary"] = MediaSummary("photo",
-			"file_url", t.getFileURL(photo.FileID))
+			"file_url", t.getFileURL(ctx, b, photo.FileID))
 		if text == "" {
 			text = msg.Caption
 		}
@@ -68,7 +67,7 @@ func (t *TelegramChannel) processUpdate(update tgbotapi.Update) {
 			"file_name", msg.Animation.FileName,
 			"mime_type", msg.Animation.MimeType,
 			"duration", fmtSeconds(msg.Animation.Duration),
-			"file_url", t.getFileURL(msg.Animation.FileID))
+			"file_url", t.getFileURL(ctx, b, msg.Animation.FileID))
 		if text == "" {
 			text = msg.Caption
 		}
@@ -79,7 +78,7 @@ func (t *TelegramChannel) processUpdate(update tgbotapi.Update) {
 		metadata["media_summary"] = MediaSummary("document",
 			"file_name", msg.Document.FileName,
 			"mime_type", msg.Document.MimeType,
-			"file_url", t.getFileURL(msg.Document.FileID))
+			"file_url", t.getFileURL(ctx, b, msg.Document.FileID))
 		if text == "" {
 			text = msg.Caption
 		}
@@ -93,7 +92,7 @@ func (t *TelegramChannel) processUpdate(update tgbotapi.Update) {
 	case msg.Voice != nil:
 		metadata["media_summary"] = MediaSummary("voice",
 			"duration", fmtSeconds(msg.Voice.Duration),
-			"file_url", t.getFileURL(msg.Voice.FileID))
+			"file_url", t.getFileURL(ctx, b, msg.Voice.FileID))
 		if text == "" {
 			text = msg.Caption
 		}
@@ -105,7 +104,7 @@ func (t *TelegramChannel) processUpdate(update tgbotapi.Update) {
 			"file_name", msg.Video.FileName,
 			"mime_type", msg.Video.MimeType,
 			"duration", fmtSeconds(msg.Video.Duration),
-			"file_url", t.getFileURL(msg.Video.FileID))
+			"file_url", t.getFileURL(ctx, b, msg.Video.FileID))
 		if text == "" {
 			text = msg.Caption
 		}
@@ -115,7 +114,7 @@ func (t *TelegramChannel) processUpdate(update tgbotapi.Update) {
 	case msg.VideoNote != nil:
 		metadata["media_summary"] = MediaSummary("video_note",
 			"duration", fmtSeconds(msg.VideoNote.Duration),
-			"file_url", t.getFileURL(msg.VideoNote.FileID))
+			"file_url", t.getFileURL(ctx, b, msg.VideoNote.FileID))
 		if text == "" {
 			text = "[Video note received]"
 		}
@@ -124,7 +123,7 @@ func (t *TelegramChannel) processUpdate(update tgbotapi.Update) {
 			"file_name", msg.Audio.FileName,
 			"mime_type", msg.Audio.MimeType,
 			"duration", fmtSeconds(msg.Audio.Duration),
-			"file_url", t.getFileURL(msg.Audio.FileID))
+			"file_url", t.getFileURL(ctx, b, msg.Audio.FileID))
 		if text == "" {
 			text = msg.Caption
 		}
@@ -135,7 +134,7 @@ func (t *TelegramChannel) processUpdate(update tgbotapi.Update) {
 		metadata["media_summary"] = MediaSummary("sticker",
 			"emoji", msg.Sticker.Emoji,
 			"sticker_set", msg.Sticker.SetName,
-			"file_url", t.getFileURL(msg.Sticker.FileID))
+			"file_url", t.getFileURL(ctx, b, msg.Sticker.FileID))
 		if text == "" {
 			text = "[Sticker received]"
 		}
@@ -146,8 +145,23 @@ func (t *TelegramChannel) processUpdate(update tgbotapi.Update) {
 		return
 	}
 
+	// React with eyes emoji to acknowledge receipt (fire-and-forget)
+	_, _ = b.SetMessageReaction(ctx, &bot.SetMessageReactionParams{
+		ChatID:    chat.ID,
+		MessageID: msg.ID,
+		Reaction: []models.ReactionType{
+			{
+				Type: models.ReactionTypeTypeEmoji,
+				ReactionTypeEmoji: &models.ReactionTypeEmoji{
+					Type:  models.ReactionTypeTypeEmoji,
+					Emoji: "\U0001F440",
+				},
+			},
+		},
+	})
+
 	channelMsg := &Message{
-		ID:        strconv.Itoa(msg.MessageID),
+		ID:        strconv.Itoa(msg.ID),
 		ChannelID: fmt.Sprintf("telegram:%d", chat.ID),
 		UserID:    strconv.FormatInt(fromID, 10),
 		Username:  username,
@@ -156,7 +170,7 @@ func (t *TelegramChannel) processUpdate(update tgbotapi.Update) {
 	}
 
 	if msg.ReplyToMessage != nil {
-		channelMsg.ReplyTo = strconv.Itoa(msg.ReplyToMessage.MessageID)
+		channelMsg.ReplyTo = strconv.Itoa(msg.ReplyToMessage.ID)
 	}
 
 	select {
@@ -167,16 +181,11 @@ func (t *TelegramChannel) processUpdate(update tgbotapi.Update) {
 }
 
 // getFileURL retrieves the download URL for a Telegram file.
-func (t *TelegramChannel) getFileURL(fileID string) string {
-	if t.bot == nil {
-		return ""
-	}
-	fileCfg := tgbotapi.FileConfig{FileID: fileID}
-	file, err := t.bot.GetFile(fileCfg)
+func (t *TelegramChannel) getFileURL(ctx context.Context, b *bot.Bot, fileID string) string {
+	file, err := b.GetFile(ctx, &bot.GetFileParams{FileID: fileID})
 	if err != nil {
 		logger.Warn("failed to get telegram file URL", "fileID", fileID, "err", err)
 		return ""
 	}
-	return file.Link(t.token)
+	return b.FileDownloadLink(file)
 }
-

@@ -1,11 +1,13 @@
 package cmd
 
 import (
+	"context"
 	"fmt"
 	"strconv"
 	"strings"
 
-	tgbotapi "github.com/go-telegram-bot-api/telegram-bot-api/v5"
+	"github.com/go-telegram/bot"
+	"github.com/go-telegram/bot/models"
 	"github.com/linanwx/nagobot/channel"
 	"github.com/linanwx/nagobot/config"
 	"github.com/linanwx/nagobot/tgmd"
@@ -55,21 +57,27 @@ func runSend(_ *cobra.Command, _ []string) error {
 		return fmt.Errorf("invalid chat ID %q: %w", to, err)
 	}
 
-	bot, err := tgbotapi.NewBotAPI(token)
+	b, err := bot.New(token, bot.WithSkipGetMe())
 	if err != nil {
-		return fmt.Errorf("telegram connection failed: %w", err)
+		return fmt.Errorf("telegram bot creation failed: %w", err)
 	}
 
+	ctx := context.Background()
 	chunks := channel.SplitMessage(strings.TrimSpace(sendText), channel.TelegramMaxMessageLength)
 	for _, chunk := range chunks {
 		htmlChunk := tgmd.Convert(chunk)
-		msg := tgbotapi.NewMessage(chatID, htmlChunk)
-		msg.ParseMode = tgbotapi.ModeHTML
-
-		if _, err := bot.Send(msg); err != nil {
+		_, sendErr := b.SendMessage(ctx, &bot.SendMessageParams{
+			ChatID:    chatID,
+			Text:      htmlChunk,
+			ParseMode: models.ParseModeHTML,
+		})
+		if sendErr != nil {
 			// Retry without formatting.
-			plainMsg := tgbotapi.NewMessage(chatID, chunk)
-			if _, retryErr := bot.Send(plainMsg); retryErr != nil {
+			_, retryErr := b.SendMessage(ctx, &bot.SendMessageParams{
+				ChatID: chatID,
+				Text:   chunk,
+			})
+			if retryErr != nil {
 				return fmt.Errorf("telegram send error: %w", retryErr)
 			}
 		}

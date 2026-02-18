@@ -62,8 +62,8 @@ github.com/go-co-op/gocron/v2 v2.19.1 h1:B4iLeA0NB/2iO3EKQ7NfKn5KsQgZfjb2fkvoZJU
 github.com/go-co-op/gocron/v2 v2.19.1/go.mod h1:5lEiCKk1oVJV39Zg7/YG10OnaVrDAV5GGR6O0663k6U=
 github.com/go-lark/lark v1.16.0 h1:U6BwkLM9wrZedSM7cIiMofganr8PCvJN+M75w2lf2Gg=
 github.com/go-lark/lark v1.16.0/go.mod h1:6ltbSztPZRT6IaO9ZIQyVaY5pVp/KeMizDYtfZkU+vM=
-github.com/go-telegram-bot-api/telegram-bot-api/v5 v5.5.1 h1:wG8n/XJQ07TmjbITcGiUaOtXxdrINDz1b0J1w0SzqDc=
-github.com/go-telegram-bot-api/telegram-bot-api/v5 v5.5.1/go.mod h1:A2S0CWkNylc2phvKXWBBdD3K0iGnDBGbzRpISP2zBl8=
+github.com/go-telegram/bot v1.19.0 h1:tuvTQhgNietHFRN0HUDhuXsgfgkGSaO8WWwZQW3DMQg=
+github.com/go-telegram/bot v1.19.0/go.mod h1:i2TRs7fXWIeaceF3z7KzsMt/he0TwkVC680mvdTFYeM=
 github.com/google/go-cmp v0.6.0/go.mod h1:17dUlkBOakJ0+DkrSSNjCkIjxS6bF9zb3elmeNGIjoY=
 github.com/google/uuid v1.6.0 h1:NIvaJDMOsjHA8n1jAhLSgzrAzy1Hgr+hNrb57e+94F0=
 github.com/google/uuid v1.6.0/go.mod h1:TIyPZe4MgqvfeYDBFedMoGGpEw/LqOeaOT+nhxU+yHo=
