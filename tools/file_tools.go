@@ -39,7 +39,8 @@ func (t *ReadFileTool) Def() provider.ToolDef {
 			Name: "read_file",
 			Description: "Read lines from a file. Returns up to 100 lines starting from offset (default 1). " +
 				"If the file has more lines than the limit, a notice is appended showing total line count " +
-				"so you can make follow-up calls with offset to read the rest.",
+				"so you can make follow-up calls with offset to read the rest. " +
+				"Use tail to read the last N lines of the file (offset and limit are ignored when tail is set).",
 			Parameters: map[string]any{
 				"type": "object",
 				"properties": map[string]any{
@@ -49,11 +50,15 @@ func (t *ReadFileTool) Def() provider.ToolDef {
 					},
 					"offset": map[string]any{
 						"type":        "integer",
-						"description": "Starting line number (1-based). Defaults to 1.",
+						"description": "Starting line number (1-based). Defaults to 1. Ignored when tail is set.",
 					},
 					"limit": map[string]any{
 						"type":        "integer",
-						"description": "Maximum number of lines to return. Defaults to 100.",
+						"description": "Maximum number of lines to return. Defaults to 100. Ignored when tail is set.",
+					},
+					"tail": map[string]any{
+						"type":        "integer",
+						"description": "Read the last N lines of the file. When set, offset and limit are ignored.",
 					},
 				},
 				"required": []string{"path"},
@@ -67,6 +72,7 @@ type readFileArgs struct {
 	Path   string `json:"path"`
 	Offset int    `json:"offset,omitempty"`
 	Limit  int    `json:"limit,omitempty"`
+	Tail   int    `json:"tail,omitempty"`
 }
 
 // Run executes the tool.
@@ -103,28 +109,40 @@ func (t *ReadFileTool) Run(ctx context.Context, args json.RawMessage) string {
 	allLines := strings.Split(string(content), "\n")
 	totalLines := len(allLines)
 
-	offset := a.Offset
-	if offset <= 0 {
-		offset = 1
-	}
-	limit := a.Limit
-	if limit <= 0 {
-		limit = readFileDefaultLimit
-	}
+	var startIdx, endIdx int
 
-	startIdx := offset - 1
-	if startIdx >= totalLines {
-		return fmt.Sprintf("[File has %d lines. Offset %d is beyond end of file.]", totalLines, offset)
-	}
-	endIdx := startIdx + limit
-	if endIdx > totalLines {
+	if a.Tail > 0 {
+		// tail mode: read last N lines
+		startIdx = totalLines - a.Tail
+		if startIdx < 0 {
+			startIdx = 0
+		}
 		endIdx = totalLines
+	} else {
+		// normal mode: offset + limit
+		offset := a.Offset
+		if offset <= 0 {
+			offset = 1
+		}
+		limit := a.Limit
+		if limit <= 0 {
+			limit = readFileDefaultLimit
+		}
+
+		startIdx = offset - 1
+		if startIdx >= totalLines {
+			return fmt.Sprintf("[File has %d lines. Offset %d is beyond end of file.]", totalLines, offset)
+		}
+		endIdx = startIdx + limit
+		if endIdx > totalLines {
+			endIdx = totalLines
+		}
 	}
 
 	var sb strings.Builder
-	if endIdx < totalLines {
+	if a.Tail <= 0 && endIdx < totalLines {
 		fmt.Fprintf(&sb, "[Showing lines %d-%d of %d total. Use offset=%d to read more.]\n\n",
-			offset, endIdx, totalLines, endIdx+1)
+			startIdx+1, endIdx, totalLines, endIdx+1)
 	}
 	for i := startIdx; i < endIdx; i++ {
 		fmt.Fprintf(&sb, "%d\t%s\n", i+1, allLines[i])
