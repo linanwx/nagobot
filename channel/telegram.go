@@ -58,6 +58,9 @@ func (t *TelegramChannel) Name() string {
 func (t *TelegramChannel) Start(ctx context.Context) error {
 	opts := []bot.Option{
 		bot.WithDefaultHandler(t.handleUpdate),
+		bot.WithErrorsHandler(func(err error) {
+			logger.Error("telegram bot error", "error", err)
+		}),
 	}
 
 	b, err := bot.New(t.token, opts...)
