@@ -47,7 +47,13 @@ func DefaultConfig() *Config {
 				Task:        "heartbeat",
 				Agent:       "heartbeat",
 				Silent:      true,
-				WakeSession: "",
+			},
+			{
+				ID:     "tidyup",
+				Expr:   "0 4 * * *",
+				Task:   "tidyup",
+				Agent:  "tidyup",
+				Silent: true,
 			},
 		},
 	}
