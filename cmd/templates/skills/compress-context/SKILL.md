@@ -33,3 +33,5 @@ Discard:
 - Verbose tool call arguments and raw tool outputs — keep only outcomes.
 - Intermediate debugging steps that were already resolved.
 - Repetitive or redundant exchanges that don't affect future work.
+
+The longer and more detailed, the better. If the current conversation is long, aim for at least 1,000 words. If the conversation is relatively short, you may target roughly 10% of the current conversation length.
