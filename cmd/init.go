@@ -18,7 +18,7 @@ Existing files are never overwritten.
 
 Examples:
   nagobot init --provider deepseek --model deepseek-reasoner --api-key sk-xxx
-  nagobot init --provider anthropic --model claude-sonnet-4-5 --api-key sk-xxx --telegram-token BOT_TOKEN`,
+  nagobot init --provider anthropic --model claude-sonnet-4-6 --api-key sk-xxx --telegram-token BOT_TOKEN`,
 	RunE: runInit,
 }
 

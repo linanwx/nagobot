@@ -26,7 +26,7 @@ Anthropic config example:
 ```yaml
 thread:
   provider: anthropic
-  modelType: claude-opus-4-6 # or claude-sonnet-4-5
+  modelType: claude-opus-4-6 # or claude-sonnet-4-6
 
 providers:
   anthropic:

@@ -19,8 +19,8 @@ const (
 
 func init() {
 	RegisterProvider("anthropic", ProviderRegistration{
-		Models:       []string{"claude-sonnet-4-5", "claude-opus-4-6"},
-		VisionModels: []string{"claude-sonnet-4-5", "claude-opus-4-6"},
+		Models:       []string{"claude-sonnet-4-6", "claude-opus-4-6"},
+		VisionModels: []string{"claude-sonnet-4-6", "claude-opus-4-6"},
 		EnvKey:       "ANTHROPIC_API_KEY",
 		EnvBase:      "ANTHROPIC_API_BASE",
 		Constructor: func(apiKey, apiBase, modelType, modelName string, maxTokens int, temperature float64) Provider {
@@ -47,7 +47,7 @@ const (
 
 func anthropicThinkingEnabled(modelType string) bool {
 	switch strings.TrimSpace(modelType) {
-	case "claude-sonnet-4-5", "claude-opus-4-6":
+	case "claude-sonnet-4-6", "claude-opus-4-6":
 		return true
 	default:
 		return false

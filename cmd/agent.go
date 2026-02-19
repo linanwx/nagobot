@@ -41,7 +41,7 @@ func init() {
 	agentCmd.Flags().StringVarP(&messageFlag, "message", "m", "", "Message to send (required)")
 	agentCmd.Flags().StringVar(&agentFlag, "agent", "", "Override agent name (default: soul agent)")
 	agentCmd.Flags().StringVar(&providerFlag, "provider", "", providerFlagHelp())
-	agentCmd.Flags().StringVar(&modelFlag, "model", "", "Override model type (e.g. claude-sonnet-4-5)")
+	agentCmd.Flags().StringVar(&modelFlag, "model", "", "Override model type (e.g. claude-sonnet-4-6)")
 	agentCmd.Flags().StringVar(&apiKeyFlag, "api-key", "", "Override API key")
 	agentCmd.Flags().StringVar(&apiBaseFlag, "api-base", "", "Override API base URL")
 }
