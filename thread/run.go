@@ -3,6 +3,8 @@ package thread
 import (
 	"context"
 	"fmt"
+	"os"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -34,6 +36,7 @@ func (t *Thread) run(ctx context.Context, userMessage string, sink Sink) (string
 		activeAgent.Set("TIME", time.Now())
 		activeAgent.Set("TOOLS", t.tools.Names())
 		activeAgent.Set("SKILLS", skillsSection)
+		activeAgent.Set("USER", t.buildUserSection())
 		systemPrompt = activeAgent.Build()
 	}
 	if strings.TrimSpace(systemPrompt) == "" {
@@ -149,6 +152,26 @@ func (t *Thread) run(ctx context.Context, userMessage string, sink Sink) (string
 	}
 
 	return response, nil
+}
+
+// buildUserSection resolves the per-session USER.md into a formatted section.
+func (t *Thread) buildUserSection() string {
+	sessionPath, ok := t.sessionFilePath()
+	if !ok {
+		return "## User Preferences\n\nNo session path available."
+	}
+	userPath := filepath.Join(filepath.Dir(sessionPath), "USER.md")
+	absPath, _ := filepath.Abs(userPath)
+
+	content, err := os.ReadFile(userPath)
+	if err != nil {
+		return fmt.Sprintf("## User Preferences\n\n`%s` does not exist. Create it to store user preferences.", absPath)
+	}
+	text := strings.TrimSpace(string(content))
+	if text == "" {
+		return fmt.Sprintf("## User Preferences\n\n`%s` is empty. Append to store user preferences.", absPath)
+	}
+	return fmt.Sprintf("## User Preferences\n\nCurrently using `%s` as preferences. Append to store.\n\n%s", absPath, text)
 }
 
 // isUserFacingContent returns true if the content is meaningful for the user,

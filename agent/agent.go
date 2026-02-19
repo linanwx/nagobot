@@ -45,8 +45,7 @@ func (a *Agent) Build() string {
 		coreContent, _ := os.ReadFile(filepath.Join(a.workspace, "CORE_MECHANISM.md"))
 		prompt = strings.ReplaceAll(prompt, "{{CORE_MECHANISM}}", strings.TrimSpace(string(coreContent)))
 		prompt = strings.ReplaceAll(prompt, "{{WORKSPACE}}", a.workspace)
-		userContent, _ := os.ReadFile(filepath.Join(a.workspace, "USER.md"))
-		prompt = strings.ReplaceAll(prompt, "{{USER}}", strings.TrimSpace(string(userContent)))
+		// {{USER}} is resolved as a runtime var in thread/run.go (per-session).
 		prompt = strings.ReplaceAll(prompt, "{{AGENTS}}", buildAgentsPromptSection(a.workspace))
 	}
 

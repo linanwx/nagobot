@@ -16,8 +16,8 @@ func setupWorkspace(t *testing.T) string {
 	srcDir := filepath.Join("..", "cmd", "templates")
 	ws := t.TempDir()
 
-	// Copy top-level files: CORE_MECHANISM.md, USER.md
-	for _, name := range []string{"CORE_MECHANISM.md", "USER.md"} {
+	// Copy top-level files.
+	for _, name := range []string{"CORE_MECHANISM.md"} {
 		data, err := os.ReadFile(filepath.Join(srcDir, name))
 		if err != nil {
 			t.Fatalf("read %s: %v", name, err)
@@ -93,6 +93,7 @@ func TestAllAgentsBuild_NoUnresolvedPlaceholders(t *testing.T) {
 			a.Set("TOOLS", "tool_a, tool_b, tool_c")
 			a.Set("SKILLS", "skill_x: does X\nskill_y: does Y")
 			a.Set("TASK", "Test task content")
+			a.Set("USER", "## User Preferences\n\nTest user preferences")
 
 			prompt := a.Build()
 
