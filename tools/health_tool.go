@@ -55,7 +55,7 @@ func (t *HealthTool) Def() provider.ToolDef {
 				"properties": map[string]any{
 					"format": map[string]any{
 						"type":        "string",
-						"description": "Output format. Defaults to 'yaml'.",
+						"description": "Output format: yaml or json. Can be omitted.",
 						"enum":        []string{"yaml", "json"},
 					},
 				},

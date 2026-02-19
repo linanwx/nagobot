@@ -41,11 +41,11 @@ func (t *ExecTool) Def() provider.ToolDef {
 					},
 					"workdir": map[string]any{
 						"type":        "string",
-						"description": "Optional working directory. Defaults to workspace.",
+						"description": "Optional working directory. If omitted, runs in the workspace root.",
 					},
 					"timeout": map[string]any{
 						"type":        "integer",
-						"description": "Optional timeout in seconds. Defaults to 60.",
+						"description": "Optional timeout in seconds. If omitted, uses the system-configured default.",
 					},
 				},
 				"required": []string{"command"},

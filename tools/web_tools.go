@@ -44,7 +44,7 @@ func (t *WebSearchTool) Def() provider.ToolDef {
 					},
 					"max_results": map[string]any{
 						"type":        "integer",
-						"description": "Maximum number of results to return. Defaults to 5.",
+						"description": "Maximum number of results to return. If omitted, uses the system-configured default.",
 					},
 				},
 				"required": []string{"query"},
@@ -198,7 +198,7 @@ func (t *WebFetchTool) Def() provider.ToolDef {
 					},
 					"raw": map[string]any{
 						"type":        "boolean",
-						"description": "If true, return raw HTML instead of stripped text. Defaults to false.",
+						"description": "Set to true to return raw HTML instead of stripped text. Can be omitted.",
 					},
 				},
 				"required": []string{"url"},

@@ -50,11 +50,11 @@ func (t *ReadFileTool) Def() provider.ToolDef {
 					},
 					"offset": map[string]any{
 						"type":        "integer",
-						"description": "Starting line number (1-based). Defaults to 1. Ignored when tail is set.",
+						"description": "Starting line number (1-based). Can be omitted to start from the beginning. Ignored when tail is set.",
 					},
 					"limit": map[string]any{
 						"type":        "integer",
-						"description": "Maximum number of lines to return. Defaults to 100. Ignored when tail is set.",
+						"description": "Maximum number of lines to return. Can be omitted (reads up to 100 lines). Ignored when tail is set.",
 					},
 					"tail": map[string]any{
 						"type":        "integer",
