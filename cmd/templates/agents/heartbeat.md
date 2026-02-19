@@ -30,8 +30,8 @@ Steps:
    - If `greetings[session_key]` equals today's date, skip (already greeted).
    - Read the session file (`sessions/<session_key>/session.json`) and check the timestamps of recent messages to understand the user's active hours and timezone. Since the end of the conversation is at the end of the file, check the file end first.
    - Determine whether now is a good time to greet this user. Consider their typical active hours and inferred timezone. If you cannot infer the timezone, use the server's local time. Avoid greeting too early or too late.
-   - If appropriate, call `wake_thread` with the session key and a message instructing the session's agent to send a brief, warm greeting suited to the time of day. Keep the instruction concise. Then update `heartbeat-state.json` to set this session's date to today.
-   - If now is NOT a good time, do nothing for this session. Do NOT update the state file. A later heartbeat run will retry.
+   - If appropriate, call `wake_thread` with the session key and a message instructing the session's agent to send a brief, warm greeting suited to the time of day. Keep the instruction concise. Then update `heartbeat-state.json` to set this session's date to today. Calling `wake_thread` will force the thread to run inference, generate a greeting, and send it to the user.
+   - If now is NOT a good time, do nothing for this session. Do not call `wake_thread`. Do NOT update the state file. A later heartbeat run will retry.
 4. Only write `heartbeat-state.json` if you actually sent at least one greeting. If no greetings were sent this run, do not touch the file.
 
 ### Default
