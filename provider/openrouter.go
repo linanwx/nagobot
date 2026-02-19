@@ -132,6 +132,29 @@ func openRouterInputChars(messages []Message) int {
 	return total
 }
 
+const toolCallArgMaxLen = 80
+
+func formatToolCallSummary(toolCalls []ToolCall) string {
+	var b strings.Builder
+	for i, tc := range toolCalls {
+		if i > 0 {
+			b.WriteString(", ")
+		}
+		b.WriteString("Calling ")
+		b.WriteString(tc.Function.Name)
+		args := strings.TrimSpace(tc.Function.Arguments)
+		if args != "" && args != "{}" {
+			if len(args) > toolCallArgMaxLen {
+				args = args[:toolCallArgMaxLen] + "..."
+			}
+			b.WriteByte('(')
+			b.WriteString(args)
+			b.WriteByte(')')
+		}
+	}
+	return b.String()
+}
+
 func toOpenAIChatMessages(messages []Message, visionCapable bool) ([]openai.ChatCompletionMessageParamUnion, error) {
 	result := make([]openai.ChatCompletionMessageParamUnion, 0, len(messages))
 
@@ -178,7 +201,7 @@ func toOpenAIChatMessages(messages []Message, visionCapable bool) ([]openai.Chat
 			} else if len(m.ToolCalls) > 0 {
 				// Some upstream providers (e.g. Moonshot via OpenRouter) reject empty
 				// assistant messages even when tool_calls are present.
-				assistant.Content.OfString = openai.String("(tool call)")
+				assistant.Content.OfString = openai.String(formatToolCallSummary(m.ToolCalls))
 			} else {
 				assistant.Content.OfString = openai.String("(empty assistant message)")
 			}
@@ -188,7 +211,7 @@ func toOpenAIChatMessages(messages []Message, visionCapable bool) ([]openai.Chat
 					reasoningContent = strings.TrimSpace(m.Content)
 				}
 				if reasoningContent == "" {
-					reasoningContent = "(tool call)"
+					reasoningContent = formatToolCallSummary(m.ToolCalls)
 				}
 				assistant.SetExtraFields(map[string]any{
 					"reasoning_content": reasoningContent,
