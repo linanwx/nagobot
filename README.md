@@ -22,7 +22,7 @@ Multi-provider AI assistant with tool calling, async multi-threading, cron sched
 
 - `openai`: `gpt-5.2` (OAuth or API key)
 - `deepseek`: `deepseek-reasoner`, `deepseek-chat` (recommended default)
-- `openrouter`: `moonshotai/kimi-k2.5`
+- `openrouter`: `moonshotai/kimi-k2.5`, `anthropic/claude-sonnet-4.6`, `anthropic/claude-opus-4.6`
 - `anthropic`: `claude-sonnet-4-6`, `claude-opus-4-6`
 - `moonshot-cn`: `kimi-k2.5`
 - `moonshot-global`: `kimi-k2.5`

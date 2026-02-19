@@ -60,12 +60,24 @@ var openRouterModels = map[string]openRouterModelMeta{
 		},
 		ProviderOrder: []string{"moonshotai"},
 	},
+	"anthropic/claude-sonnet-4.6": {
+		ThinkingOpts: []oaioption.RequestOption{
+			oaioption.WithJSONSet("reasoning", map[string]any{"effort": "high"}),
+		},
+		ProviderOrder: []string{"anthropic"},
+	},
+	"anthropic/claude-opus-4.6": {
+		ThinkingOpts: []oaioption.RequestOption{
+			oaioption.WithJSONSet("reasoning", map[string]any{"effort": "high"}),
+		},
+		ProviderOrder: []string{"anthropic"},
+	},
 }
 
 func init() {
 	RegisterProvider("openrouter", ProviderRegistration{
-		Models:       []string{"moonshotai/kimi-k2.5"},
-		VisionModels: []string{"moonshotai/kimi-k2.5"},
+		Models:       []string{"moonshotai/kimi-k2.5", "anthropic/claude-sonnet-4.6", "anthropic/claude-opus-4.6"},
+		VisionModels: []string{"moonshotai/kimi-k2.5", "anthropic/claude-sonnet-4.6", "anthropic/claude-opus-4.6"},
 		EnvKey:       "OPENROUTER_API_KEY",
 		EnvBase:      "OPENROUTER_API_BASE",
 		Constructor: func(apiKey, apiBase, modelType, modelName string, maxTokens int, temperature float64) Provider {
