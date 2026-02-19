@@ -31,18 +31,7 @@ Multi-provider AI assistant with tool calling, async multi-threading, cron sched
 - `minimax-cn`: `minimax-m2.5`
 - `minimax-global`: `minimax-m2.5`
 
-Recommended: deepseek-chat for chat, kimi-k2.5 for tool calls.
-
-### Developer notes
-
-- **deepseek**: Incredibly good. No image support and reasoning is very slow, but otherwise excellent.
-- **gpt-5.2**: Fast and pleasant, but the model is argumentative — it prefers debating details over executing tasks.
-- **kimi-k2.5**: Fast, but occasionally hallucinates tool calls. Not fully stable.
-- **glm-5**: Average speed. Occasional hallucinated tool calls.
-- **minimax-m2.5**: Very poor real-world experience — frequent hallucinated tool calls and fabricated results. Not recommended.
-- **anthropic**: Great at everything, except the price.
-
-I just don't understand: so many Chinese open-source models claim to surpass SOTA in coding again and again, yet in real-world agentic use none of them match DeepSeek. (Make sure you use the official API, not quantized models on OpenRouter!)
+Recommended: glm-5 for chat, kimi-k2.5 for tool calls.
 
 ## Requirements
 
