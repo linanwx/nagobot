@@ -49,7 +49,7 @@ func (t *HealthTool) Def() provider.ToolDef {
 		Type: "function",
 		Function: provider.FunctionDef{
 			Name:        "health",
-			Description: "Get runtime health information for this nagobot process, including paths, thread/session diagnostics, and workspace tree snapshot.",
+			Description: "Get runtime status of this nagobot process. Returns: LLM provider and model, current time and timezone, Go version/OS/arch, workspace/sessions/skills paths, current thread info (ID, agent name, session key), current session file stats (size, message count), all sessions scan (valid/invalid counts), all active threads, channel config (Telegram allowed IDs, Web addr), cron job list, workspace directory tree, process memory and goroutine count.",
 			Parameters: map[string]any{
 				"type": "object",
 				"properties": map[string]any{
