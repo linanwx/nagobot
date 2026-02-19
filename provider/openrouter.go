@@ -72,11 +72,14 @@ var openRouterModels = map[string]openRouterModelMeta{
 		},
 		ProviderOrder: []string{"anthropic"},
 	},
+	"z-ai/glm-5": {
+		ProviderOrder: []string{"z-ai"},
+	},
 }
 
 func init() {
 	RegisterProvider("openrouter", ProviderRegistration{
-		Models:       []string{"moonshotai/kimi-k2.5", "anthropic/claude-sonnet-4.6", "anthropic/claude-opus-4.6"},
+		Models:       []string{"moonshotai/kimi-k2.5", "anthropic/claude-sonnet-4.6", "anthropic/claude-opus-4.6", "z-ai/glm-5"},
 		VisionModels: []string{"moonshotai/kimi-k2.5", "anthropic/claude-sonnet-4.6", "anthropic/claude-opus-4.6"},
 		EnvKey:       "OPENROUTER_API_KEY",
 		EnvBase:      "OPENROUTER_API_BASE",
