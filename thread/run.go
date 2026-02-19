@@ -245,12 +245,17 @@ func (t *Thread) buildTools() *tools.Registry {
 		reg = cfg.Tools.Clone()
 	}
 
+	providerName, modelName := cfg.ProviderName, cfg.ModelName
+	if mc := t.resolvedModelConfig(); mc != nil {
+		providerName, modelName = mc.Provider, mc.ModelType
+	}
+
 	reg.Register(&tools.HealthTool{
 		Workspace:    cfg.Workspace,
 		SessionsRoot: cfg.SessionsDir,
 		SkillsRoot:   cfg.SkillsDir,
-		ProviderName: cfg.ProviderName,
-		ModelName:    cfg.ModelName,
+		ProviderName: providerName,
+		ModelName:    modelName,
 		Channels:     cfg.HealthChannels,
 		ThreadsListFn: func() []tools.ThreadInfo {
 			return t.mgr.ListThreads()
