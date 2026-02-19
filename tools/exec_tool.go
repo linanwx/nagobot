@@ -124,7 +124,7 @@ func (t *ExecTool) Run(ctx context.Context, args json.RawMessage) string {
 	}
 
 	if err != nil {
-		return fmt.Sprintf("Command failed: %v\nOutput:\n%s", err, string(output))
+		return fmt.Sprintf("Command failed (workdir: %s): %v\nOutput:\n%s", cmd.Dir, err, string(output))
 	}
 
 	result := string(output)
