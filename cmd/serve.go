@@ -144,8 +144,8 @@ func buildDefaultAgentFor(cfg *config.Config) func(string) string {
 				return agent
 			}
 		}
-		// "main" session → admin user's agent.
-		if sessionKey == "main" {
+		// "cli" session → admin user's agent.
+		if sessionKey == "cli" {
 			adminID := strings.TrimSpace(cfg.Channels.AdminUserID)
 			if adminID != "" {
 				return cfg.Channels.UserAgents[adminID]
@@ -157,9 +157,6 @@ func buildDefaultAgentFor(cfg *config.Config) func(string) string {
 
 // buildDefaultSinkFor returns a factory that resolves the fallback sink for a given session key.
 func buildDefaultSinkFor(chMgr *channel.Manager, cfg *config.Config) func(string) thread.Sink {
-	adminID := strings.TrimSpace(cfg.GetAdminUserID())
-	feishuAdminID := strings.TrimSpace(cfg.GetFeishuAdminOpenID())
-
 	return func(sessionKey string) thread.Sink {
 		// telegram:{chatID}[:{userID}[:threads:...]] → send to that chat.
 		if strings.HasPrefix(sessionKey, "telegram:") {
@@ -198,32 +195,8 @@ func buildDefaultSinkFor(chMgr *channel.Manager, cfg *config.Config) func(string
 			}
 		}
 
-		// "main" → telegram admin > feishu admin > cli.
-		if sessionKey == "main" {
-			if _, ok := chMgr.Get("telegram"); ok && adminID != "" {
-				return thread.Sink{
-					Label:      "your response will be sent to telegram admin",
-					Idempotent: true,
-					Send: func(ctx context.Context, response string) error {
-						if strings.TrimSpace(response) == "" {
-							return nil
-						}
-						return chMgr.SendTo(ctx, "telegram", response, adminID)
-					},
-				}
-			}
-			if _, ok := chMgr.Get("feishu"); ok && feishuAdminID != "" {
-				return thread.Sink{
-					Label:      "your response will be sent to feishu admin",
-					Idempotent: true,
-					Send: func(ctx context.Context, response string) error {
-						if strings.TrimSpace(response) == "" {
-							return nil
-						}
-						return chMgr.SendTo(ctx, "feishu", response, "p2p:"+feishuAdminID)
-					},
-				}
-			}
+		// "cli" → cli only.
+		if sessionKey == "cli" {
 			if _, ok := chMgr.Get("cli"); ok {
 				return thread.Sink{
 					Label:      "your response will be printed to cli",

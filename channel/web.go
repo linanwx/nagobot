@@ -23,7 +23,7 @@ import (
 )
 
 const (
-	webMainSessionID     = "main"
+	webMainSessionID     = "cli"
 	webMessageBufferSize = 100
 	webDefaultAddr       = "127.0.0.1:8080"
 	webShutdownTimeout   = 5 * time.Second
@@ -362,7 +362,7 @@ func (w *WebChannel) loadHistory() ([]webHistoryMessage, error) {
 		return nil, fmt.Errorf("workspace is not configured")
 	}
 
-	path := filepath.Join(w.workspace, sessionsDirName, "main", "session.json")
+	path := filepath.Join(w.workspace, sessionsDirName, "cli", "session.json")
 	data, err := os.ReadFile(path)
 	if err != nil {
 		if errors.Is(err, os.ErrNotExist) {

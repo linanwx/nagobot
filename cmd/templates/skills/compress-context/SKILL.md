@@ -8,7 +8,7 @@ description: Compress session context to free up token budget.
 
 1. Determine `session_file`:
    - First choice: use the path from the Context Pressure Notice.
-   - Fallback: `{{WORKSPACE}}/sessions/main/session.json`.
+   - Fallback: `{{WORKSPACE}}/sessions/cli/session.json`.
 2. Write a compressed summary of the conversation so far (see guidance below) to `{{WORKSPACE}}/.tmp/compressed.txt` with `write_file`.
 3. Run:
    ```

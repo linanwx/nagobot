@@ -440,7 +440,7 @@ func createBootstrapFiles(workspace string) error {
 		"bin",
 		"docs",
 		skillsDir,
-		filepath.Join(sessionsDir, "main"),
+		filepath.Join(sessionsDir, "cli"),
 		filepath.Join(sessionsDir, "cron"),
 	} {
 		if err := os.MkdirAll(filepath.Join(workspace, dir), 0755); err != nil {

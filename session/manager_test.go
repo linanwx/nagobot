@@ -55,8 +55,8 @@ func TestManagerPathForKeySanitizesAndDefaults(t *testing.T) {
 	}
 
 	defaultPath := mgr.PathForKey("   ")
-	if !strings.HasSuffix(defaultPath, filepath.Join("sessions", "main", "session.json")) {
-		t.Fatalf("default path = %q, want suffix %q", defaultPath, filepath.Join("sessions", "main", "session.json"))
+	if !strings.HasSuffix(defaultPath, filepath.Join("sessions", "cli", "session.json")) {
+		t.Fatalf("default path = %q, want suffix %q", defaultPath, filepath.Join("sessions", "cli", "session.json"))
 	}
 
 	sanitizedPath := mgr.PathForKey(" parent : ../bad?? : child ")

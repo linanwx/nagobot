@@ -32,14 +32,14 @@ Using the same `--id` with `set-cron` or `set-at` will update (upsert) the exist
 - `--at`: execution time in RFC3339, e.g. `"2026-02-07T18:30:00+08:00"` (required for set-at).
 - `--task`: detailed instructions injected into a newly created cron thread that wakes and executes the task. Include objective, scope, constraints, and expected output. ~100–800 characters recommended. Wrap in double quotes; escape inner double quotes with `\"`.
 - `--agent`: optional agent template name from `agents/*.md`.
-- `--wake-session`: session to receive the execution result. The result is injected into this session, waking it to run inference and deliver to the user. Defaults to `main`. Use `telegram:<userID>` to target a specific Telegram user (e.g. `telegram:123456`).
+- `--wake-session`: session to receive the execution result. The result is injected into this session, waking it to run inference and deliver to the user. Defaults to `cli`. Use `telegram:<userID>` to target a specific Telegram user (e.g. `telegram:123456`).
 - `--silent`: suppress result delivery entirely.
 
 ## Examples
 
 Add a daily summary job at 09:00:
 ```
-{{WORKSPACE}}/bin/nagobot cron set-cron --id daily-summary --expr "0 9 * * *" --task "Review recent session activity and produce a daily summary: completed work, pending actions, immediate next steps. Highlight blockers and reference key files." --agent GENERAL --wake-session main
+{{WORKSPACE}}/bin/nagobot cron set-cron --id daily-summary --expr "0 9 * * *" --task "Review recent session activity and produce a daily summary: completed work, pending actions, immediate next steps. Highlight blockers and reference key files." --agent GENERAL --wake-session cli
 ```
 
 Add a one-time cleanup job:
@@ -49,7 +49,7 @@ Add a one-time cleanup job:
 
 Update an existing job (same `--id` overwrites):
 ```
-{{WORKSPACE}}/bin/nagobot cron set-cron --id daily-summary --expr "0 8 * * 1-5" --task "Weekday morning briefing: summarize overnight changes, open issues, and today's priorities." --agent GENERAL --wake-session main
+{{WORKSPACE}}/bin/nagobot cron set-cron --id daily-summary --expr "0 8 * * 1-5" --task "Weekday morning briefing: summarize overnight changes, open issues, and today's priorities." --agent GENERAL --wake-session cli
 ```
 
 Remove jobs:

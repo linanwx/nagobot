@@ -104,7 +104,7 @@ func (m *Manager) sessionPath(key string) string {
 		cleanParts = append(cleanParts, segment)
 	}
 	if len(cleanParts) == 0 {
-		cleanParts = append(cleanParts, "main")
+		cleanParts = append(cleanParts, "cli")
 	}
 	cleanParts = append(cleanParts, "session.json")
 	return filepath.Join(append([]string{m.sessionsDir}, cleanParts...)...)
@@ -155,7 +155,7 @@ func (m *Manager) loadFromDisk(key string) (*Session, error) {
 func normalizeSessionKey(key string) string {
 	key = strings.TrimSpace(key)
 	if key == "" {
-		return "main"
+		return "cli"
 	}
 	return key
 }

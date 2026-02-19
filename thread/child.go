@@ -66,7 +66,7 @@ func (t *Thread) generateChildSessionKey() string {
 		parent = strings.TrimSpace(t.id)
 	}
 	if parent == "" {
-		parent = "main"
+		parent = "cli"
 	}
 
 	timePart := time.Now().Local().Format("2006-01-02-15-04-05")

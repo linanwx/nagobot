@@ -82,19 +82,15 @@ func (d *Dispatcher) dispatch(_ context.Context, ch channel.Channel, msg *channe
 // route determines the session key for a message.
 func (d *Dispatcher) route(msg *channel.Message) string {
 	if msg == nil {
-		return "main"
+		return "cli"
 	}
 
 	if msg.ChannelID == "cli:local" || strings.HasPrefix(msg.ChannelID, "web:") {
-		return "main"
+		return "cli"
 	}
 
 	if strings.HasPrefix(msg.ChannelID, "telegram:") {
 		userID := strings.TrimSpace(msg.UserID)
-		adminID := strings.TrimSpace(d.cfg.GetAdminUserID())
-		if userID != "" && adminID != "" && userID == adminID {
-			return "main"
-		}
 		if userID != "" {
 			return "telegram:" + userID
 		}
@@ -103,10 +99,6 @@ func (d *Dispatcher) route(msg *channel.Message) string {
 
 	if strings.HasPrefix(msg.ChannelID, "feishu:") {
 		userID := strings.TrimSpace(msg.UserID)
-		adminID := strings.TrimSpace(d.cfg.GetFeishuAdminOpenID())
-		if userID != "" && adminID != "" && userID == adminID {
-			return "main"
-		}
 		if userID != "" {
 			return "feishu:" + userID
 		}
@@ -173,7 +165,7 @@ func (d *Dispatcher) buildCronSink(msg *channel.Message) thread.Sink {
 	silent := msg.Metadata["silent"] == "true"
 	reportTo := strings.TrimSpace(msg.Metadata["wake_session"])
 	if reportTo == "" {
-		reportTo = "main"
+		reportTo = "cli"
 	}
 	jobID := strings.TrimSpace(msg.Metadata["job_id"])
 

@@ -21,11 +21,11 @@ Steps:
    {
      "greetings": {
        "telegram:12345": "2026-02-17",
-       "main": "2026-02-17"
+       "cli": "2026-02-17"
      }
    }
    ```
-2. List the `sessions/` directory under the workspace root to discover all user sessions. User sessions have keys like `telegram:<id>`, `feishu:<id>`, or `main`. Ignore `cron:*` sessions.
+2. List the `sessions/` directory under the workspace root to discover all user sessions. User sessions have keys like `telegram:<id>`, `feishu:<id>`, or `cli`. Ignore `cron:*` sessions.
 3. For each user session:
    - If `greetings[session_key]` equals today's date, skip (already greeted).
    - Read the session file (`sessions/<session_key>/session.json`) and check the timestamps of recent messages to understand the user's active hours and timezone. Since the end of the conversation is at the end of the file, check the file end first.
