@@ -37,11 +37,11 @@ func (t *WakeThreadTool) Def() provider.ToolDef {
 				"properties": map[string]any{
 					"session_key": map[string]any{
 						"type":        "string",
-						"description": "Target thread session key, for example: main",
+						"description": "Target thread session key (e.g. 'main', 'telegram:12345'). A thread is automatically created for the session if needed. The thread receives the message, runs reasoning, and may deliver its output to the session's sink. For messaging sessions like Telegram, this means the user will receive a notification.",
 					},
 					"message": map[string]any{
 						"type":        "string",
-						"description": "Message to inject into the target thread.",
+						"description": "Message to inject into the target thread. The message is read by another LLM — write it as an instruction to that AI, not as a direct message to the end user. For example, to have a thread greet a user, pass 'Please send a warm greeting to the user' rather than sending the greeting text itself.",
 					},
 				},
 				"required": []string{"session_key", "message"},

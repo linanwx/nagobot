@@ -46,11 +46,11 @@ func (t *SpawnThreadTool) Def() provider.ToolDef {
 				"properties": map[string]any{
 					"agent": map[string]any{
 						"type":        "string",
-						"description": "Optional template agent name from agents/*.md.",
+						"description": "Template agent name (e.g. 'general'). Can be omitted to use the session's default agent.",
 					},
 					"task": map[string]any{
 						"type":        "string",
-						"description": "Task description for the child thread, including specific instructions and task background context. Recommended length: 20-800 words.",
+						"description": "Task description for the child thread. Include specific instructions and sufficient background context so the child can work independently. The task is executed by another LLM — write it as an instruction to that AI, not as a direct message to the end user. For example, to have a Telegram thread apologize to a user, pass 'Please apologize to the user for ...' rather than sending the apology text itself.",
 					},
 				},
 				"required": []string{"task"},
