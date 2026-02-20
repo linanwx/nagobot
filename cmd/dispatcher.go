@@ -112,6 +112,18 @@ func (d *Dispatcher) route(msg *channel.Message) string {
 		return msg.ChannelID
 	}
 
+	if strings.HasPrefix(msg.ChannelID, "discord:") {
+		chatType := strings.TrimSpace(msg.Metadata["chat_type"])
+		if chatType == "group" {
+			return msg.ChannelID // shared session for guild channel
+		}
+		userID := strings.TrimSpace(msg.UserID)
+		if userID != "" {
+			return "discord:" + userID
+		}
+		return msg.ChannelID
+	}
+
 	if strings.HasPrefix(msg.ChannelID, "cron:") {
 		jobID := strings.TrimSpace(msg.Metadata["job_id"])
 		if jobID == "" {

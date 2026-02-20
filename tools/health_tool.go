@@ -28,6 +28,9 @@ type HealthChannelsInfo = healthsnap.ChannelsInfo
 // HealthTelegramInfo holds Telegram config for health output.
 type HealthTelegramInfo = healthsnap.TelegramInfo
 
+// HealthDiscordInfo holds Discord config for health output.
+type HealthDiscordInfo = healthsnap.DiscordInfo
+
 // HealthWebInfo holds Web config for health output.
 type HealthWebInfo = healthsnap.WebInfo
 

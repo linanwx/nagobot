@@ -31,6 +31,13 @@ Multi-provider AI assistant with tool calling, async multi-threading, cron sched
 - `minimax-cn`: `minimax-m2.5`
 - `minimax-global`: `minimax-m2.5`
 
+## Channels
+
+- Telegram
+- Discord
+- Web
+- CLI
+
 Recommended: glm-5 for chat, kimi-k2.5 for tool calls.
 
 ## Requirements
@@ -64,7 +71,7 @@ The project may change drastically between versions. Please re-run `onboard` aft
 ## Documentation
 
 - [Provider config examples](docs/provider.md)
-- [Channels (Telegram, Web, CLI)](docs/channels.md)
+- [Channels (Telegram, Discord, Web, CLI)](docs/channels.md)
 
 ## Play
 

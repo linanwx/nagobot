@@ -115,7 +115,7 @@ func buildWakePayload(source, message, threadID, sessionKey, deliveryLabel strin
 
 func wakeActionHint(source string) string {
 	switch source {
-	case "telegram", "cli", "web":
+	case "telegram", "cli", "web", "discord":
 		return "Respond directly to the user request."
 	case "user_active":
 		return "Resume the target session and respond to this wake message."

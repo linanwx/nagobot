@@ -115,6 +115,7 @@ type ChannelsConfig struct {
 	UserAgents  map[string]string      `json:"userAgents,omitempty" yaml:"userAgents,omitempty"` // userID → default agent name
 	Telegram    *TelegramChannelConfig `json:"telegram" yaml:"telegram"`
 	Feishu      *FeishuChannelConfig   `json:"feishu,omitempty" yaml:"feishu,omitempty"`
+	Discord     *DiscordChannelConfig  `json:"discord,omitempty" yaml:"discord,omitempty"`
 	Web         *WebChannelConfig      `json:"web,omitempty" yaml:"web,omitempty"`
 }
 
@@ -133,6 +134,13 @@ type FeishuChannelConfig struct {
 	WebhookAddr       string   `json:"webhookAddr,omitempty" yaml:"webhookAddr,omitempty"` // default: 127.0.0.1:9090
 	AdminOpenID       string   `json:"adminOpenId,omitempty" yaml:"adminOpenId,omitempty"`
 	AllowedOpenIDs    []string `json:"allowedOpenIds,omitempty" yaml:"allowedOpenIds,omitempty"` // empty = allow all
+}
+
+// DiscordChannelConfig contains Discord bot configuration.
+type DiscordChannelConfig struct {
+	Token           string   `json:"token" yaml:"token"`
+	AllowedGuildIDs []string `json:"allowedGuildIds,omitempty" yaml:"allowedGuildIds,omitempty"`
+	AllowedUserIDs  []string `json:"allowedUserIds,omitempty" yaml:"allowedUserIds,omitempty"`
 }
 
 // WebChannelConfig contains Web chat configuration.

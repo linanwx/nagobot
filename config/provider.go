@@ -191,6 +191,33 @@ func (c *Config) GetFeishuAllowedOpenIDs() []string {
 	return c.Channels.Feishu.AllowedOpenIDs
 }
 
+// GetDiscordToken returns the Discord bot token (env overrides config).
+func (c *Config) GetDiscordToken() string {
+	if v := strings.TrimSpace(os.Getenv("DISCORD_BOT_TOKEN")); v != "" {
+		return v
+	}
+	if c == nil || c.Channels == nil || c.Channels.Discord == nil {
+		return ""
+	}
+	return c.Channels.Discord.Token
+}
+
+// GetDiscordAllowedGuildIDs returns the Discord allowed guild IDs.
+func (c *Config) GetDiscordAllowedGuildIDs() []string {
+	if c == nil || c.Channels == nil || c.Channels.Discord == nil {
+		return nil
+	}
+	return c.Channels.Discord.AllowedGuildIDs
+}
+
+// GetDiscordAllowedUserIDs returns the Discord allowed user IDs.
+func (c *Config) GetDiscordAllowedUserIDs() []string {
+	if c == nil || c.Channels == nil || c.Channels.Discord == nil {
+		return nil
+	}
+	return c.Channels.Discord.AllowedUserIDs
+}
+
 // GetOAuthToken returns the OAuth token config for the given provider name.
 func (c *Config) GetOAuthToken(providerName string) *OAuthTokenConfig {
 	if c == nil {

@@ -80,6 +80,13 @@ func buildThreadManager(cfg *config.Config, enableSessions bool) (*thread.Manage
 				AllowedIDs: ch.Telegram.AllowedIDs,
 			}
 		}
+		if ch.Discord != nil {
+			healthChannels.Discord = &tools.HealthDiscordInfo{
+				Configured:      ch.Discord.Token != "",
+				AllowedGuildIDs: ch.Discord.AllowedGuildIDs,
+				AllowedUserIDs:  ch.Discord.AllowedUserIDs,
+			}
+		}
 		if ch.Web != nil {
 			healthChannels.Web = &tools.HealthWebInfo{
 				Addr: ch.Web.Addr,

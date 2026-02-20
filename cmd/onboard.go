@@ -270,6 +270,41 @@ func runOnboard(_ *cobra.Command, _ []string) error {
 		}
 	}
 
+	// Step 6: optional Discord
+	configureDiscord := defaults.discordToken != ""
+	err = huh.NewForm(
+		huh.NewGroup(
+			huh.NewConfirm().
+				Title("Configure Discord bot?").
+				Description("Setup: https://discord.com/developers/applications → New Application → Bot → Reset Token.\nEnable MESSAGE CONTENT INTENT under Privileged Gateway Intents.\nOAuth2 → URL Generator → scope: bot → permissions: Send Messages, Add Reactions → invite to server.").
+				Value(&configureDiscord),
+		),
+	).Run()
+	if err != nil {
+		return err
+	}
+
+	discordToken := defaults.discordToken
+	if configureDiscord {
+		err = huh.NewForm(
+			huh.NewGroup(
+				huh.NewInput().
+					Title("Discord Bot Token").
+					Description("Bot → Reset Token → copy and paste here. Also enable MESSAGE CONTENT INTENT on the same page.").
+					Validate(func(s string) error {
+						if strings.TrimSpace(s) == "" {
+							return fmt.Errorf("bot token is required")
+						}
+						return nil
+					}).
+					Value(&discordToken),
+			),
+		).Run()
+		if err != nil {
+			return err
+		}
+	}
+
 	// --- apply config ---
 
 	// Start from existing config to preserve all provider keys and settings.
@@ -290,6 +325,13 @@ func runOnboard(_ *cobra.Command, _ []string) error {
 		cfg.Channels.AdminUserID = strings.TrimSpace(tgAdminID)
 		cfg.Channels.Telegram.Token = strings.TrimSpace(tgToken)
 		cfg.Channels.Telegram.AllowedIDs = parseAllowedIDs(tgAllowedIDs)
+	}
+
+	if configureDiscord {
+		if cfg.Channels.Discord == nil {
+			cfg.Channels.Discord = &config.DiscordChannelConfig{}
+		}
+		cfg.Channels.Discord.Token = strings.TrimSpace(discordToken)
 	}
 
 	// --- create directories and files ---
@@ -339,6 +381,7 @@ type onboardDefaults struct {
 	tgToken      string
 	tgAdminID    string
 	tgAllowedIDs string
+	discordToken string
 }
 
 func loadOnboardDefaults(cfg *config.Config) onboardDefaults {
@@ -346,11 +389,12 @@ func loadOnboardDefaults(cfg *config.Config) onboardDefaults {
 		return onboardDefaults{}
 	}
 	return onboardDefaults{
-		provider:      cfg.GetProvider(),
-		model:         cfg.GetModelType(),
-		tgToken:       cfg.GetTelegramToken(),
-		tgAdminID:     cfg.GetAdminUserID(),
+		provider:     cfg.GetProvider(),
+		model:        cfg.GetModelType(),
+		tgToken:      cfg.GetTelegramToken(),
+		tgAdminID:    cfg.GetAdminUserID(),
 		tgAllowedIDs: formatAllowedIDs(cfg.GetTelegramAllowedIDs()),
+		discordToken: cfg.GetDiscordToken(),
 	}
 }
 

@@ -27,6 +27,7 @@ Supported channels:
   - cli: Interactive command line (default)
   - telegram: Telegram bot (requires TELEGRAM_BOT_TOKEN)
   - feishu: Feishu (Lark) bot (requires FEISHU_APP_ID + FEISHU_APP_SECRET)
+  - discord: Discord bot (requires DISCORD_BOT_TOKEN)
   - web: Browser chat UI (http + websocket)
 
 Examples:
@@ -34,6 +35,7 @@ Examples:
   nagobot serve --cli        # Start with CLI channel only
   nagobot serve --telegram   # Start with Telegram bot only
   nagobot serve --feishu     # Start with Feishu bot only
+  nagobot serve --discord    # Start with Discord bot only
   nagobot serve --web        # Start Web chat channel only`,
 	RunE: runServe,
 }
@@ -41,6 +43,7 @@ Examples:
 var (
 	serveTelegram bool
 	serveFeishu   bool
+	serveDiscord  bool
 	serveCLI      bool
 	serveWeb      bool
 )
@@ -48,6 +51,7 @@ var (
 func init() {
 	serveCmd.Flags().BoolVar(&serveTelegram, "telegram", false, "Enable Telegram bot channel")
 	serveCmd.Flags().BoolVar(&serveFeishu, "feishu", false, "Enable Feishu (Lark) bot channel")
+	serveCmd.Flags().BoolVar(&serveDiscord, "discord", false, "Enable Discord bot channel")
 	serveCmd.Flags().BoolVar(&serveWeb, "web", false, "Enable Web chat channel")
 
 	serveCmd.Flags().BoolVar(&serveCLI, "cli", true, "Enable CLI channel (default: true)")
@@ -72,7 +76,7 @@ func runServe(cmd *cobra.Command, args []string) error {
 	}
 	chManager := channel.NewManager()
 
-	finalServeCLI, finalServeTelegram, finalServeFeishu, finalServeWeb, err := resolveServeTargets(cmd)
+	finalServeCLI, finalServeTelegram, finalServeFeishu, finalServeDiscord, finalServeWeb, err := resolveServeTargets(cmd)
 	if err != nil {
 		return err
 	}
@@ -88,6 +92,9 @@ func runServe(cmd *cobra.Command, args []string) error {
 	}
 	if finalServeFeishu {
 		chManager.Register(channel.NewFeishuChannel(cfg))
+	}
+	if finalServeDiscord {
+		chManager.Register(channel.NewDiscordChannel(cfg))
 	}
 	chManager.Register(channel.NewCronChannel(cfg))
 
@@ -195,6 +202,23 @@ func buildDefaultSinkFor(chMgr *channel.Manager, cfg *config.Config) func(string
 			}
 		}
 
+		// discord:{channelID} → send to that channel.
+		if strings.HasPrefix(sessionKey, "discord:") {
+			channelID := strings.TrimPrefix(sessionKey, "discord:")
+			if channelID != "" {
+				return thread.Sink{
+					Label:      "your response will be sent to discord channel " + channelID,
+					Idempotent: true,
+					Send: func(ctx context.Context, response string) error {
+						if strings.TrimSpace(response) == "" {
+							return nil
+						}
+						return chMgr.SendTo(ctx, "discord", response, channelID)
+					},
+				}
+			}
+		}
+
 		// "cli" → cli only.
 		if sessionKey == "cli" {
 			if _, ok := chMgr.Get("cli"); ok {
@@ -223,19 +247,20 @@ func extractFirstSegment(s string) string {
 	return s
 }
 
-func resolveServeTargets(cmd *cobra.Command) (finalServeCLI, finalServeTelegram, finalServeFeishu, finalServeWeb bool, err error) {
+func resolveServeTargets(cmd *cobra.Command) (finalServeCLI, finalServeTelegram, finalServeFeishu, finalServeDiscord, finalServeWeb bool, err error) {
 	if cmd == nil {
-		return false, false, false, false, fmt.Errorf("serve command is nil")
+		return false, false, false, false, false, fmt.Errorf("serve command is nil")
 	}
 	flags := cmd.Flags()
 	cliChanged := flags.Changed("cli")
 	telegramChanged := flags.Changed("telegram")
 	feishuChanged := flags.Changed("feishu")
+	discordChanged := flags.Changed("discord")
 	webChanged := flags.Changed("web")
 
 	// No explicit channel flags -> default to all channels.
-	if !cliChanged && !telegramChanged && !feishuChanged && !webChanged {
-		return true, true, true, true, nil
+	if !cliChanged && !telegramChanged && !feishuChanged && !discordChanged && !webChanged {
+		return true, true, true, true, true, nil
 	}
 
 	// Any explicit channel flag -> use explicit switches only.
@@ -248,14 +273,17 @@ func resolveServeTargets(cmd *cobra.Command) (finalServeCLI, finalServeTelegram,
 	if feishuChanged {
 		finalServeFeishu = serveFeishu
 	}
+	if discordChanged {
+		finalServeDiscord = serveDiscord
+	}
 	if webChanged {
 		finalServeWeb = serveWeb
 	}
 
-	if !finalServeCLI && !finalServeTelegram && !finalServeFeishu && !finalServeWeb {
-		return false, false, false, false, fmt.Errorf("no channels enabled; use --cli, --telegram, --feishu, or --web")
+	if !finalServeCLI && !finalServeTelegram && !finalServeFeishu && !finalServeDiscord && !finalServeWeb {
+		return false, false, false, false, false, fmt.Errorf("no channels enabled; use --cli, --telegram, --feishu, --discord, or --web")
 	}
-	return finalServeCLI, finalServeTelegram, finalServeFeishu, finalServeWeb, nil
+	return finalServeCLI, finalServeTelegram, finalServeFeishu, finalServeDiscord, finalServeWeb, nil
 }
 
 // installBinary copies the running executable to workspace/bin/nagobot.

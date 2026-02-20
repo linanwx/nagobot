@@ -157,6 +157,7 @@ type ChannelsInfo struct {
 	AdminUserID string            `json:"adminUserID,omitempty" yaml:"admin_user_id,omitempty"`
 	UserAgents  map[string]string `json:"userAgents,omitempty" yaml:"user_agents,omitempty"`
 	Telegram    *TelegramInfo     `json:"telegram,omitempty" yaml:"telegram,omitempty"`
+	Discord     *DiscordInfo      `json:"discord,omitempty" yaml:"discord,omitempty"`
 	Web         *WebInfo          `json:"web,omitempty" yaml:"web,omitempty"`
 }
 
@@ -164,6 +165,13 @@ type ChannelsInfo struct {
 type TelegramInfo struct {
 	Configured bool    `json:"configured" yaml:"configured"`
 	AllowedIDs []int64 `json:"allowedIDs,omitempty" yaml:"allowed_ids,omitempty"`
+}
+
+// DiscordInfo contains Discord channel config.
+type DiscordInfo struct {
+	Configured      bool     `json:"configured" yaml:"configured"`
+	AllowedGuildIDs []string `json:"allowedGuildIDs,omitempty" yaml:"allowed_guild_ids,omitempty"`
+	AllowedUserIDs  []string `json:"allowedUserIDs,omitempty" yaml:"allowed_user_ids,omitempty"`
 }
 
 // WebInfo contains Web channel config.
