@@ -89,6 +89,10 @@ func (d *Dispatcher) route(msg *channel.Message) string {
 	}
 
 	if strings.HasPrefix(msg.ChannelID, "telegram:") {
+		chatType := strings.TrimSpace(msg.Metadata["chat_type"])
+		if chatType == "group" || chatType == "supergroup" {
+			return msg.ChannelID // shared session for group
+		}
 		userID := strings.TrimSpace(msg.UserID)
 		if userID != "" {
 			return "telegram:" + userID
@@ -97,6 +101,10 @@ func (d *Dispatcher) route(msg *channel.Message) string {
 	}
 
 	if strings.HasPrefix(msg.ChannelID, "feishu:") {
+		chatType := strings.TrimSpace(msg.Metadata["chat_type"])
+		if chatType == "group" {
+			return msg.ChannelID // shared session for group
+		}
 		userID := strings.TrimSpace(msg.UserID)
 		if userID != "" {
 			return "feishu:" + userID
@@ -195,8 +203,15 @@ func (d *Dispatcher) resolveAgentName(msg *channel.Message) (string, map[string]
 	}
 
 	agentName := strings.TrimSpace(msg.Metadata["agent"])
-	if agentName == "" && msg.UserID != "" && d.cfg.Channels != nil {
-		agentName = d.cfg.Channels.UserAgents[msg.UserID]
+	if agentName == "" && d.cfg.Channels != nil {
+		if msg.UserID != "" {
+			agentName = d.cfg.Channels.UserAgents[msg.UserID]
+		}
+		if agentName == "" {
+			if chatID := strings.TrimSpace(msg.Metadata["chat_id"]); chatID != "" {
+				agentName = d.cfg.Channels.UserAgents[chatID]
+			}
+		}
 	}
 	if agentName == "" {
 		return "", nil
@@ -209,12 +224,26 @@ func (d *Dispatcher) resolveAgentName(msg *channel.Message) (string, map[string]
 	return agentName, vars
 }
 
-// preprocessMessage prepends media summary (built by the channel) to the user message.
+// preprocessMessage prepends media summary and sender name to the user message.
 func (d *Dispatcher) preprocessMessage(msg *channel.Message) string {
+	text := msg.Text
 	if summary := msg.Metadata["media_summary"]; summary != "" {
-		return summary + "\n\n" + msg.Text
+		text = summary + "\n\n" + text
 	}
-	return msg.Text
+
+	// For group chats, prepend sender name so the AI can distinguish players.
+	chatType := strings.TrimSpace(msg.Metadata["chat_type"])
+	if chatType == "group" || chatType == "supergroup" {
+		sender := strings.TrimSpace(msg.Username)
+		if sender == "" {
+			sender = strings.TrimSpace(msg.Metadata["first_name"])
+		}
+		if sender != "" {
+			text = "[" + sender + "]: " + text
+		}
+	}
+
+	return text
 }
 
 // wakeSource returns the wake source string for a channel.
