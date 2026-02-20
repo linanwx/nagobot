@@ -137,6 +137,17 @@ func (d *DiscordChannel) handleMessageCreate(s *discordgo.Session, m *discordgo.
 	}
 
 	text := m.Content
+
+	// Resolve user mentions from <@userid> to @displayname.
+	for _, u := range m.Mentions {
+		name := u.GlobalName
+		if name == "" {
+			name = u.Username
+		}
+		text = strings.ReplaceAll(text, "<@"+u.ID+">", "@"+name)
+		text = strings.ReplaceAll(text, "<@!"+u.ID+">", "@"+name)
+	}
+
 	metadata := map[string]string{
 		"chat_id":  m.ChannelID,
 		"guild_id": m.GuildID,
