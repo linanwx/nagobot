@@ -72,7 +72,7 @@ func buildThreadManager(cfg *config.Config, enableSessions bool) (*thread.Manage
 	if ch := cfg.Channels; ch != nil {
 		healthChannels = &tools.HealthChannelsInfo{
 			AdminUserID: ch.AdminUserID,
-			UserAgents:  ch.UserAgents,
+			SessionAgents:  ch.SessionAgents,
 		}
 		if ch.Telegram != nil {
 			healthChannels.Telegram = &tools.HealthTelegramInfo{

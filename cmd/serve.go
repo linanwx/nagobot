@@ -141,24 +141,10 @@ func runServe(cmd *cobra.Command, args []string) error {
 // buildDefaultAgentFor returns a factory that resolves the default agent name for a given session key.
 func buildDefaultAgentFor(cfg *config.Config) func(string) string {
 	return func(sessionKey string) string {
-		if cfg.Channels == nil || len(cfg.Channels.UserAgents) == 0 {
+		if cfg.Channels == nil || len(cfg.Channels.SessionAgents) == 0 {
 			return ""
 		}
-		// Extract userID from session key: "telegram:12345" → "12345", "feishu:ou_xxx" → "ou_xxx".
-		parts := strings.SplitN(sessionKey, ":", 2)
-		if len(parts) == 2 {
-			if agent := cfg.Channels.UserAgents[parts[1]]; agent != "" {
-				return agent
-			}
-		}
-		// "cli" session → admin user's agent.
-		if sessionKey == "cli" {
-			adminID := strings.TrimSpace(cfg.Channels.AdminUserID)
-			if adminID != "" {
-				return cfg.Channels.UserAgents[adminID]
-			}
-		}
-		return ""
+		return cfg.Channels.SessionAgents[sessionKey]
 	}
 }
 

@@ -6,7 +6,20 @@ nagobot supports multiple communication channels. By default, `nagobot serve` st
 nagobot serve              # Start all configured channels (default)
 nagobot serve --cli        # Start with CLI channel only
 nagobot serve --telegram   # Start with Telegram bot only
+nagobot serve --discord    # Start with Discord bot only
 nagobot serve --web        # Start Web chat channel only
+```
+
+## Session Agents
+
+Use `sessionAgents` to assign a specific agent to any session. The key is the full session key:
+
+```yaml
+channels:
+  sessionAgents:
+    "telegram:1234567890": "assistant"         # Telegram user → agent
+    "discord:555666777888": "gamemaster"        # Discord channel → agent
+    "cli": "default"                            # CLI session → agent
 ```
 
 ## Telegram
@@ -53,22 +66,7 @@ channels:
 
 The token can also be set via the `DISCORD_BOT_TOKEN` environment variable, which takes precedence over the config file.
 
-### Per-chat agent assignment
-
-Use `userAgents` to assign a specific agent to a Discord text channel:
-
-```yaml
-channels:
-  userAgents:
-    "555666777888": "gamemaster"   # Discord channel ID → agent name
-```
-
-### Launch
-
-```bash
-nagobot serve --discord   # Start with Discord bot only
-nagobot serve             # Start all configured channels
-```
+To assign a game agent to a specific channel, see [Session Agents](#session-agents) above.
 
 ## Web
 

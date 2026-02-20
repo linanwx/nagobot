@@ -112,7 +112,7 @@ type ExecToolsConfig struct {
 // ChannelsConfig contains channel configurations.
 type ChannelsConfig struct {
 	AdminUserID string                 `json:"adminUserID" yaml:"adminUserID"`                   // Cross-channel admin user id
-	UserAgents  map[string]string      `json:"userAgents,omitempty" yaml:"userAgents,omitempty"` // userID → default agent name
+	SessionAgents map[string]string    `json:"sessionAgents,omitempty" yaml:"sessionAgents,omitempty"` // sessionKey or userID → agent name
 	Telegram    *TelegramChannelConfig `json:"telegram" yaml:"telegram"`
 	Feishu      *FeishuChannelConfig   `json:"feishu,omitempty" yaml:"feishu,omitempty"`
 	Discord     *DiscordChannelConfig  `json:"discord,omitempty" yaml:"discord,omitempty"`

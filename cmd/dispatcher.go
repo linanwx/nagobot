@@ -65,7 +65,7 @@ func (d *Dispatcher) dispatch(_ context.Context, ch channel.Channel, msg *channe
 
 	sessionKey := d.route(msg)
 	sink := d.buildSink(ch, msg)
-	agentName, vars := d.resolveAgentName(msg)
+	agentName, vars := d.resolveAgentName(sessionKey, msg)
 	userMessage := d.preprocessMessage(msg)
 	source := d.wakeSource(ch)
 
@@ -208,22 +208,16 @@ func (d *Dispatcher) buildCronSink(msg *channel.Message) thread.Sink {
 }
 
 // resolveAgentName returns the agent name and vars for a message.
+// It checks msg metadata first, then looks up the session key in sessionAgents.
 // Empty name means use the default (soul) agent.
-func (d *Dispatcher) resolveAgentName(msg *channel.Message) (string, map[string]string) {
+func (d *Dispatcher) resolveAgentName(sessionKey string, msg *channel.Message) (string, map[string]string) {
 	if msg == nil {
 		return "", nil
 	}
 
 	agentName := strings.TrimSpace(msg.Metadata["agent"])
 	if agentName == "" && d.cfg.Channels != nil {
-		if msg.UserID != "" {
-			agentName = d.cfg.Channels.UserAgents[msg.UserID]
-		}
-		if agentName == "" {
-			if chatID := strings.TrimSpace(msg.Metadata["chat_id"]); chatID != "" {
-				agentName = d.cfg.Channels.UserAgents[chatID]
-			}
-		}
+		agentName = d.cfg.Channels.SessionAgents[sessionKey]
 	}
 	if agentName == "" {
 		return "", nil
