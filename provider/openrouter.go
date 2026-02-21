@@ -191,22 +191,24 @@ func toOpenAIChatMessages(messages []Message, visionCapable bool) ([]openai.Chat
 			}
 		case "assistant":
 			assistant := openai.ChatCompletionAssistantMessageParam{}
-			if m.Content != "" {
-				assistant.Content.OfString = openai.String(m.Content)
-			} else if len(m.ToolCalls) > 0 {
-				// Some upstream providers (e.g. Moonshot via OpenRouter) reject empty
-				// assistant messages even when tool_calls are present.
-				assistant.Content.OfString = openai.String(formatToolCallSummary(m.ToolCalls))
-			} else {
-				assistant.Content.OfString = openai.String("(empty assistant message)")
+			// Some upstream providers (e.g. Moonshot via OpenRouter) reject empty
+			// assistant messages even when tool_calls are present.
+			// Fallback priority: Content > ReasoningContent > tool call summary.
+			contentStr := strings.TrimSpace(m.Content)
+			if contentStr == "" {
+				contentStr = strings.TrimSpace(m.ReasoningContent)
 			}
+			if contentStr == "" && len(m.ToolCalls) > 0 {
+				contentStr = formatToolCallSummary(m.ToolCalls)
+			}
+			if contentStr == "" {
+				contentStr = "(empty)"
+			}
+			assistant.Content.OfString = openai.String(contentStr)
 			if len(m.ToolCalls) > 0 {
 				reasoningContent := strings.TrimSpace(m.ReasoningContent)
 				if reasoningContent == "" {
-					reasoningContent = strings.TrimSpace(m.Content)
-				}
-				if reasoningContent == "" {
-					reasoningContent = formatToolCallSummary(m.ToolCalls)
+					reasoningContent = contentStr
 				}
 				assistant.SetExtraFields(map[string]any{
 					"reasoning_content": reasoningContent,

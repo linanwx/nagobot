@@ -10,26 +10,28 @@ from .util import (
 
 def cmd_add_player(args):
     """Add a new player.
-    Usage: add-player <name> <character> <background> <STR> <PER> <END> <CHA> <INT> <AGI> <LCK> <skill1> <skill2> <skill3>
+    Usage: add-player <player_id> <name> <character> <background> <STR> <PER> <END> <CHA> <INT> <AGI> <LCK> <skill1> <skill2> <skill3>
+    player_id: Discord username or user ID (for persistent identity tracking)
     """
-    if len(args) < 13:
+    if len(args) < 14:
         return error(
-            "Usage: add-player <name> <character> <background> STR PER END CHA INT AGI LCK skill1 skill2 skill3",
-            hint="Example: add-player Jake 'Vault Dweller' 'Tech Specialist' 4 7 5 4 8 6 6 Science Lockpick 'Small Guns'",
+            "Usage: add-player <player_id> <name> <character> <background> STR PER END CHA INT AGI LCK skill1 skill2 skill3",
+            hint="Example: add-player @Linan Jake 'Vault Dweller' 'Tech Specialist' 4 7 5 4 8 6 6 Science Lockpick 'Small Guns'",
         )
 
     state = require_state()
     if not state:
         return
 
-    name = args[0]
-    character = args[1]
-    background = args[2]
+    player_id = args[0]
+    name = args[1]
+    character = args[2]
+    background = args[3]
 
     # Parse and validate SPECIAL
     special = {}
     for i, attr in enumerate(SPECIAL_ATTRS):
-        val = parse_int(args[3 + i], attr)
+        val = parse_int(args[4 + i], attr)
         if val is None:
             return
         if val < 1 or val > 10:
@@ -45,7 +47,7 @@ def cmd_add_player(args):
 
     # Validate tag skills
     tag_skills = []
-    for raw in args[10:13]:
+    for raw in args[11:14]:
         canonical = validate_skill(raw)
         if not canonical:
             return
@@ -61,6 +63,7 @@ def cmd_add_player(args):
         skills[s] = 2 if s in tag_skills else 0
 
     player = {
+        "player_id": player_id,
         "character": character,
         "background": background,
         "hp": hp,

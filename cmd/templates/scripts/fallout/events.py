@@ -220,7 +220,7 @@ def cmd_help(args):
     commands = {
         "init": "Initialize a new game",
         "status [player]": "View game/player status",
-        "add-player <name> <char> <bg> S P E C I A L skill1 skill2 skill3": "Add player",
+        "add-player <player_id> <name> <char> <bg> S P E C I A L skill1 skill2 skill3": "Add player (player_id = Discord username/ID)",
         "remove-player <name>": "Remove player",
         "roll <NdM>": "Roll dice (e.g. 2d20, 3d6)",
         "check <players> <attr> <skill> <difficulty> [ap_spend]": "Skill check (solo/assisted/group, comma-separated players)",

@@ -38,7 +38,7 @@ python3 scripts/fallout_game.py status <player>         # View player state
 python3 scripts/fallout_game.py turn                    # Advance turn (auto-cycles time of day)
 
 # Player Management
-python3 scripts/fallout_game.py add-player <name> <character> <background> S P E C I A L skill1 skill2 skill3
+python3 scripts/fallout_game.py add-player <player_id> <name> <character> <background> S P E C I A L skill1 skill2 skill3
 python3 scripts/fallout_game.py remove-player <name>
 
 # Dice & Checks
@@ -183,11 +183,11 @@ Use a code block (triple backticks) for the status panel:
 📊 Turn X · Chapter X
 🕐 Time of Day · Weather
 
-👤 CharacterA (PlayerA)
+👤 CharacterA (PlayerA) [@discord_id]
 ❤️ XX/XX · ☢️ XX · 💰 XX · ⚡ XX
 🎒 [key items]
 
-👤 CharacterB (PlayerB)
+👤 CharacterB (PlayerB) [@discord_id]
 ❤️ XX/XX · ☢️ XX · 💰 XX · ⚡ AP
 🎒 [key items]
 
