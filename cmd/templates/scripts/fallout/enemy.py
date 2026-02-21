@@ -114,12 +114,12 @@ def cmd_enemy_add(args):
         return error(f"Enemy tier {tier} exceeds chapter {chapter} max tier {max_tier}",
                       allowed_templates=allowed)
 
-    # Safe turns check (only tier 1 allowed during protection period)
+    # Safe turns check (no enemies allowed during protection period)
     chapter_start = state.get("chapter_start_turn", 0)
     turns_in_chapter = state.get("turn", 0) - chapter_start
-    if tier >= 2 and turns_in_chapter < safe_turns:
-        return error(f"Protection period: only tier 1 enemies allowed for {safe_turns - turns_in_chapter} more turn(s)",
-                      chapter=chapter, turns_in_chapter=turns_in_chapter, safe_turns=safe_turns)
+    if turns_in_chapter < safe_turns:
+        return error(f"Protection period: no enemies allowed for {safe_turns - turns_in_chapter} more turn(s)",
+                      turns_in_chapter=turns_in_chapter, safe_turns=safe_turns)
 
     # Enemy count limit by days into chapter (1 day = 24 turns)
     alive_enemies = [e for e in state.get("enemies", {}).values() if e["status"] == "alive"]

@@ -274,14 +274,14 @@ ENEMY_TEMPLATES = {
 
 # max_tier: highest enemy tier allowed
 # hp_budget: max total alive enemy HP per encounter (base, scales with player count)
-# safe_turns: turns after chapter start where only tier 1 enemies are allowed
+# safe_turns: turns after chapter start where no enemies are allowed
 ENCOUNTER_RULES = {
     1: {"max_tier": 1, "hp_budget": 30,  "safe_turns": 2},
-    2: {"max_tier": 2, "hp_budget": 60,  "safe_turns": 1},
-    3: {"max_tier": 2, "hp_budget": 80,  "safe_turns": 1},
-    4: {"max_tier": 3, "hp_budget": 120, "safe_turns": 0},
-    5: {"max_tier": 4, "hp_budget": 180, "safe_turns": 0},
-    6: {"max_tier": 5, "hp_budget": 250, "safe_turns": 0},
+    2: {"max_tier": 2, "hp_budget": 60,  "safe_turns": 2},
+    3: {"max_tier": 2, "hp_budget": 80,  "safe_turns": 2},
+    4: {"max_tier": 3, "hp_budget": 120, "safe_turns": 2},
+    5: {"max_tier": 4, "hp_budget": 180, "safe_turns": 2},
+    6: {"max_tier": 5, "hp_budget": 250, "safe_turns": 2},
 }
 
 def hp_to_tier(hp):

@@ -1,6 +1,6 @@
 ---
 name: fallout-story
-description: Fallout RPG story outline, chapter guide, and world lore for the GM.
+description: "6-chapter story guide (Vault → Wasteland → Town → Quest → Factions → Open World), faction details, key NPCs, pacing rules, and chapter progression. Load this when starting a new chapter or introducing factions/NPCs."
 tags: [game, fallout, story]
 ---
 # Fallout RPG — Story Guide
@@ -208,3 +208,33 @@ Each generated NPC includes:
 
 Example:
 - **Rust Sledge**: A tall, hunched man with a gold tooth, wearing a grimy merchant's duster. He wants to escape Raider pursuit but needs safe passage. He knows the location of a hidden water source nearby. Speaks bluntly, no wasted words.
+
+---
+
+## Character Creation Presets
+
+Each preset has a recommended SPECIAL distribution (total 40) and 3 tag skills. Players can accept the preset or redistribute points and pick their own tag skills.
+
+**Vault Dweller** — Balanced tech specialist
+STR 4 · PER 7 · END 5 · CHA 4 · INT 8 · AGI 6 · LCK 6
+Tag: Science, Lockpick, Small Guns
+
+**Wasteland Wanderer** — Tough and stealthy survivor
+STR 5 · PER 6 · END 7 · CHA 4 · INT 5 · AGI 7 · LCK 6
+Tag: Survival, Sneak, Melee
+
+**Caravan Guard** — Frontline fighter and trader
+STR 7 · PER 7 · END 6 · CHA 4 · INT 4 · AGI 6 · LCK 6
+Tag: Small Guns, Repair, Barter
+
+**Smooth Talker** — Charismatic negotiator and trader
+STR 4 · PER 6 · END 5 · CHA 8 · INT 6 · AGI 6 · LCK 5
+Tag: Speech, Barter, Medicine
+
+**Field Medic** — Lucky battlefield medic
+STR 4 · PER 6 · END 7 · CHA 4 · INT 7 · AGI 5 · LCK 7
+Tag: Medicine, Science, Survival
+
+**Drifter** — Nimble thief and scavenger
+STR 4 · PER 7 · END 4 · CHA 5 · INT 5 · AGI 8 · LCK 7
+Tag: Lockpick, Sneak, Barter

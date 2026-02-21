@@ -1,6 +1,6 @@
 ---
 name: fallout-rules
-description: Fallout RPG complete rules reference — SPECIAL, skills, checks, combat, radiation, healing, leveling.
+description: "Game mechanics: 2d20 skill checks, damage dice, encounter budget (tier/HP limits per chapter), AP system, radiation penalties, consumables & addiction, status effects, and leveling. Load this when you need rules for checks, combat, or item usage."
 tags: [game, fallout, rules]
 ---
 # Fallout RPG Rules Reference
@@ -174,15 +174,15 @@ The engine enforces encounter constraints per chapter. `enemy-add` will **reject
 | Chapter | Max Tier | HP Budget (base) | Safe Turns |
 |---------|----------|-------------------|------------|
 | 1 | 1 (pests) | 30 | 2 |
-| 2 | 2 (humanoids) | 60 | 1 |
-| 3 | 2 | 80 | 1 |
-| 4 | 3 (mutants) | 120 | 0 |
-| 5 | 4 (late game) | 180 | 0 |
-| 6+ | 5 (boss) | 250 | 0 |
+| 2 | 2 (humanoids) | 60 | 2 |
+| 3 | 2 | 80 | 2 |
+| 4 | 3 (mutants) | 120 | 2 |
+| 5 | 4 (late game) | 180 | 2 |
+| 6+ | 5 (boss) | 250 | 2 |
 
 - **Max Tier**: Highest enemy tier allowed. Tier 1 = pests (Radroach, Mole Rat), Tier 2 = humanoids (Raider, Ghoul), Tier 3 = mutants (Super Mutant, Yao Guai), Tier 4 = late game (Deathclaw, Sentry Bot), Tier 5 = boss (Legendary)
 - **HP Budget**: Max total HP of all alive enemies on the battlefield. Scales with player count: ×1.0 (1p), ×1.5 (2p), ×2.0 (3p)
-- **Safe Turns**: After chapter start, only tier 1 enemies allowed for this many turns
+- **Safe Turns**: After chapter start, no enemies allowed at all for this many turns
 - **Enemy Count Limit**: Chapter day 1: max 1 alive enemy. Day 2: max 2. Day 3+: no count limit (HP budget only). One day = 24 turns (8 time periods × 3 turns)
 
 Damage dice (d6):
@@ -347,3 +347,67 @@ exec: python3 scripts/fallout_game.py rest [hours]
 ```
 
 All players heal 5 HP/hour (capped at max HP). Clears all temporary status effects. Does NOT clear permanent effects (addiction).
+
+---
+
+## Full Command Reference
+
+```
+# Game Management
+init                                    # Initialize new game
+status [player]                         # View full game state or player state
+turn                                    # Advance turn (auto: time, effects, events, weather)
+set <field> <value>                     # Set chapter/location/quest/weather etc.
+
+# Player Management
+add-player <id> <name> <char> <bg> S P E C I A L skill1 skill2 skill3
+remove-player <name>
+
+# Dice & Checks
+check <players> <attr> <skill> <diff> [ap]  # Skill check (comma-sep for multi-player)
+roll <NdM>                              # Generic dice
+damage <player> <weapon> [ap]           # Combat damage (auto weapon lookup)
+initiative                              # Turn order (players + enemies)
+
+# Enemy Tracking
+enemy-add <template>                    # From template library
+enemy-add <name> <template>             # Named instance from template
+enemy-add <name> <hp> <dmg> <skill> <drops> [special]  # Custom
+enemy-hurt <name> <amount>              # Negative heals; auto-loot on kill
+enemy-attack <enemy> <target>           # 1d20 + auto-apply damage
+
+# State Modification
+hurt <player> <amount>
+heal <player> <amount>
+rads <player> <amount>
+caps <player> <amount>
+ap <player> <amount>
+inventory <player> add/remove <item>
+use-item <player> <item>                # Consumable (auto effects + addiction check)
+effect <player> add/remove/list <effect> [turns]
+rest [hours]                            # Rest & recover (heals all, clears temp effects)
+skill-up <player> <skill>
+
+# Random Generation
+loot [tier] [count]                     # Random loot
+trade <player> <price> buy/sell         # Price calc with CHA + Barter
+npc-gen [count]                         # Random NPC
+
+# Recovery
+recover                                 # Restore from backup
+```
+
+---
+
+## Chinese Translation Reference
+
+**SPECIAL Attributes:**
+STR 力量 · PER 感知 · END 耐力 · CHA 魅力 · INT 智力 · AGI 敏捷 · LCK 运气
+
+**Skills:**
+Small Guns 枪械 · Melee 近战 · Sneak 潜行 · Lockpick 开锁 · Science 科学 · Medicine 医疗 · Repair 修理 · Speech 口才 · Barter 交易 · Survival 生存
+
+**Common Terms:**
+HP 血量 · Rads 辐射 · Caps 瓶盖 · AP 行动点 · Tag Skill 专精技能 · Check 检定 · Critical 暴击 · Complication 失误
+Stimpak 治疗针 · Super Stimpak 超级治疗针 · RadAway 消辐宁 · Rad-X 抗辐宁
+Psycho 狂怒药 · Buffout 力量药 · Jet 喷射药 · Mentats 曼他特 · Nuka-Cola 核子可乐
