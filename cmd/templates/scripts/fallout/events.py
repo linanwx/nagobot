@@ -1,4 +1,4 @@
-"""Random generation: events, loot, trade, NPC, weather, help."""
+"""Random generation: events, loot, trade, NPC, weather."""
 
 import random
 from .util import error, ok, output, parse_int, require_state, require_player, save_state, get_effective_special
@@ -184,9 +184,8 @@ def cmd_npc_gen(args):
 
 
 def cmd_weather(args):
-    """Generate weather.
-    Usage: weather [set]
-    If 'set' is provided, also saves to game state.
+    """Generate weather and save to game state.
+    Usage: weather
     """
     total = sum(w["weight"] for w in WEATHER_TABLE)
     roll = random.randint(1, total)
@@ -205,53 +204,12 @@ def cmd_weather(args):
         "effect": chosen["effect"],
     }
 
-    if args and args[0].lower() == "set":
-        state = require_state()
-        if state:
-            state["weather"] = chosen["weather"]
-            save_state(state)
-            result["saved"] = True
+    state = require_state()
+    if state:
+        state["weather"] = chosen["weather"]
+        save_state(state)
+        result["saved"] = True
 
     output(result, indent=True)
 
 
-def cmd_help(args):
-    """Show all available commands as JSON."""
-    commands = {
-        "init": "Initialize a new game",
-        "status [player]": "View game/player status",
-        "add-player <player_id> <name> <char> <bg> S P E C I A L skill1 skill2 skill3": "Add player (player_id = Discord username/ID)",
-        "remove-player <name>": "Remove player",
-        "roll <NdM>": "Roll dice (e.g. 2d20, 3d6)",
-        "check <players> <attr> <skill> <difficulty> [ap_spend]": "Skill check (solo/assisted/group, comma-separated players)",
-        "oracle": "Oracle D6 narrative judgment",
-        "damage <player> <count> [bonus] [ap_spend]": "Combat damage dice",
-        "initiative": "Calculate initiative order",
-        "hurt <player> <amount>": "Deal damage",
-        "heal <player> <amount>": "Heal player",
-        "rads <player> <amount>": "Modify radiation",
-        "caps <player> <amount>": "Modify caps",
-        "ap <player> <amount>": "Modify action points",
-        "inventory <player> add/remove <item> [qty]": "Manage inventory (auto-stack, qty default 1)",
-        "use-item <player> <item>": "Use consumable",
-        "effect <player> add/remove/list <name> [duration]": "Manage status effects",
-        "rest [hours]": "Rest and recover (default 8h)",
-        "set <field> <value>": "Set game state field",
-        "flag add/remove/list [name]": "Manage story flags",
-        "turn": "Advance turn (auto-cycles time, ticks effects)",
-        "log <event>": "Log event",
-        "event [category]": "Random encounter (wasteland/urban/vault/interior/special/atmospheric/quest)",
-        "loot [tier] [count]": "Random loot (junk/common/uncommon/rare/unique)",
-        "trade <player> <price> buy/sell": "Calculate trade price",
-        "skill-up <player> <skill> [amount]": "Increase skill level",
-        "npc-gen [count]": "Generate random NPC",
-        "weather [set]": "Generate weather",
-        "recover": "Restore from backup",
-        "enemy-add <name> <hp> <damage> <attack_skill> <drops> [special]": "Add enemy",
-        "enemy-hurt <name> <amount>": "Damage enemy (negative heals)",
-        "enemy-attack <enemy> <target_player>": "Enemy attacks player (1d20, auto-damage)",
-        "enemy-list": "List all enemies",
-        "enemy-clear [all]": "Remove dead (or all) enemies",
-        "help": "Show this help",
-    }
-    output({"ok": True, "commands": commands}, indent=True)

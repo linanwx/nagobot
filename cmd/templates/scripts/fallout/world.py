@@ -1,4 +1,4 @@
-"""World state management: init, status, set, flag, turn, log."""
+"""World state management: init, status, set, flag, turn."""
 
 import json
 from .util import error, ok, output, parse_int, load_state, save_state, require_state, get_effective_special
@@ -161,7 +161,6 @@ def cmd_turn(args):
             if p and p["hp"] <= 0:
                 deaths.append(exp["player"])
 
-    save_state(state)
     result = {
         "ok": True,
         "turn": state["turn"],
@@ -176,30 +175,20 @@ def cmd_turn(args):
     if active_effects:
         result["active_effects"] = active_effects
 
-    # Report alive enemies
+    # Auto-clear dead enemies
     enemies = state.get("enemies", {})
+    dead = [n for n, e in enemies.items() if e["status"] == "dead"]
+    for n in dead:
+        del enemies[n]
+    if dead:
+        result["enemies_cleared"] = dead
+
+    # Report alive enemies
     alive = [{"name": n, "hp": f"{e['hp']}/{e['max_hp']}"} for n, e in enemies.items() if e["status"] == "alive"]
     if alive:
         result["enemies_alive"] = alive
 
+    save_state(state)
     output(result, indent=True)
 
 
-def cmd_log(args):
-    """Add an event to the log. Usage: log <event description>"""
-    if not args:
-        return error("Usage: log <event description>")
-
-    state = require_state()
-    if not state:
-        return
-
-    event = " ".join(args)
-    state.setdefault("event_log", []).append({
-        "turn": state.get("turn", 0),
-        "event": event,
-    })
-    # Keep only last 50 events
-    state["event_log"] = state["event_log"][-50:]
-    save_state(state)
-    ok(f"Logged: {event}")

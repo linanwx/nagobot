@@ -1,4 +1,4 @@
-"""Dice mechanics: rolls, skill checks, oracle, damage, initiative."""
+"""Dice mechanics: rolls, skill checks, damage, initiative."""
 
 import random
 from .util import (
@@ -353,20 +353,6 @@ def cmd_check(args):
 
     save_state(state)
     output(result, indent=True)
-
-
-def cmd_oracle(args):
-    """Oracle D6 for narrative judgment."""
-    result = random.randint(1, 6)
-    meanings = {
-        1: "No, and things get worse",
-        2: "No",
-        3: "No, but there's a silver lining",
-        4: "Yes, but at a cost",
-        5: "Yes",
-        6: "Yes, and something extra",
-    }
-    output({"ok": True, "oracle_d6": result, "meaning": meanings[result]})
 
 
 # ---------------------------------------------------------------------------

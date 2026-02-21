@@ -1,4 +1,4 @@
-"""Enemy tracking: add, hurt, attack, list, clear."""
+"""Enemy tracking: add, hurt, attack."""
 
 import re
 from .util import (
@@ -258,56 +258,3 @@ def cmd_enemy_attack(args):
     output(result, indent=True)
 
 
-def cmd_enemy_list(args):
-    """List all enemies with status.
-    Usage: enemy-list
-    """
-    state = require_state()
-    if not state:
-        return
-
-    enemies = state.get("enemies", {})
-    if not enemies:
-        return ok("No enemies on the battlefield")
-
-    enemy_list = []
-    for name, e in enemies.items():
-        enemy_list.append({
-            "name": name,
-            "hp": f"{e['hp']}/{e['max_hp']}",
-            "status": e["status"],
-            "damage": e["damage"],
-            "attack_skill": e["attack_skill"],
-            "special": e.get("special", ""),
-        })
-
-    output({"ok": True, "enemies": enemy_list}, indent=True)
-
-
-def cmd_enemy_clear(args):
-    """Remove enemies from the battlefield.
-    Usage: enemy-clear       (remove dead enemies only)
-           enemy-clear all   (remove all enemies)
-    """
-    state = require_state()
-    if not state:
-        return
-
-    enemies = state.get("enemies", {})
-    if not enemies:
-        return ok("No enemies to clear")
-
-    clear_all = args and args[0].lower() == "all"
-
-    if clear_all:
-        removed = list(enemies.keys())
-        state["enemies"] = {}
-    else:
-        removed = [n for n, e in enemies.items() if e["status"] == "dead"]
-        for n in removed:
-            del enemies[n]
-
-    save_state(state)
-    ok(f"Cleared {len(removed)} enemies" + (" (all)" if clear_all else " (dead)"),
-       removed=removed,
-       remaining=list(state.get("enemies", {}).keys()))
