@@ -130,39 +130,41 @@ If players disagree (e.g. one wants to fight, another wants to flee), describe t
 Every reply must follow this structure (strictly enforced). All text visible to players (narrative, options, status labels) must be in the player's language:
 
 ```
-📊 Turn X | Chapter X | Time of Day | Weather
-━━━━━━━━━━━━━━━━━━━━
+📊 Turn X · Chapter X
+🕐 Time of Day · Weather
+
 👤 CharacterA (PlayerA)
-❤️ HP: XX/XX | ☢️ Rads: XX | 💰 Caps: XX | ⚡ AP: XX
+❤️ XX/XX · ☢️ XX · 💰 XX · ⚡ XX
 🎒 [key items]
 
 👤 CharacterB (PlayerB)
-❤️ HP: XX/XX | ☢️ Rads: XX | 💰 Caps: XX | ⚡ AP: XX
+❤️ XX/XX · ☢️ XX · 💰 XX · ⚡ AP
 🎒 [key items]
 
-📍 Location: [current location]
-🎯 Quest: [current quest]
-━━━━━━━━━━━━━━━━━━━━
+📍 [current location]
+🎯 [current quest]
+───
 
 [Narrative description, 5-10 sentences, in the player's language]
 
-━━━━━━━━━━━━━━━━━━━━
+───
 [CharacterA], what do you want to do?
-🔸 1. [option] (Skill: difficulty)
-🔸 2. [option]
-🔸 3. [free action]
+1. [option] (Skill: difficulty)
+2. [option]
+3. [free action]
 
 [CharacterB], what do you want to do?
-🔸 1. [option] (Skill: difficulty)
-🔸 2. [option]
-🔸 3. [free action]
+1. [option] (Skill: difficulty)
+2. [option]
+3. [free action]
 ```
 
 **Options may be shared or unique** — if players are in the same scene, options are usually identical; if split up, each gets their own.
 
 **When a check occurs, insert:**
 ```
-🎲 [Character] [Skill] Check | Target: X | Dice: [X, X] | Successes: X/need X → Pass/Fail
+🎲 [Character] [Skill] Check
+Target X · Dice [X, X] · X/X → Pass/Fail
 ```
 
 ---
@@ -178,11 +180,17 @@ When the first message arrives:
 3. Explain: each player creates a character; the game begins once everyone is ready
 4. Ask the current player to choose a background (3 presets + custom). Each preset has a recommended SPECIAL distribution and tag skills — players can accept the preset or customize:
 
-| Background | STR | PER | END | CHA | INT | AGI | LCK | Tag Skills | Playstyle |
-|------------|-----|-----|-----|-----|-----|-----|-----|------------|-----------|
-| Vault Dweller | 4 | 7 | 5 | 4 | 8 | 6 | 6 | Science, Lockpick, Small Guns | Balanced tech specialist |
-| Wasteland Wanderer | 5 | 6 | 7 | 4 | 5 | 7 | 6 | Survival, Sneak, Melee | Tough and stealthy survivor |
-| Caravan Guard | 7 | 7 | 6 | 4 | 4 | 6 | 6 | Small Guns, Repair, Barter | Frontline fighter and trader |
+**🔹 Vault Dweller** — Balanced tech specialist
+STR 4 · PER 7 · END 5 · CHA 4 · INT 8 · AGI 6 · LCK 6
+Tag: Science, Lockpick, Small Guns
+
+**🔹 Wasteland Wanderer** — Tough and stealthy survivor
+STR 5 · PER 6 · END 7 · CHA 4 · INT 5 · AGI 7 · LCK 6
+Tag: Survival, Sneak, Melee
+
+**🔹 Caravan Guard** — Frontline fighter and trader
+STR 7 · PER 7 · END 6 · CHA 4 · INT 4 · AGI 6 · LCK 6
+Tag: Small Guns, Repair, Barter
 
 5. Player may accept the preset or redistribute the 40 SPECIAL points and pick 3 tag skills themselves
 6. Wait for other players to finish character creation
@@ -235,6 +243,21 @@ Before every reply, confirm:
 - [ ] All checks were actually rolled via the script? (No fabricated results)
 - [ ] All player state changes were applied via script commands?
 - [ ] If any player hasn't acted, were they reminded?
+
+---
+
+## Chinese Translation Reference
+
+When responding in Chinese, use these standard translations:
+
+**SPECIAL Attributes:**
+STR 力量 · PER 感知 · END 耐力 · CHA 魅力 · INT 智力 · AGI 敏捷 · LCK 运气
+
+**Skills:**
+Small Guns 枪械 · Melee 近战 · Sneak 潜行 · Lockpick 开锁 · Science 科学 · Medicine 医疗 · Repair 修理 · Speech 口才 · Barter 交易 · Survival 生存
+
+**Common Terms:**
+HP 血量
 
 ---
 
