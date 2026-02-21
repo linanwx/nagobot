@@ -282,19 +282,19 @@ WEAPONS = {
     "Super Sledge":     {"dice": 4, "type": "melee", "special": "Knockdown on effect"},
     "Power Fist":       {"dice": 3, "type": "melee", "special": "Stun on effect"},
     "Ripper":           {"dice": 3, "type": "melee", "special": "Bleed on effect"},
-    # Ranged weapons
-    "Pipe Pistol":      {"dice": 2, "type": "ranged", "special": ""},
-    "10mm Pistol":      {"dice": 3, "type": "ranged", "special": "Pierce on effect"},
-    ".44 Magnum":       {"dice": 4, "type": "ranged", "special": "Knockdown on effect"},
-    "Hunting Rifle":    {"dice": 4, "type": "ranged", "special": "Knockdown on effect"},
-    "Combat Rifle":     {"dice": 4, "type": "ranged", "special": ""},
-    "Combat Shotgun":   {"dice": 4, "type": "ranged", "special": "Spread (close: +1d)"},
-    "Laser Pistol":     {"dice": 3, "type": "ranged", "special": "Burn on effect"},
-    "Laser Rifle":      {"dice": 4, "type": "ranged", "special": "Burn on effect"},
-    "Plasma Rifle":     {"dice": 5, "type": "ranged", "special": "Burn on effect"},
-    "Minigun":          {"dice": 5, "type": "ranged", "special": "Suppression on effect"},
-    "Missile Launcher": {"dice": 6, "type": "ranged", "special": "Knockdown + AoE"},
-    "Fat Man":          {"dice": 8, "type": "ranged", "special": "AoE + Radiation"},
+    # Ranged weapons (ammo = ammo item name consumed per shot)
+    "Pipe Pistol":      {"dice": 2, "type": "ranged", "special": "",                      "ammo": ".38 Rounds"},
+    "10mm Pistol":      {"dice": 3, "type": "ranged", "special": "Pierce on effect",      "ammo": "10mm Ammo"},
+    ".44 Magnum":       {"dice": 4, "type": "ranged", "special": "Knockdown on effect",   "ammo": ".44 Ammo"},
+    "Hunting Rifle":    {"dice": 4, "type": "ranged", "special": "Knockdown on effect",   "ammo": ".308 Ammo"},
+    "Combat Rifle":     {"dice": 4, "type": "ranged", "special": "",                      "ammo": "5.56mm Ammo"},
+    "Combat Shotgun":   {"dice": 4, "type": "ranged", "special": "Spread (close: +1d)",   "ammo": "Shotgun Shells"},
+    "Laser Pistol":     {"dice": 3, "type": "ranged", "special": "Burn on effect",        "ammo": "Fusion Cell"},
+    "Laser Rifle":      {"dice": 4, "type": "ranged", "special": "Burn on effect",        "ammo": "Fusion Cell"},
+    "Plasma Rifle":     {"dice": 5, "type": "ranged", "special": "Burn on effect",        "ammo": "Plasma Cartridge"},
+    "Minigun":          {"dice": 5, "type": "ranged", "special": "Suppression on effect", "ammo": "5mm Ammo"},
+    "Missile Launcher": {"dice": 6, "type": "ranged", "special": "Knockdown + AoE",       "ammo": "Missile"},
+    "Fat Man":          {"dice": 8, "type": "ranged", "special": "AoE + Radiation",       "ammo": "Mini Nuke"},
 }
 
 # ---------------------------------------------------------------------------

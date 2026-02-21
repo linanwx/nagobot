@@ -232,7 +232,7 @@ def cmd_help(args):
         "rads <player> <amount>": "Modify radiation",
         "caps <player> <amount>": "Modify caps",
         "ap <player> <amount>": "Modify action points",
-        "inventory <player> add/remove <item>": "Manage inventory",
+        "inventory <player> add/remove <item> [qty]": "Manage inventory (auto-stack, qty default 1)",
         "use-item <player> <item>": "Use consumable",
         "effect <player> add/remove/list <name> [duration]": "Manage status effects",
         "rest [hours]": "Rest and recover (default 8h)",

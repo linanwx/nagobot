@@ -72,7 +72,7 @@ def cmd_add_player(args):
         "special": special,
         "tag_skills": tag_skills,
         "skills": skills,
-        "inventory": ["10mm Pistol", "10mm Ammo x24", "Stimpak", "Stimpak", "Purified Water", "Purified Water", "Purified Water"],
+        "inventory": {"10mm Pistol": 1, "10mm Ammo": 24, "Stimpak": 2, "Purified Water": 3},
         "status_effects": [],
         "kills": 0,
         "quests_completed": 0,
@@ -276,10 +276,13 @@ def cmd_ap(args):
 
 
 def cmd_inventory(args):
-    """Manage inventory. Usage: inventory <player> add/remove <item>"""
+    """Manage inventory (dict-based: {item: qty}).
+    Usage: inventory <player> add/remove <item> [qty]
+    Qty defaults to 1. Also parses 'Item xN' suffix.
+    """
     if len(args) < 3:
-        return error("Usage: inventory <player> add/remove <item>",
-                      hint="Example: inventory Jake add Stimpak")
+        return error("Usage: inventory <player> add/remove <item> [qty]",
+                      hint="Example: inventory Jake add Stimpak 2")
 
     state = require_state()
     if not state:
@@ -287,27 +290,51 @@ def cmd_inventory(args):
 
     name = args[0]
     action = args[1].lower()
-    item = " ".join(args[2:])
 
     player = require_player(state, name)
     if not player:
         return
 
+    inv = player.setdefault("inventory", {})
+
+    # Parse item name and optional qty (last arg may be integer)
+    item_args = args[2:]
+    qty = 1
+    if len(item_args) > 1:
+        try:
+            maybe_qty = int(item_args[-1])
+            if maybe_qty > 0:
+                qty = maybe_qty
+                item_args = item_args[:-1]
+        except ValueError:
+            pass
+    item = " ".join(item_args)
+
+    # Also handle "Item xN" suffix in item name
+    import re
+    match = re.match(r'^(.+?)\s+x(\d+)$', item)
+    if match:
+        item = match.group(1)
+        qty *= int(match.group(2))
+
     if action == "add":
-        player.setdefault("inventory", []).append(item)
+        inv[item] = inv.get(item, 0) + qty
         save_state(state)
-        ok(f"Added {item}", player=name, item=item, inventory=player["inventory"])
+        ok(f"Added {item} x{qty}", player=name, item=item, qty=inv[item], inventory=inv)
     elif action == "remove":
-        inv = player.get("inventory", [])
-        if item in inv:
-            inv.remove(item)
+        current = inv.get(item, 0)
+        if current <= 0:
+            error(f"Player {name} does not have item: {item}", inventory=inv)
+        elif qty >= current:
+            del inv[item]
             save_state(state)
-            ok(f"Removed {item}", player=name, item=item, inventory=player["inventory"])
+            ok(f"Removed {item} x{current}", player=name, item=item, qty=0, inventory=inv)
         else:
-            error(f"Player {name} does not have item: {item}",
-                  inventory=player.get("inventory", []))
+            inv[item] = current - qty
+            save_state(state)
+            ok(f"Removed {item} x{qty}", player=name, item=item, qty=inv[item], inventory=inv)
     else:
-        error("Action must be 'add' or 'remove'", hint="Usage: inventory <player> add/remove <item>")
+        error("Action must be 'add' or 'remove'", hint="Usage: inventory <player> add/remove <item> [qty]")
 
 
 def cmd_skill_up(args):

@@ -25,9 +25,10 @@ def cmd_use_item(args):
     if not player:
         return
 
-    if item not in player.get("inventory", []):
+    inv = player.setdefault("inventory", {})
+    if inv.get(item, 0) <= 0:
         return error(f"Player {name} does not have item: {item}",
-                      inventory=player.get("inventory", []))
+                      inventory=inv)
 
     chem = CHEM_EFFECTS.get(item)
     if not chem:
@@ -35,7 +36,9 @@ def cmd_use_item(args):
                       known_consumables=list(CHEM_EFFECTS.keys()))
 
     # Remove from inventory
-    player["inventory"].remove(item)
+    inv[item] -= 1
+    if inv[item] <= 0:
+        del inv[item]
 
     results = {"ok": True, "player": name, "item": item, "effects": []}
 

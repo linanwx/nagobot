@@ -174,18 +174,12 @@ def _evaluate_check(state, player_names, attr, skill_name, difficulty, ap_dice=0
             "counted": leader_contributed,
         })
 
-    # --- Luck check for leader (2d20 vs effective LCK, difficulty 2) ---
+    # --- Luck check for leader (d100 ≤ LCK, i.e. LCK% chance) ---
     leader_player = state["players"][leader["name"]]
     effective_leader, _ = get_effective_special(leader_player)
     luck_val = effective_leader.get("LCK", 5)
-    luck_dice = roll_dice(2, 20)
-    luck_successes = 0
-    luck_details = []
-    for d in luck_dice:
-        s, crit, comp, detail = _evaluate_die(d, luck_val, False, 0)
-        luck_successes += s
-        luck_details.append(detail)
-    luck_triggered = luck_successes >= 2
+    luck_roll = random.randint(1, 100)
+    luck_triggered = luck_roll <= luck_val
 
     passed = total_successes >= difficulty
     excess_ap = max(0, total_successes - difficulty) if passed else 0
@@ -244,11 +238,9 @@ def _evaluate_check(state, player_names, attr, skill_name, difficulty, ap_dice=0
     # Luck check result (always included for transparency)
     result["luck_check"] = {
         "roller": leader["name"],
-        "target": luck_val,
-        "dice": luck_dice,
-        "details": luck_details,
-        "successes": luck_successes,
-        "needed": 2,
+        "LCK": luck_val,
+        "d100": luck_roll,
+        "threshold": f"≤{luck_val} ({luck_val}%)",
         "triggered": luck_triggered,
     }
     if luck_triggered:
@@ -346,6 +338,19 @@ def cmd_check(args):
     result["ap_after"] = leader_player["ap"]
     result["ap_change"] = leader_player["ap"] - original_ap
 
+    # Player info summaries
+    player_info = {}
+    for pname in player_names:
+        p = state["players"][pname]
+        player_info[pname] = {
+            "character": p.get("character", pname),
+            "hp": f"{p['hp']}/{p['max_hp']}",
+            "ap": p.get("ap", 0),
+            "rads": p.get("rads", 0),
+            "tag_skills": p.get("tag_skills", []),
+        }
+    result["player_info"] = player_info
+
     save_state(state)
     output(result, indent=True)
 
@@ -425,6 +430,24 @@ def cmd_damage(args):
     if ap_spend < 0 or ap_spend > 3:
         return error("AP spend must be 0-3", hint="Each AP adds 1d6")
 
+    # Ammo consumption for ranged weapons
+    ammo_consumed = None
+    if not is_melee and weapon.get("ammo"):
+        ammo_type = weapon["ammo"]
+        inv = player.setdefault("inventory", {})
+        ammo_count = inv.get(ammo_type, 0)
+        if ammo_count <= 0:
+            return error(f"{player_name} has no {ammo_type}!", inventory=inv)
+        inv[ammo_type] -= 1
+        if inv[ammo_type] <= 0:
+            del inv[ammo_type]
+        ammo_consumed = {
+            "player": player_name,
+            "ammo_type": ammo_type,
+            "ammo_before": ammo_count,
+            "ammo_after": inv.get(ammo_type, 0),
+        }
+
     # Validate and deduct AP
     original_ap = player.get("ap", 0)
     if ap_spend > 0:
@@ -503,12 +526,15 @@ def cmd_damage(args):
             result["str_bonus"] = str_bonus
             result["str_message"] = f"Powerful strike! +{str_bonus} melee damage from STR."
 
+    if ammo_consumed:
+        result["ammo_consumed"] = ammo_consumed
+
     if ap_spend > 0:
         result["ap_spent"] = ap_spend
         result["ap_before"] = original_ap
         result["ap_after"] = player["ap"]
 
-    if ap_spend > 0 or str_bonus > 0:
+    if ap_spend > 0 or str_bonus > 0 or ammo_consumed:
         save_state(state)
 
     output(result, indent=True)

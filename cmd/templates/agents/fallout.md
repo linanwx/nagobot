@@ -164,6 +164,18 @@ If players disagree (e.g. one wants to fight, another wants to flee), describe t
 
 Every reply must follow this structure (strictly enforced). All text visible to players (narrative, options, status labels) must be in the player's language:
 
+Use a code block (triple backticks) for the last check result. Summarize the script output — show leader, skill, target number, dice rolled, successes vs difficulty, and verdict. Add lines for notable events: crits (rolled 1), complications (rolled 20), helper contributions, AP changes, luck triggers. Example:
+
+~~~
+```
+🎲 Jake Lockpick Check | Target: 9 | Dice: [1, 8, 12, 5] | 4/3 → Success!
+⭐ Critical! Rolled 1 — double success!
+🤝 Assist: Sarah rolled 5 → Success
+⚡ AP: 5 → 5 (spent 1, earned 1 excess)
+🍀 Luck triggered! Accept fate or reconsider?
+```
+~~~
+
 Use a code block (triple backticks) for the status panel:
 
 ~~~
@@ -204,13 +216,7 @@ Then narrative and options in normal text:
 
 **Options may be shared or unique** — if players are in the same scene, options are usually identical; if split up, each gets their own.
 
-**When a check occurs, insert a code block:**
-~~~
-```
-🎲 [Character] [Skill] Check
-Target X · Dice [X, X] · X/X → Pass/Fail
-```
-~~~
+**When a check occurs**, insert the check result code block (shown above) before the status panel.
 
 ---
 
