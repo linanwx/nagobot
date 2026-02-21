@@ -37,6 +37,7 @@ type plainCLIChannel struct {
 	msgID        int64
 	mu           sync.Mutex
 	waitingResp  bool
+	stopOnce     sync.Once
 }
 
 func newPlainCLIChannel() *plainCLIChannel {
@@ -62,26 +63,24 @@ func (c *plainCLIChannel) Start(ctx context.Context) error {
 }
 
 func (c *plainCLIChannel) Stop() error {
-	select {
-	case <-c.done:
-	default:
+	c.stopOnce.Do(func() {
 		close(c.done)
-	}
 
-	waitDone := make(chan struct{})
-	go func() {
-		c.wg.Wait()
-		close(waitDone)
-	}()
+		waitDone := make(chan struct{})
+		go func() {
+			c.wg.Wait()
+			close(waitDone)
+		}()
 
-	select {
-	case <-waitDone:
-		close(c.messages)
-	case <-time.After(cliStopWaitTimeout):
-		logger.Warn("cli channel stop timed out waiting for input loop")
-	}
+		select {
+		case <-waitDone:
+			close(c.messages)
+		case <-time.After(cliStopWaitTimeout):
+			logger.Warn("cli channel stop timed out waiting for input loop")
+		}
 
-	logger.Info("cli channel stopped")
+		logger.Info("cli channel stopped")
+	})
 	return nil
 }
 

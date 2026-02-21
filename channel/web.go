@@ -42,10 +42,11 @@ type WebChannel struct {
 	wg        sync.WaitGroup
 	server    *http.Server
 
-	mu      sync.RWMutex
-	clients map[string]*wsClient
-	peers   map[*wsClient]struct{}
-	msgID   int64
+	mu       sync.RWMutex
+	clients  map[string]*wsClient
+	peers    map[*wsClient]struct{}
+	msgID    int64
+	stopOnce sync.Once
 }
 
 type wsClient struct {
@@ -128,36 +129,34 @@ func (w *WebChannel) Start(ctx context.Context) error {
 
 // Stop gracefully stops the channel.
 func (w *WebChannel) Stop() error {
-	select {
-	case <-w.done:
-	default:
+	w.stopOnce.Do(func() {
 		close(w.done)
-	}
 
-	w.mu.Lock()
-	clients := make([]*wsClient, 0, len(w.peers))
-	for client := range w.peers {
-		clients = append(clients, client)
-	}
-	w.clients = make(map[string]*wsClient)
-	w.peers = make(map[*wsClient]struct{})
-	w.mu.Unlock()
-
-	for _, client := range clients {
-		_ = client.conn.Close(websocket.StatusNormalClosure, "shutdown")
-	}
-
-	if w.server != nil {
-		shutdownCtx, cancel := context.WithTimeout(context.Background(), webShutdownTimeout)
-		defer cancel()
-		if err := w.server.Shutdown(shutdownCtx); err != nil && !errors.Is(err, http.ErrServerClosed) {
-			logger.Warn("web channel shutdown error", "err", err)
+		w.mu.Lock()
+		clients := make([]*wsClient, 0, len(w.peers))
+		for client := range w.peers {
+			clients = append(clients, client)
 		}
-	}
+		w.clients = make(map[string]*wsClient)
+		w.peers = make(map[*wsClient]struct{})
+		w.mu.Unlock()
 
-	w.wg.Wait()
-	close(w.messages)
-	logger.Info("web channel stopped")
+		for _, client := range clients {
+			_ = client.conn.Close(websocket.StatusNormalClosure, "shutdown")
+		}
+
+		if w.server != nil {
+			shutdownCtx, cancel := context.WithTimeout(context.Background(), webShutdownTimeout)
+			defer cancel()
+			if err := w.server.Shutdown(shutdownCtx); err != nil && !errors.Is(err, http.ErrServerClosed) {
+				logger.Warn("web channel shutdown error", "err", err)
+			}
+		}
+
+		w.wg.Wait()
+		close(w.messages)
+		logger.Info("web channel stopped")
+	})
 	return nil
 }
 

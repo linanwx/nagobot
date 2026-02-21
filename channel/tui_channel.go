@@ -24,6 +24,7 @@ type TUIChannel struct {
 	done     chan struct{}
 	wg       sync.WaitGroup
 	msgID    atomic.Int64
+	stopOnce sync.Once
 }
 
 func newTUIChannel() *TUIChannel {
@@ -99,18 +100,16 @@ func (c *TUIChannel) Start(ctx context.Context) error {
 }
 
 func (c *TUIChannel) Stop() error {
-	select {
-	case <-c.done:
-	default:
+	c.stopOnce.Do(func() {
 		close(c.done)
-	}
-	if c.program != nil {
-		c.program.Quit()
-	}
-	c.wg.Wait()
-	logger.Restore()
-	close(c.messages)
-	logger.Info("cli channel stopped")
+		if c.program != nil {
+			c.program.Quit()
+		}
+		c.wg.Wait()
+		logger.Restore()
+		close(c.messages)
+		logger.Info("cli channel stopped")
+	})
 	return nil
 }
 

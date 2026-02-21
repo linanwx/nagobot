@@ -38,8 +38,9 @@ type FeishuChannel struct {
 	encryptedKey      []byte // precomputed from encryptKey
 
 	// Event dedup: Feishu retries delivery, so we track seen event IDs.
-	seenMu sync.Mutex
-	seen   map[string]time.Time
+	seenMu   sync.Mutex
+	seen     map[string]time.Time
+	stopOnce sync.Once
 }
 
 // NewFeishuChannel creates a new Feishu channel from config.
@@ -133,20 +134,22 @@ func (f *FeishuChannel) Start(ctx context.Context) error {
 
 // Stop gracefully shuts down the channel.
 func (f *FeishuChannel) Stop() error {
-	close(f.done)
-	if f.bot != nil {
-		f.bot.StopHeartbeat()
-	}
-	if f.server != nil {
-		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-		defer cancel()
-		if err := f.server.Shutdown(ctx); err != nil {
-			logger.Error("feishu webhook shutdown error", "err", err)
+	f.stopOnce.Do(func() {
+		close(f.done)
+		if f.bot != nil {
+			f.bot.StopHeartbeat()
 		}
-	}
-	f.wg.Wait()
-	close(f.messages)
-	logger.Info("feishu channel stopped")
+		if f.server != nil {
+			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+			defer cancel()
+			if err := f.server.Shutdown(ctx); err != nil {
+				logger.Error("feishu webhook shutdown error", "err", err)
+			}
+		}
+		f.wg.Wait()
+		close(f.messages)
+		logger.Info("feishu channel stopped")
+	})
 	return nil
 }
 

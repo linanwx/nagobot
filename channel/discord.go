@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"strings"
+	"sync"
 
 	"github.com/bwmarrin/discordgo"
 	"github.com/linanwx/nagobot/config"
@@ -22,6 +23,7 @@ type DiscordChannel struct {
 	allowedUsers  map[string]bool // user ID allowlist, empty = allow all
 	session       *discordgo.Session
 	messages      chan *Message
+	stopOnce      sync.Once
 }
 
 // NewDiscordChannel creates a new Discord channel from config.
@@ -80,12 +82,14 @@ func (d *DiscordChannel) Start(ctx context.Context) error {
 }
 
 func (d *DiscordChannel) Stop() error {
-	if d.session != nil {
-		_ = d.session.Close()
-		d.session = nil
-	}
-	close(d.messages)
-	logger.Info("discord channel stopped")
+	d.stopOnce.Do(func() {
+		if d.session != nil {
+			_ = d.session.Close()
+			d.session = nil
+		}
+		close(d.messages)
+		logger.Info("discord channel stopped")
+	})
 	return nil
 }
 

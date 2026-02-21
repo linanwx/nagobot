@@ -11,6 +11,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/go-telegram/bot"
@@ -35,6 +36,7 @@ type TelegramChannel struct {
 	b         *bot.Bot
 	cancel    context.CancelFunc
 	startDone chan struct{}
+	stopOnce  sync.Once
 }
 
 // NewTelegramChannel creates a new Telegram channel from config.
@@ -109,12 +111,14 @@ func (t *TelegramChannel) Start(ctx context.Context) error {
 
 // Stop gracefully shuts down the channel.
 func (t *TelegramChannel) Stop() error {
-	if t.cancel != nil {
-		t.cancel()
-		<-t.startDone
-	}
-	close(t.messages)
-	logger.Info("telegram channel stopped")
+	t.stopOnce.Do(func() {
+		if t.cancel != nil {
+			t.cancel()
+			<-t.startDone
+		}
+		close(t.messages)
+		logger.Info("telegram channel stopped")
+	})
 	return nil
 }
 
