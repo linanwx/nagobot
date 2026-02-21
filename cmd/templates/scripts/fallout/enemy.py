@@ -8,44 +8,88 @@ from .util import (
 )
 
 
+def _find_template(name):
+    """Case-insensitive template lookup."""
+    from .data import ENEMY_TEMPLATES
+    for tname, tdata in ENEMY_TEMPLATES.items():
+        if tname.lower() == name.lower():
+            return tname, tdata
+    return None, None
+
+
 def cmd_enemy_add(args):
     """Add an enemy to the battlefield.
-    Usage: enemy-add <name> <hp> <damage_dice> <attack_skill> <drops> [special]
-    Example: enemy-add "Raider 1" 25 3d6 10 common "Negotiable"
+    Usage:
+      enemy-add <template>                    # e.g. enemy-add Raider
+      enemy-add <name> <template>             # e.g. enemy-add "Raider 1" Raider
+      enemy-add <name> <hp> <damage> <skill> <drops> [special]  # full custom
     """
-    if len(args) < 5:
-        return error(
-            "Usage: enemy-add <name> <hp> <damage_dice> <attack_skill> <drops> [special]",
-            hint='Example: enemy-add "Raider 1" 25 3d6 10 common',
-        )
+    if not args:
+        from .data import ENEMY_TEMPLATES
+        return error("Usage: enemy-add <template> | enemy-add <name> <template> | enemy-add <name> <hp> <damage> <skill> <drops>",
+                      templates=list(ENEMY_TEMPLATES.keys()))
 
     state = require_state()
     if not state:
         return
 
-    name = args[0]
-    hp = parse_int(args[1], "hp")
-    if hp is None:
-        return
-    if hp < 1:
-        return error("HP must be positive")
+    # Mode detection by arg count
+    if len(args) == 1:
+        # Template mode: enemy-add Raider
+        tname, template = _find_template(args[0])
+        if not template:
+            from .data import ENEMY_TEMPLATES
+            return error(f"Unknown template: {args[0]}", templates=list(ENEMY_TEMPLATES.keys()))
+        name = tname
+        hp = template["hp"]
+        damage_expr = template["damage"]
+        attack_skill = template["attack_skill"]
+        drops = template["drops"]
+        special = template["special"]
 
-    damage_expr = args[2].lower()
-    if not re.match(r"^\d+d\d+$", damage_expr):
-        return error(f"Invalid damage dice: {damage_expr}", hint="Format: NdM, e.g. 3d6")
+    elif len(args) == 2:
+        # Named template: enemy-add "Raider 1" Raider
+        tname, template = _find_template(args[1])
+        if template:
+            name = args[0]
+            hp = template["hp"]
+            damage_expr = template["damage"]
+            attack_skill = template["attack_skill"]
+            drops = template["drops"]
+            special = template["special"]
+        else:
+            from .data import ENEMY_TEMPLATES
+            return error(f"Unknown template: {args[1]}", templates=list(ENEMY_TEMPLATES.keys()))
 
-    attack_skill = parse_int(args[3], "attack_skill")
-    if attack_skill is None:
-        return
-    if attack_skill < 1 or attack_skill > 20:
-        return error(f"Attack skill must be 1-20, got {attack_skill}")
+    elif len(args) >= 5:
+        # Full custom: enemy-add "Boss" 50 4d6 14 rare "special"
+        name = args[0]
+        hp = parse_int(args[1], "hp")
+        if hp is None:
+            return
+        if hp < 1:
+            return error("HP must be positive")
 
-    drops = args[4].lower()
-    valid_drops = ["junk", "common", "uncommon", "rare", "unique", "none"]
-    if drops not in valid_drops:
-        return error(f"Invalid drops tier: {drops}", valid_tiers=valid_drops)
+        damage_expr = args[2].lower()
+        if not re.match(r"^\d+d\d+$", damage_expr):
+            return error(f"Invalid damage dice: {damage_expr}", hint="Format: NdM, e.g. 3d6")
 
-    special = " ".join(args[5:]) if len(args) > 5 else ""
+        attack_skill = parse_int(args[3], "attack_skill")
+        if attack_skill is None:
+            return
+        if attack_skill < 1 or attack_skill > 20:
+            return error(f"Attack skill must be 1-20, got {attack_skill}")
+
+        drops = args[4].lower()
+        valid_drops = ["junk", "common", "uncommon", "rare", "unique", "none"]
+        if drops not in valid_drops:
+            return error(f"Invalid drops tier: {drops}", valid_tiers=valid_drops)
+
+        special = " ".join(args[5:]) if len(args) > 5 else ""
+    else:
+        from .data import ENEMY_TEMPLATES
+        return error("Usage: enemy-add <template> | enemy-add <name> <template> | enemy-add <name> <hp> <damage> <skill> <drops>",
+                      templates=list(ENEMY_TEMPLATES.keys()))
 
     state.setdefault("enemies", {})[name] = {
         "hp": hp,

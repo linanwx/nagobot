@@ -3,6 +3,7 @@
 from .util import (
     error, ok, output, parse_int,
     require_state, require_player, validate_skill, save_state,
+    roll_dice, get_effective_special,
     ALL_SKILLS, SPECIAL_ATTRS, RAD_PENALTIES,
 )
 
@@ -52,7 +53,7 @@ def cmd_add_player(args):
             return error(f"Duplicate tag skill: {canonical}", hint="Choose 3 different tag skills")
         tag_skills.append(canonical)
 
-    hp = (special["END"] + special["LCK"]) * 5
+    hp = special["END"] * 10
     carry = 150 + special["STR"] * 10
 
     skills = {}
@@ -120,6 +121,13 @@ def _modify_hp(args, negative):
     if not player:
         return
 
+    # Medicine bonus: +2 HP per Medicine level when healing
+    medicine_bonus = 0
+    if not negative:
+        medicine_level = player.get("skills", {}).get("Medicine", 0)
+        medicine_bonus = medicine_level * 2
+        amount += medicine_bonus
+
     old_hp = player["hp"]
     if negative:
         player["hp"] = max(0, player["hp"] - amount)
@@ -139,7 +147,7 @@ def _modify_hp(args, negative):
 
     save_state(state)
     status = "Down! (Incapacitated — 3 turns to stabilize)" if player["hp"] <= 0 else "OK"
-    output({
+    result = {
         "ok": True,
         "player": name,
         "action": "Damage" if negative else "Heal",
@@ -148,7 +156,10 @@ def _modify_hp(args, negative):
         "hp_after": player["hp"],
         "max_hp": player["max_hp"],
         "status": status,
-    })
+    }
+    if medicine_bonus > 0:
+        result["medicine_bonus"] = medicine_bonus
+    output(result)
 
 
 def cmd_hurt(args):
@@ -330,12 +341,44 @@ def cmd_skill_up(args):
 
     old = player.get("skills", {}).get(skill, 0)
     new = min(6, old + amount)
+
+    # INT check: 2d20 vs effective INT, difficulty 2 — bonus +1 on success
+    effective, _ = get_effective_special(player)
+    int_val = effective.get("INT", 5)
+    int_dice = roll_dice(2, 20)
+    int_successes = 0
+    int_details = []
+    for d in int_dice:
+        if d == 1:
+            int_successes += 2
+            int_details.append(f"{d} -> Critical (+2)")
+        elif d <= int_val:
+            int_successes += 1
+            int_details.append(f"{d} -> Success")
+        else:
+            int_details.append(f"{d} -> Failure")
+    int_triggered = int_successes >= 2
+    if int_triggered:
+        new = min(6, new + 1)
+
     player.setdefault("skills", {})[skill] = new
     save_state(state)
-    output({
+    result = {
         "ok": True,
         "player": name,
         "skill": skill,
         "level_before": old,
         "level_after": new,
-    })
+        "int_check": {
+            "target": int_val,
+            "dice": int_dice,
+            "details": int_details,
+            "successes": int_successes,
+            "needed": 2,
+            "triggered": int_triggered,
+        },
+    }
+    if int_triggered:
+        result["int_bonus"] = True
+        result["int_message"] = f"Smart! {name} gains an extra skill point from high Intelligence."
+    output(result, indent=True)

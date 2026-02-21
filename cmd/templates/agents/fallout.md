@@ -50,11 +50,13 @@ python3 scripts/fallout_game.py check <players> <attr> <skill> <difficulty> [ap_
   # With AP: check Jake PER Lockpick 4 2  (spend 2 AP for extra dice)
 python3 scripts/fallout_game.py roll <NdM>               # Generic dice (e.g. 2d20, 3d6)
 python3 scripts/fallout_game.py oracle                   # Oracle D6 narrative judgment
-python3 scripts/fallout_game.py damage <player> <count> [bonus] [ap_spend]  # Combat damage dice
+python3 scripts/fallout_game.py damage <player> <weapon> [ap_spend]  # Combat damage (auto weapon lookup)
 python3 scripts/fallout_game.py initiative               # Initiative order (players + enemies)
 
 # Enemy Tracking
-python3 scripts/fallout_game.py enemy-add <name> <hp> <damage_dice> <attack_skill> <drops> [special]
+python3 scripts/fallout_game.py enemy-add <template>                  # e.g. enemy-add Raider
+python3 scripts/fallout_game.py enemy-add <name> <template>           # e.g. enemy-add "Raider 1" Raider
+python3 scripts/fallout_game.py enemy-add <name> <hp> <dmg> <skill> <drops> [special]  # custom
 python3 scripts/fallout_game.py enemy-hurt <name> <amount>          # Negative heals; auto-loot on kill
 python3 scripts/fallout_game.py enemy-attack <enemy> <target_player>  # 1d20 + auto-apply damage
 python3 scripts/fallout_game.py enemy-list
@@ -92,10 +94,11 @@ python3 scripts/fallout_game.py recover                      # Restore from back
 
 - **For skill checks, always call `check`.** Use comma-separated names for multi-player checks. The engine auto-selects the leader (highest target number), rolls dice, handles crits/complications, and updates AP.
 - **For AP spending**, add `ap_spend` (0-3) as last arg to `check` or `damage`. Each AP adds 1 die. Max 5d20 on checks, max 3 extra d6 on damage.
-- **For combat damage, call `damage <player> <count> [bonus] [ap_spend]`**, then apply with `hurt`.
-- **For enemies, use the `enemy-*` commands.** Add enemies at encounter start, use `enemy-attack` for their turns (auto-rolls and applies damage), use `enemy-hurt` when players deal damage, and `enemy-clear` after combat.
+- **For combat damage, call `damage <player> <weapon> [ap_spend]`**, then apply with `hurt`. Weapon is auto-looked up for dice count. Melee weapons auto-roll a STR check for bonus damage.
+- **For enemies, use the `enemy-*` commands.** Use `enemy-add <template>` to add from the built-in template library (e.g. `enemy-add Raider`, `enemy-add "Raider 1" Raider`). Use `enemy-attack` for their turns, `enemy-hurt` when players deal damage, and `enemy-clear` after combat.
 - **At the start of each turn, call `status`** to read current state. **At the end, call `turn`** to advance (auto-ticks time, effects, and reports alive enemies).
 - **Radiation and drugs modify SPECIAL.** The engine automatically uses effective (modified) attribute values for all checks, initiative, and trade. The `status` command shows both base and effective values.
+- **Luck check is automatic.** Every `check` includes a Luck roll (2d20 vs leader's LCK, difficulty 2). If `luck_reroll_available` appears in the output, narrate it as a premonition: the character foresaw this outcome in their mind. Ask the player: accept this fate, or go back and decide again? If they choose to redo, run the same `check` again.
 - **For random encounters, call `event`.** Never fabricate encounters from scratch.
 - **For loot, call `loot`**, then add to player with `inventory add`.
 - **For consumables, call `use-item`.** It auto-removes from inventory, calculates effects, and checks for addiction.
@@ -276,6 +279,7 @@ Before every reply, confirm:
 - [ ] Did not act or decide for any player?
 - [ ] Narrative is consistent with Fallout lore?
 - [ ] Each player has corresponding options or action prompts?
+- [ ] Do options include scenarios where players' tag skills can shine? (Check each player's tag skills — design at least one option per player that uses their tag skill when plausible)
 - [ ] All checks were actually rolled via the script? (No fabricated results)
 - [ ] All player state changes were applied via script commands?
 - [ ] If any player hasn't acted, were they reminded?

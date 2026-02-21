@@ -23,18 +23,32 @@ Each attribute ranges 1-10. Character creation: base 4 each, 12 points to distri
 
 | Attribute | Abbr | Primary Effect | Secondary |
 |-----------|------|---------------|-----------|
-| Strength | STR | Melee damage, carry weight | Intimidation |
+| Strength | STR | Melee damage (auto STR check), carry weight | Intimidation |
 | Perception | PER | Ranged accuracy, detection | Trap awareness |
 | Endurance | END | HP, poison/rad resistance | Sprint duration |
 | Charisma | CHA | Speech, barter prices | Companion morale |
-| Intelligence | INT | Hacking, science, repair | XP bonus |
+| Intelligence | INT | Hacking, science, repair | Skill-up bonus |
 | Agility | AGI | Dodge, sneak, initiative | AP recovery |
-| Luck | LCK | Crits, loot quality | Random events |
+| Luck | LCK | Luck check on every skill check | Re-roll chance |
 
 ### Derived Stats
-- **HP** = (END + LCK) × 5
+- **HP** = END × 10
 - **Carry Weight** = 150 + STR × 10
 - **Initiative** = PER + AGI (for combat turn order)
+
+### Luck Check (Automatic)
+Every skill check automatically includes a Luck check for the leader:
+- Rolls 2d20 vs effective LCK, needs 2 successes
+- If triggered: the player may choose to **re-roll the entire check**
+- Multi-player checks: only the leader's LCK is used
+- The GM should ask the player whether to re-roll when Luck triggers
+
+| LCK | Trigger Rate |
+|-----|-------------|
+| 4 | ~10% |
+| 6 | ~16% |
+| 8 | ~22% |
+| 10 | ~30% |
 
 ---
 
@@ -135,9 +149,10 @@ Use `check` with appropriate skill:
 
 ### Damage
 ```
-exec: python3 scripts/fallout_game.py damage <player> <dice_count> [bonus] [ap_spend]
+exec: python3 scripts/fallout_game.py damage <player> <weapon> [ap_spend]
 ```
-Player name required (for AP deduction). Each AP spent adds 1d6 (max 3 AP).
+Weapon is looked up automatically for dice count and type. Each AP spent adds 1d6 (max 3 AP).
+Melee weapons auto-roll a **STR check** (2d20 vs STR, difficulty 2) — if triggered, adds STR/2 bonus damage.
 
 ### Enemy Tracking
 ```
@@ -159,16 +174,25 @@ Damage dice (d6):
 | 3-4 | 2 damage |
 | 5-6 | 3 damage + special effect |
 
-Weapon damage dice count:
-| Weapon | Dice | Special |
-|--------|------|---------|
-| Fists | 1 | Stun on effect |
-| Knife/Pipe | 2 | Bleed on effect |
-| 10mm Pistol | 3 | Pierce on effect |
-| Hunting Rifle | 4 | Knockdown on effect |
-| Combat Shotgun | 4 | Spread (close: +1d) |
-| Laser Rifle | 4 | Burn on effect |
-| Minigun | 5 | Suppression on effect |
+Weapons (auto-looked up by `damage` command):
+| Weapon | Dice | Type | Special |
+|--------|------|------|---------|
+| Fists | 1 | Melee | Stun on effect |
+| Knife | 2 | Melee | Bleed on effect |
+| Pipe Wrench | 2 | Melee | Bleed on effect |
+| Baseball Bat | 2 | Melee | Knockdown on effect |
+| Machete | 3 | Melee | Bleed on effect |
+| Power Fist | 3 | Melee | Stun on effect |
+| Super Sledge | 4 | Melee | Knockdown on effect |
+| Pipe Pistol | 2 | Ranged | — |
+| 10mm Pistol | 3 | Ranged | Pierce on effect |
+| .44 Magnum | 4 | Ranged | Knockdown on effect |
+| Hunting Rifle | 4 | Ranged | Knockdown on effect |
+| Combat Shotgun | 4 | Ranged | Spread (close: +1d) |
+| Laser Pistol | 3 | Ranged | Burn on effect |
+| Laser Rifle | 4 | Ranged | Burn on effect |
+| Plasma Rifle | 5 | Ranged | Burn on effect |
+| Minigun | 5 | Ranged | Suppression on effect |
 
 ### Apply Damage
 ```
@@ -238,6 +262,16 @@ exec: python3 scripts/fallout_game.py skill-up <player> <skill>
 ```
 
 Award 1-2 skill points per major milestone. Max skill level is 6.
+
+### INT Bonus (Automatic)
+Every `skill-up` automatically includes an INT check (2d20 vs effective INT, difficulty 2). If triggered, the player gains **+1 extra skill point**. Higher INT = faster skill growth.
+
+| INT | Trigger Rate |
+|-----|-------------|
+| 4 | ~10% |
+| 6 | ~16% |
+| 8 | ~22% |
+| 10 | ~30% |
 
 SPECIAL attributes do NOT increase through leveling (only through rare items or perks).
 

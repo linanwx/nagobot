@@ -237,6 +237,67 @@ CHEM_EFFECTS = {
 }
 
 # ---------------------------------------------------------------------------
+# Enemy Templates
+# ---------------------------------------------------------------------------
+
+ENEMY_TEMPLATES = {
+    # Tier 1 — Early game (wasteland pests)
+    "Radroach":              {"hp": 10, "damage": "1d6",  "attack_skill": 8,  "drops": "junk",     "special": ""},
+    "Bloatfly":              {"hp": 10, "damage": "1d6",  "attack_skill": 6,  "drops": "junk",     "special": "Poison spit"},
+    "Mole Rat":              {"hp": 15, "damage": "2d6",  "attack_skill": 10, "drops": "junk",     "special": "Burrow ambush"},
+    "Wild Dog":              {"hp": 15, "damage": "2d6",  "attack_skill": 12, "drops": "junk",     "special": "Pack tactics"},
+    # Tier 2 — Early-mid (humanoids, basic mutants)
+    "Feral Ghoul":           {"hp": 20, "damage": "2d6",  "attack_skill": 12, "drops": "common",   "special": "Radiation immunity"},
+    "Raider":                {"hp": 25, "damage": "3d6",  "attack_skill": 10, "drops": "common",   "special": ""},
+    "Raider Psycho":         {"hp": 25, "damage": "3d6",  "attack_skill": 12, "drops": "common",   "special": "Berserk (ignores pain)"},
+    "Mirelurk Hatchling":    {"hp": 15, "damage": "2d6",  "attack_skill": 10, "drops": "common",   "special": "Shell armor"},
+    # Tier 3 — Mid game
+    "Super Mutant":          {"hp": 40, "damage": "4d6",  "attack_skill": 12, "drops": "uncommon", "special": "Radiation immunity"},
+    "Raider Veteran":        {"hp": 35, "damage": "3d6",  "attack_skill": 14, "drops": "common",   "special": ""},
+    "Feral Ghoul Reaver":    {"hp": 35, "damage": "3d6",  "attack_skill": 14, "drops": "uncommon", "special": "Radiation immunity, radiation attack"},
+    "Yao Guai":              {"hp": 45, "damage": "4d6",  "attack_skill": 12, "drops": "uncommon", "special": "Charge attack"},
+    "Mirelurk":              {"hp": 35, "damage": "3d6",  "attack_skill": 12, "drops": "uncommon", "special": "Shell armor"},
+    # Tier 4 — Late game
+    "Deathclaw":             {"hp": 60, "damage": "5d6",  "attack_skill": 14, "drops": "rare",     "special": "Armor piercing"},
+    "Assaultron":            {"hp": 50, "damage": "4d6",  "attack_skill": 16, "drops": "rare",     "special": "Laser head attack"},
+    "Sentry Bot":            {"hp": 70, "damage": "5d6",  "attack_skill": 14, "drops": "rare",     "special": "Heavy armor, self-destruct"},
+    "Super Mutant Behemoth": {"hp": 80, "damage": "6d6",  "attack_skill": 12, "drops": "rare",     "special": "AoE attacks"},
+    "Mirelurk Queen":        {"hp": 100, "damage": "6d6", "attack_skill": 14, "drops": "unique",   "special": "Acid spit, spawn hatchlings"},
+    # Tier 5 — Boss
+    "Legendary Deathclaw":   {"hp": 90, "damage": "6d6",  "attack_skill": 16, "drops": "unique",   "special": "Regeneration, armor piercing"},
+    "Legendary Assaultron":  {"hp": 70, "damage": "5d6",  "attack_skill": 18, "drops": "unique",   "special": "Stealth, laser head attack"},
+}
+
+# ---------------------------------------------------------------------------
+# Weapon Data
+# ---------------------------------------------------------------------------
+
+WEAPONS = {
+    # Melee weapons
+    "Fists":            {"dice": 1, "type": "melee", "special": "Stun on effect"},
+    "Knife":            {"dice": 2, "type": "melee", "special": "Bleed on effect"},
+    "Pipe Wrench":      {"dice": 2, "type": "melee", "special": "Bleed on effect"},
+    "Baseball Bat":     {"dice": 2, "type": "melee", "special": "Knockdown on effect"},
+    "Machete":          {"dice": 3, "type": "melee", "special": "Bleed on effect"},
+    "Super Sledge":     {"dice": 4, "type": "melee", "special": "Knockdown on effect"},
+    "Power Fist":       {"dice": 3, "type": "melee", "special": "Stun on effect"},
+    "Ripper":           {"dice": 3, "type": "melee", "special": "Bleed on effect"},
+    # Ranged weapons
+    "Pipe Pistol":      {"dice": 2, "type": "ranged", "special": ""},
+    "10mm Pistol":      {"dice": 3, "type": "ranged", "special": "Pierce on effect"},
+    ".44 Magnum":       {"dice": 4, "type": "ranged", "special": "Knockdown on effect"},
+    "Hunting Rifle":    {"dice": 4, "type": "ranged", "special": "Knockdown on effect"},
+    "Combat Rifle":     {"dice": 4, "type": "ranged", "special": ""},
+    "Combat Shotgun":   {"dice": 4, "type": "ranged", "special": "Spread (close: +1d)"},
+    "Laser Pistol":     {"dice": 3, "type": "ranged", "special": "Burn on effect"},
+    "Laser Rifle":      {"dice": 4, "type": "ranged", "special": "Burn on effect"},
+    "Plasma Rifle":     {"dice": 5, "type": "ranged", "special": "Burn on effect"},
+    "Minigun":          {"dice": 5, "type": "ranged", "special": "Suppression on effect"},
+    "Missile Launcher": {"dice": 6, "type": "ranged", "special": "Knockdown + AoE"},
+    "Fat Man":          {"dice": 8, "type": "ranged", "special": "AoE + Radiation"},
+}
+
+# ---------------------------------------------------------------------------
 # NPC Generator Data
 # ---------------------------------------------------------------------------
 

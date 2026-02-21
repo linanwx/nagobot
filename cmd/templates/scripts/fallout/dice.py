@@ -174,6 +174,19 @@ def _evaluate_check(state, player_names, attr, skill_name, difficulty, ap_dice=0
             "counted": leader_contributed,
         })
 
+    # --- Luck check for leader (2d20 vs effective LCK, difficulty 2) ---
+    leader_player = state["players"][leader["name"]]
+    effective_leader, _ = get_effective_special(leader_player)
+    luck_val = effective_leader.get("LCK", 5)
+    luck_dice = roll_dice(2, 20)
+    luck_successes = 0
+    luck_details = []
+    for d in luck_dice:
+        s, crit, comp, detail = _evaluate_die(d, luck_val, False, 0)
+        luck_successes += s
+        luck_details.append(detail)
+    luck_triggered = luck_successes >= 2
+
     passed = total_successes >= difficulty
     excess_ap = max(0, total_successes - difficulty) if passed else 0
 
@@ -215,6 +228,32 @@ def _evaluate_check(state, player_names, attr, skill_name, difficulty, ap_dice=0
 
     if total_complications > 0:
         result["complication_note"] = "A complication occurred! Even on a success, trouble is brewing."
+
+    # Report unused tag skills for each participant
+    unused_tags = {}
+    for p in participants:
+        player = state["players"][p["name"]]
+        tags = player.get("tag_skills", [])
+        other_tags = [t for t in tags if t != skill_name]
+        if other_tags:
+            unused_tags[p["name"]] = other_tags
+    if unused_tags:
+        result["unused_tag_skills"] = unused_tags
+        result["tag_hint"] = "These tag skills were not used in this check. Consider if an alternative approach could leverage them."
+
+    # Luck check result (always included for transparency)
+    result["luck_check"] = {
+        "roller": leader["name"],
+        "target": luck_val,
+        "dice": luck_dice,
+        "details": luck_details,
+        "successes": luck_successes,
+        "needed": 2,
+        "triggered": luck_triggered,
+    }
+    if luck_triggered:
+        result["luck_reroll_available"] = True
+        result["luck_message"] = f"{leader['name']} foresaw this outcome. Accept this fate, or go back and decide again?"
 
     return result, excess_ap
 
@@ -330,14 +369,17 @@ def cmd_oracle(args):
 # ---------------------------------------------------------------------------
 
 def cmd_damage(args):
-    """Roll combat damage dice.
-    Usage: damage <player> <dice_count> [bonus] [ap_spend]
+    """Roll combat damage dice using a weapon.
+    Usage: damage <player> <weapon> [ap_spend]
+    Weapon is looked up from the weapon table for dice count and type.
+    Melee weapons auto-roll a STR check (2d20 vs STR, difficulty 2) for bonus damage.
     Each AP spent adds 1d6 (max 3 AP).
-    Example: damage Jake 3 2 1  (3d6 + 2 bonus, spending 1 AP for 4d6 total)
+    Example: damage Jake "10mm Pistol"  |  damage Jake Knife 2
     """
     if len(args) < 2:
-        return error("Usage: damage <player> <dice_count> [bonus] [ap_spend]",
-                      hint="Example: damage Jake 3 2")
+        from .data import WEAPONS
+        return error("Usage: damage <player> <weapon> [ap_spend]",
+                      hint=f"Weapons: {', '.join(WEAPONS.keys())}")
 
     state = require_state()
     if not state:
@@ -348,25 +390,40 @@ def cmd_damage(args):
     if not player:
         return
 
-    count = parse_int(args[1], "dice_count")
-    if count is None:
-        return
-    if count < 1 or count > 20:
-        return error(f"Dice count must be 1-20, got {count}")
+    from .data import WEAPONS
 
-    bonus = 0
-    if len(args) > 2:
-        bonus = parse_int(args[2], "bonus")
-        if bonus is None:
-            return
-
+    # Weapon lookup (case-insensitive)
+    weapon_name = " ".join(args[1:])  # grab all remaining as weapon + optional ap
     ap_spend = 0
-    if len(args) > 3:
-        ap_spend = parse_int(args[3], "ap_spend")
-        if ap_spend is None:
-            return
-        if ap_spend < 0 or ap_spend > 3:
-            return error("AP spend must be 0-3", hint="Each AP adds 1d6")
+
+    # Try to parse last arg as ap_spend
+    if len(args) > 2:
+        try:
+            maybe_ap = int(args[-1])
+            if 0 <= maybe_ap <= 3:
+                ap_spend = maybe_ap
+                weapon_name = " ".join(args[1:-1])
+        except ValueError:
+            pass
+
+    # Find weapon (case-insensitive match)
+    weapon = None
+    matched_name = None
+    for wname, wdata in WEAPONS.items():
+        if wname.lower() == weapon_name.lower():
+            weapon = wdata
+            matched_name = wname
+            break
+
+    if not weapon:
+        return error(f"Unknown weapon: {weapon_name}",
+                      weapons=list(WEAPONS.keys()))
+
+    count = weapon["dice"]
+    is_melee = weapon["type"] == "melee"
+
+    if ap_spend < 0 or ap_spend > 3:
+        return error("AP spend must be 0-3", hint="Each AP adds 1d6")
 
     # Validate and deduct AP
     original_ap = player.get("ap", 0)
@@ -377,7 +434,7 @@ def cmd_damage(args):
 
     total_dice = count + ap_spend
     dice = roll_dice(total_dice, 6)
-    total_damage = bonus
+    total_damage = 0
     effects = []
     details = []
 
@@ -390,26 +447,68 @@ def cmd_damage(args):
             details.append(f"{d} -> 2 damage")
         elif d in (5, 6):
             total_damage += 3
-            effects.append("Special Effect")
-            details.append(f"{d} -> 3 damage + Special Effect!")
+            effects.append(weapon["special"] if weapon["special"] else "Special Effect")
+            details.append(f"{d} -> 3 damage + {weapon['special'] or 'Special Effect'}!")
+
+    # STR check for melee weapons (2d20 vs effective STR, difficulty 2)
+    str_check = None
+    str_bonus = 0
+    if is_melee:
+        effective, _ = get_effective_special(player)
+        str_val = effective.get("STR", 4)
+        str_dice = roll_dice(2, 20)
+        str_successes = 0
+        str_details = []
+        for d in str_dice:
+            if d == 1:
+                str_successes += 2
+                str_details.append(f"{d} -> Critical (+2)")
+            elif d <= str_val:
+                str_successes += 1
+                str_details.append(f"{d} -> Success")
+            else:
+                str_details.append(f"{d} -> Failure")
+        str_triggered = str_successes >= 2
+        if str_triggered:
+            str_bonus = str_val // 2
+            total_damage += str_bonus
+        str_check = {
+            "target": str_val,
+            "dice": str_dice,
+            "details": str_details,
+            "successes": str_successes,
+            "needed": 2,
+            "triggered": str_triggered,
+        }
 
     result = {
         "ok": True,
         "player": player_name,
+        "weapon": matched_name,
+        "weapon_type": weapon["type"],
+        "weapon_dice": f"{count}d6",
         "dice": dice,
         "details": details,
-        "base_damage": total_damage - bonus,
-        "bonus": bonus,
+        "base_damage": total_damage - str_bonus,
         "total_damage": total_damage,
         "effects": effects,
     }
+
+    if weapon["special"]:
+        result["weapon_special"] = weapon["special"]
+
+    if str_check:
+        result["str_check"] = str_check
+        if str_bonus > 0:
+            result["str_bonus"] = str_bonus
+            result["str_message"] = f"Powerful strike! +{str_bonus} melee damage from STR."
 
     if ap_spend > 0:
         result["ap_spent"] = ap_spend
         result["ap_before"] = original_ap
         result["ap_after"] = player["ap"]
 
-    if ap_spend > 0:
+    if ap_spend > 0 or str_bonus > 0:
         save_state(state)
 
     output(result, indent=True)
