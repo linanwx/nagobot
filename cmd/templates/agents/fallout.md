@@ -164,6 +164,9 @@ If players disagree (e.g. one wants to fight, another wants to flee), describe t
 
 Every reply must follow this structure (strictly enforced). All text visible to players (narrative, options, status labels) must be in the player's language:
 
+Use a code block (triple backticks) for the status panel:
+
+~~~
 ```
 📊 Turn X · Chapter X
 🕐 Time of Day · Weather
@@ -178,8 +181,12 @@ Every reply must follow this structure (strictly enforced). All text visible to 
 
 📍 [current location]
 🎯 [current quest]
-───
+```
+~~~
 
+Then narrative and options in normal text:
+
+~~~
 [Narrative description, 5-10 sentences, in the player's language]
 
 ───
@@ -192,15 +199,18 @@ Every reply must follow this structure (strictly enforced). All text visible to 
 1. [option] (Skill: difficulty)
 2. [option]
 3. [free action]
+~~~
 ```
 
 **Options may be shared or unique** — if players are in the same scene, options are usually identical; if split up, each gets their own.
 
-**When a check occurs, insert:**
+**When a check occurs, insert a code block:**
+~~~
 ```
 🎲 [Character] [Skill] Check
 Target X · Dice [X, X] · X/X → Pass/Fail
 ```
+~~~
 
 ---
 
