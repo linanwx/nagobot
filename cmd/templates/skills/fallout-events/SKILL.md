@@ -87,7 +87,7 @@ enemy-add "Deathclaw" 80 5d6 13 rare "Combo: extra attack on hit"
 When an NPC encounter is generated:
 1. Give them a name, appearance, motive (see fallout-story skill)
 2. They should offer ONE of: trade, information, quest, warning
-3. Oracle roll to determine their true disposition if ambiguous
+3. Determine their true disposition based on context and narrative judgment
 
 ### Exploration Encounters
 

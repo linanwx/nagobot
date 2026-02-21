@@ -156,16 +156,34 @@ Melee weapons auto-roll a **STR check** (2d20 vs STR, difficulty 2) — if trigg
 
 ### Enemy Tracking
 ```
+exec: python3 scripts/fallout_game.py enemy-add <template>
+exec: python3 scripts/fallout_game.py enemy-add <name> <template>
 exec: python3 scripts/fallout_game.py enemy-add <name> <hp> <damage_dice> <attack_skill> <drops> [special]
 exec: python3 scripts/fallout_game.py enemy-attack <enemy> <target_player>
 exec: python3 scripts/fallout_game.py enemy-hurt <name> <amount>
-exec: python3 scripts/fallout_game.py enemy-list
-exec: python3 scripts/fallout_game.py enemy-clear [all]
 ```
 
 **Enemy attacks**: Roll 1d20 vs attack_skill. Hit = roll damage dice, auto-apply to player HP. Roll 1 = critical (bonus damage). Roll 20 = fumble. Simpler than player 2d20 — enemies are threats but less nuanced.
 
-**On kill**: `enemy-hurt` auto-rolls loot from the enemy's drops tier.
+**On kill**: `enemy-hurt` auto-rolls loot from the enemy's drops tier. Dead enemies are auto-cleared by `turn`.
+
+### Encounter Budget
+
+The engine enforces encounter constraints per chapter. `enemy-add` will **reject** enemies that violate these rules:
+
+| Chapter | Max Tier | HP Budget (base) | Safe Turns |
+|---------|----------|-------------------|------------|
+| 1 | 1 (pests) | 30 | 2 |
+| 2 | 2 (humanoids) | 60 | 1 |
+| 3 | 2 | 80 | 1 |
+| 4 | 3 (mutants) | 120 | 0 |
+| 5 | 4 (late game) | 180 | 0 |
+| 6+ | 5 (boss) | 250 | 0 |
+
+- **Max Tier**: Highest enemy tier allowed. Tier 1 = pests (Radroach, Mole Rat), Tier 2 = humanoids (Raider, Ghoul), Tier 3 = mutants (Super Mutant, Yao Guai), Tier 4 = late game (Deathclaw, Sentry Bot), Tier 5 = boss (Legendary)
+- **HP Budget**: Max total HP of all alive enemies on the battlefield. Scales with player count: ×1.0 (1p), ×1.5 (2p), ×2.0 (3p)
+- **Safe Turns**: After chapter start, only tier 1 enemies allowed for this many turns
+- **Enemy Count Limit**: Chapter turns 1-3: max 1 alive enemy. Turns 4-6: max 2. Turn 7+: no count limit (HP budget only)
 
 Damage dice (d6):
 | Roll | Effect |
@@ -276,22 +294,6 @@ Every `skill-up` automatically includes an INT check (2d20 vs effective INT, dif
 SPECIAL attributes do NOT increase through leveling (only through rare items or perks).
 
 ---
-
-## Oracle (Narrative Uncertainty)
-
-```
-exec: python3 scripts/fallout_game.py oracle
-```
-
-When the GM needs to decide an uncertain narrative outcome:
-| D6 | Meaning |
-|----|---------|
-| 1 | No, and things get worse |
-| 2 | No |
-| 3 | No, but there's a silver lining |
-| 4 | Yes, but at a cost |
-| 5 | Yes |
-| 6 | Yes, and bonus benefit |
 
 ---
 

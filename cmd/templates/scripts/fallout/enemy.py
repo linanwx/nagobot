@@ -34,6 +34,7 @@ def cmd_enemy_add(args):
         return
 
     # Mode detection by arg count
+    template = None
     if len(args) == 1:
         # Template mode: enemy-add Raider
         tname, template = _find_template(args[0])
@@ -91,6 +92,59 @@ def cmd_enemy_add(args):
         return error("Usage: enemy-add <template> | enemy-add <name> <template> | enemy-add <name> <hp> <damage> <skill> <drops>",
                       templates=list(ENEMY_TEMPLATES.keys()))
 
+    # --- Encounter budget validation ---
+    from .data import ENCOUNTER_RULES, hp_to_tier
+
+    chapter = state.get("chapter", 1)
+    rules = ENCOUNTER_RULES.get(chapter, ENCOUNTER_RULES[min(chapter, 6)])
+    max_tier = rules["max_tier"]
+    base_budget = rules["hp_budget"]
+    safe_turns = rules["safe_turns"]
+
+    # Determine tier
+    if template:
+        tier = template.get("tier", hp_to_tier(hp))
+    else:
+        tier = hp_to_tier(hp)
+
+    # Tier check
+    if tier > max_tier:
+        from .data import ENEMY_TEMPLATES
+        allowed = [t for t, d in ENEMY_TEMPLATES.items() if d.get("tier", 1) <= max_tier]
+        return error(f"Enemy tier {tier} exceeds chapter {chapter} max tier {max_tier}",
+                      allowed_templates=allowed)
+
+    # Safe turns check (only tier 1 allowed during protection period)
+    chapter_start = state.get("chapter_start_turn", 0)
+    turns_in_chapter = state.get("turn", 0) - chapter_start
+    if tier >= 2 and turns_in_chapter < safe_turns:
+        return error(f"Protection period: only tier 1 enemies allowed for {safe_turns - turns_in_chapter} more turn(s)",
+                      chapter=chapter, turns_in_chapter=turns_in_chapter, safe_turns=safe_turns)
+
+    # Enemy count limit by turns into chapter
+    alive_enemies = [e for e in state.get("enemies", {}).values() if e["status"] == "alive"]
+    alive_count = len(alive_enemies)
+    if turns_in_chapter < 3:
+        max_enemies = 1
+    elif turns_in_chapter < 6:
+        max_enemies = 2
+    else:
+        max_enemies = None
+    if max_enemies is not None and alive_count >= max_enemies:
+        return error(f"Enemy count limit: max {max_enemies} alive enemies in chapter turn {turns_in_chapter + 1}",
+                      alive=alive_count, max=max_enemies)
+
+    # HP budget check (scaled by player count)
+    player_count = max(1, len(state.get("players", {})))
+    effective_budget = int(base_budget * (1 + 0.5 * (player_count - 1)))
+    alive_hp = sum(e["hp"] for e in alive_enemies)
+    remaining_budget = effective_budget - alive_hp
+
+    if hp > remaining_budget:
+        return error(f"HP budget exceeded: {alive_hp}+{hp}={alive_hp + hp} > {effective_budget}",
+                      budget=effective_budget, alive_hp=alive_hp, remaining=remaining_budget,
+                      hint=f"Chapter {chapter} budget: {base_budget} base × {player_count} players = {effective_budget}")
+
     state.setdefault("enemies", {})[name] = {
         "hp": hp,
         "max_hp": hp,
@@ -104,11 +158,13 @@ def cmd_enemy_add(args):
     save_state(state)
     ok(f"Enemy added: {name}",
        enemy=name,
+       tier=tier,
        hp=f"{hp}/{hp}",
        damage=damage_expr,
        attack_skill=attack_skill,
        drops=drops,
-       special=special or "none")
+       special=special or "none",
+       budget=f"{alive_hp + hp}/{effective_budget}")
 
 
 def cmd_enemy_hurt(args):

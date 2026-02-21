@@ -1,6 +1,7 @@
-"""World state management: init, status, set, flag, turn."""
+"""World state management: init, status, set, turn."""
 
 import json
+import random
 from .util import error, ok, output, parse_int, load_state, save_state, require_state, get_effective_special
 
 
@@ -9,13 +10,12 @@ def cmd_init(args):
     state = {
         "chapter": 1,
         "chapter_title": "Leaving the Vault",
+        "chapter_start_turn": 0,
         "location": "Vault 111",
         "turn": 0,
         "time_of_day": "Early Morning",
         "weather": "Clear",
         "quest": "Escape the vault",
-        "flags": [],
-        "event_log": [],
         "players": {},
         "enemies": {},
     }
@@ -84,40 +84,13 @@ def cmd_set(args):
 
     old = state.get(field)
     state[field] = value
+
+    # Track when chapter changes for encounter safe_turns
+    if field == "chapter":
+        state["chapter_start_turn"] = state.get("turn", 0)
+
     save_state(state)
     ok(f"Set {field}", field=field, old_value=old, new_value=value)
-
-
-def cmd_flag(args):
-    """Manage story flags.
-    Usage: flag add <flag_name>  |  flag remove <flag_name>  |  flag list
-    """
-    if not args:
-        return error("Usage: flag add/remove/list [flag_name]")
-
-    state = require_state()
-    if not state:
-        return
-
-    action = args[0].lower()
-    if action == "list":
-        output({"ok": True, "flags": state.get("flags", [])})
-    elif action == "add" and len(args) > 1:
-        flag = " ".join(args[1:])
-        state.setdefault("flags", [])
-        if flag not in state["flags"]:
-            state["flags"].append(flag)
-            save_state(state)
-        ok(f"Flag added: {flag}", flags=state["flags"])
-    elif action == "remove" and len(args) > 1:
-        flag = " ".join(args[1:])
-        flags = state.get("flags", [])
-        if flag in flags:
-            flags.remove(flag)
-            save_state(state)
-        ok(f"Flag removed: {flag}", flags=flags)
-    else:
-        error("Usage: flag add/remove/list [flag_name]")
 
 
 def cmd_turn(args):
@@ -132,8 +105,26 @@ def cmd_turn(args):
     times = ["Early Morning", "Morning", "Noon", "Afternoon", "Evening", "Night", "Late Night", "Pre-Dawn"]
     current = state.get("time_of_day", "Early Morning")
     current_idx = times.index(current) if current in times else 0
+    new_time = None
     if state["turn"] % 3 == 0:
-        state["time_of_day"] = times[(current_idx + 1) % len(times)]
+        new_time = times[(current_idx + 1) % len(times)]
+        state["time_of_day"] = new_time
+
+    # Auto-generate weather on new day (Early Morning)
+    weather_changed = None
+    if new_time == "Early Morning":
+        from .data import WEATHER_TABLE
+        total = sum(w["weight"] for w in WEATHER_TABLE)
+        roll = random.randint(1, total)
+        cumulative = 0
+        chosen = WEATHER_TABLE[0]
+        for w in WEATHER_TABLE:
+            cumulative += w["weight"]
+            if roll <= cumulative:
+                chosen = w
+                break
+        state["weather"] = chosen["weather"]
+        weather_changed = {"weather": chosen["weather"], "description": chosen["desc"], "effect": chosen["effect"]}
 
     # Tick status effects — reduce durations, remove expired
     expired_effects = []
@@ -167,6 +158,8 @@ def cmd_turn(args):
         "time_of_day": state["time_of_day"],
         "chapter": state["chapter"],
     }
+    if weather_changed:
+        result["weather_changed"] = weather_changed
     if deaths:
         result["deaths"] = deaths
         result["death_warning"] = "Players have died! They were not stabilized in time."
@@ -187,6 +180,21 @@ def cmd_turn(args):
     alive = [{"name": n, "hp": f"{e['hp']}/{e['max_hp']}"} for n, e in enemies.items() if e["status"] == "alive"]
     if alive:
         result["enemies_alive"] = alive
+
+    # Random event (30% chance, skip if enemies alive)
+    if not alive and random.randint(1, 100) <= 30:
+        from .data import ENCOUNTERS, ATMOSPHERIC, QUEST_HOOKS
+        roll = random.randint(1, 100)
+        if roll <= 70:
+            pool = []
+            for v in ENCOUNTERS.values():
+                pool.extend(v)
+            event = random.choice(pool)
+            result["random_event"] = {"type": "encounter", "event": event}
+        elif roll <= 85:
+            result["random_event"] = {"type": "atmospheric", "event": random.choice(ATMOSPHERIC)}
+        else:
+            result["random_event"] = {"type": "quest_hook", "event": random.choice(QUEST_HOOKS)}
 
     save_state(state)
     output(result, indent=True)

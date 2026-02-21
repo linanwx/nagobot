@@ -49,7 +49,6 @@ python3 scripts/fallout_game.py check <players> <attr> <skill> <difficulty> [ap_
   # Group (3+ players): check Jake,Sarah,Bob PER Sneak 4
   # With AP: check Jake PER Lockpick 4 2  (spend 2 AP for extra dice)
 python3 scripts/fallout_game.py roll <NdM>               # Generic dice (e.g. 2d20, 3d6)
-python3 scripts/fallout_game.py oracle                   # Oracle D6 narrative judgment
 python3 scripts/fallout_game.py damage <player> <weapon> [ap_spend]  # Combat damage (auto weapon lookup)
 python3 scripts/fallout_game.py initiative               # Initiative order (players + enemies)
 
@@ -76,15 +75,11 @@ python3 scripts/fallout_game.py skill-up <player> <skill>
 
 # World State
 python3 scripts/fallout_game.py set <field> <value>          # Set chapter/location/quest/weather etc.
-python3 scripts/fallout_game.py flag add/remove/list <flag>
-python3 scripts/fallout_game.py log <event_description>
 
 # Random Generation
-python3 scripts/fallout_game.py event [category]             # Random encounter (wasteland/urban/vault/interior/special/atmospheric/quest)
 python3 scripts/fallout_game.py loot [tier] [count]          # Random loot (junk/common/uncommon/rare/unique)
 python3 scripts/fallout_game.py trade <player> <price> buy/sell
 python3 scripts/fallout_game.py npc-gen [count]              # Generate random NPC (name, appearance, motive, knowledge, speech style)
-python3 scripts/fallout_game.py weather [set]                # Generate weather (add 'set' to save to game state)
 
 # Recovery
 python3 scripts/fallout_game.py recover                      # Restore from backup (use when state file is corrupted)
@@ -96,16 +91,15 @@ python3 scripts/fallout_game.py recover                      # Restore from back
 - **For AP spending**, add `ap_spend` (0-3) as last arg to `check` or `damage`. Each AP adds 1 die. Max 5d20 on checks, max 3 extra d6 on damage.
 - **For combat damage, call `damage <player> <weapon> [ap_spend]`**, then apply with `hurt`. Weapon is auto-looked up for dice count. Melee weapons auto-roll a STR check for bonus damage.
 - **For enemies, use the `enemy-*` commands.** Use `enemy-add <template>` to add from the built-in template library (e.g. `enemy-add Raider`, `enemy-add "Raider 1" Raider`). Use `enemy-attack` for their turns, `enemy-hurt` when players deal damage, and `enemy-clear` after combat.
-- **At the start of each turn, call `status`** to read current state. **At the end, call `turn`** to advance (auto-ticks time, effects, and reports alive enemies).
+- **At the start of each turn, call `status`** to read current state. **At the end, call `turn`** to advance (auto-ticks time, effects, reports alive enemies, and may trigger a random event).
+- **`turn` auto-generates random events** (30% chance per turn, skipped if enemies alive). Events appear as `random_event` in the output — narrate them naturally. Never fabricate encounters from scratch.
+- **`turn` auto-generates weather** when a new day begins (time cycles to Early Morning). Weather appears as `weather_changed` in the output.
 - **Radiation and drugs modify SPECIAL.** The engine automatically uses effective (modified) attribute values for all checks, initiative, and trade. The `status` command shows both base and effective values.
-- **Luck check is automatic.** Every `check` includes a Luck roll (2d20 vs leader's LCK, difficulty 2). If `luck_reroll_available` appears in the output, narrate it as a premonition: the character foresaw this outcome in their mind. Ask the player: accept this fate, or go back and decide again? If they choose to redo, run the same `check` again.
-- **For random encounters, call `event`.** Never fabricate encounters from scratch.
+- **Luck check is automatic.** Every `check` includes a Luck roll (d100 ≤ LCK). If `luck_reroll_available` appears in the output, narrate it as a premonition: the character foresaw this outcome in their mind. Ask the player: accept this fate, or go back and decide again? If they choose to redo, run the same `check` again.
 - **For loot, call `loot`**, then add to player with `inventory add`.
 - **For consumables, call `use-item`.** It auto-removes from inventory, calculates effects, and checks for addiction.
 - **For rest, call `rest`.** Heals all players, clears temporary effects, and clears all enemies.
 - **For NPCs, call `npc-gen`.** Generates name, appearance, motive, knowledge, and speech style.
-- **For weather changes, call `weather set`.** Generates and saves weather to state.
-- **For special/easter-egg encounters, call `event special`.** Use sparingly — at most once per chapter.
 - **If the state file is corrupted, call `recover`** to restore from backup.
 
 ---
@@ -247,6 +241,14 @@ Tag: Small Guns, Repair, Barter
 STR 4 · PER 6 · END 5 · CHA 8 · INT 6 · AGI 6 · LCK 5
 Tag: Speech, Barter, Medicine
 
+**🔹 Field Medic** — Lucky battlefield medic
+STR 4 · PER 6 · END 7 · CHA 4 · INT 7 · AGI 5 · LCK 7
+Tag: Medicine, Science, Survival
+
+**🔹 Drifter** — Nimble thief and scavenger
+STR 4 · PER 7 · END 4 · CHA 5 · INT 5 · AGI 8 · LCK 7
+Tag: Lockpick, Sneak, Barter
+
 5. Player may accept the preset or redistribute the 40 SPECIAL points and pick 3 tag skills themselves
 6. Wait for other players to finish character creation
 7. Once all players are ready, call `init` and `add-player` to initialize, then begin Chapter 1
@@ -272,7 +274,7 @@ The story advances by chapters. Do not skip. Load `fallout-story` to review chap
 **Chapter order:**
 1. Leaving the Vault → 2. First Steps in the Wasteland → 3. Friendly Town → 4. First Quest → 5. Faction Politics → 6+. Open world
 
-**Pacing: every 2-3 turns must feature a significant plot development or event escalation.** If pacing slows, call `event` to generate a random encounter.
+**Pacing: every 2-3 turns must feature a significant plot development or event escalation.** The `turn` command has a 30% chance to auto-generate random encounters — use these to keep the pace up.
 
 ---
 

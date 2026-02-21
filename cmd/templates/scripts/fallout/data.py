@@ -242,31 +242,60 @@ CHEM_EFFECTS = {
 
 ENEMY_TEMPLATES = {
     # Tier 1 — Early game (wasteland pests)
-    "Radroach":              {"hp": 10, "damage": "1d6",  "attack_skill": 8,  "drops": "junk",     "special": ""},
-    "Bloatfly":              {"hp": 10, "damage": "1d6",  "attack_skill": 6,  "drops": "junk",     "special": "Poison spit"},
-    "Mole Rat":              {"hp": 15, "damage": "2d6",  "attack_skill": 10, "drops": "junk",     "special": "Burrow ambush"},
-    "Wild Dog":              {"hp": 15, "damage": "2d6",  "attack_skill": 12, "drops": "junk",     "special": "Pack tactics"},
+    "Radroach":              {"tier": 1, "hp": 10, "damage": "1d6",  "attack_skill": 8,  "drops": "junk",     "special": ""},
+    "Bloatfly":              {"tier": 1, "hp": 10, "damage": "1d6",  "attack_skill": 6,  "drops": "junk",     "special": "Poison spit"},
+    "Mole Rat":              {"tier": 1, "hp": 15, "damage": "2d6",  "attack_skill": 10, "drops": "junk",     "special": "Burrow ambush"},
+    "Wild Dog":              {"tier": 1, "hp": 15, "damage": "2d6",  "attack_skill": 12, "drops": "junk",     "special": "Pack tactics"},
     # Tier 2 — Early-mid (humanoids, basic mutants)
-    "Feral Ghoul":           {"hp": 20, "damage": "2d6",  "attack_skill": 12, "drops": "common",   "special": "Radiation immunity"},
-    "Raider":                {"hp": 25, "damage": "3d6",  "attack_skill": 10, "drops": "common",   "special": ""},
-    "Raider Psycho":         {"hp": 25, "damage": "3d6",  "attack_skill": 12, "drops": "common",   "special": "Berserk (ignores pain)"},
-    "Mirelurk Hatchling":    {"hp": 15, "damage": "2d6",  "attack_skill": 10, "drops": "common",   "special": "Shell armor"},
+    "Feral Ghoul":           {"tier": 2, "hp": 20, "damage": "2d6",  "attack_skill": 12, "drops": "common",   "special": "Radiation immunity"},
+    "Raider":                {"tier": 2, "hp": 25, "damage": "3d6",  "attack_skill": 10, "drops": "common",   "special": ""},
+    "Raider Psycho":         {"tier": 2, "hp": 25, "damage": "3d6",  "attack_skill": 12, "drops": "common",   "special": "Berserk (ignores pain)"},
+    "Mirelurk Hatchling":    {"tier": 2, "hp": 15, "damage": "2d6",  "attack_skill": 10, "drops": "common",   "special": "Shell armor"},
     # Tier 3 — Mid game
-    "Super Mutant":          {"hp": 40, "damage": "4d6",  "attack_skill": 12, "drops": "uncommon", "special": "Radiation immunity"},
-    "Raider Veteran":        {"hp": 35, "damage": "3d6",  "attack_skill": 14, "drops": "common",   "special": ""},
-    "Feral Ghoul Reaver":    {"hp": 35, "damage": "3d6",  "attack_skill": 14, "drops": "uncommon", "special": "Radiation immunity, radiation attack"},
-    "Yao Guai":              {"hp": 45, "damage": "4d6",  "attack_skill": 12, "drops": "uncommon", "special": "Charge attack"},
-    "Mirelurk":              {"hp": 35, "damage": "3d6",  "attack_skill": 12, "drops": "uncommon", "special": "Shell armor"},
+    "Super Mutant":          {"tier": 3, "hp": 40, "damage": "4d6",  "attack_skill": 12, "drops": "uncommon", "special": "Radiation immunity"},
+    "Raider Veteran":        {"tier": 3, "hp": 35, "damage": "3d6",  "attack_skill": 14, "drops": "common",   "special": ""},
+    "Feral Ghoul Reaver":    {"tier": 3, "hp": 35, "damage": "3d6",  "attack_skill": 14, "drops": "uncommon", "special": "Radiation immunity, radiation attack"},
+    "Yao Guai":              {"tier": 3, "hp": 45, "damage": "4d6",  "attack_skill": 12, "drops": "uncommon", "special": "Charge attack"},
+    "Mirelurk":              {"tier": 3, "hp": 35, "damage": "3d6",  "attack_skill": 12, "drops": "uncommon", "special": "Shell armor"},
     # Tier 4 — Late game
-    "Deathclaw":             {"hp": 60, "damage": "5d6",  "attack_skill": 14, "drops": "rare",     "special": "Armor piercing"},
-    "Assaultron":            {"hp": 50, "damage": "4d6",  "attack_skill": 16, "drops": "rare",     "special": "Laser head attack"},
-    "Sentry Bot":            {"hp": 70, "damage": "5d6",  "attack_skill": 14, "drops": "rare",     "special": "Heavy armor, self-destruct"},
-    "Super Mutant Behemoth": {"hp": 80, "damage": "6d6",  "attack_skill": 12, "drops": "rare",     "special": "AoE attacks"},
-    "Mirelurk Queen":        {"hp": 100, "damage": "6d6", "attack_skill": 14, "drops": "unique",   "special": "Acid spit, spawn hatchlings"},
+    "Deathclaw":             {"tier": 4, "hp": 60, "damage": "5d6",  "attack_skill": 14, "drops": "rare",     "special": "Armor piercing"},
+    "Assaultron":            {"tier": 4, "hp": 50, "damage": "4d6",  "attack_skill": 16, "drops": "rare",     "special": "Laser head attack"},
+    "Sentry Bot":            {"tier": 4, "hp": 70, "damage": "5d6",  "attack_skill": 14, "drops": "rare",     "special": "Heavy armor, self-destruct"},
+    "Super Mutant Behemoth": {"tier": 4, "hp": 80, "damage": "6d6",  "attack_skill": 12, "drops": "rare",     "special": "AoE attacks"},
+    "Mirelurk Queen":        {"tier": 4, "hp": 100, "damage": "6d6", "attack_skill": 14, "drops": "unique",   "special": "Acid spit, spawn hatchlings"},
     # Tier 5 — Boss
-    "Legendary Deathclaw":   {"hp": 90, "damage": "6d6",  "attack_skill": 16, "drops": "unique",   "special": "Regeneration, armor piercing"},
-    "Legendary Assaultron":  {"hp": 70, "damage": "5d6",  "attack_skill": 18, "drops": "unique",   "special": "Stealth, laser head attack"},
+    "Legendary Deathclaw":   {"tier": 5, "hp": 90, "damage": "6d6",  "attack_skill": 16, "drops": "unique",   "special": "Regeneration, armor piercing"},
+    "Legendary Assaultron":  {"tier": 5, "hp": 70, "damage": "5d6",  "attack_skill": 18, "drops": "unique",   "special": "Stealth, laser head attack"},
 }
+
+# ---------------------------------------------------------------------------
+# Encounter Rules (chapter-based constraints)
+# ---------------------------------------------------------------------------
+
+# max_tier: highest enemy tier allowed
+# hp_budget: max total alive enemy HP per encounter (base, scales with player count)
+# safe_turns: turns after chapter start where only tier 1 enemies are allowed
+ENCOUNTER_RULES = {
+    1: {"max_tier": 1, "hp_budget": 30,  "safe_turns": 2},
+    2: {"max_tier": 2, "hp_budget": 60,  "safe_turns": 1},
+    3: {"max_tier": 2, "hp_budget": 80,  "safe_turns": 1},
+    4: {"max_tier": 3, "hp_budget": 120, "safe_turns": 0},
+    5: {"max_tier": 4, "hp_budget": 180, "safe_turns": 0},
+    6: {"max_tier": 5, "hp_budget": 250, "safe_turns": 0},
+}
+
+def hp_to_tier(hp):
+    """Derive enemy tier from HP for custom (non-template) enemies."""
+    if hp <= 15:
+        return 1
+    elif hp <= 25:
+        return 2
+    elif hp <= 45:
+        return 3
+    elif hp <= 80:
+        return 4
+    else:
+        return 5
 
 # ---------------------------------------------------------------------------
 # Weapon Data
