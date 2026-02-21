@@ -150,6 +150,27 @@ func formatToolCallSummary(toolCalls []ToolCall) string {
 	return b.String()
 }
 
+// truncateToSentence returns s truncated to at most maxRunes runes,
+// cutting at the last sentence boundary within the limit.
+// Recognizes full stops for the world's top 20 languages:
+//   . (Latin)  。(CJK)  । (Devanagari)  ۔ (Urdu)
+func truncateToSentence(s string, maxRunes int) string {
+	runes := []rune(s)
+	if len(runes) <= maxRunes {
+		return s
+	}
+	lastEnd := 0
+	for i, r := range runes[:maxRunes] {
+		if r == '.' || r == '。' || r == '।' || r == '۔' {
+			lastEnd = i + 1
+		}
+	}
+	if lastEnd > 0 {
+		return string(runes[:lastEnd])
+	}
+	return string(runes[:maxRunes]) + "…"
+}
+
 func toOpenAIChatMessages(messages []Message, visionCapable bool) ([]openai.ChatCompletionMessageParamUnion, error) {
 	result := make([]openai.ChatCompletionMessageParamUnion, 0, len(messages))
 
@@ -196,7 +217,7 @@ func toOpenAIChatMessages(messages []Message, visionCapable bool) ([]openai.Chat
 			// Fallback priority: Content > ReasoningContent > tool call summary.
 			contentStr := strings.TrimSpace(m.Content)
 			if contentStr == "" {
-				contentStr = strings.TrimSpace(m.ReasoningContent)
+				contentStr = truncateToSentence(strings.TrimSpace(m.ReasoningContent), 50)
 			}
 			if contentStr == "" && len(m.ToolCalls) > 0 {
 				contentStr = formatToolCallSummary(m.ToolCalls)
