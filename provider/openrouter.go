@@ -138,8 +138,6 @@ func openRouterInputChars(messages []Message) int {
 	return total
 }
 
-const toolCallArgMaxLen = 80
-
 func formatToolCallSummary(toolCalls []ToolCall) string {
 	var b strings.Builder
 	for i, tc := range toolCalls {
@@ -148,15 +146,6 @@ func formatToolCallSummary(toolCalls []ToolCall) string {
 		}
 		b.WriteString("Calling ")
 		b.WriteString(tc.Function.Name)
-		args := strings.TrimSpace(tc.Function.Arguments)
-		if args != "" && args != "{}" {
-			if len(args) > toolCallArgMaxLen {
-				args = args[:toolCallArgMaxLen] + "..."
-			}
-			b.WriteByte('(')
-			b.WriteString(args)
-			b.WriteByte(')')
-		}
 	}
 	return b.String()
 }
