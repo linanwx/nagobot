@@ -17,7 +17,7 @@ import (
 	"github.com/linanwx/nagobot/provider"
 )
 
-//go:embed templates/*
+//go:embed all:templates
 var templateFS embed.FS
 
 var onboardCmd = &cobra.Command{
@@ -503,6 +503,11 @@ func createBootstrapFiles(workspace string) error {
 		return err
 	}
 	if err := copyEmbeddedDir("templates/skills", filepath.Join(workspace, skillsDir)); err != nil {
+		return err
+	}
+
+	// Copy embedded scripts into workspace.
+	if err := copyEmbeddedDir("templates/scripts", filepath.Join(workspace, "scripts")); err != nil {
 		return err
 	}
 
