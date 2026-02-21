@@ -80,7 +80,29 @@ func (t *SpawnThreadTool) Run(ctx context.Context, args json.RawMessage) string 
 		return fmt.Sprintf("Error spawning thread: %v", err)
 	}
 
-	return fmt.Sprintf("Thread spawned with ID: %s\nThe child will wake this thread with a 'child_completed' message when done.", childID)
+	agentLabel := strings.TrimSpace(a.Agent)
+	if agentLabel == "" {
+		agentLabel = "(session default)"
+	}
+
+	// Truncate task preview to keep tool output readable.
+	taskPreview := strings.TrimSpace(a.Task)
+	if len(taskPreview) > 200 {
+		taskPreview = taskPreview[:200] + "..."
+	}
+
+	return fmt.Sprintf(
+		"Child thread spawned.\n"+
+			"  ID:    %s\n"+
+			"  Agent: %s\n"+
+			"  Task:  %s\n\n"+
+			"The child is running asynchronously. When it finishes, this thread will "+
+			"receive a 'child_completed' wake message containing the child's output.\n"+
+			"You do not need to wait or poll — just finish your current response. "+
+			"You will be woken up automatically when the child is done.\n"+
+			"Use check_thread with the ID above to inspect progress if needed.",
+		childID, agentLabel, taskPreview,
+	)
 }
 
 // CheckThreadTool checks the status of a spawned thread.
