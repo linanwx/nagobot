@@ -121,17 +121,18 @@ def cmd_enemy_add(args):
         return error(f"Protection period: only tier 1 enemies allowed for {safe_turns - turns_in_chapter} more turn(s)",
                       chapter=chapter, turns_in_chapter=turns_in_chapter, safe_turns=safe_turns)
 
-    # Enemy count limit by turns into chapter
+    # Enemy count limit by days into chapter (1 day = 24 turns)
     alive_enemies = [e for e in state.get("enemies", {}).values() if e["status"] == "alive"]
     alive_count = len(alive_enemies)
-    if turns_in_chapter < 3:
+    days_in_chapter = turns_in_chapter // 24
+    if days_in_chapter < 1:
         max_enemies = 1
-    elif turns_in_chapter < 6:
+    elif days_in_chapter < 2:
         max_enemies = 2
     else:
         max_enemies = None
     if max_enemies is not None and alive_count >= max_enemies:
-        return error(f"Enemy count limit: max {max_enemies} alive enemies in chapter turn {turns_in_chapter + 1}",
+        return error(f"Enemy count limit: max {max_enemies} alive enemies on chapter day {days_in_chapter + 1}",
                       alive=alive_count, max=max_enemies)
 
     # HP budget check (scaled by player count)
