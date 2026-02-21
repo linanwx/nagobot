@@ -73,7 +73,7 @@ var openRouterModels = map[string]openRouterModelMeta{
 		ProviderOrder: []string{"anthropic"},
 	},
 	"z-ai/glm-5": {
-		ProviderOrder: []string{"z-ai"},
+		ProviderOrder: []string{"siliconflow/fp8"},
 	},
 	"minimax/minimax-m2.5": {
 		ProviderOrder: []string{"minimax/fp8"},
