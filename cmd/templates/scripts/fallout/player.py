@@ -126,8 +126,19 @@ def _modify_hp(args, negative):
     else:
         player["hp"] = min(player["max_hp"], player["hp"] + amount)
 
+    effects = player.get("status_effects", [])
+    has_incap = any(e["name"] == "Incapacitated" for e in effects)
+
+    # Auto-add Incapacitated on HP reaching 0
+    if player["hp"] <= 0 and old_hp > 0 and not has_incap:
+        effects.append({"name": "Incapacitated", "remaining": 3})
+
+    # Auto-remove Incapacitated on healing above 0
+    if player["hp"] > 0 and has_incap:
+        player["status_effects"] = [e for e in effects if e["name"] != "Incapacitated"]
+
     save_state(state)
-    status = "Down!" if player["hp"] <= 0 else "OK"
+    status = "Down! (Incapacitated — 3 turns to stabilize)" if player["hp"] <= 0 else "OK"
     output({
         "ok": True,
         "player": name,

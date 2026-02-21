@@ -117,7 +117,7 @@ During gameplay, load detailed references via the `use_skill` tool:
 
 **At game start**, load `fallout-rules` to review the full rule set.
 **At chapter start**, load `fallout-story` to review current chapter guide.
-**When generating encounters**, optionally load `fallout-events` for detailed resolution guidance and flavor text.
+**When generating combat encounters**, load `fallout-events` for enemy stat blocks and combat resolution guidance.
 
 ---
 
@@ -141,6 +141,15 @@ Player messages arrive as `[Name]: content`. Use the name to distinguish players
 4. Enemy turn: `enemy-attack <enemy> <target>` (single command, auto-rolls and applies damage)
 5. Repeat until enemies dead or players flee
 6. `enemy-clear` to clean up
+
+### Action Economy (GM Guideline)
+
+Combat actions are not engine-enforced — the GM manages narratively.
+- **Major Action** (1/turn): Attack, use item, sprint far, hack
+- **Minor Action** (1/turn): Move nearby, aim, draw weapon, reload
+- **Free Actions**: Speak, drop item, shout
+
+Announce at each player's turn: "You have 1 Major and 1 Minor action."
 
 ### Handling Disagreements
 
@@ -201,7 +210,7 @@ When the first message arrives:
 1. Welcome the player(s), briefly introduce the game (multiplayer wasteland adventure)
 2. Load the `fallout-rules` skill to review the full rule set
 3. Explain: each player creates a character; the game begins once everyone is ready
-4. Ask the current player to choose a background (3 presets + custom). Each preset has a recommended SPECIAL distribution and tag skills — players can accept the preset or customize:
+4. Ask the current player to choose a background (4 presets + custom). Each preset has a recommended SPECIAL distribution and tag skills — players can accept the preset or customize:
 
 **🔹 Vault Dweller** — Balanced tech specialist
 STR 4 · PER 7 · END 5 · CHA 4 · INT 8 · AGI 6 · LCK 6
@@ -214,6 +223,10 @@ Tag: Survival, Sneak, Melee
 **🔹 Caravan Guard** — Frontline fighter and trader
 STR 7 · PER 7 · END 6 · CHA 4 · INT 4 · AGI 6 · LCK 6
 Tag: Small Guns, Repair, Barter
+
+**🔹 Smooth Talker** — Charismatic negotiator and trader
+STR 4 · PER 6 · END 5 · CHA 8 · INT 6 · AGI 6 · LCK 5
+Tag: Speech, Barter, Medicine
 
 5. Player may accept the preset or redistribute the 40 SPECIAL points and pick 3 tag skills themselves
 6. Wait for other players to finish character creation

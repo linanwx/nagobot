@@ -435,12 +435,14 @@ def cmd_initiative(args):
         per = effective.get("PER", 5)
         agi = effective.get("AGI", 5)
         init_val = per + agi
-        order.append({"name": name, "type": "player", "character": player.get("character", name), "initiative": init_val})
+        tiebreaker = random.randint(1, 20)
+        order.append({"name": name, "type": "player", "character": player.get("character", name), "initiative": init_val, "tiebreaker": tiebreaker})
 
     # Include alive enemies (use attack_skill as initiative value)
     for name, enemy in state.get("enemies", {}).items():
         if enemy.get("status") == "alive":
-            order.append({"name": name, "type": "enemy", "initiative": enemy.get("attack_skill", 5)})
+            tiebreaker = random.randint(1, 20)
+            order.append({"name": name, "type": "enemy", "initiative": enemy.get("attack_skill", 5), "tiebreaker": tiebreaker})
 
-    order.sort(key=lambda x: x["initiative"], reverse=True)
+    order.sort(key=lambda x: (x["initiative"], x["tiebreaker"]), reverse=True)
     output({"ok": True, "initiative_order": order}, indent=True)

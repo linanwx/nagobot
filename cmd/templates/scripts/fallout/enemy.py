@@ -201,7 +201,11 @@ def cmd_enemy_attack(args):
 
         if player["hp"] <= 0:
             result["target_down"] = True
-            result["message"] = f"{target_name} is down!"
+            result["message"] = f"{target_name} is down! (Incapacitated — 3 turns to stabilize)"
+            # Auto-add Incapacitated status
+            effects = player.get("status_effects", [])
+            if not any(e["name"] == "Incapacitated" for e in effects):
+                effects.append({"name": "Incapacitated", "remaining": 3})
     else:
         result["hit"] = False
         result["detail"] = f"Roll {attack_roll} -> Miss (needed <={enemy['attack_skill']})"

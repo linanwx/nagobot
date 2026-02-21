@@ -153,6 +153,14 @@ def cmd_turn(args):
                 expired_effects.append({"player": pname, "effect": e["name"]})
         player["status_effects"] = remaining
 
+    # Check for death: Incapacitated expired while HP still 0
+    deaths = []
+    for exp in expired_effects:
+        if exp["effect"] == "Incapacitated":
+            p = state["players"].get(exp["player"])
+            if p and p["hp"] <= 0:
+                deaths.append(exp["player"])
+
     save_state(state)
     result = {
         "ok": True,
@@ -160,6 +168,9 @@ def cmd_turn(args):
         "time_of_day": state["time_of_day"],
         "chapter": state["chapter"],
     }
+    if deaths:
+        result["deaths"] = deaths
+        result["death_warning"] = "Players have died! They were not stabilized in time."
     if expired_effects:
         result["expired_effects"] = expired_effects
     if active_effects:
