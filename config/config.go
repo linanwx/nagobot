@@ -2,9 +2,13 @@
 package config
 
 import (
+	"os"
 	"strings"
+	"sync"
+	"time"
 
 	cronpkg "github.com/linanwx/nagobot/cron"
+	"gopkg.in/yaml.v3"
 )
 
 const (
@@ -27,6 +31,56 @@ type Config struct {
 	Channels  *ChannelsConfig `json:"channels" yaml:"channels"`
 	Logging   LoggingConfig   `json:"logging,omitempty" yaml:"logging,omitempty"`
 	Cron      []cronpkg.Job   `json:"cron,omitempty" yaml:"cron,omitempty"`
+
+	// Hot-reload support for sessionAgents.
+	sessionAgentsMu       sync.Mutex        `yaml:"-" json:"-"`
+	sessionAgentsCache    map[string]string  `yaml:"-" json:"-"`
+	sessionAgentsFileTime time.Time          `yaml:"-" json:"-"`
+}
+
+// SessionAgent returns the agent name for the given session key.
+// It lazily reloads sessionAgents from config.yaml when the file changes on disk.
+func (c *Config) SessionAgent(key string) string {
+	if c == nil {
+		return ""
+	}
+	c.sessionAgentsMu.Lock()
+	defer c.sessionAgentsMu.Unlock()
+
+	path, err := ConfigPath()
+	if err != nil {
+		// Fallback to in-memory config.
+		if c.Channels == nil {
+			return ""
+		}
+		return c.Channels.SessionAgents[key]
+	}
+
+	info, err := os.Stat(path)
+	if err != nil || info.ModTime().Equal(c.sessionAgentsFileTime) {
+		return c.sessionAgentsCache[key]
+	}
+
+	// File changed on disk — reload sessionAgents only.
+	c.reloadSessionAgents(path, info.ModTime())
+	return c.sessionAgentsCache[key]
+}
+
+// reloadSessionAgents reads only the channels.sessionAgents section from config.yaml.
+func (c *Config) reloadSessionAgents(path string, modTime time.Time) {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return
+	}
+	var raw struct {
+		Channels struct {
+			SessionAgents map[string]string `yaml:"sessionAgents"`
+		} `yaml:"channels"`
+	}
+	if yaml.Unmarshal(data, &raw) == nil {
+		c.sessionAgentsCache = raw.Channels.SessionAgents
+	}
+	c.sessionAgentsFileTime = modTime
 }
 
 // ThreadConfig contains thread runtime defaults.

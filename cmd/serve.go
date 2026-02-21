@@ -141,10 +141,7 @@ func runServe(cmd *cobra.Command, args []string) error {
 // buildDefaultAgentFor returns a factory that resolves the default agent name for a given session key.
 func buildDefaultAgentFor(cfg *config.Config) func(string) string {
 	return func(sessionKey string) string {
-		if cfg.Channels == nil || len(cfg.Channels.SessionAgents) == 0 {
-			return ""
-		}
-		return cfg.Channels.SessionAgents[sessionKey]
+		return cfg.SessionAgent(sessionKey)
 	}
 }
 
