@@ -16,7 +16,7 @@ type ThreadSleeper interface {
 	SetSuppressSink()
 }
 
-// SleepThreadTool lets the model sleep the current thread and wake it later.
+// SleepThreadTool lets the model sleep the current thread.
 type SleepThreadTool struct {
 	sleeper ThreadSleeper
 }
@@ -32,22 +32,27 @@ func (t *SleepThreadTool) Def() provider.ToolDef {
 		Type: "function",
 		Function: provider.FunctionDef{
 			Name: "sleep_thread",
-			Description: "Sleep the current thread and schedule a delayed wake-up. " +
-				"Use this when you decide not to respond now and want to be woken later. " +
+			Description: "Suppress output and put the current thread to sleep with a scheduled wake-up, " +
+				"or mute the current turn without scheduling a wake-up (skip mode). " +
+				"Use when: the message is not directed at you, someone else is talking in a group chat, " +
+				"the wake timing is wrong, or you need to pause before responding. " +
 				"After calling this tool, your output for this turn will be suppressed — the user will NOT receive any message.",
 			Parameters: map[string]any{
 				"type": "object",
 				"properties": map[string]any{
 					"duration": map[string]any{
 						"type":        "string",
-						"description": "How long to sleep before waking (max 24h). Go duration format: \"30m\", \"2h\", \"1h30m\".",
+						"description": "How long to sleep before waking (max 24h). Go duration format: \"30m\", \"2h\", \"1h30m\". Defaults to \"2m\" if omitted.",
 					},
 					"message": map[string]any{
 						"type":        "string",
-						"description": "Optional message to include when waking up. Useful for reminding yourself why you set the timer.",
+						"description": "Optional memo to include when waking up, reminding yourself why you slept.",
+					},
+					"skip": map[string]any{
+						"type":        "boolean",
+						"description": "Set to true to suppress output without scheduling a wake-up. Use when the message is not directed at you, someone else is talking, or the wake timing is wrong.",
 					},
 				},
-				"required": []string{"duration"},
 			},
 		},
 	}
@@ -56,6 +61,7 @@ func (t *SleepThreadTool) Def() provider.ToolDef {
 type sleepThreadArgs struct {
 	Duration string `json:"duration"`
 	Message  string `json:"message"`
+	Skip     bool   `json:"skip"`
 }
 
 // Run executes the tool.
@@ -69,9 +75,19 @@ func (t *SleepThreadTool) Run(_ context.Context, args json.RawMessage) string {
 		return "Error: sleep not configured"
 	}
 
+	// Suppress sink delivery for this turn.
+	t.sleeper.SetSuppressSink()
+
+	// Skip mode: suppress output only, no scheduled wake.
+	if a.Skip {
+		return "Thread sleeping. Output suppressed.\n" +
+			"You MUST output only \"SLEEP_OK\" and stop. Do not call any other tools or produce any other output."
+	}
+
+	// Default duration: 2 minutes.
 	durationStr := strings.TrimSpace(a.Duration)
 	if durationStr == "" {
-		return "Error: duration is required"
+		durationStr = "2m"
 	}
 
 	d, err := time.ParseDuration(durationStr)
@@ -94,12 +110,9 @@ func (t *SleepThreadTool) Run(_ context.Context, args json.RawMessage) string {
 		return fmt.Sprintf("Error: %v", err)
 	}
 
-	// Suppress sink delivery for this turn.
-	t.sleeper.SetSuppressSink()
-
 	wakeAt := time.Now().Add(d)
 	return fmt.Sprintf(
-		"Sleep scheduled. Wake at %s (%s from now).\n"+
+		"Sleep scheduled. Wake at %s (%s from now). Output suppressed.\n"+
 			"You MUST output only \"SLEEP_OK\" and stop. Do not call any other tools or produce any other output.",
 		wakeAt.Format(time.RFC3339), durationStr,
 	)
