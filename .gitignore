@@ -11,8 +11,8 @@ __pycache__/
 *.pyc
 
 # Game state (runtime)
-fallout_game.json
-fallout_game.json.bak
+**/fallout_game.json
+**/fallout_game.json.bak
 
 # Editor/OS
 .idea/
