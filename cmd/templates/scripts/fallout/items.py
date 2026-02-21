@@ -41,8 +41,14 @@ def cmd_use_item(args):
 
     if "heal" in chem:
         old_hp = player["hp"]
-        player["hp"] = min(player["max_hp"], player["hp"] + chem["heal"])
-        results["effects"].append(f"HP: {old_hp} -> {player['hp']}")
+        heal_amount = chem["heal"]
+        medicine_level = player.get("skills", {}).get("Medicine", 0)
+        medicine_bonus = medicine_level * 2
+        player["hp"] = min(player["max_hp"], player["hp"] + heal_amount + medicine_bonus)
+        heal_desc = f"HP: {old_hp} -> {player['hp']}"
+        if medicine_bonus > 0:
+            heal_desc += f" (Medicine +{medicine_bonus})"
+        results["effects"].append(heal_desc)
 
     if "rads" in chem:
         old_rads = player.get("rads", 0)
@@ -163,18 +169,23 @@ def cmd_rest(args):
 
     for pname, player in state.get("players", {}).items():
         old_hp = player["hp"]
-        healed = min(hours * 5, player["max_hp"] - player["hp"])
+        survival_level = player.get("skills", {}).get("Survival", 0)
+        rate = 5 + survival_level  # base 5 HP/hour + 1 per Survival level
+        healed = min(hours * rate, player["max_hp"] - player["hp"])
         player["hp"] = min(player["max_hp"], player["hp"] + healed)
 
         effects = player.get("status_effects", [])
         cleared = [e["name"] for e in effects if e.get("remaining", 0) != -1]
         player["status_effects"] = [e for e in effects if e.get("remaining", 0) == -1]
 
-        results["players"][pname] = {
+        player_result = {
             "hp_restored": healed,
             "hp": f"{player['hp']}/{player['max_hp']}",
             "effects_cleared": cleared,
         }
+        if survival_level > 0:
+            player_result["survival_bonus"] = f"+{survival_level} HP/hour"
+        results["players"][pname] = player_result
 
     save_state(state)
     output(results, indent=True)
