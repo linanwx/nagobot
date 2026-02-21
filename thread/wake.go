@@ -27,10 +27,60 @@ func (t *Thread) hasMessages() bool {
 	return len(t.inbox) > 0
 }
 
+// tryMerge drains the inbox for consecutive messages with the same
+// Source + AgentName + Vars, concatenating their Message fields and
+// keeping the last Sink.  Non-mergeable messages are re-enqueued.
+func (t *Thread) tryMerge(first *WakeMessage) *WakeMessage {
+	merged := 0
+	var requeue []*WakeMessage
+	for {
+		select {
+		case next := <-t.inbox:
+			if canMerge(first, next) {
+				first.Message += "\n" + next.Message
+				first.Sink = next.Sink
+				merged++
+			} else {
+				requeue = append(requeue, next)
+			}
+		default:
+			for _, m := range requeue {
+				t.inbox <- m
+			}
+			if merged > 0 {
+				logger.Info("merged wake messages",
+					"threadID", t.id,
+					"sessionKey", t.sessionKey,
+					"source", first.Source,
+					"merged", merged+1,
+					"requeued", len(requeue),
+				)
+			}
+			return first
+		}
+	}
+}
+
+func canMerge(a, b *WakeMessage) bool {
+	if a.Source != b.Source || a.AgentName != b.AgentName {
+		return false
+	}
+	if len(a.Vars) != len(b.Vars) {
+		return false
+	}
+	for k, v := range a.Vars {
+		if b.Vars[k] != v {
+			return false
+		}
+	}
+	return true
+}
+
 // RunOnce dequeues one WakeMessage and executes a single turn.
 func (t *Thread) RunOnce(ctx context.Context) {
 	select {
 	case msg := <-t.inbox:
+		msg = t.tryMerge(msg)
 		if name := strings.TrimSpace(msg.AgentName); name != "" {
 			a, err := t.cfg().Agents.New(name)
 			if err != nil {
