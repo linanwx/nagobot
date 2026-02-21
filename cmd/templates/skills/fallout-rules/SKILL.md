@@ -155,10 +155,9 @@ exec: python3 scripts/fallout_game.py enemy-clear [all]
 Damage dice (d6):
 | Roll | Effect |
 |------|--------|
-| 1 | 1 damage |
-| 2 | 2 damage |
-| 3-4 | 0 damage |
-| 5-6 | 1 damage + special effect |
+| 1-2 | 1 damage |
+| 3-4 | 2 damage |
+| 5-6 | 3 damage + special effect |
 
 Weapon damage dice count:
 | Weapon | Dice | Special |

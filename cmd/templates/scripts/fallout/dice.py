@@ -382,18 +382,16 @@ def cmd_damage(args):
     details = []
 
     for d in dice:
-        if d == 1:
+        if d in (1, 2):
             total_damage += 1
             details.append(f"{d} -> 1 damage")
-        elif d == 2:
+        elif d in (3, 4):
             total_damage += 2
             details.append(f"{d} -> 2 damage")
-        elif d in (3, 4):
-            details.append(f"{d} -> No damage")
         elif d in (5, 6):
-            total_damage += 1
+            total_damage += 3
             effects.append("Special Effect")
-            details.append(f"{d} -> 1 damage + Special Effect!")
+            details.append(f"{d} -> 3 damage + Special Effect!")
 
     result = {
         "ok": True,
