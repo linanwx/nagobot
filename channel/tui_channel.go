@@ -51,13 +51,8 @@ func (c *TUIChannel) Start(ctx context.Context) error {
 		if _, err := c.program.Run(); err != nil {
 			fmt.Fprintf(os.Stderr, "tui error: %v\n", err)
 		}
-		// TUI exited — signal stop and terminate the process.
-		select {
-		case <-c.done:
-		default:
-			close(c.done)
-		}
-		// Send SIGINT to trigger serve.go's graceful shutdown.
+		// TUI exited — trigger serve.go's graceful shutdown via SIGINT.
+		// Stop() will handle closing c.done via stopOnce.
 		p, _ := os.FindProcess(os.Getpid())
 		if p != nil {
 			_ = p.Signal(syscall.SIGINT)
