@@ -278,6 +278,7 @@ func (t *Thread) buildTools() *tools.Registry {
 	})
 
 	reg.Register(tools.NewSpawnThreadTool(t))
+	reg.Register(tools.NewSleepThreadTool(t))
 
 	return reg
 }

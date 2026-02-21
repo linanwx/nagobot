@@ -1,6 +1,7 @@
 package cron
 
 import (
+	"fmt"
 	"time"
 
 	"github.com/linanwx/nagobot/logger"
@@ -75,6 +76,36 @@ func (s *Scheduler) Start() {
 	if s.cron != nil {
 		s.cron.Start()
 	}
+}
+
+// AddJob persists a new job and schedules it immediately.
+func (s *Scheduler) AddJob(job Job) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	job = Normalize(job)
+	ok, _ := ValidateStored(job, time.Now().UTC())
+	if !ok {
+		return fmt.Errorf("invalid job: id=%q kind=%q", job.ID, job.Kind)
+	}
+
+	cancel, err := s.scheduleLocked(job)
+	if err != nil {
+		return fmt.Errorf("schedule job %q: %w", job.ID, err)
+	}
+
+	// Unschedule any previous job with the same ID.
+	s.unscheduleLocked(job.ID)
+
+	s.jobs[job.ID] = job
+	if cancel != nil {
+		s.cancels[job.ID] = cancel
+	}
+	if err := s.saveLocked(); err != nil {
+		return fmt.Errorf("persist job %q: %w", job.ID, err)
+	}
+	logger.Info("job added", "id", job.ID, "kind", job.Kind)
+	return nil
 }
 
 func (s *Scheduler) Stop() {

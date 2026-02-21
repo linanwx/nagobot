@@ -23,6 +23,7 @@ type Job struct {
 	Agent       string     `json:"agent,omitempty" yaml:"agent,omitempty"`
 	WakeSession string     `json:"wake_session,omitempty" yaml:"wake_session,omitempty"`
 	Silent      bool       `json:"silent,omitempty" yaml:"silent,omitempty"`
+	DirectWake  bool       `json:"direct_wake,omitempty" yaml:"direct_wake,omitempty"`
 	CreatedAt   time.Time  `json:"created_at" yaml:"created_at,omitempty"`
 }
 

@@ -6,6 +6,7 @@ import (
 
 	"github.com/linanwx/nagobot/agent"
 	"github.com/linanwx/nagobot/config"
+	"github.com/linanwx/nagobot/cron"
 	"github.com/linanwx/nagobot/provider"
 	"github.com/linanwx/nagobot/session"
 	"github.com/linanwx/nagobot/skills"
@@ -53,6 +54,7 @@ type ThreadConfig struct {
 	HealthChannels      *tools.HealthChannelsInfo
 	ProviderFactory     *provider.Factory              // For per-agent model routing
 	Models              map[string]*config.ModelConfig  // Model type → provider/model mapping
+	AddJob              func(cron.Job) error           // Persistent job scheduling (for sleep_thread)
 }
 
 // Thread is a single execution unit with an agent, wake queue, and optional session.
@@ -74,6 +76,7 @@ type Thread struct {
 	hooks        []turnHook
 	defaultSink  Sink      // Fallback sink when WakeMessage.Sink is nil.
 	lastActiveAt time.Time // Last time this thread completed work.
+	suppressSink bool      // When true, RunOnce skips sink delivery (reset after each turn).
 
 	execMetrics *ExecMetrics // Non-nil only while a turn is executing.
 }

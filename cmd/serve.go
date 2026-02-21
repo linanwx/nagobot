@@ -96,7 +96,8 @@ func runServe(cmd *cobra.Command, args []string) error {
 	if finalServeDiscord {
 		chManager.Register(channel.NewDiscordChannel(cfg))
 	}
-	chManager.Register(channel.NewCronChannel(cfg))
+	cronCh := channel.NewCronChannel(cfg)
+	chManager.Register(cronCh)
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -104,6 +105,11 @@ func runServe(cmd *cobra.Command, args []string) error {
 	// Set default agent/sink factories: resolve fallback agent and sink per session key.
 	threadMgr.SetDefaultAgentFor(buildDefaultAgentFor(cfg))
 	threadMgr.SetDefaultSinkFor(buildDefaultSinkFor(chManager, cfg))
+
+	// Wire sleep_thread: CronChannel handles DirectWake jobs by waking threads directly.
+	cronCh.SetDirectWake(func(sessionKey, source, message string) {
+		threadMgr.Wake(sessionKey, &thread.WakeMessage{Source: source, Message: message})
+	})
 
 	// Register shared tools.
 	threadMgr.RegisterTool(tools.NewWakeThreadTool(threadMgr))
@@ -122,6 +128,9 @@ func runServe(cmd *cobra.Command, args []string) error {
 	if err := chManager.StartAll(ctx); err != nil {
 		return fmt.Errorf("failed to start channels: %w", err)
 	}
+
+	// Wire AddJob after StartAll (Scheduler is created in CronChannel.Start).
+	threadMgr.SetAddJob(cronCh.AddJob)
 
 	// Start thread manager run loop in background.
 	go threadMgr.Run(ctx)

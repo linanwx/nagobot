@@ -18,15 +18,16 @@ import (
 // a Message on the Messages() channel. Send is a no-op — responses are
 // delivered via thread sinks.
 type CronChannel struct {
-	storePath string
-	seedJobs  []cronpkg.Job // config-defined seeds
-	scheduler *cronpkg.Scheduler
-	messages  chan *Message
-	done      chan struct{}
+	storePath    string
+	seedJobs     []cronpkg.Job // config-defined seeds
+	scheduler    *cronpkg.Scheduler
+	messages     chan *Message
+	done         chan struct{}
+	onDirectWake func(sessionKey, source, message string)
 }
 
 // NewCronChannel creates a CronChannel from config.
-func NewCronChannel(cfg *config.Config) Channel {
+func NewCronChannel(cfg *config.Config) *CronChannel {
 	workspace, err := cfg.WorkspacePath()
 	if err != nil {
 		logger.Warn("cron channel: failed to get workspace path", "err", err)
@@ -42,8 +43,26 @@ func NewCronChannel(cfg *config.Config) Channel {
 
 func (c *CronChannel) Name() string { return "cron" }
 
+// SetDirectWake sets a callback for jobs with DirectWake=true.
+// Called instead of posting a channel message.
+func (c *CronChannel) SetDirectWake(fn func(sessionKey, source, message string)) {
+	c.onDirectWake = fn
+}
+
+// AddJob delegates to the underlying scheduler.
+func (c *CronChannel) AddJob(job cronpkg.Job) error {
+	if c.scheduler == nil {
+		return fmt.Errorf("cron scheduler not started")
+	}
+	return c.scheduler.AddJob(job)
+}
+
 func (c *CronChannel) Start(ctx context.Context) error {
 	factory := func(job *cronpkg.Job) (string, error) {
+		if job != nil && job.DirectWake && job.WakeSession != "" && c.onDirectWake != nil {
+			c.onDirectWake(job.WakeSession, "sleep_completed", job.Task)
+			return "", nil
+		}
 		c.messages <- c.buildMessage(job)
 		return "", nil // fire-and-forget
 	}

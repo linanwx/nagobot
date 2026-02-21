@@ -66,7 +66,8 @@ func (t *Thread) RunOnce(ctx context.Context) {
 			response = fmt.Sprintf("[Error] %v", err)
 		}
 
-		if !sink.IsZero() && strings.TrimSpace(response) != "" {
+		suppress := t.checkAndResetSuppressSink()
+		if !sink.IsZero() && strings.TrimSpace(response) != "" && !suppress {
 			if sinkErr := sink.Send(ctx, response); sinkErr != nil {
 				logger.Error("sink delivery error", "threadID", t.id, "sessionKey", t.sessionKey, "err", sinkErr)
 			}
@@ -123,6 +124,8 @@ func wakeActionHint(source string) string {
 		return "Execute this delegated task and return a result."
 	case "child_completed":
 		return "A child thread completed. Summarize the result and report the original result."
+	case "sleep_completed":
+		return "You previously set a sleep timer. You have been woken up. Resume your session."
 	case "cron":
 		return "A scheduled cron task has started. Execute it based on the provided job context."
 	case "cron_finished":
