@@ -56,20 +56,20 @@ Every skill check automatically includes a Luck check for the leader:
 
 10 skills, level 0-6. Pick 3 tag skills at character creation (start at level 2).
 
-| Skill | Linked Attr | Uses |
-|-------|------------|------|
-| Lockpick | PER or STR or AGI | Finesse picking / Brute-force breaking / Quick bypass |
-| Medicine | INT or PER | Diagnosis and treatment / Wound assessment |
-| Melee | STR or AGI | Heavy strikes / Nimble close combat |
-| Repair | INT or PER | Fix and modify / Inspect faults |
-| Science | INT or PER | Hack terminals / Analyze samples |
-| Small Guns | PER or AGI | Precision aim / Quick draw |
-| Sneak | AGI or INT | Stealth movement / Ambush planning |
-| Speech | CHA or INT | Charm and persuasion / Logical argument |
-| Survival | END or PER | Endurance travel / Tracking and foraging |
-| Barter | CHA or INT | Haggling / Appraisal and valuation |
+| Skill | Uses |
+|-------|------|
+| Lockpick | Open locks, bypass security, disable traps |
+| Medicine | Heal wounds, diagnose illness, craft chems |
+| Melee | Close combat, blocking, intimidation with weapon |
+| Repair | Fix equipment, modify weapons, jury-rig solutions |
+| Science | Hack terminals, analyze samples, craft tech |
+| Small Guns | Firearms accuracy, maintenance, quick draw |
+| Sneak | Stealth movement, pickpocket, ambush |
+| Speech | Persuasion, deception, intimidation, negotiation |
+| Survival | Tracking, foraging, navigation, endurance travel |
+| Barter | Haggling, appraisal, trade negotiation |
 
-The GM chooses the attribute based on the player's described approach. The same skill can pair with different attributes depending on how the action is performed.
+Any attribute can pair with any skill — the GM chooses the attribute based on the player's described approach. For example, Lockpick + PER (carefully examine the lock), Lockpick + STR (force it open), or Lockpick + INT (study the mechanism).
 
 ### Tag Skill Bonus
 Tag skills get a special crit: any roll ≤ skill level counts as a critical success (+1 extra success).
@@ -143,9 +143,9 @@ Players ordered by effective PER + AGI (highest first). Enemies included using t
 - **Free Action**: Speak, drop item
 
 ### Attack Roll
-Use `check` with appropriate skill:
-- Melee → STR + Melee
-- Ranged → PER + Small Guns
+Use `check` with appropriate attribute + skill. The GM picks the attribute based on the action:
+- Melee: typically STR, but AGI for nimble strikes, INT for exploiting weak points
+- Ranged: typically PER, but AGI for snap shots, INT for called shots
 
 ### Damage
 ```
