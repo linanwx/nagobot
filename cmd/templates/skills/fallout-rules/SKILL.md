@@ -65,39 +65,53 @@ Tag skills get a special crit: any roll ≤ skill level counts as a critical suc
 ## Skill Checks (2d20 System)
 
 ```
-exec: python3 scripts/fallout_game.py check <player> <attribute> <skill> <difficulty>
+exec: python3 scripts/fallout_game.py check <players> <attribute> <skill> <difficulty> [ap_spend]
 ```
 
 ### How It Works
-1. Target Number = Attribute + Skill Level
-2. Roll 2d20
+1. Target Number = Effective Attribute + Skill Level (radiation/drug modifiers applied automatically)
+2. Roll 2d20 (solo), 3d20 (assisted), or more (group)
 3. Each die ≤ Target Number = 1 success
 4. Die = 1 → Critical success (counts as 2 successes)
 5. Die = 20 → Complication (something goes wrong, even on success)
 6. Tag skill: die ≤ skill level → extra success
 
+### Solo / Assisted / Group Checks
+
+All use a single `check` command with comma-separated player names:
+- **Solo** (1 player): `check Jake PER Lockpick 2` → rolls 2d20
+- **Assisted** (2 players): `check Jake,Sarah PER Lockpick 3` → rolls 3d20
+- **Group** (3+ players): `check Jake,Sarah,Bob PER Sneak 4` → rolls 4d20
+
+The engine auto-selects the **leader** (highest target number). Each helper contributes 1d20 evaluated against their own target. Leader must score ≥1 success for helper successes to count.
+
+### Spending AP for Extra Dice
+
+Add `ap_spend` (0-3) as the last argument. Each AP adds 1d20. Maximum 5d20 total.
+
+```
+check Jake PER Lockpick 4 2     # Solo + 2 AP → 4d20
+check Jake,Sarah PER Lockpick 3 1  # Assisted + 1 AP → 4d20
+```
+
+AP is deducted from the leader before rolling. If already at 5d20 from helpers, no AP can be spent.
+
 ### Difficulty Levels
-| Difficulty | Successes Needed | When to Use |
-|-----------|-----------------|-------------|
-| 0 | Auto-success | Trivial tasks |
-| 1 | 1 | Simple tasks |
-| 2 | 2 | Requires competence |
-| 3 | 3 | Professional-level |
-| 4 | 4 | Extremely hard |
-| 5 | 5 | Near impossible |
+| Difficulty | Successes | When to Use | Solo (no AP) | Solo (3 AP) |
+|-----------|-----------|-------------|-------------|-------------|
+| 0 | Auto | Trivial tasks | 100% | 100% |
+| 1 | 1 | Simple tasks | ~75% | ~97% |
+| 2 | 2 | Requires competence | ~30% | ~83% |
+| 3 | 3 | Professional-level | ~5% | ~56% |
+| 4 | 4 | Extremely hard | ~0.25% | ~28% |
+| 5 | 5 | Near impossible | 0% | ~9% |
 
 ### Excess Successes → Action Points
-Successes beyond difficulty become AP. AP can be spent on:
-- Extra damage in combat
+Successes beyond difficulty become AP, added to the leader. AP can be spent on:
+- Extra dice on checks (1 AP = 1d20)
+- Extra dice on damage (1 AP = 1d6)
 - Additional information from checks
-- Reduce time for tasks
 - Environmental advantages
-
-### Assisted Checks
-```
-exec: python3 scripts/fallout_game.py assist-check <player> <helper> <attribute> <skill> <difficulty>
-```
-Helper grants +2 to target number.
 
 ---
 
@@ -107,7 +121,7 @@ Helper grants +2 to target number.
 ```
 exec: python3 scripts/fallout_game.py initiative
 ```
-Order by PER + AGI (highest first). Ties broken alphabetically.
+Players ordered by effective PER + AGI (highest first). Enemies included using their attack_skill value.
 
 ### Combat Actions (per turn)
 - **Major Action** (1 per turn): Attack, use item, sprint, hack
@@ -121,8 +135,22 @@ Use `check` with appropriate skill:
 
 ### Damage
 ```
-exec: python3 scripts/fallout_game.py damage <dice_count> [bonus]
+exec: python3 scripts/fallout_game.py damage <player> <dice_count> [bonus] [ap_spend]
 ```
+Player name required (for AP deduction). Each AP spent adds 1d6 (max 3 AP).
+
+### Enemy Tracking
+```
+exec: python3 scripts/fallout_game.py enemy-add <name> <hp> <damage_dice> <attack_skill> <drops> [special]
+exec: python3 scripts/fallout_game.py enemy-attack <enemy> <target_player>
+exec: python3 scripts/fallout_game.py enemy-hurt <name> <amount>
+exec: python3 scripts/fallout_game.py enemy-list
+exec: python3 scripts/fallout_game.py enemy-clear [all]
+```
+
+**Enemy attacks**: Roll 1d20 vs attack_skill. Hit = roll damage dice, auto-apply to player HP. Roll 1 = critical (bonus damage). Roll 20 = fumble. Simpler than player 2d20 — enemies are threats but less nuanced.
+
+**On kill**: `enemy-hurt` auto-rolls loot from the enemy's drops tier.
 
 Damage dice (d6):
 | Roll | Effect |
@@ -161,14 +189,16 @@ exec: python3 scripts/fallout_game.py hurt <player> <amount>
 exec: python3 scripts/fallout_game.py rads <player> <amount>
 ```
 
-| Rads | Effect |
-|------|--------|
-| 0-199 | None |
-| 200-399 | Minor: END -1 |
-| 400-599 | Moderate: STR -1, END -1 |
-| 600-799 | Severe: STR -2, END -2 |
-| 800-999 | Critical: STR -3, END -3 |
-| 1000+ | Fatal |
+| Rads | Severity | SPECIAL Penalties |
+|------|----------|-------------------|
+| 0-199 | None | — |
+| 200-399 | Minor | END -1 |
+| 400-599 | Moderate | STR -1, END -1 |
+| 600-799 | Severe | STR -2, PER -1, END -2, AGI -1 |
+| 800-999 | Critical | STR -3, PER -2, END -3, AGI -2 |
+| 1000+ | Lethal | STR -4, PER -3, END -4, AGI -3, LCK -3 |
+
+Penalties are automatically applied to all checks and initiative via effective SPECIAL.
 
 **Reduce rads**: RadAway (-100 rads), doctor visit (-200 rads)
 

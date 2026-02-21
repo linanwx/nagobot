@@ -60,6 +60,8 @@ def cmd_use_item(args):
             "remaining": chem.get("duration", 1),
             "source": item,
         }
+        if chem.get("stat_mods"):
+            effect_entry["stat_mods"] = dict(chem["stat_mods"])
         player.setdefault("status_effects", []).append(effect_entry)
         results["effects"].append(f"Status gained: {chem['effect']} ({chem.get('duration', 1)} rounds)")
 
@@ -152,6 +154,12 @@ def cmd_rest(args):
         hours = max(1, min(hours, 24))
 
     results = {"ok": True, "hours": hours, "players": {}}
+
+    # Clear all enemies on rest
+    enemies = state.get("enemies", {})
+    if enemies:
+        results["enemies_cleared"] = list(enemies.keys())
+        state["enemies"] = {}
 
     for pname, player in state.get("players", {}).items():
         old_hp = player["hp"]

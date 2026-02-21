@@ -26,6 +26,15 @@ ALL_SKILLS = [
 
 SPECIAL_ATTRS = ["STR", "PER", "END", "CHA", "INT", "AGI", "LCK"]
 
+# Radiation penalty tiers (first match wins, not cumulative)
+RAD_PENALTIES = [
+    (1000, {"STR": -4, "PER": -3, "END": -4, "AGI": -3, "LCK": -3}),
+    ( 800, {"STR": -3, "PER": -2, "END": -3, "AGI": -2}),
+    ( 600, {"STR": -2, "PER": -1, "END": -2, "AGI": -1}),
+    ( 400, {"STR": -1, "END": -1}),
+    ( 200, {"END": -1}),
+]
+
 # ---------------------------------------------------------------------------
 # Output helpers
 # ---------------------------------------------------------------------------
@@ -92,6 +101,49 @@ def require_player(state, name):
         available = list(state.get("players", {}).keys())
         error(f"Player not found: {name}", available_players=available)
     return player
+
+def require_enemy(state, name):
+    """Get enemy from state or print error. Returns enemy or None."""
+    enemy = state.get("enemies", {}).get(name)
+    if not enemy:
+        available = list(state.get("enemies", {}).keys())
+        error(f"Enemy not found: {name}", available_enemies=available)
+    return enemy
+
+
+def get_effective_special(player):
+    """Compute effective SPECIAL values after radiation and drug modifiers.
+    Never mutates stored player["special"].
+    Returns (effective_dict, modifiers_dict).
+    modifiers_dict maps attr -> list of (source, amount) tuples.
+    """
+    base = dict(player.get("special", {}))
+    effective = dict(base)
+    modifiers = {}
+
+    # Radiation penalties (first matching tier)
+    rads = player.get("rads", 0)
+    for threshold, penalties in RAD_PENALTIES:
+        if rads >= threshold:
+            for attr, mod in penalties.items():
+                modifiers.setdefault(attr, []).append((f"Radiation ({rads} rads)", mod))
+                effective[attr] = effective.get(attr, 0) + mod
+            break
+
+    # Drug/status effect bonuses
+    for effect in player.get("status_effects", []):
+        stat_mods = effect.get("stat_mods", {})
+        source = effect.get("name", "Unknown")
+        for attr, mod in stat_mods.items():
+            modifiers.setdefault(attr, []).append((source, mod))
+            effective[attr] = effective.get(attr, 0) + mod
+
+    # Clamp 1-10
+    for attr in effective:
+        effective[attr] = max(1, min(10, effective[attr]))
+
+    return effective, modifiers
+
 
 # ---------------------------------------------------------------------------
 # Validation helpers

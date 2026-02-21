@@ -42,12 +42,23 @@ python3 scripts/fallout_game.py add-player <name> <character> <background> S P E
 python3 scripts/fallout_game.py remove-player <name>
 
 # Dice & Checks
-python3 scripts/fallout_game.py check <player> <attr> <skill> <difficulty>
-python3 scripts/fallout_game.py assist-check <player> <helper> <attr> <skill> <difficulty>
+python3 scripts/fallout_game.py check <players> <attr> <skill> <difficulty> [ap_spend]
+  # Skill check — comma-separated players (auto solo/assisted/group)
+  # Solo: check Jake PER Lockpick 2
+  # Assisted (2 players): check Jake,Sarah PER Lockpick 3
+  # Group (3+ players): check Jake,Sarah,Bob PER Sneak 4
+  # With AP: check Jake PER Lockpick 4 2  (spend 2 AP for extra dice)
 python3 scripts/fallout_game.py roll <NdM>               # Generic dice (e.g. 2d20, 3d6)
 python3 scripts/fallout_game.py oracle                   # Oracle D6 narrative judgment
-python3 scripts/fallout_game.py damage <dice_count> [bonus]  # Combat damage dice
-python3 scripts/fallout_game.py initiative               # Calculate initiative order
+python3 scripts/fallout_game.py damage <player> <count> [bonus] [ap_spend]  # Combat damage dice
+python3 scripts/fallout_game.py initiative               # Initiative order (players + enemies)
+
+# Enemy Tracking
+python3 scripts/fallout_game.py enemy-add <name> <hp> <damage_dice> <attack_skill> <drops> [special]
+python3 scripts/fallout_game.py enemy-hurt <name> <amount>          # Negative heals; auto-loot on kill
+python3 scripts/fallout_game.py enemy-attack <enemy> <target_player>  # 1d20 + auto-apply damage
+python3 scripts/fallout_game.py enemy-list
+python3 scripts/fallout_game.py enemy-clear [all]                   # Remove dead / all enemies
 
 # State Modification
 python3 scripts/fallout_game.py hurt <player> <amount>
@@ -79,13 +90,16 @@ python3 scripts/fallout_game.py recover                      # Restore from back
 
 ### Key Rules
 
-- **For skill checks, always call `check`.** The script rolls 2d20, counts successes, handles crits/complications, and updates AP automatically.
-- **For combat damage, call `damage`**, then apply with `hurt`.
-- **At the start of each turn, call `status`** to read current state. **At the end, call `turn`** to advance (auto-ticks time and status effects).
+- **For skill checks, always call `check`.** Use comma-separated names for multi-player checks. The engine auto-selects the leader (highest target number), rolls dice, handles crits/complications, and updates AP.
+- **For AP spending**, add `ap_spend` (0-3) as last arg to `check` or `damage`. Each AP adds 1 die. Max 5d20 on checks, max 3 extra d6 on damage.
+- **For combat damage, call `damage <player> <count> [bonus] [ap_spend]`**, then apply with `hurt`.
+- **For enemies, use the `enemy-*` commands.** Add enemies at encounter start, use `enemy-attack` for their turns (auto-rolls and applies damage), use `enemy-hurt` when players deal damage, and `enemy-clear` after combat.
+- **At the start of each turn, call `status`** to read current state. **At the end, call `turn`** to advance (auto-ticks time, effects, and reports alive enemies).
+- **Radiation and drugs modify SPECIAL.** The engine automatically uses effective (modified) attribute values for all checks, initiative, and trade. The `status` command shows both base and effective values.
 - **For random encounters, call `event`.** Never fabricate encounters from scratch.
 - **For loot, call `loot`**, then add to player with `inventory add`.
 - **For consumables, call `use-item`.** It auto-removes from inventory, calculates effects, and checks for addiction.
-- **For rest, call `rest`.** Heals all players and clears temporary effects.
+- **For rest, call `rest`.** Heals all players, clears temporary effects, and clears all enemies.
 - **For NPCs, call `npc-gen`.** Generates name, appearance, motive, knowledge, and speech style.
 - **For weather changes, call `weather set`.** Generates and saves weather to state.
 - **For special/easter-egg encounters, call `event special`.** Use sparingly — at most once per chapter.
@@ -116,8 +130,17 @@ Player messages arrive as `[Name]: content`. Use the name to distinguish players
 ### Action Order
 
 - **Exploration/social scenes:** No fixed order. Whoever sends a message first acts first. Advance the scene once all players have acted.
-- **Combat scenes:** Call `initiative` to determine turn order. Players act in sequence.
-- **Cooperative actions:** Use `assist-check` for assisted skill checks.
+- **Combat scenes:** Call `initiative` to determine turn order (includes enemies). Players act in sequence.
+- **Cooperative actions:** Use `check` with comma-separated player names for assisted/group checks.
+
+### Combat Flow
+
+1. Encounter triggered → `enemy-add` for each enemy
+2. `initiative` → sorted order (players + enemies)
+3. Player turn: `check` → `damage` → `enemy-hurt`
+4. Enemy turn: `enemy-attack <enemy> <target>` (single command, auto-rolls and applies damage)
+5. Repeat until enemies dead or players flee
+6. `enemy-clear` to clean up
 
 ### Handling Disagreements
 
@@ -257,7 +280,9 @@ STR 力量 · PER 感知 · END 耐力 · CHA 魅力 · INT 智力 · AGI 敏捷
 Small Guns 枪械 · Melee 近战 · Sneak 潜行 · Lockpick 开锁 · Science 科学 · Medicine 医疗 · Repair 修理 · Speech 口才 · Barter 交易 · Survival 生存
 
 **Common Terms:**
-HP 血量
+HP 血量 · Rads 辐射 · Caps 瓶盖 · AP 行动点 · Tag Skill 专精技能 · Check 检定 · Critical 暴击 · Complication 失误
+Stimpak 治疗针 · Super Stimpak 超级治疗针 · RadAway 消辐宁 · Rad-X 抗辐宁
+Psycho 狂怒药 · Buffout 力量药 · Jet 喷射药 · Mentats 曼他特 · Nuka-Cola 核子可乐
 
 ---
 

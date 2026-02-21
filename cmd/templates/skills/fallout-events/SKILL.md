@@ -39,10 +39,12 @@ Loot tiers: `junk`, `common`, `uncommon`, `rare`, `unique`
 When a combat encounter is generated:
 1. Describe the enemy appearance (1-2 sentences)
 2. Give players a chance to react (fight, flee, negotiate)
-3. If fighting: roll initiative → turn-based combat
-4. After combat: generate loot appropriate to enemy
+3. If fighting: `enemy-add` each enemy → `initiative` → turn-based combat
+4. Player turns: `check` → `damage` → `enemy-hurt`
+5. Enemy turns: `enemy-attack <enemy> <target>`
+6. After combat: `enemy-clear` (loot auto-rolls on kill)
 
-**Enemy Stat Blocks**:
+**Enemy Stat Blocks** (use with `enemy-add`):
 
 | Enemy | HP | Damage | Difficulty | Drops | Attack Skill | Special |
 |-------|-----|--------|-----------|-------|-------------|---------|
@@ -60,6 +62,14 @@ When a combat encounter is generated:
 | Legendary Creature | 100+ | 5d6 | 5 | rare/unique | 14 | Mutant regen: full heal once below 50% HP |
 | Robot (Protectron) | 40 | 3d6 (laser) | 3 | uncommon | 12 | EMP weakness (Science check to disable) |
 | Turret | 20 | 4d6 | 2 | uncommon | 12 | Stationary; hackable (Science difficulty 3) |
+
+**Example enemy-add commands**:
+```
+enemy-add "Radroach" 5 1d6 8 junk "Swarm: +1d6 when 3+ present"
+enemy-add "Raider 1" 25 3d6 10 common "Negotiable"
+enemy-add "Super Mutant" 50 4d6 10 uncommon "Rock throw, rad resistant"
+enemy-add "Deathclaw" 80 5d6 13 rare "Combo: extra attack on hit"
+```
 
 **Enemy behavior patterns**:
 - **Aggressive** (Raiders/Mutants): Attack on sight, pursue fleeing players

@@ -1,7 +1,7 @@
 """World state management: init, status, set, flag, turn, log."""
 
 import json
-from .util import error, ok, output, parse_int, load_state, save_state, require_state
+from .util import error, ok, output, parse_int, load_state, save_state, require_state, get_effective_special
 
 
 def cmd_init(args):
@@ -17,6 +17,7 @@ def cmd_init(args):
         "flags": [],
         "event_log": [],
         "players": {},
+        "enemies": {},
     }
     save_state(state)
     ok("New game initialized", state=state)
@@ -34,12 +35,26 @@ def cmd_status(args):
         name = " ".join(args)
         player = state.get("players", {}).get(name)
         if player:
-            output({"ok": True, "player": name, **player}, indent=True)
+            effective, modifiers = get_effective_special(player)
+            result = {"ok": True, "player": name, **player}
+            if effective != player.get("special", {}):
+                result["effective_special"] = effective
+                result["special_modifiers"] = {
+                    attr: [{"source": src, "mod": mod} for src, mod in mods]
+                    for attr, mods in modifiers.items()
+                }
+            output(result, indent=True)
         else:
             available = list(state.get("players", {}).keys())
             error(f"Player not found: {name}", available_players=available)
     else:
-        output({"ok": True, **state}, indent=True)
+        # Full game state: add effective SPECIAL for each player
+        result = {"ok": True, **state}
+        for pname, player in state.get("players", {}).items():
+            effective, modifiers = get_effective_special(player)
+            if effective != player.get("special", {}):
+                result["players"][pname]["effective_special"] = effective
+        output(result, indent=True)
 
 
 def cmd_set(args):
@@ -149,6 +164,13 @@ def cmd_turn(args):
         result["expired_effects"] = expired_effects
     if active_effects:
         result["active_effects"] = active_effects
+
+    # Report alive enemies
+    enemies = state.get("enemies", {})
+    alive = [{"name": n, "hp": f"{e['hp']}/{e['max_hp']}"} for n, e in enemies.items() if e["status"] == "alive"]
+    if alive:
+        result["enemies_alive"] = alive
+
     output(result, indent=True)
 
 

@@ -3,7 +3,7 @@
 from .util import (
     error, ok, output, parse_int,
     require_state, require_player, validate_skill, save_state,
-    ALL_SKILLS, SPECIAL_ATTRS,
+    ALL_SKILLS, SPECIAL_ATTRS, RAD_PENALTIES,
 )
 
 
@@ -172,18 +172,16 @@ def cmd_rads(args):
     player["rads"] = max(0, old_rads + amount)
     save_state(state)
 
+    # Generate radiation effect text dynamically from RAD_PENALTIES
     rad_effects = []
     r = player["rads"]
-    if r >= 1000:
-        rad_effects.append("Lethal radiation!")
-    elif r >= 800:
-        rad_effects.append("Critical radiation sickness: STR-3, END-3")
-    elif r >= 600:
-        rad_effects.append("Severe radiation: STR-2, END-2")
-    elif r >= 400:
-        rad_effects.append("Moderate radiation: STR-1, END-1")
-    elif r >= 200:
-        rad_effects.append("Minor radiation: END-1")
+    severity_names = ["Lethal", "Critical", "Severe", "Moderate", "Minor"]
+    for i, (threshold, penalties) in enumerate(RAD_PENALTIES):
+        if r >= threshold:
+            label = severity_names[i] if i < len(severity_names) else f"{threshold}+"
+            mods = ", ".join(f"{a}{v:+d}" for a, v in penalties.items())
+            rad_effects.append(f"{label} radiation: {mods}")
+            break
 
     output({
         "ok": True,

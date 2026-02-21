@@ -1,7 +1,7 @@
 """Random generation: events, loot, trade, NPC, weather, help."""
 
 import random
-from .util import error, ok, output, parse_int, require_state, require_player, save_state
+from .util import error, ok, output, parse_int, require_state, require_player, save_state, get_effective_special
 from .data import (
     ENCOUNTERS, LOOT_TABLES, ATMOSPHERIC, QUEST_HOOKS,
     NPC_SURNAMES, NPC_NAMES, NPC_BUILDS, NPC_FEATURES,
@@ -125,7 +125,8 @@ def cmd_trade(args):
     if not player:
         return
 
-    cha = player.get("special", {}).get("CHA", 5)
+    effective, _ = get_effective_special(player)
+    cha = effective.get("CHA", 5)
     barter = player.get("skills", {}).get("Barter", 0)
     modifier = 1.0 - (cha - 5) * 0.05 - barter * 0.05
 
@@ -222,10 +223,9 @@ def cmd_help(args):
         "add-player <name> <char> <bg> S P E C I A L skill1 skill2 skill3": "Add player",
         "remove-player <name>": "Remove player",
         "roll <NdM>": "Roll dice (e.g. 2d20, 3d6)",
-        "check <player> <attr> <skill> <difficulty>": "Skill check (2d20)",
-        "assist-check <player> <helper> <attr> <skill> <difficulty>": "Assisted check",
+        "check <players> <attr> <skill> <difficulty> [ap_spend]": "Skill check (solo/assisted/group, comma-separated players)",
         "oracle": "Oracle D6 narrative judgment",
-        "damage <count> [bonus]": "Combat damage dice",
+        "damage <player> <count> [bonus] [ap_spend]": "Combat damage dice",
         "initiative": "Calculate initiative order",
         "hurt <player> <amount>": "Deal damage",
         "heal <player> <amount>": "Heal player",
@@ -247,6 +247,11 @@ def cmd_help(args):
         "npc-gen [count]": "Generate random NPC",
         "weather [set]": "Generate weather",
         "recover": "Restore from backup",
+        "enemy-add <name> <hp> <damage> <attack_skill> <drops> [special]": "Add enemy",
+        "enemy-hurt <name> <amount>": "Damage enemy (negative heals)",
+        "enemy-attack <enemy> <target_player>": "Enemy attacks player (1d20, auto-damage)",
+        "enemy-list": "List all enemies",
+        "enemy-clear [all]": "Remove dead (or all) enemies",
         "help": "Show this help",
     }
     output({"ok": True, "commands": commands}, indent=True)

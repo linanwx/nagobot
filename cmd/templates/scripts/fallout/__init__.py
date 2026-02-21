@@ -1,10 +1,11 @@
 """Fallout Wasteland RPG — Game Engine Package."""
 
-from .dice import cmd_roll, cmd_check, cmd_assist_check, cmd_oracle, cmd_damage, cmd_initiative
+from .dice import cmd_roll, cmd_check, cmd_oracle, cmd_damage, cmd_initiative
 from .player import cmd_add_player, cmd_remove_player, cmd_hurt, cmd_heal, cmd_rads, cmd_caps, cmd_ap, cmd_inventory, cmd_skill_up
 from .world import cmd_init, cmd_status, cmd_set, cmd_flag, cmd_turn, cmd_log
 from .items import cmd_use_item, cmd_effect, cmd_rest, cmd_recover
 from .events import cmd_event, cmd_loot, cmd_trade, cmd_npc_gen, cmd_weather, cmd_help
+from .enemy import cmd_enemy_add, cmd_enemy_hurt, cmd_enemy_attack, cmd_enemy_list, cmd_enemy_clear
 
 COMMANDS = {
     "init": cmd_init,
@@ -13,7 +14,6 @@ COMMANDS = {
     "remove-player": cmd_remove_player,
     "roll": cmd_roll,
     "check": cmd_check,
-    "assist-check": cmd_assist_check,
     "oracle": cmd_oracle,
     "damage": cmd_damage,
     "initiative": cmd_initiative,
@@ -37,5 +37,10 @@ COMMANDS = {
     "npc-gen": cmd_npc_gen,
     "weather": cmd_weather,
     "recover": cmd_recover,
+    "enemy-add": cmd_enemy_add,
+    "enemy-hurt": cmd_enemy_hurt,
+    "enemy-attack": cmd_enemy_attack,
+    "enemy-list": cmd_enemy_list,
+    "enemy-clear": cmd_enemy_clear,
     "help": cmd_help,
 }
