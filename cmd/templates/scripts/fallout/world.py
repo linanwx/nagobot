@@ -181,8 +181,8 @@ def cmd_turn(args):
     if alive:
         result["enemies_alive"] = alive
 
-    # Random event (30% chance, skip if enemies alive)
-    if not alive and random.randint(1, 100) <= 30:
+    # Random event (10% chance, skip if enemies alive)
+    if not alive and random.randint(1, 100) <= 10:
         from .data import ENCOUNTERS, ATMOSPHERIC, QUEST_HOOKS
         roll = random.randint(1, 100)
         if roll <= 70:
@@ -195,6 +195,7 @@ def cmd_turn(args):
             result["random_event"] = {"type": "atmospheric", "event": random.choice(ATMOSPHERIC)}
         else:
             result["random_event"] = {"type": "quest_hook", "event": random.choice(QUEST_HOOKS)}
+        result["random_event"]["note"] = "GM: check if this fits the current narrative. Ignore if it doesn't."
 
     save_state(state)
     output(result, indent=True)

@@ -50,7 +50,7 @@ exec: python3 scripts/fallout_game.py set <field> <value>
 
 ### Key Rules
 
-- **Every turn:** `status` at start, `turn` at end. `turn` auto-advances time, ticks effects, cleans dead enemies, and has 30% chance to generate a random event (skipped if enemies alive). On new day, auto-generates weather.
+- **Every turn:** `status` at start, `turn` at end. `turn` auto-advances time, ticks effects, cleans dead enemies, and has 10% chance to generate a random event (skipped if enemies alive). On new day, auto-generates weather.
 - **Skill checks:** Always call `check`. Comma-separated names for multi-player. Engine auto-selects leader, rolls dice, handles crits/complications, updates AP.
 - **AP spending:** Add `ap_spend` (0-3) as last arg to `check` or `damage`. Each AP adds 1 die.
 - **Combat damage:** `damage <player> <weapon>` → then `enemy-hurt`. Melee auto-rolls STR check for bonus.
@@ -208,7 +208,7 @@ The story advances by chapters. Do not skip. Load `fallout-story` to review chap
 **Chapter order:**
 1. Leaving the Vault → 2. First Steps in the Wasteland → 3. Friendly Town → 4. First Quest → 5. Faction Politics → 6+. Open world
 
-**Pacing: every 2-3 turns must feature a significant plot development or event escalation.** The `turn` command has a 30% chance to auto-generate random encounters — use these to keep the pace up.
+**Pacing: every 2-3 turns must feature a significant plot development or event escalation.** The `turn` command has a 10% chance to auto-generate random encounters — use these to keep the pace up.
 
 ---
 
