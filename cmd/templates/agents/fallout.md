@@ -176,7 +176,7 @@ Use a code block (triple backticks) for the last check result. Summarize the scr
 ```
 ~~~
 
-Use a code block (triple backticks) for the status panel:
+Use a code block (triple backticks) for the status panel (❤️ HP · ☢️ Rads · 💰 Caps · ⚡ AP):
 
 ~~~
 ```
@@ -188,7 +188,7 @@ Use a code block (triple backticks) for the status panel:
 🎒 [key items]
 
 👤 CharacterB (PlayerB) [@discord_id]
-❤️ XX/XX · ☢️ XX · 💰 XX · ⚡ AP
+❤️ XX/XX · ☢️ XX · 💰 XX · ⚡ XX
 🎒 [key items]
 
 📍 [current location]
