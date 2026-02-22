@@ -1,64 +1,12 @@
-"""Random generation: events, loot, trade, NPC, weather."""
+"""Random generation: loot, trade, NPC."""
 
 import random
-from .util import error, ok, output, parse_int, require_state, require_player, save_state, get_effective_special
+from .util import error, output, parse_int, require_state, require_player, get_effective_special
 from .data import (
-    ENCOUNTERS, LOOT_TABLES, ATMOSPHERIC, QUEST_HOOKS,
+    LOOT_TABLES,
     NPC_SURNAMES, NPC_NAMES, NPC_BUILDS, NPC_FEATURES,
     NPC_CLOTHES, NPC_MOTIVES, NPC_KNOWLEDGE, NPC_SPEECH,
-    WEATHER_TABLE,
 )
-
-
-def cmd_event(args):
-    """Generate a random event.
-    Usage: event [category]
-    Categories: wasteland, urban, vault, interior, special, atmospheric, quest
-    No category = random from all pools (encounters + atmospheric + quest)
-    """
-    category = args[0].lower() if args else None
-
-    if category == "atmospheric":
-        event = random.choice(ATMOSPHERIC)
-        output({"ok": True, "type": "atmospheric", "event": event}, indent=True)
-        return
-    elif category == "quest":
-        quest = random.choice(QUEST_HOOKS)
-        output({"ok": True, "type": "quest_hook", "quest": quest}, indent=True)
-        return
-    elif category == "special":
-        if "special" in ENCOUNTERS:
-            enc = random.choice(ENCOUNTERS["special"])
-            output({"ok": True, "type": "special_encounter", "encounter": enc}, indent=True)
-        else:
-            error("No special encounter data available")
-        return
-    elif category in ENCOUNTERS:
-        pool = ENCOUNTERS[category]
-        encounter = random.choice(pool)
-        output({"ok": True, "type": "encounter", "category": category, "encounter": encounter}, indent=True)
-        return
-    elif category is None:
-        # Pick from ALL pools: encounters + atmospheric + quest
-        # Weight: encounters 70%, atmospheric 15%, quest 15%
-        roll = random.randint(1, 100)
-        if roll <= 70:
-            pool = []
-            for v in ENCOUNTERS.values():
-                pool.extend(v)
-            encounter = random.choice(pool)
-            output({"ok": True, "type": "encounter", "category": "random", "encounter": encounter}, indent=True)
-        elif roll <= 85:
-            event = random.choice(ATMOSPHERIC)
-            output({"ok": True, "type": "atmospheric", "event": event}, indent=True)
-        else:
-            quest = random.choice(QUEST_HOOKS)
-            output({"ok": True, "type": "quest_hook", "quest": quest}, indent=True)
-    else:
-        valid = list(ENCOUNTERS.keys()) + ["atmospheric", "quest"]
-        if "special" not in valid:
-            valid.append("special")
-        error(f"Unknown category: {category}", valid_categories=valid)
 
 
 def cmd_loot(args):
@@ -181,35 +129,4 @@ def cmd_npc_gen(args):
 
     # Always use consistent format: {"npcs": [...]}
     output({"ok": True, "npcs": npcs}, indent=True)
-
-
-def cmd_weather(args):
-    """Generate weather and save to game state.
-    Usage: weather
-    """
-    total = sum(w["weight"] for w in WEATHER_TABLE)
-    roll = random.randint(1, total)
-    cumulative = 0
-    chosen = WEATHER_TABLE[0]
-    for w in WEATHER_TABLE:
-        cumulative += w["weight"]
-        if roll <= cumulative:
-            chosen = w
-            break
-
-    result = {
-        "ok": True,
-        "weather": chosen["weather"],
-        "description": chosen["desc"],
-        "effect": chosen["effect"],
-    }
-
-    state = require_state()
-    if state:
-        state["weather"] = chosen["weather"]
-        save_state(state)
-        result["saved"] = True
-
-    output(result, indent=True)
-
 

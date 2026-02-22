@@ -71,6 +71,10 @@ def cmd_use_item(args):
         }
         if chem.get("stat_mods"):
             effect_entry["stat_mods"] = dict(chem["stat_mods"])
+        if chem.get("damage_bonus"):
+            effect_entry["damage_bonus"] = chem["damage_bonus"]
+        if chem.get("damage_reduction"):
+            effect_entry["damage_reduction"] = chem["damage_reduction"]
         player.setdefault("status_effects", []).append(effect_entry)
         results["effects"].append(f"Status gained: {chem['effect']} ({chem.get('duration', 1)} rounds)")
 

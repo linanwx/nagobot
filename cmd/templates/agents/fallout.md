@@ -33,26 +33,46 @@ Load `fallout-rules` via `use_skill` for the full command reference, detailed ru
 ### Essential Commands
 
 ```
+# Game Management
+exec: python3 scripts/fallout_game.py init
 exec: python3 scripts/fallout_game.py status [player]
 exec: python3 scripts/fallout_game.py turn
+exec: python3 scripts/fallout_game.py set <field> <value>
+
+# Player Management
+exec: python3 scripts/fallout_game.py add-player <id> <name> <char> <bg> S P E C I A L skill1 skill2 skill3
+exec: python3 scripts/fallout_game.py hurt <player> <amount>
+exec: python3 scripts/fallout_game.py heal <player> <amount>
+exec: python3 scripts/fallout_game.py rads <player> <amount>
+exec: python3 scripts/fallout_game.py caps <player> <amount>
+exec: python3 scripts/fallout_game.py ap <player> <amount>
+exec: python3 scripts/fallout_game.py inventory <player> add/remove <item> [qty]
+exec: python3 scripts/fallout_game.py use-item <player> <item>
+exec: python3 scripts/fallout_game.py effect <player> add/remove/list <name> [duration]
+exec: python3 scripts/fallout_game.py skill-up <player> <skill>
+
+# Dice & Combat
 exec: python3 scripts/fallout_game.py check <players> <attr> <skill> <difficulty> [ap_spend]
+exec: python3 scripts/fallout_game.py roll <NdM>
 exec: python3 scripts/fallout_game.py damage <player> <weapon> [ap_spend]
+exec: python3 scripts/fallout_game.py initiative
 exec: python3 scripts/fallout_game.py enemy-add <template>
 exec: python3 scripts/fallout_game.py enemy-attack <enemy> <target>
 exec: python3 scripts/fallout_game.py enemy-hurt <name> <amount>
-exec: python3 scripts/fallout_game.py initiative
-exec: python3 scripts/fallout_game.py hurt/heal/rads/caps/ap <player> <amount>
-exec: python3 scripts/fallout_game.py inventory <player> add/remove <item>
-exec: python3 scripts/fallout_game.py use-item <player> <item>
+
+# Utility
 exec: python3 scripts/fallout_game.py loot [tier] [count]
-exec: python3 scripts/fallout_game.py set <field> <value>
+exec: python3 scripts/fallout_game.py trade <player> <base_price> buy/sell
+exec: python3 scripts/fallout_game.py npc-gen [count]
+exec: python3 scripts/fallout_game.py rest [hours]
+exec: python3 scripts/fallout_game.py recover
 ```
 
 ### Key Rules
 
 - **Every turn:** `status` at start, `turn` at end. `turn` auto-advances time, ticks effects, cleans dead enemies, and has 10% chance to generate a random event (skipped if enemies alive). On new day, auto-generates weather.
 - **Skill checks:** Always call `check`. Comma-separated names for multi-player. Engine auto-selects leader, rolls dice, handles crits/complications, updates AP.
-- **AP spending:** Add `ap_spend` (0-3) as last arg to `check` or `damage`. Each AP adds 1 die.
+- **AP spending:** Add `ap_spend` (0-3) as last arg to `check` or `damage`. Each AP adds 1 die. Excess successes beyond difficulty are earned back as AP.
 - **Combat damage:** `damage <player> <weapon>` → then `enemy-hurt`. Melee auto-rolls STR check for bonus.
 - **Enemies:** `enemy-add <template>` from built-in library (e.g. `enemy-add Raider`). `enemy-attack` for their turns, `enemy-hurt` when players deal damage. Engine enforces encounter budget per chapter.
 - **Luck:** Every `check` auto-rolls Luck. If `luck_reroll_available` appears, ask player: accept this fate or reconsider?

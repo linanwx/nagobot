@@ -131,6 +131,14 @@ def _modify_hp(args, negative):
         medicine_bonus = medicine_level * 2
         amount += medicine_bonus
 
+    # Damage reduction from status effects (e.g. Med-X)
+    dmg_reduction = 0
+    if negative:
+        for eff in player.get("status_effects", []):
+            dmg_reduction += eff.get("damage_reduction", 0)
+        if dmg_reduction > 0:
+            amount = max(1, amount - dmg_reduction)
+
     old_hp = player["hp"]
     if negative:
         player["hp"] = max(0, player["hp"] - amount)
@@ -162,6 +170,8 @@ def _modify_hp(args, negative):
     }
     if medicine_bonus > 0:
         result["medicine_bonus"] = medicine_bonus
+    if dmg_reduction > 0:
+        result["damage_reduction"] = dmg_reduction
     output(result)
 
 

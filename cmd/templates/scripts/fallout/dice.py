@@ -459,6 +459,13 @@ def cmd_damage(args):
             effects.append(weapon["special"] if weapon["special"] else "Special Effect")
             details.append(f"{d} -> 3 damage + {weapon['special'] or 'Special Effect'}!")
 
+    # Damage bonus from status effects (e.g. Psycho)
+    dmg_bonus = 0
+    for eff in player.get("status_effects", []):
+        dmg_bonus += eff.get("damage_bonus", 0)
+    if dmg_bonus > 0:
+        total_damage += dmg_bonus
+
     # STR check for melee weapons (2d20 vs effective STR, difficulty 2)
     str_check = None
     str_bonus = 0
@@ -498,10 +505,14 @@ def cmd_damage(args):
         "weapon_dice": f"{count}d6",
         "dice": dice,
         "details": details,
-        "base_damage": total_damage - str_bonus,
+        "base_damage": total_damage - str_bonus - dmg_bonus,
         "total_damage": total_damage,
         "effects": effects,
     }
+
+    if dmg_bonus > 0:
+        result["damage_bonus"] = dmg_bonus
+        result["damage_bonus_message"] = f"Rage! +{dmg_bonus} bonus damage"
 
     if weapon["special"]:
         result["weapon_special"] = weapon["special"]

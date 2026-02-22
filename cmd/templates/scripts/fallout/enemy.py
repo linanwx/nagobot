@@ -289,6 +289,14 @@ def cmd_enemy_attack(args):
         else:
             result["detail"] = f"Roll {attack_roll} -> Hit"
 
+        # Damage reduction from status effects (e.g. Med-X)
+        dmg_reduction = 0
+        for eff in player.get("status_effects", []):
+            dmg_reduction += eff.get("damage_reduction", 0)
+        if dmg_reduction > 0:
+            total_damage = max(1, total_damage - dmg_reduction)
+            result["damage_reduction"] = dmg_reduction
+
         result["hit"] = True
         result["damage_dice"] = damage_dice
         result["total_damage"] = total_damage

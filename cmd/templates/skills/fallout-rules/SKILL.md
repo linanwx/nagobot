@@ -38,17 +38,17 @@ Each attribute ranges 1-10. Character creation: base 4 each, 12 points to distri
 
 ### Luck Check (Automatic)
 Every skill check automatically includes a Luck check for the leader:
-- Rolls 2d20 vs effective LCK, needs 2 successes
+- Rolls d100 vs effective LCK — triggers if d100 ≤ LCK (i.e. LCK% chance)
 - If triggered: the player may choose to **re-roll the entire check**
 - Multi-player checks: only the leader's LCK is used
 - The GM should ask the player whether to re-roll when Luck triggers
 
 | LCK | Trigger Rate |
 |-----|-------------|
-| 4 | ~10% |
-| 6 | ~16% |
-| 8 | ~22% |
-| 10 | ~30% |
+| 4 | 4% |
+| 6 | 6% |
+| 8 | 8% |
+| 10 | 10% |
 
 ---
 
@@ -165,7 +165,7 @@ exec: python3 scripts/fallout_game.py enemy-hurt <name> <amount>
 
 **Enemy attacks**: Roll 1d20 vs attack_skill. Hit = roll damage dice, auto-apply to player HP. Roll 1 = critical (bonus damage). Roll 20 = fumble. Simpler than player 2d20 — enemies are threats but less nuanced.
 
-**On kill**: `enemy-hurt` auto-rolls loot from the enemy's drops tier. Dead enemies are auto-cleared by `turn`.
+**On kill**: `enemy-hurt` auto-rolls loot from the enemy's drops tier when an enemy reaches 0 HP. Dead enemies (HP ≤ 0) are automatically removed from the battlefield by `turn`.
 
 ### Encounter Budget
 
@@ -181,7 +181,7 @@ The engine enforces encounter constraints per chapter. `enemy-add` will **reject
 | 6+ | 5 (boss) | 250 | 2 |
 
 - **Max Tier**: Highest enemy tier allowed. Tier 1 = pests (Radroach, Mole Rat), Tier 2 = humanoids (Raider, Ghoul), Tier 3 = mutants (Super Mutant, Yao Guai), Tier 4 = late game (Deathclaw, Sentry Bot), Tier 5 = boss (Legendary)
-- **HP Budget**: Max total HP of all alive enemies on the battlefield. Scales with player count: ×1.0 (1p), ×1.5 (2p), ×2.0 (3p)
+- **HP Budget**: Max total HP of all alive enemies on the battlefield. Scales with player count: `base × (1 + 0.5 × (players - 1))` → ×1.0 (1p), ×1.5 (2p), ×2.0 (3p), ×2.5 (4p), etc.
 - **Safe Turns**: After chapter start, no enemies allowed at all for this many turns
 - **Enemy Count Limit**: Chapter day 1: max 1 alive enemy. Day 2: max 2. Day 3+: no count limit (HP budget only). One day = 24 turns (8 time periods × 3 turns)
 
@@ -193,24 +193,30 @@ Damage dice (d6):
 | 5-6 | 3 damage + special effect |
 
 Weapons (auto-looked up by `damage` command):
-| Weapon | Dice | Type | Special |
-|--------|------|------|---------|
-| Fists | 1 | Melee | Stun on effect |
-| Knife | 2 | Melee | Bleed on effect |
-| Pipe Wrench | 2 | Melee | Bleed on effect |
-| Baseball Bat | 2 | Melee | Knockdown on effect |
-| Machete | 3 | Melee | Bleed on effect |
-| Power Fist | 3 | Melee | Stun on effect |
-| Super Sledge | 4 | Melee | Knockdown on effect |
-| Pipe Pistol | 2 | Ranged | — |
-| 10mm Pistol | 3 | Ranged | Pierce on effect |
-| .44 Magnum | 4 | Ranged | Knockdown on effect |
-| Hunting Rifle | 4 | Ranged | Knockdown on effect |
-| Combat Shotgun | 4 | Ranged | Spread (close: +1d) |
-| Laser Pistol | 3 | Ranged | Burn on effect |
-| Laser Rifle | 4 | Ranged | Burn on effect |
-| Plasma Rifle | 5 | Ranged | Burn on effect |
-| Minigun | 5 | Ranged | Suppression on effect |
+| Weapon | Dice | Type | Special | Ammo |
+|--------|------|------|---------|------|
+| Fists | 1 | Melee | Stun on effect | — |
+| Knife | 2 | Melee | Bleed on effect | — |
+| Pipe Wrench | 2 | Melee | Bleed on effect | — |
+| Baseball Bat | 2 | Melee | Knockdown on effect | — |
+| Machete | 3 | Melee | Bleed on effect | — |
+| Power Fist | 3 | Melee | Stun on effect | — |
+| Ripper | 3 | Melee | Bleed on effect | — |
+| Super Sledge | 4 | Melee | Knockdown on effect | — |
+| Pipe Pistol | 2 | Ranged | — | .38 Rounds |
+| 10mm Pistol | 3 | Ranged | Pierce on effect | 10mm Ammo |
+| .44 Magnum | 4 | Ranged | Knockdown on effect | .44 Ammo |
+| Hunting Rifle | 4 | Ranged | Knockdown on effect | .308 Ammo |
+| Combat Rifle | 4 | Ranged | — | 5.56mm Ammo |
+| Combat Shotgun | 4 | Ranged | Spread (close: +1d) | Shotgun Shells |
+| Laser Pistol | 3 | Ranged | Burn on effect | Fusion Cell |
+| Laser Rifle | 4 | Ranged | Burn on effect | Fusion Cell |
+| Plasma Rifle | 5 | Ranged | Burn on effect | Plasma Cartridge |
+| Minigun | 5 | Ranged | Suppression on effect | 5mm Ammo |
+| Missile Launcher | 6 | Ranged | Knockdown + AoE | Missile |
+| Fat Man | 8 | Ranged | AoE + Radiation | Mini Nuke |
+
+**Ammo**: Ranged weapons consume 1 ammo per shot (auto-deducted by `damage`). If out of ammo, the shot fails. Melee weapons have no ammo cost.
 
 ### Apply Damage
 ```
@@ -239,7 +245,7 @@ exec: python3 scripts/fallout_game.py rads <player> <amount>
 | 800-999 | Critical | STR -3, PER -2, END -3, AGI -2 |
 | 1000+ | Lethal | STR -4, PER -3, END -4, AGI -3, LCK -3 |
 
-Penalties are automatically applied to all checks and initiative via effective SPECIAL.
+Penalties are automatically applied to all checks and initiative via effective SPECIAL. Effective SPECIAL values are clamped to 1-10 (radiation and drugs cannot push below 1 or above 10).
 
 **Reduce rads**: RadAway (-100 rads), doctor visit (-200 rads)
 
@@ -259,6 +265,10 @@ exec: python3 scripts/fallout_game.py heal <player> <amount>
 | Rest (safe location) | 5/hour | Must be safe |
 | Food | 2-5 | Depends on food |
 | Nuka-Cola | 2 | Also +1 AP |
+
+**Medicine Bonus**: All healing (including `heal` and `use-item`) gains +2 HP per Medicine skill level. A player with Medicine 3 heals an extra 6 HP from every Stimpak or heal command.
+
+**Survival Rest Bonus**: Rest heals 5 + Survival level HP per hour. A player with Survival 2 heals 7 HP/hour instead of 5.
 
 ---
 
@@ -295,8 +305,6 @@ SPECIAL attributes do NOT increase through leveling (only through rare items or 
 
 ---
 
----
-
 ## Consumable Items
 
 ```
@@ -316,11 +324,10 @@ Automatically removes item from inventory, applies effects, and checks for addic
 | Purified Water | +5 HP | |
 | Dirty Water | +2 HP, +15 Rads | |
 | Buffout | 3 turns STR+3, END+3 | Addiction risk |
-| Jet | 2 turns AGI+2, extra action | Addiction risk |
+| Jet | 2 turns AGI+2 | Addiction risk |
 | Mentats | 3 turns INT+2, PER+2 | Addiction risk |
 | Psycho | 3 turns damage+3, END+1 | Addiction risk |
 | Med-X | 3 turns damage reduction-2 | Addiction risk |
-| Buffout | 3 turns STR+3, END+3 | Addiction risk |
 
 ### Addiction
 Chems with addiction risk: 15% chance (roll ≤ 3 on d20) per use. Addiction is a permanent status effect until treated by a doctor (Medicine check, difficulty 3) or Addictol.
@@ -382,7 +389,7 @@ heal <player> <amount>
 rads <player> <amount>
 caps <player> <amount>
 ap <player> <amount>
-inventory <player> add/remove <item>
+inventory <player> add/remove <item> [qty] # Qty defaults to 1; also supports "Item xN"
 use-item <player> <item>                # Consumable (auto effects + addiction check)
 effect <player> add/remove/list <effect> [turns]
 rest [hours]                            # Rest & recover (heals all, clears temp effects)

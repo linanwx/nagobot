@@ -74,7 +74,7 @@ Players awaken inside cryogenic pods in Vault 111. A system malfunction triggere
 - **Old Chen**: A wounded merchant — if rescued, he'll be grateful and offer discounts
 - **Patrolman Li**: A Minutemen patrol soldier who gives directions and explains wasteland basics
 
-**Random Encounters**: Use `python3 scripts/fallout_game.py event wasteland`
+**Random Encounters**: The `turn` command has a 10% chance to auto-generate random events. Use them to populate this chapter's travel scenes.
 
 **GM Notes**:
 - This chapter is for players to learn the combat system
@@ -104,7 +104,7 @@ Players awaken inside cryogenic pods in Vault 111. A system malfunction triggere
 - **Minutemen Liaison**: Invites players to join the Minutemen and offers quests
 
 **Available Quests**:
-Use `python3 scripts/fallout_game.py event quest` to generate quests, or pick from:
+Pick from these quests or improvise based on the story:
 1. **Clear the nearby ruins of Raiders** — combat-oriented, reward: weapons + Caps
 2. **Help repair the water purifier** — exploration-oriented, reward: settlement favor + supplies
 3. **Investigate the missing caravan** — investigation-oriented, reward: clues + Caps
