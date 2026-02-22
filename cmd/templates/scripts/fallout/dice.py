@@ -545,6 +545,8 @@ def cmd_damage(args):
         result["ap_before"] = original_ap
         result["ap_after"] = player["ap"]
 
+    result["hint"] = f"Damage rolled! Now apply: enemy-hurt <enemy> {total_damage}"
+
     # Register action for the player
     action_status = register_action(state, player_name)
     result["action_status"] = action_status
@@ -584,4 +586,6 @@ def cmd_initiative(args):
             order.append({"name": name, "type": "enemy", "initiative": enemy.get("attack_skill", 5), "tiebreaker": tiebreaker})
 
     order.sort(key=lambda x: (x["initiative"], x["tiebreaker"]), reverse=True)
-    output({"ok": True, "initiative_order": order}, indent=True)
+    names = [e["name"] for e in order]
+    output({"ok": True, "initiative_order": order,
+            "hint": f"Combat order: {' → '.join(names)}. Process each in turn, then call 'turn' when all have acted."}, indent=True)

@@ -90,6 +90,7 @@ def cmd_use_item(args):
                 })
                 results["effects"].append(f"WARNING: Addicted! (Roll: {addiction_roll}, needed >3)")
                 results["addicted"] = True
+                results["addiction_hint"] = f"{item} Addiction is permanent until cured. Treatment: Medicine check (difficulty 3) or Addictol."
             else:
                 results["effects"].append(f"Not addicted (Roll: {addiction_roll}, needed <=3)")
 
@@ -208,6 +209,8 @@ def cmd_rest(args):
         if survival_level > 0:
             player_result["survival_bonus"] = f"+{survival_level} HP/hour"
         results["players"][pname] = player_result
+
+    results["hint"] = "Rest complete. Call 'turn' to advance time."
 
     save_state(state)
     output(results, indent=True)

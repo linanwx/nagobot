@@ -83,7 +83,8 @@ def cmd_add_player(args):
 
     state["players"][name] = player
     save_state(state)
-    ok(f"Player {name} has joined the game", player=player, derived={"hp": hp, "carry_weight": carry})
+    ok(f"Player {name} has joined the game", player=player, derived={"hp": hp, "carry_weight": carry},
+       hint=f"Use 'inventory {name} add/remove <item>' to customize starting gear. Call 'status {name}' to verify.")
 
 
 def cmd_remove_player(args):
@@ -170,6 +171,8 @@ def _modify_hp(args, negative):
         "max_hp": player["max_hp"],
         "status": status,
     }
+    if player["hp"] <= 0 and negative:
+        result["hint"] = f"{name} is down! Allies must stabilize within 3 turns (Medicine check or heal above 0 HP), or {name} dies."
     if medicine_bonus > 0:
         result["medicine_bonus"] = medicine_bonus
     if dmg_reduction > 0:

@@ -187,6 +187,7 @@ def cmd_enemy_add(args):
     )
     if transition:
         result_data.update(transition)
+        result_data["hint"] = "Combat started! Call 'initiative' to determine turn order."
     ok(f"Enemy added: {name}", **result_data)
 
 
@@ -252,6 +253,7 @@ def cmd_enemy_hurt(args):
             if tier in LOOT_TABLES:
                 loot = random.choice(LOOT_TABLES[tier])
                 result["loot_drop"] = {"tier": tier, "item": loot}
+                result["loot_hint"] = f"Loot dropped: {loot}. Use 'inventory <player> add {loot}' to give to a player."
 
         # Auto-exit combat if last enemy killed
         alive_remaining = [e for e in state.get("enemies", {}).values() if e["status"] == "alive"]

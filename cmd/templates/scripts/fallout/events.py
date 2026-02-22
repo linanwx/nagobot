@@ -23,10 +23,11 @@ def cmd_loot(args):
             return
     count = max(1, min(count, 10))
 
+    hint = "Use 'inventory <player> add <item>' to give loot to a player."
     if tier and tier in LOOT_TABLES:
         pool = LOOT_TABLES[tier]
         items = random.sample(pool, min(count, len(pool)))
-        output({"ok": True, "tier": tier, "items": items}, indent=True)
+        output({"ok": True, "tier": tier, "items": items, "hint": hint}, indent=True)
     elif tier is None:
         weights = {"junk": 35, "common": 35, "uncommon": 20, "rare": 8, "unique": 2}
         items = []
@@ -40,7 +41,7 @@ def cmd_loot(args):
                     chosen_tier = t
                     break
             items.append({"tier": chosen_tier, "item": random.choice(LOOT_TABLES[chosen_tier])})
-        output({"ok": True, "loot": items}, indent=True)
+        output({"ok": True, "loot": items, "hint": hint}, indent=True)
     else:
         valid = list(LOOT_TABLES.keys())
         error(f"Unknown tier: {tier}", valid_tiers=valid,
