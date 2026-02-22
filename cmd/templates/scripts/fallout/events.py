@@ -43,7 +43,8 @@ def cmd_loot(args):
         output({"ok": True, "loot": items}, indent=True)
     else:
         valid = list(LOOT_TABLES.keys())
-        error(f"Unknown tier: {tier}", valid_tiers=valid)
+        error(f"Unknown tier: {tier}", valid_tiers=valid,
+              hint="Example: loot rare 3 | loot common | loot (random tier)")
 
 
 def cmd_trade(args):
@@ -63,11 +64,13 @@ def cmd_trade(args):
     if base is None:
         return
     if base < 1:
-        return error("Base price must be positive")
+        return error("Base price must be positive",
+                      hint="Base price is the item's standard value in caps before CHA/Barter modifiers.")
 
     action = args[2].lower()
     if action not in ("buy", "sell"):
-        return error("Action must be 'buy' or 'sell'")
+        return error("Action must be 'buy' or 'sell'",
+                      hint="'buy' = player purchases (price reduced by CHA/Barter). 'sell' = player sells (price increased by CHA/Barter).")
 
     player = require_player(state, name)
     if not player:

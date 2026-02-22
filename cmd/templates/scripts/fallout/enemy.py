@@ -28,7 +28,8 @@ def cmd_enemy_add(args):
     if not args:
         from .data import ENEMY_TEMPLATES
         return error("Usage: enemy-add <template> | enemy-add <name> <template> | enemy-add <name> <hp> <damage> <skill> <drops>",
-                      templates=list(ENEMY_TEMPLATES.keys()))
+                      templates=list(ENEMY_TEMPLATES.keys()),
+                      hint="Example: enemy-add Raider | enemy-add 'Raider Boss' Raider | enemy-add Boss 50 4d6 14 rare")
 
     state = require_state()
     if not state:
@@ -41,7 +42,8 @@ def cmd_enemy_add(args):
         tname, template = _find_template(args[0])
         if not template:
             from .data import ENEMY_TEMPLATES
-            return error(f"Unknown template: {args[0]}", templates=list(ENEMY_TEMPLATES.keys()))
+            return error(f"Unknown template: {args[0]}", templates=list(ENEMY_TEMPLATES.keys()),
+                          hint="Use one of the listed templates, or provide full custom stats: enemy-add <name> <hp> <damage> <skill> <drops>")
         name = tname
         hp = template["hp"]
         damage_expr = template["damage"]
@@ -61,7 +63,8 @@ def cmd_enemy_add(args):
             special = template["special"]
         else:
             from .data import ENEMY_TEMPLATES
-            return error(f"Unknown template: {args[1]}", templates=list(ENEMY_TEMPLATES.keys()))
+            return error(f"Unknown template: {args[1]}", templates=list(ENEMY_TEMPLATES.keys()),
+                          hint="Use one of the listed templates, or provide full custom stats: enemy-add <name> <hp> <damage> <skill> <drops>")
 
     elif len(args) >= 5:
         # Full custom: enemy-add "Boss" 50 4d6 14 rare "special"
@@ -70,7 +73,7 @@ def cmd_enemy_add(args):
         if hp is None:
             return
         if hp < 1:
-            return error("HP must be positive")
+            return error("HP must be positive", hint="Typical range: 5 (weak) to 60 (boss)")
 
         damage_expr = args[2].lower()
         if not re.match(r"^\d+d\d+$", damage_expr):
@@ -80,7 +83,8 @@ def cmd_enemy_add(args):
         if attack_skill is None:
             return
         if attack_skill < 1 or attack_skill > 20:
-            return error(f"Attack skill must be 1-20, got {attack_skill}")
+            return error(f"Attack skill must be 1-20, got {attack_skill}",
+                          hint="Low: 6-8 (weak), Medium: 10-12 (standard), High: 14+ (elite)")
 
         drops = args[4].lower()
         valid_drops = ["junk", "common", "uncommon", "rare", "unique", "none"]
@@ -91,7 +95,8 @@ def cmd_enemy_add(args):
     else:
         from .data import ENEMY_TEMPLATES
         return error("Usage: enemy-add <template> | enemy-add <name> <template> | enemy-add <name> <hp> <damage> <skill> <drops>",
-                      templates=list(ENEMY_TEMPLATES.keys()))
+                      templates=list(ENEMY_TEMPLATES.keys()),
+                      hint="Example: enemy-add Raider | enemy-add 'Raider Boss' Raider | enemy-add Boss 50 4d6 14 rare")
 
     # --- Encounter budget validation ---
     from .data import ENCOUNTER_RULES, hp_to_tier
@@ -113,14 +118,16 @@ def cmd_enemy_add(args):
         from .data import ENEMY_TEMPLATES
         allowed = [t for t, d in ENEMY_TEMPLATES.items() if d.get("tier", 1) <= max_tier]
         return error(f"Enemy tier {tier} exceeds chapter {chapter} max tier {max_tier}",
-                      allowed_templates=allowed)
+                      allowed_templates=allowed,
+                      hint=f"Chapter {chapter} allows tier 1-{max_tier}. Use a weaker template or advance to a later chapter.")
 
     # Safe turns check (no enemies allowed during protection period)
     chapter_start = state.get("chapter_start_turn", 0)
     turns_in_chapter = state.get("turn", 0) - chapter_start
     if turns_in_chapter < safe_turns:
         return error(f"Protection period: no enemies allowed for {safe_turns - turns_in_chapter} more turn(s)",
-                      turns_in_chapter=turns_in_chapter, safe_turns=safe_turns)
+                      turns_in_chapter=turns_in_chapter, safe_turns=safe_turns,
+                      hint="Call 'turn' to advance time. Players can explore, rest, or trade during protection.")
 
     # Enemy count limit by days into chapter (1 day = 24 turns)
     alive_enemies = [e for e in state.get("enemies", {}).values() if e["status"] == "alive"]
@@ -133,8 +140,10 @@ def cmd_enemy_add(args):
     else:
         max_enemies = None
     if max_enemies is not None and alive_count >= max_enemies:
+        alive_names = [n for n, e in state.get("enemies", {}).items() if e["status"] == "alive"]
         return error(f"Enemy count limit: max {max_enemies} alive enemies on chapter day {days_in_chapter + 1}",
-                      alive=alive_count, max=max_enemies)
+                      alive=alive_count, max=max_enemies, alive_enemies=alive_names,
+                      hint="Defeat existing enemies first, or call 'turn' to advance time (24 turns = next day, higher limit).")
 
     # HP budget check (scaled by player count)
     player_count = max(1, len(state.get("players", {})))
@@ -145,7 +154,8 @@ def cmd_enemy_add(args):
     if hp > remaining_budget:
         return error(f"HP budget exceeded: {alive_hp}+{hp}={alive_hp + hp} > {effective_budget}",
                       budget=effective_budget, alive_hp=alive_hp, remaining=remaining_budget,
-                      hint=f"Chapter {chapter} budget: {base_budget} base × {player_count} players = {effective_budget}")
+                      hint=f"Chapter {chapter} budget: {base_budget} base × {player_count} players = {effective_budget}. "
+                           f"Remaining HP budget: {remaining_budget}. Use a weaker enemy (≤{remaining_budget} HP) or defeat existing enemies first.")
 
     # Auto-enter combat if this is the first alive enemy
     alive_before = len(alive_enemies)
@@ -186,7 +196,11 @@ def cmd_enemy_hurt(args):
     On kill: auto-rolls loot from enemy's drops tier.
     """
     if len(args) < 2:
-        return error("Usage: enemy-hurt <name> <amount>")
+        state = require_state()
+        alive = [n for n, e in state.get("enemies", {}).items() if e["status"] == "alive"] if state else []
+        return error("Usage: enemy-hurt <name> <amount>",
+                      hint=f"Example: enemy-hurt Raider 10 | Use negative to heal: enemy-hurt Raider -5",
+                      alive_enemies=alive or "none")
 
     state = require_state()
     if not state:
@@ -202,7 +216,10 @@ def cmd_enemy_hurt(args):
         return
 
     if enemy["status"] == "dead" and amount > 0:
-        return error(f"{name} is already dead")
+        alive_names = [n for n, e in state.get("enemies", {}).items() if e["status"] == "alive"]
+        return error(f"{name} is already dead",
+                      alive_enemies=alive_names or "none",
+                      hint="Use negative amount to revive: enemy-hurt <name> -<amount>")
 
     old_hp = enemy["hp"]
     if amount < 0:
@@ -253,7 +270,8 @@ def cmd_enemy_attack(args):
     Roll 1 = critical hit (bonus damage). Roll 20 = fumble (miss).
     """
     if len(args) < 2:
-        return error("Usage: enemy-attack <enemy> <target_player>")
+        return error("Usage: enemy-attack <enemy> <target_player>",
+                      hint="Example: enemy-attack Raider Jake")
 
     state = require_state()
     if not state:
@@ -266,7 +284,9 @@ def cmd_enemy_attack(args):
     if not enemy:
         return
     if enemy["status"] == "dead":
-        return error(f"{enemy_name} is dead and cannot attack")
+        alive_names = [n for n, e in state.get("enemies", {}).items() if e["status"] == "alive"]
+        return error(f"{enemy_name} is dead and cannot attack",
+                      alive_enemies=alive_names or "none")
 
     player = require_player(state, target_name)
     if not player:

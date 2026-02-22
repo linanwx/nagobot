@@ -89,7 +89,8 @@ def cmd_set(args):
     allowed = ["chapter", "location", "quest", "time_of_day", "weather", "chapter_title", "mode"]
 
     if len(args) < 2:
-        return error("Usage: set <field> <value>", valid_fields=allowed)
+        return error("Usage: set <field> <value>", valid_fields=allowed,
+                      hint="Example: set location 'Diamond City' | set chapter 2 | set weather Rainstorm")
 
     state = require_state()
     if not state:
@@ -99,7 +100,8 @@ def cmd_set(args):
     value = " ".join(args[1:])
 
     if field not in allowed:
-        return error(f"Invalid field: {field}", valid_fields=allowed)
+        return error(f"Invalid field: {field}", valid_fields=allowed,
+                      hint="Choose from the valid fields list above.")
 
     if field == "chapter":
         value = parse_int(value, "chapter")
@@ -108,7 +110,8 @@ def cmd_set(args):
 
     if field == "mode":
         if value not in ("exploration", "combat"):
-            return error(f"Mode must be 'exploration' or 'combat', got: {value}")
+            return error(f"Mode must be 'exploration' or 'combat', got: {value}",
+                          hint="exploration: free roam, time advances with 'turn'. combat: round-based, auto-enters when enemies added.")
         state["turn_actions"] = {}
 
     old = state.get(field)

@@ -89,7 +89,8 @@ def cmd_add_player(args):
 def cmd_remove_player(args):
     """Remove a player. Usage: remove-player <name>"""
     if not args:
-        return error("Usage: remove-player <name>")
+        return error("Usage: remove-player <name>",
+                      hint="Example: remove-player Jake")
 
     state = require_state()
     if not state:
@@ -109,7 +110,8 @@ def _modify_hp(args, negative):
     """Shared HP modification logic for hurt/heal."""
     action = "hurt" if negative else "heal"
     if len(args) < 2:
-        return error(f"Usage: {action} <player> <amount>")
+        return error(f"Usage: {action} <player> <amount>",
+                      hint=f"Example: {action} Jake 15")
 
     state = require_state()
     if not state:
@@ -188,7 +190,8 @@ def cmd_heal(args):
 def cmd_rads(args):
     """Modify radiation level. Usage: rads <player> <amount> (negative to reduce)"""
     if len(args) < 2:
-        return error("Usage: rads <player> <amount>")
+        return error("Usage: rads <player> <amount>",
+                      hint="Example: rads Jake 50 (add rads) | rads Jake -100 (reduce rads)")
 
     state = require_state()
     if not state:
@@ -231,7 +234,8 @@ def cmd_rads(args):
 def cmd_caps(args):
     """Modify caps. Usage: caps <player> <amount> (negative to spend)"""
     if len(args) < 2:
-        return error("Usage: caps <player> <amount>")
+        return error("Usage: caps <player> <amount>",
+                      hint="Example: caps Jake 50 (earn) | caps Jake -30 (spend)")
 
     state = require_state()
     if not state:
@@ -261,7 +265,8 @@ def cmd_caps(args):
 def cmd_ap(args):
     """Modify action points. Usage: ap <player> <amount>"""
     if len(args) < 2:
-        return error("Usage: ap <player> <amount>")
+        return error("Usage: ap <player> <amount>",
+                      hint="Example: ap Jake 2 (grant AP) | ap Jake -1 (spend AP)")
 
     state = require_state()
     if not state:
@@ -347,7 +352,8 @@ def cmd_inventory(args):
             save_state(state)
             ok(f"Removed {item} x{qty}", player=name, item=item, qty=inv[item], inventory=inv)
     else:
-        error("Action must be 'add' or 'remove'", hint="Usage: inventory <player> add/remove <item> [qty]")
+        error("Action must be 'add' or 'remove'",
+              hint="Example: inventory Jake add Stimpak 3 | inventory Jake remove 'Fusion Cell' 10")
 
 
 def cmd_skill_up(args):
@@ -377,7 +383,7 @@ def cmd_skill_up(args):
         if amount is None:
             return
         if amount < 1:
-            return error("Amount must be positive")
+            return error("Amount must be positive", hint="Example: skill-up Jake Lockpick 1")
 
     old = player.get("skills", {}).get(skill, 0)
     new = min(6, old + amount)

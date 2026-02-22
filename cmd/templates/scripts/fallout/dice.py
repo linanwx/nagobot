@@ -23,9 +23,9 @@ def cmd_roll(args):
         return error(f"Invalid dice expression: {expr}", hint="Format: NdM, e.g. 2d20, 3d6")
 
     if count < 1 or count > 100:
-        return error(f"Dice count must be 1-100, got {count}")
+        return error(f"Dice count must be 1-100, got {count}", hint="Example: roll 2d20, roll 3d6")
     if sides < 1 or sides > 100:
-        return error(f"Dice sides must be 1-100, got {sides}")
+        return error(f"Dice sides must be 1-100, got {sides}", hint="Common dice: d4, d6, d8, d10, d12, d20")
 
     results = roll_dice(count, sides)
     output({
@@ -295,7 +295,8 @@ def cmd_check(args):
     if difficulty is None:
         return
     if difficulty < 0:
-        return error(f"Difficulty must be non-negative, got {difficulty}")
+        return error(f"Difficulty must be non-negative, got {difficulty}",
+                      hint="Typical difficulty: 0 (trivial), 1 (easy), 2 (standard), 3 (hard), 4 (very hard)")
 
     # Optional AP spend
     ap_spend = 0
@@ -309,12 +310,15 @@ def cmd_check(args):
     # Validate dice cap: leader(2) + helpers(N-1) + AP <= 5
     base_dice = len(player_names) + 1
     if base_dice > 5:
-        return error(f"Too many players ({len(player_names)}). Max 4 per check (5d20 cap)")
+        return error(f"Too many players ({len(player_names)}). Max 4 per check (5d20 cap)",
+                      hint="Pool: leader 2d20 + up to 3 helpers 1d20 each = 5d20 max. Split into separate checks.")
     max_ap = 5 - base_dice
     if ap_spend > max_ap:
         if max_ap <= 0:
-            return error(f"Cannot spend AP — already at {base_dice}d20 with {len(player_names)} players")
-        return error(f"Max {max_ap} AP with {len(player_names)} players (5d20 cap)")
+            return error(f"Cannot spend AP — already at {base_dice}d20 with {len(player_names)} players",
+                          hint="Remove a helper to free AP slots, or proceed without AP.")
+        return error(f"Max {max_ap} AP with {len(player_names)} players (5d20 cap)",
+                      hint=f"Dice pool: 2 leader + {len(player_names)-1} helpers = {base_dice}d20. Only {max_ap} AP slot(s) remaining.")
 
     # Find leader and validate/deduct AP
     leader_name = _find_leader_name(state, player_names, attr, skill_name)
@@ -414,7 +418,8 @@ def cmd_damage(args):
 
     if not weapon:
         return error(f"Unknown weapon: {weapon_name}",
-                      weapons=list(WEAPONS.keys()))
+                      weapons=list(WEAPONS.keys()),
+                      hint="Use exact weapon name from the list. Check player inventory for owned weapons.")
 
     count = weapon["dice"]
     is_melee = weapon["type"] == "melee"
@@ -429,7 +434,9 @@ def cmd_damage(args):
         inv = player.setdefault("inventory", {})
         ammo_count = inv.get(ammo_type, 0)
         if ammo_count <= 0:
-            return error(f"{player_name} has no {ammo_type}!", inventory=inv)
+            return error(f"{player_name} has no {ammo_type}!",
+                          inventory=inv,
+                          hint=f"Add ammo: inventory {player_name} add '{ammo_type}' <qty> | Or use a melee weapon instead.")
         inv[ammo_type] -= 1
         if inv[ammo_type] <= 0:
             del inv[ammo_type]
@@ -444,7 +451,8 @@ def cmd_damage(args):
     original_ap = player.get("ap", 0)
     if ap_spend > 0:
         if original_ap < ap_spend:
-            return error(f"{player_name} has {original_ap} AP, cannot spend {ap_spend}")
+            return error(f"{player_name} has {original_ap} AP, cannot spend {ap_spend}",
+                          hint="Earn AP from excess successes on skill checks. Use ap_spend=0 or lower.")
         player["ap"] -= ap_spend
 
     total_dice = count + ap_spend
@@ -557,7 +565,8 @@ def cmd_initiative(args):
 
     players = state.get("players", {})
     if not players:
-        return error("No players in the game")
+        return error("No players in the game",
+                      hint="Add players first: add-player <id> <name> <character> <bg> STR PER END CHA INT AGI LCK skill1 skill2 skill3")
 
     order = []
     for name, player in players.items():

@@ -90,7 +90,8 @@ def require_state():
     """Load state or print error. Returns state or None."""
     state = load_state()
     if state is None:
-        error("Game not initialized. Run 'init' first.")
+        error("Game not initialized. Run 'init' first.",
+              hint="Call 'init' to create a new game, then 'add-player' to add players.")
     return state
 
 
@@ -99,7 +100,8 @@ def require_player(state, name):
     player = state.get("players", {}).get(name)
     if not player:
         available = list(state.get("players", {}).keys())
-        error(f"Player not found: {name}", available_players=available)
+        error(f"Player not found: {name}", available_players=available,
+              hint="Check spelling or use one of the available players listed above.")
     return player
 
 def require_enemy(state, name):
@@ -107,7 +109,8 @@ def require_enemy(state, name):
     enemy = state.get("enemies", {}).get(name)
     if not enemy:
         available = list(state.get("enemies", {}).keys())
-        error(f"Enemy not found: {name}", available_enemies=available)
+        error(f"Enemy not found: {name}", available_enemies=available,
+              hint="Check spelling or use one of the available enemies listed above.")
     return enemy
 
 

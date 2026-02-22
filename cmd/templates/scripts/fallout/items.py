@@ -28,7 +28,8 @@ def cmd_use_item(args):
     inv = player.setdefault("inventory", {})
     if inv.get(item, 0) <= 0:
         return error(f"Player {name} does not have item: {item}",
-                      inventory=inv)
+                      inventory=inv,
+                      hint=f"Add it first: inventory {name} add '{item}' 1")
 
     chem = CHEM_EFFECTS.get(item)
     if not chem:
@@ -110,7 +111,8 @@ def cmd_effect(args):
     Note: effects are automatically ticked down by the 'turn' command.
     """
     if not args:
-        return error("Usage: effect <player> add/remove/list <name> [duration]")
+        return error("Usage: effect <player> add/remove/list <name> [duration]",
+                      hint="Example: effect Jake add Inspired 3 | effect Jake remove Poisoned | effect Jake list")
 
     state = require_state()
     if not state:
@@ -122,7 +124,8 @@ def cmd_effect(args):
                       hint="Run: python3 scripts/fallout_game.py turn")
 
     if len(args) < 2:
-        return error("Usage: effect <player> add/remove/list <name> [duration]")
+        return error("Usage: effect <player> add/remove/list <name> [duration]",
+                      hint="Example: effect Jake add Inspired 3 | effect Jake list")
 
     name = args[0]
     action = args[1].lower()
@@ -153,7 +156,8 @@ def cmd_effect(args):
         save_state(state)
         ok(f"Removed effect: {effect_name}", player=name)
     else:
-        error("Usage: effect <player> add/remove/list <name> [duration]")
+        error("Usage: effect <player> add/remove/list <name> [duration]",
+              hint="'add' needs: <name> <duration>. 'remove' needs: <name>. 'list' takes no extra args.")
 
 
 def cmd_rest(args):
@@ -215,7 +219,8 @@ def cmd_recover(args):
     """
     backup = STATE_FILE + ".bak"
     if not os.path.exists(backup):
-        return error("No backup file found")
+        return error("No backup file found",
+                      hint="A backup (.bak) is created automatically on each save. If no save has occurred yet, there is nothing to recover.")
 
     import shutil
     shutil.copy2(backup, STATE_FILE)
@@ -227,4 +232,5 @@ def cmd_recover(args):
            turn=state.get("turn"),
            players=list(state.get("players", {}).keys()))
     else:
-        error("Backup file is corrupted — manual intervention required")
+        error("Backup file is corrupted — manual intervention required",
+              hint="Check the .bak file manually, or run 'init' to start a new game.")
