@@ -49,7 +49,7 @@ Players awaken inside cryogenic pods in Vault 111. A system malfunction triggere
 6. Step through the vault door and see the wasteland for the first time
 
 **GM Notes**:
-- Keep the pace brisk — finish the vault content in 2-3 turns
+- Keep the pace brisk — finish the vault content in 5-6 turns
 - Use environmental storytelling to contrast pre-war life with post-war ruin
 - Give every player a moment to shine (one picks a lock, one fights, one searches, etc.)
 - Hint at the vault's experimental nature (cryo = controlled variable)
