@@ -17,7 +17,7 @@ import (
 
 // run executes one thread turn. Called by RunOnce; callers must not invoke
 // this directly.
-func (t *Thread) run(ctx context.Context, userMessage string, sink Sink) (string, error) {
+func (t *Thread) run(ctx context.Context, userMessage string, sink Sink, injectFn func() []provider.Message) (string, error) {
 	userMessage = strings.TrimSpace(userMessage)
 	if userMessage == "" {
 		return "", nil
@@ -128,6 +128,7 @@ func (t *Thread) run(ctx context.Context, userMessage string, sink Sink) (string
 			_ = sink.Send(ctx, m.Content)
 		}
 	})
+	runner.OnIterationEnd(injectFn)
 	response, err := runner.RunWithMessages(runCtx, messages)
 	if err != nil {
 		return "", err

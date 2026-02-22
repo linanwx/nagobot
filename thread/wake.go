@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/linanwx/nagobot/logger"
+	"github.com/linanwx/nagobot/provider"
 )
 
 // Enqueue adds a wake message to the thread's inbox and notifies the manager.
@@ -110,7 +111,35 @@ func (t *Thread) RunOnce(ctx context.Context) {
 		}
 
 		userMessage := buildWakePayload(msg.Source, msg.Message, t.id, t.sessionKey, deliveryLabel)
-		response, err := t.run(ctx, userMessage, sink)
+
+		// Build injection function: between tool iterations, drain inbox for
+		// mergeable user messages and inject them into the LLM conversation.
+		injectFn := func() []provider.Message {
+			var injected []provider.Message
+			for {
+				select {
+				case next := <-t.inbox:
+					if canMerge(msg, next) {
+						payload := buildWakePayload(next.Source, next.Message, t.id, t.sessionKey, deliveryLabel)
+						if payload != "" {
+							injected = append(injected, provider.UserMessage(payload))
+							logger.Info("injected mid-execution message",
+								"threadID", t.id,
+								"sessionKey", t.sessionKey,
+								"source", next.Source,
+							)
+						}
+					} else {
+						t.inbox <- next // not mergeable, put back
+						return injected
+					}
+				default:
+					return injected
+				}
+			}
+		}
+
+		response, err := t.run(ctx, userMessage, sink, injectFn)
 		if err != nil {
 			logger.Error("thread run error", "threadID", t.id, "sessionKey", t.sessionKey, "source", msg.Source, "err", err)
 			response = fmt.Sprintf("[Error] %v", err)

@@ -14,15 +14,21 @@ import (
 
 // Runner is a generic agent loop executor.
 type Runner struct {
-	provider  provider.Provider
-	tools     *tools.Registry
-	metrics   *ExecMetrics              // optional; nil disables metrics collection
-	onMessage func(provider.Message)    // optional observer for intermediate messages
+	provider       provider.Provider
+	tools          *tools.Registry
+	metrics        *ExecMetrics              // optional; nil disables metrics collection
+	onMessage      func(provider.Message)    // optional observer for intermediate messages
+	onIterationEnd func() []provider.Message // optional: called after each tool iteration; returned messages are injected before the next LLM call
 }
 
 // OnMessage sets a callback invoked for each intermediate message
 // (assistant-with-tools and tool results) generated during the agentic loop.
 func (r *Runner) OnMessage(fn func(provider.Message)) { r.onMessage = fn }
+
+// OnIterationEnd sets a callback invoked after each tool-call iteration
+// completes, before the next LLM call. If it returns messages, they are
+// appended to the conversation (e.g. mid-execution user messages).
+func (r *Runner) OnIterationEnd(fn func() []provider.Message) { r.onIterationEnd = fn }
 
 // NewRunner creates a new Runner. Pass a non-nil ExecMetrics to enable
 // real-time metrics collection visible to other threads.
@@ -94,6 +100,18 @@ func (r *Runner) RunWithMessages(ctx context.Context, messages []provider.Messag
 				})
 				r.metrics.CurrentTool = ""
 				r.metrics.mu.Unlock()
+			}
+		}
+
+		// Inject mid-execution user messages (if any) before the next LLM call.
+		if r.onIterationEnd != nil {
+			if injected := r.onIterationEnd(); len(injected) > 0 {
+				for _, m := range injected {
+					messages = append(messages, m)
+					if r.onMessage != nil {
+						r.onMessage(m)
+					}
+				}
 			}
 		}
 	}
