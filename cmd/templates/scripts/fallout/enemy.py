@@ -5,6 +5,7 @@ from .util import (
     error, ok, output, parse_int,
     require_state, require_player, require_enemy,
     roll_dice, save_state,
+    enter_combat, exit_combat, register_action, get_mode,
 )
 
 
@@ -146,6 +147,12 @@ def cmd_enemy_add(args):
                       budget=effective_budget, alive_hp=alive_hp, remaining=remaining_budget,
                       hint=f"Chapter {chapter} budget: {base_budget} base × {player_count} players = {effective_budget}")
 
+    # Auto-enter combat if this is the first alive enemy
+    alive_before = len(alive_enemies)
+    transition = None
+    if alive_before == 0:
+        transition = enter_combat(state)
+
     state.setdefault("enemies", {})[name] = {
         "hp": hp,
         "max_hp": hp,
@@ -157,15 +164,20 @@ def cmd_enemy_add(args):
     }
 
     save_state(state)
-    ok(f"Enemy added: {name}",
-       enemy=name,
-       tier=tier,
-       hp=f"{hp}/{hp}",
-       damage=damage_expr,
-       attack_skill=attack_skill,
-       drops=drops,
-       special=special or "none",
-       budget=f"{alive_hp + hp}/{effective_budget}")
+    result_data = dict(
+        enemy=name,
+        tier=tier,
+        hp=f"{hp}/{hp}",
+        damage=damage_expr,
+        attack_skill=attack_skill,
+        drops=drops,
+        special=special or "none",
+        budget=f"{alive_hp + hp}/{effective_budget}",
+        mode=get_mode(state),
+    )
+    if transition:
+        result_data.update(transition)
+    ok(f"Enemy added: {name}", **result_data)
 
 
 def cmd_enemy_hurt(args):
@@ -223,6 +235,13 @@ def cmd_enemy_hurt(args):
             if tier in LOOT_TABLES:
                 loot = random.choice(LOOT_TABLES[tier])
                 result["loot_drop"] = {"tier": tier, "item": loot}
+
+        # Auto-exit combat if last enemy killed
+        alive_remaining = [e for e in state.get("enemies", {}).values() if e["status"] == "alive"]
+        if not alive_remaining:
+            transition = exit_combat(state)
+            if transition:
+                result.update(transition)
 
     save_state(state)
     output(result, indent=True)
@@ -318,6 +337,10 @@ def cmd_enemy_attack(args):
     else:
         result["hit"] = False
         result["detail"] = f"Roll {attack_roll} -> Miss (needed <={enemy['attack_skill']})"
+
+    # Register enemy action
+    action_status = register_action(state, enemy_name)
+    result["action_status"] = action_status
 
     save_state(state)
     output(result, indent=True)

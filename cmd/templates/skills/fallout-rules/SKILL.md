@@ -357,14 +357,43 @@ All players heal 5 HP/hour (capped at max HP). Clears all temporary status effec
 
 ---
 
+## Game Modes
+
+The game operates in one of two modes:
+
+| Mode | Time Scale | `turn` Behavior | Auto-enter | Auto-exit |
+|------|-----------|-----------------|------------|-----------|
+| **Exploration** | Hours | Advance turn, cycle time of day, weather, tick effects, random events (10%) | Default; rest; last enemy killed | `enemy-add` (first enemy) |
+| **Combat** | Seconds (rounds) | Advance combat round, tick effects, clear dead, auto-exit if no enemies | `enemy-add` (first enemy) | Last enemy killed; rest |
+
+### Automatic Transitions
+- `enemy-add` with 0 alive enemies → **enter combat** (output includes `mode_changed`)
+- Last enemy killed via `enemy-hurt` → **exit combat** (output includes `mode_changed`)
+- `rest` → **force exploration** (clears combat state)
+- `set mode <exploration|combat>` → manual override
+
+### Action Tracking
+Action commands (`check`, `damage`, `use-item`, `enemy-attack`) auto-register which unit has acted this round. Output includes:
+- `action_status.pending`: units that haven't acted yet
+- `action_status.all_acted`: true when all living units have acted
+- `action_status.hint`: advisory message to call `turn`
+
+Advisory only — GM can call `turn` at any time, and can call action commands multiple times for the same unit.
+
+### Combat Round vs Exploration Turn
+- **Exploration turn**: increments `turn`, cycles 1 of 8 time periods (8 turns = 1 day)
+- **Combat round**: increments `combat_round`, does NOT advance time
+
+---
+
 ## Full Command Reference
 
 ```
 # Game Management
 init                                    # Initialize new game
 status [player]                         # View full game state or player state
-turn                                    # Advance turn (auto: time, effects, events, weather)
-set <field> <value>                     # Set chapter/location/quest/weather etc.
+turn                                    # Mode-aware: exploration (time+effects+events) or combat (round+effects)
+set <field> <value>                     # Set chapter/location/quest/weather/mode etc.
 
 # Player Management
 add-player <id> <name> <char> <bg> S P E C I A L skill1 skill2 skill3

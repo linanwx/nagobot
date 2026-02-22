@@ -38,10 +38,11 @@ exec: python3 scripts/fallout_game.py enemy-add <name> <template>
 When a combat encounter is generated:
 1. Describe the enemy appearance (1-2 sentences)
 2. Give players a chance to react (fight, flee, negotiate)
-3. If fighting: `enemy-add` each enemy → `initiative` → turn-based combat
+3. If fighting: `enemy-add` each enemy (auto-enters combat mode on first enemy) → `initiative` → turn-based combat
 4. Player turns: `check` → `damage` → `enemy-hurt`
 5. Enemy turns: `enemy-attack <enemy> <target>`
-6. After combat: dead enemies auto-cleared by `turn` (loot auto-rolls on kill)
+6. `turn` after all units acted → advances combat round, ticks effects
+7. Last enemy killed → auto-exits to exploration mode (loot auto-rolls on kill)
 
 **Enemy Stat Blocks** (use with `enemy-add <template>`):
 

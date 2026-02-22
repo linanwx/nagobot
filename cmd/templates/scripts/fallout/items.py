@@ -2,7 +2,7 @@
 
 import os
 import random
-from .util import error, ok, output, parse_int, require_state, require_player, save_state, STATE_FILE
+from .util import error, ok, output, parse_int, require_state, require_player, save_state, STATE_FILE, register_action, get_mode, exit_combat
 from .data import CHEM_EFFECTS
 
 
@@ -93,6 +93,11 @@ def cmd_use_item(args):
                 results["effects"].append(f"Not addicted (Roll: {addiction_roll}, needed <=3)")
 
     results["description"] = chem["desc"]
+
+    # Register action for the player
+    action_status = register_action(state, name)
+    results["action_status"] = action_status
+
     save_state(state)
     output(results, indent=True)
 
@@ -166,7 +171,13 @@ def cmd_rest(args):
             return
         hours = max(1, min(hours, 24))
 
+    # Force exploration mode on rest
+    transition = exit_combat(state)
+
     results = {"ok": True, "hours": hours, "players": {}}
+    if transition:
+        results.update(transition)
+    results["mode"] = get_mode(state)
 
     # Clear all enemies on rest
     enemies = state.get("enemies", {})

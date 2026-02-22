@@ -191,3 +191,59 @@ def parse_int(value, field_name="value"):
 def roll_dice(count, sides):
     """Roll dice and return individual results."""
     return [random.randint(1, sides) for _ in range(count)]
+
+
+# ---------------------------------------------------------------------------
+# Mode & action tracking
+# ---------------------------------------------------------------------------
+
+def get_mode(state):
+    """Return current game mode. Defaults to 'exploration' for old states."""
+    return state.get("mode", "exploration")
+
+
+def enter_combat(state):
+    """Transition to combat mode. Returns transition info or None if already in combat."""
+    if get_mode(state) == "combat":
+        return None
+    state["mode"] = "combat"
+    state["combat_round"] = 0
+    state["turn_actions"] = {}
+    return {"mode_changed": {"from": "exploration", "to": "combat"},
+            "hint": "Combat initiated! Call 'initiative' for turn order."}
+
+
+def exit_combat(state):
+    """Transition to exploration mode. Returns transition info or None if already exploring."""
+    if get_mode(state) == "exploration":
+        return None
+    state["mode"] = "exploration"
+    state["combat_round"] = 0
+    state["turn_actions"] = {}
+    return {"mode_changed": {"from": "combat", "to": "exploration"},
+            "hint": "Combat ended. Returning to exploration."}
+
+
+def register_action(state, actor_name):
+    """Register that an actor has acted this round.
+    Returns action_status dict with mode, pending list, and all_acted flag.
+    """
+    actions = state.setdefault("turn_actions", {})
+    actions[actor_name] = True
+
+    # Build expected actors: living players + alive enemies
+    expected = set()
+    for pname, player in state.get("players", {}).items():
+        if player.get("hp", 0) > 0:
+            expected.add(pname)
+    for ename, enemy in state.get("enemies", {}).items():
+        if enemy.get("status") == "alive":
+            expected.add(ename)
+
+    pending = sorted(expected - set(actions.keys()))
+    all_acted = len(pending) == 0
+
+    result = {"mode": get_mode(state), "pending": pending, "all_acted": all_acted}
+    if all_acted:
+        result["hint"] = "All units have acted. Call 'turn' to advance."
+    return result

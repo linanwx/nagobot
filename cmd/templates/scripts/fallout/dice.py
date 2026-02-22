@@ -5,6 +5,7 @@ from .util import (
     error, ok, output, parse_int,
     require_state, require_player, validate_attr, validate_skill,
     roll_dice, save_state, get_effective_special,
+    register_action,
 )
 
 
@@ -351,6 +352,11 @@ def cmd_check(args):
         }
     result["player_info"] = player_info
 
+    # Register action for all participants
+    for pname in player_names:
+        action_status = register_action(state, pname)
+    result["action_status"] = action_status
+
     save_state(state)
     output(result, indent=True)
 
@@ -531,9 +537,11 @@ def cmd_damage(args):
         result["ap_before"] = original_ap
         result["ap_after"] = player["ap"]
 
-    if ap_spend > 0 or str_bonus > 0 or ammo_consumed:
-        save_state(state)
+    # Register action for the player
+    action_status = register_action(state, player_name)
+    result["action_status"] = action_status
 
+    save_state(state)
     output(result, indent=True)
 
 
