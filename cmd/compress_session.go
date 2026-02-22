@@ -13,41 +13,37 @@ import (
 	"github.com/spf13/cobra"
 )
 
+var clearFlag bool
+
 var compressSessionCmd = &cobra.Command{
-	Use:   "compress-session <session-file> <input-file>",
+	Use:   "compress-session <session-file> [input-file]",
 	Short: "Replace session messages with a compressed summary",
 	Long: `Replace session messages with compressed context from an input text file.
 The original is backed up to <session_dir>/history/.
 
-The input file should contain plain text (not JSON). It will be stored as a
-single assistant message in the session. The input file is deleted after use.
+Use --clear to discard all messages without an input file.
 
 Example:
-  nagobot compress-session /path/to/session.json /path/to/compressed.txt`,
-	Args:    cobra.ExactArgs(2),
+  nagobot compress-session /path/to/session.json /path/to/compressed.txt
+  nagobot compress-session --clear /path/to/session.json`,
+	Args:    cobra.RangeArgs(1, 2),
 	GroupID: "internal",
 	RunE:    runCompressSession,
 }
 
 func init() {
+	compressSessionCmd.Flags().BoolVar(&clearFlag, "clear", false, "Clear all messages without an input file")
 	rootCmd.AddCommand(compressSessionCmd)
 }
 
 func runCompressSession(_ *cobra.Command, args []string) error {
 	sessionFile := args[0]
-	inputFile := args[1]
 
-	// 1. Read compressed context.
-	inputData, err := os.ReadFile(inputFile)
-	if err != nil {
-		return fmt.Errorf("failed to read input file: %w", err)
-	}
-	content := strings.TrimSpace(string(inputData))
-	if content == "" {
-		return fmt.Errorf("input file is empty")
+	if !clearFlag && len(args) < 2 {
+		return fmt.Errorf("input file required (or use --clear)")
 	}
 
-	// 2. Read original session.
+	// 1. Read original session.
 	origData, err := os.ReadFile(sessionFile)
 	if err != nil {
 		return fmt.Errorf("failed to read session file: %w", err)
@@ -58,7 +54,7 @@ func runCompressSession(_ *cobra.Command, args []string) error {
 	}
 	origCount := len(orig.Messages)
 
-	// 3. Backup original.
+	// 2. Backup original.
 	sessionDir := filepath.Dir(sessionFile)
 	historyDir := filepath.Join(sessionDir, "history")
 	if err := os.MkdirAll(historyDir, 0755); err != nil {
@@ -71,11 +67,28 @@ func runCompressSession(_ *cobra.Command, args []string) error {
 		return fmt.Errorf("failed to write backup: %w", err)
 	}
 
-	// 4. Keep tail 25% of original messages, prepend compressed summary.
-	tailCount := origCount / 4
-	cutoff := origCount - tailCount
-	tail := orig.Messages[cutoff:]
-	orig.Messages = append([]provider.Message{{Role: "assistant", Content: content}}, tail...)
+	// 3. Build new messages.
+	if clearFlag {
+		orig.Messages = []provider.Message{}
+	} else {
+		inputFile := args[1]
+		inputData, err := os.ReadFile(inputFile)
+		if err != nil {
+			return fmt.Errorf("failed to read input file: %w", err)
+		}
+		content := strings.TrimSpace(string(inputData))
+		if content == "" {
+			return fmt.Errorf("input file is empty")
+		}
+
+		tailCount := origCount / 4
+		cutoff := origCount - tailCount
+		tail := orig.Messages[cutoff:]
+		orig.Messages = append([]provider.Message{{Role: "assistant", Content: content}}, tail...)
+
+		_ = os.Remove(inputFile)
+	}
+
 	orig.UpdatedAt = now
 	newData, err := json.MarshalIndent(&orig, "", "  ")
 	if err != nil {
@@ -85,10 +98,6 @@ func runCompressSession(_ *cobra.Command, args []string) error {
 		return fmt.Errorf("failed to write session file: %w", err)
 	}
 
-	// 5. Cleanup input file.
-	_ = os.Remove(inputFile)
-
-	// 6. Summary.
 	fmt.Printf("Session compressed: %d → %d messages\n", origCount, len(orig.Messages))
 	fmt.Printf("Backup: %s\n", backupPath)
 	fmt.Printf("Session: %s\n", sessionFile)
