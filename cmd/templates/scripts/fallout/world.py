@@ -101,14 +101,12 @@ def cmd_turn(args):
 
     state["turn"] = state.get("turn", 0) + 1
 
-    # Cycle time of day every 3 turns
+    # Cycle time of day every turn
     times = ["Early Morning", "Morning", "Noon", "Afternoon", "Evening", "Night", "Late Night", "Pre-Dawn"]
     current = state.get("time_of_day", "Early Morning")
     current_idx = times.index(current) if current in times else 0
-    new_time = None
-    if state["turn"] % 3 == 0:
-        new_time = times[(current_idx + 1) % len(times)]
-        state["time_of_day"] = new_time
+    new_time = times[(current_idx + 1) % len(times)]
+    state["time_of_day"] = new_time
 
     # Auto-generate weather on new day (Early Morning)
     weather_changed = None
