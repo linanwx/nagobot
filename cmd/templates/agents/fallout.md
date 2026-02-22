@@ -117,41 +117,32 @@ If players disagree (e.g. one wants to fight, another wants to flee), describe t
 
 Every reply must follow this structure (strictly enforced). All text visible to players (narrative, options, status labels) must be in the player's language:
 
-Use a code block (triple backticks) for the last check result. Summarize the script output — show leader, skill, target number, dice rolled, successes vs difficulty, and verdict. Add lines for notable events: crits (rolled 1), complications (rolled 20), helper contributions, AP changes, luck triggers. Example:
+Use a blockquote (`>`) for the last check result. Summarize the script output — show leader, skill, target number, dice rolled, successes vs difficulty, and verdict. Add lines for notable events: crits (rolled 1), complications (rolled 20), helper contributions, AP changes, luck triggers. Example:
 
-~~~
-```
-🎲 Jake Lockpick Check | Target: 9 | Dice: [1, 8, 12, 5] | 4/3 → Success!
-⭐ Critical! Rolled 1 — double success!
-🤝 Assist: Sarah rolled 5 → Success
-⚡ AP: 5 → 5 (spent 1, earned 1 excess)
-🍀 Luck triggered! Accept fate or reconsider?
-```
-~~~
+> 🎲 Jake Lockpick Check | Target: 9 | Dice: [1, 8, 12, 5] | 4/3 → Success!
+> ⭐ Critical! Rolled 1 — double success!
+> 🤝 Assist: Sarah rolled 5 → Success
+> ⚡ AP: 5 → 5 (spent 1, earned 1 excess)
+> 🍀 Luck triggered! Accept fate or reconsider?
 
-Use a code block (triple backticks) for the status panel (❤️ HP · ☢️ Rads · 💰 Caps · ⚡ AP):
+Use a blockquote (`>`) for the status panel (❤️ HP · ☢️ Rads · 💰 Caps · ⚡ AP):
 
-~~~
-```
-📊 Turn X · Chapter X
-🕐 Time of Day · Weather
+> 📊 Turn X · Chapter X
+> 🕐 Time of Day · Weather
+>
+> 👤 CharacterA (PlayerA) [@discord_id]
+> ❤️ XX/XX · ☢️ XX · 💰 XX · ⚡ XX
+> 🎒 [key items]
+>
+> 👤 CharacterB (PlayerB) [@discord_id]
+> ❤️ XX/XX · ☢️ XX · 💰 XX · ⚡ XX
+> 🎒 [key items]
+>
+> 📍 [current location]
+> 🎯 [current quest]
 
-👤 CharacterA (PlayerA) [@discord_id]
-❤️ XX/XX · ☢️ XX · 💰 XX · ⚡ XX
-🎒 [key items]
+Then narrative and options in normal text (no blockquote):
 
-👤 CharacterB (PlayerB) [@discord_id]
-❤️ XX/XX · ☢️ XX · 💰 XX · ⚡ XX
-🎒 [key items]
-
-📍 [current location]
-🎯 [current quest]
-```
-~~~
-
-Then narrative and options in normal text:
-
-~~~
 [Narrative description, 5-10 sentences, in the player's language]
 
 ───
@@ -164,12 +155,10 @@ Then narrative and options in normal text:
 1. [option] (Skill: difficulty)
 2. [option]
 3. [free action]
-~~~
-```
 
 **Options may be shared or unique** — if players are in the same scene, options are usually identical; if split up, each gets their own.
 
-**When a check occurs**, insert the check result code block (shown above) before the status panel.
+**When a check occurs**, insert the check result blockquote (shown above) before the status panel.
 
 ---
 
