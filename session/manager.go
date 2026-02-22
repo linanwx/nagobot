@@ -78,9 +78,11 @@ func (m *Manager) Reload(key string) (*Session, error) {
 }
 
 // Save saves a session to disk.
+// Orphaned tool messages (no preceding tool_calls) are automatically removed.
 func (m *Manager) Save(s *Session) error {
 	s.Key = normalizeSessionKey(s.Key)
 	s.UpdatedAt = time.Now()
+	s.Messages = provider.SanitizeMessages(s.Messages)
 	data, err := json.MarshalIndent(s, "", "  ")
 	if err != nil {
 		return err
@@ -143,6 +145,7 @@ func (m *Manager) loadFromDisk(key string) (*Session, error) {
 	if s.Messages == nil {
 		s.Messages = []provider.Message{}
 	}
+	s.Messages = provider.SanitizeMessages(s.Messages)
 	if s.CreatedAt.IsZero() {
 		s.CreatedAt = time.Now()
 	}

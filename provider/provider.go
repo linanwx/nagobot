@@ -214,6 +214,29 @@ func ToolResultMessage(toolCallID, name, content string) Message {
 	return Message{Role: "tool", ToolCallID: toolCallID, Name: name, Content: content}
 }
 
+// SanitizeMessages removes orphaned tool messages that have no preceding
+// assistant message with a matching tool_call ID. This prevents API errors
+// (e.g. DeepSeek: "Messages with role 'tool' must be a response to a
+// preceding message with 'tool_calls'") that occur after session compression
+// cuts through a tool_calls→tool sequence.
+func SanitizeMessages(messages []Message) []Message {
+	// Forward scan: track tool_call IDs from assistant messages.
+	callIDs := make(map[string]bool)
+	result := make([]Message, 0, len(messages))
+	for _, m := range messages {
+		if m.Role == "assistant" {
+			for _, tc := range m.ToolCalls {
+				callIDs[tc.ID] = true
+			}
+		}
+		if m.Role == "tool" && !callIDs[m.ToolCallID] {
+			continue
+		}
+		result = append(result, m)
+	}
+	return result
+}
+
 // MediaMarker represents an embedded media reference in tool output.
 type MediaMarker struct {
 	MimeType string
