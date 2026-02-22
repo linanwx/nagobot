@@ -122,7 +122,12 @@ def cmd_set(args):
         state["chapter_start_turn"] = state.get("turn", 0)
 
     save_state(state)
-    ok(f"Set {field}", field=field, old_value=old, new_value=value)
+
+    result = {"field": field, "old_value": old, "new_value": value}
+    if field == "chapter":
+        players = list(state.get("players", {}).keys())
+        result["hint"] = f"New chapter! Use 'skill-up <player> <skill>' to level up each player: {', '.join(players)}"
+    ok(f"Set {field}", **result)
 
 
 # ---------------------------------------------------------------------------
