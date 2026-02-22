@@ -71,10 +71,11 @@ func runCompressSession(_ *cobra.Command, args []string) error {
 		return fmt.Errorf("failed to write backup: %w", err)
 	}
 
-	// 4. Replace messages with a single assistant message and write directly.
-	orig.Messages = []provider.Message{
-		{Role: "assistant", Content: content},
-	}
+	// 4. Keep tail 25% of original messages, prepend compressed summary.
+	tailCount := origCount / 4
+	cutoff := origCount - tailCount
+	tail := orig.Messages[cutoff:]
+	orig.Messages = append([]provider.Message{{Role: "assistant", Content: content}}, tail...)
 	orig.UpdatedAt = now
 	newData, err := json.MarshalIndent(&orig, "", "  ")
 	if err != nil {
@@ -88,7 +89,7 @@ func runCompressSession(_ *cobra.Command, args []string) error {
 	_ = os.Remove(inputFile)
 
 	// 6. Summary.
-	fmt.Printf("Session compressed: %d → 1 messages\n", origCount)
+	fmt.Printf("Session compressed: %d → %d messages\n", origCount, len(orig.Messages))
 	fmt.Printf("Backup: %s\n", backupPath)
 	fmt.Printf("Session: %s\n", sessionFile)
 	return nil
