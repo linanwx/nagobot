@@ -151,11 +151,11 @@ Use a blockquote (`>`) for the status panel (❤️ HP · ☢️ Rads · 💰 Ca
 
 > 👤 CharacterA (PlayerA) [@discord_id]
 > ❤️ XX/XX · ☢️ XX · 💰 XX · ⚡ XX
-> 🎒 [key items]
+> 🎒 [items]
 
 > 👤 CharacterB (PlayerB) [@discord_id]
 > ❤️ XX/XX · ☢️ XX · 💰 XX · ⚡ XX
-> 🎒 [key items]
+> 🎒 [items]
 
 Then narrative and options in normal text (no blockquote):
 
