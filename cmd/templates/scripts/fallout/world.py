@@ -143,7 +143,15 @@ def cmd_set(args):
     result = {"field": field, "old_value": old, "new_value": value}
     if field == "chapter":
         players = list(state.get("players", {}).keys())
-        result["hint"] = f"New chapter! Use 'skill-up <player> <skill>' to level up each player: {', '.join(players)}"
+        player_tags = {}
+        for pname in players:
+            tags = state["players"][pname].get("tag_skills", [])
+            player_tags[pname] = tags
+        result["level_up"] = player_tags
+        result["hint"] = (
+            "New chapter! Each player may level up one of their tag skills. "
+            "Ask each player which tag skill they want to improve, then call 'skill-up <player> <skill>' for each."
+        )
 
     # Location change: d6 treasure roll
     if field == "location" and old != value:
