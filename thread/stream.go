@@ -140,6 +140,15 @@ func findMarkdownSplit(text string) int {
 			break
 		}
 
+		// Horizontal rule boundary: ---, ***, ___, or ———
+		if isHorizontalRule(trimmed) {
+			if isTableLine(prevTrimmed) || isContinuousList(lines, i) {
+				continue
+			}
+			bestSplit = lineStart
+			break
+		}
+
 		// Paragraph boundary: blank line
 		if trimmed == "" && prevTrimmed != "" {
 			// Check: the blank line shouldn't be inside a list or table.
@@ -160,6 +169,37 @@ func findMarkdownSplit(text string) int {
 
 func isTableLine(s string) bool {
 	return strings.HasPrefix(s, "|") || strings.HasPrefix(s, "|-")
+}
+
+func isHorizontalRule(s string) bool {
+	clean := strings.ReplaceAll(s, " ", "")
+	if len(clean) < 3 {
+		return false
+	}
+	// Standard markdown: ---, ***, ___ (3+ of the same char, optional spaces)
+	if clean[0] == '-' || clean[0] == '*' || clean[0] == '_' {
+		allSame := true
+		for i := 1; i < len(clean); i++ {
+			if clean[i] != clean[0] {
+				allSame = false
+				break
+			}
+		}
+		if allSame {
+			return true
+		}
+	}
+	// Full-width em-dash: ——— (3+ em-dashes)
+	runes := []rune(clean)
+	if len(runes) >= 3 {
+		for _, r := range runes {
+			if r != '—' {
+				return false
+			}
+		}
+		return true
+	}
+	return false
 }
 
 func isContinuousList(lines []string, idx int) bool {
