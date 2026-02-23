@@ -9,7 +9,7 @@ from pathlib import Path
 # Configuration
 # ---------------------------------------------------------------------------
 
-STATE_FILE = os.environ.get("FALLOUT_STATE", "fallout_game.json")
+STATE_FILE = os.environ.get("FALLOUT_STATE", os.path.join("save", "fallout_game.json"))
 
 if not os.path.isabs(STATE_FILE):
     workspace = Path(__file__).resolve().parent.parent.parent

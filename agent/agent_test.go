@@ -16,13 +16,17 @@ func setupWorkspace(t *testing.T) string {
 	srcDir := filepath.Join("..", "cmd", "templates")
 	ws := t.TempDir()
 
-	// Copy top-level files.
-	for _, name := range []string{"CORE_MECHANISM.md"} {
+	// Copy system files.
+	for _, name := range []string{"system/CORE_MECHANISM.md"} {
 		data, err := os.ReadFile(filepath.Join(srcDir, name))
 		if err != nil {
 			t.Fatalf("read %s: %v", name, err)
 		}
-		if err := os.WriteFile(filepath.Join(ws, name), data, 0644); err != nil {
+		dest := filepath.Join(ws, name)
+		if err := os.MkdirAll(filepath.Dir(dest), 0755); err != nil {
+			t.Fatalf("mkdir %s: %v", filepath.Dir(dest), err)
+		}
+		if err := os.WriteFile(dest, data, 0644); err != nil {
 			t.Fatalf("write %s: %v", name, err)
 		}
 	}

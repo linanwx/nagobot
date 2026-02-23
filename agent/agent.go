@@ -42,7 +42,7 @@ func (a *Agent) Build() string {
 
 	if a.workspace != "" {
 		// Expand CORE_MECHANISM first so its placeholders are available for subsequent replacements.
-		coreContent, _ := os.ReadFile(filepath.Join(a.workspace, "CORE_MECHANISM.md"))
+		coreContent, _ := os.ReadFile(filepath.Join(a.workspace, "system", "CORE_MECHANISM.md"))
 		prompt = strings.ReplaceAll(prompt, "{{CORE_MECHANISM}}", strings.TrimSpace(string(coreContent)))
 		prompt = strings.ReplaceAll(prompt, "{{WORKSPACE}}", a.workspace)
 		// {{USER}} is resolved as a runtime var in thread/run.go (per-session).

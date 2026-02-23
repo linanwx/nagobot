@@ -483,6 +483,8 @@ func createBootstrapFiles(workspace string) error {
 		"agents",
 		"bin",
 		"docs",
+		"system",
+		"save",
 		skillsDir,
 		filepath.Join(sessionsDir, "cli"),
 		filepath.Join(sessionsDir, "cron"),
@@ -492,9 +494,8 @@ func createBootstrapFiles(workspace string) error {
 		}
 	}
 
-	// Root-level templates.
-	// CORE_MECHANISM.md is a system template — always overwrite to stay current.
-	if err := writeTemplate(workspace, "CORE_MECHANISM.md", "CORE_MECHANISM.md", true); err != nil {
+	// System templates — always overwrite to stay current.
+	if err := writeTemplate(workspace, "system/CORE_MECHANISM.md", "system/CORE_MECHANISM.md", true); err != nil {
 		return err
 	}
 
