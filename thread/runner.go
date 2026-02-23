@@ -19,6 +19,8 @@ type Runner struct {
 	metrics        *ExecMetrics              // optional; nil disables metrics collection
 	onMessage      func(provider.Message)    // optional observer for intermediate messages
 	onIterationEnd func() []provider.Message // optional: called after each tool iteration; returned messages are injected before the next LLM call
+	onText         func(delta string)        // optional: called with each text chunk during streaming generation
+	onChatEnd      func()                    // optional: called after each provider.Chat() returns
 }
 
 // OnMessage sets a callback invoked for each intermediate message
@@ -29,6 +31,12 @@ func (r *Runner) OnMessage(fn func(provider.Message)) { r.onMessage = fn }
 // completes, before the next LLM call. If it returns messages, they are
 // appended to the conversation (e.g. mid-execution user messages).
 func (r *Runner) OnIterationEnd(fn func() []provider.Message) { r.onIterationEnd = fn }
+
+// OnText sets a callback invoked with each text delta during streaming generation.
+func (r *Runner) OnText(fn func(string)) { r.onText = fn }
+
+// OnChatEnd sets a callback invoked after each provider.Chat() call returns.
+func (r *Runner) OnChatEnd(fn func()) { r.onChatEnd = fn }
 
 // NewRunner creates a new Runner. Pass a non-nil ExecMetrics to enable
 // real-time metrics collection visible to other threads.
@@ -52,10 +60,15 @@ func (r *Runner) RunWithMessages(ctx context.Context, messages []provider.Messag
 			r.metrics.mu.Unlock()
 		}
 
-		resp, err := r.provider.Chat(ctx, &provider.Request{
-			Messages: messages,
-			Tools:    toolDefs,
-		})
+		chatReq := &provider.Request{
+			Messages:    messages,
+			Tools:       toolDefs,
+			OnTextDelta: r.onText,
+		}
+		resp, err := r.provider.Chat(ctx, chatReq)
+		if r.onChatEnd != nil {
+			r.onChatEnd()
+		}
 		if err != nil {
 			return "", fmt.Errorf("provider error: %w", err)
 		}

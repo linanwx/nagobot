@@ -25,8 +25,9 @@ type AccountIDSetter interface {
 
 // Request represents a chat completion request.
 type Request struct {
-	Messages []Message
-	Tools    []ToolDef
+	Messages    []Message
+	Tools       []ToolDef
+	OnTextDelta func(delta string) // Optional: called with each text chunk during streaming generation.
 }
 
 // Message represents a chat message in OpenAI format (internal canonical format).

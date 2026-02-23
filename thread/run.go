@@ -121,10 +121,20 @@ func (t *Thread) run(ctx context.Context, userMessage string, sink Sink, injectF
 	})
 	var intermediates []provider.Message
 	runner := NewRunner(t.resolveProvider(), t.tools, metrics)
+
+	// Set up streaming for idempotent sinks (Telegram, Discord, Feishu, CLI).
+	var streamer *MarkdownStreamer
+	if !sink.IsZero() && sink.Idempotent {
+		streamer = NewMarkdownStreamer(sink, ctx, 600)
+		runner.OnText(streamer.OnDelta)
+		runner.OnChatEnd(streamer.Flush)
+	}
+
 	runner.OnMessage(func(m provider.Message) {
 		intermediates = append(intermediates, m)
-		// Deliver intermediate assistant content (e.g. thinking aloud) to user in real time.
-		if m.Role == "assistant" && isUserFacingContent(m.Content) && !sink.IsZero() && sink.Idempotent {
+		// Deliver intermediate assistant content to user in real time.
+		// Skip when streaming is active — streamer handles delivery via OnTextDelta.
+		if streamer == nil && m.Role == "assistant" && isUserFacingContent(m.Content) && !sink.IsZero() && sink.Idempotent {
 			_ = sink.Send(ctx, m.Content)
 		}
 	})
@@ -132,6 +142,14 @@ func (t *Thread) run(ctx context.Context, userMessage string, sink Sink, injectF
 	response, err := runner.RunWithMessages(runCtx, messages)
 	if err != nil {
 		return "", err
+	}
+
+	// Flush remaining streamed content and suppress final sink delivery.
+	if streamer != nil {
+		streamer.Flush()
+		if streamer.Streamed() {
+			t.SetSuppressSink()
+		}
 	}
 
 	// End-of-turn: append intermediate tool chain + final assistant response.

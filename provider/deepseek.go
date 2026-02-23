@@ -1,21 +1,20 @@
-// Package provider provides LLM provider implementations.
 package provider
 
 import (
+	"bufio"
+	"bytes"
 	"context"
+	"encoding/json"
 	"fmt"
+	"io"
+	"net/http"
 	"strings"
 	"time"
 
 	"github.com/linanwx/nagobot/logger"
-	openai "github.com/openai/openai-go/v3"
-	oaioption "github.com/openai/openai-go/v3/option"
-	"github.com/openai/openai-go/v3/shared"
 )
 
-const (
-	deepSeekAPIBase = "https://api.deepseek.com"
-)
+const deepSeekAPIBase = "https://api.deepseek.com"
 
 func init() {
 	RegisterProvider("deepseek", ProviderRegistration{
@@ -28,7 +27,110 @@ func init() {
 	})
 }
 
-// DeepSeekProvider implements the Provider interface for DeepSeek native API.
+// ---------- JSON wire types ----------
+
+type dsRequest struct {
+	Model         string        `json:"model"`
+	Messages      []dsMessage   `json:"messages"`
+	Tools         []ToolDef     `json:"tools,omitempty"`
+	MaxTokens     int           `json:"max_tokens,omitempty"`
+	Temperature   *float64      `json:"temperature,omitempty"`
+	Stream        bool          `json:"stream"`
+	StreamOptions *dsStreamOpts `json:"stream_options,omitempty"`
+	Thinking      *dsThinking   `json:"thinking,omitempty"`
+}
+
+type dsStreamOpts struct {
+	IncludeUsage bool `json:"include_usage"`
+}
+
+type dsThinking struct {
+	Type string `json:"type"` // "enabled"
+}
+
+type dsMessage struct {
+	Role             string     `json:"role"`
+	Content          *string    `json:"content"`                     // nullable
+	ReasoningContent *string    `json:"reasoning_content,omitempty"` // assistant only
+	ToolCalls        []ToolCall `json:"tool_calls,omitempty"`        // assistant only
+	ToolCallID       string     `json:"tool_call_id,omitempty"`      // tool only
+	Name             string     `json:"name,omitempty"`
+}
+
+// Non-streaming response.
+type dsResponse struct {
+	Choices []dsChoice `json:"choices"`
+	Usage   dsUsage    `json:"usage"`
+}
+
+type dsChoice struct {
+	Message      dsRespMsg `json:"message"`
+	FinishReason string    `json:"finish_reason"`
+}
+
+type dsRespMsg struct {
+	Content          string     `json:"content"`
+	ReasoningContent string     `json:"reasoning_content"`
+	ToolCalls        []ToolCall `json:"tool_calls"`
+}
+
+type dsUsage struct {
+	PromptTokens            int `json:"prompt_tokens"`
+	CompletionTokens        int `json:"completion_tokens"`
+	TotalTokens             int `json:"total_tokens"`
+	PromptCacheHitTokens    int `json:"prompt_cache_hit_tokens"`
+	PromptCacheMissTokens   int `json:"prompt_cache_miss_tokens"`
+	CompletionTokensDetails struct {
+		ReasoningTokens int `json:"reasoning_tokens"`
+	} `json:"completion_tokens_details"`
+}
+
+// Streaming chunk.
+type dsChunk struct {
+	Choices []dsChunkChoice `json:"choices"`
+	Usage   *dsUsage        `json:"usage"`
+}
+
+type dsChunkChoice struct {
+	Delta        dsDelta `json:"delta"`
+	FinishReason *string `json:"finish_reason"`
+}
+
+type dsDelta struct {
+	Content          string      `json:"content"`
+	ReasoningContent string      `json:"reasoning_content"`
+	ToolCalls        []dsDeltaTC `json:"tool_calls"`
+}
+
+type dsDeltaTC struct {
+	Index    int           `json:"index"`
+	ID       string        `json:"id"`
+	Type     string        `json:"type"`
+	Function dsDeltaTCFunc `json:"function"`
+}
+
+type dsDeltaTCFunc struct {
+	Name      string `json:"name"`
+	Arguments string `json:"arguments"`
+}
+
+type dsErrorResp struct {
+	Error struct {
+		Message string `json:"message"`
+	} `json:"error"`
+}
+
+// streamToolCallAcc accumulates incremental tool call deltas.
+type streamToolCallAcc struct {
+	id   string
+	typ  string
+	name string
+	args strings.Builder
+}
+
+// ---------- provider ----------
+
+// DeepSeekProvider implements the Provider interface using raw HTTP.
 type DeepSeekProvider struct {
 	apiKey      string
 	apiBase     string
@@ -36,118 +138,305 @@ type DeepSeekProvider struct {
 	modelType   string
 	maxTokens   int
 	temperature float64
-	client      openai.Client
+	client      *http.Client
 }
 
-// newDeepSeekProvider creates a new DeepSeek provider.
 func newDeepSeekProvider(apiKey, apiBase, modelType, modelName string, maxTokens int, temperature float64) *DeepSeekProvider {
 	if modelName == "" {
 		modelName = modelType
 	}
-
-	baseURL := normalizeSDKBaseURL(apiBase, deepSeekAPIBase, "/chat/completions")
-	client := openai.NewClient(
-		oaioption.WithAPIKey(apiKey),
-		oaioption.WithBaseURL(baseURL),
-		oaioption.WithMaxRetries(sdkMaxRetries),
-	)
+	if apiBase == "" {
+		apiBase = deepSeekAPIBase
+	}
+	apiBase = strings.TrimRight(apiBase, "/")
+	apiBase = strings.TrimSuffix(apiBase, "/chat/completions")
+	apiBase = strings.TrimSuffix(apiBase, "/v1")
 
 	return &DeepSeekProvider{
 		apiKey:      apiKey,
-		apiBase:     baseURL,
+		apiBase:     apiBase,
 		modelName:   modelName,
 		modelType:   modelType,
 		maxTokens:   maxTokens,
 		temperature: temperature,
-		client:      client,
+		client:      &http.Client{},
 	}
+}
+
+func (p *DeepSeekProvider) endpoint() string {
+	return p.apiBase + "/chat/completions"
 }
 
 // Chat sends a chat completion request to DeepSeek.
 func (p *DeepSeekProvider) Chat(ctx context.Context, req *Request) (*Response, error) {
 	start := time.Now()
 	inputChars := openRouterInputChars(req.Messages)
-
-	messages, err := toOpenAIChatMessages(req.Messages, false)
-	if err != nil {
-		return nil, fmt.Errorf("failed to convert messages: %w", err)
-	}
-
 	thinkingEnabled := strings.TrimSpace(p.modelType) == "deepseek-reasoner"
+	streaming := req.OnTextDelta != nil
+
 	logger.Info(
 		"deepseek request",
 		"provider", "deepseek",
 		"modelType", p.modelType,
 		"modelName", p.modelName,
 		"thinkingEnabled", thinkingEnabled,
+		"streaming", streaming,
 		"toolCount", len(req.Tools),
 		"inputChars", inputChars,
 	)
 
-	chatReq := openai.ChatCompletionNewParams{
-		Model:    shared.ChatModel(p.modelName),
-		Messages: messages,
-		Tools:    toOpenAIChatTools(req.Tools),
+	dsReq := p.buildRequest(req, thinkingEnabled, streaming)
+
+	if streaming {
+		return p.chatStream(ctx, req, dsReq, start)
+	}
+	return p.chatSync(ctx, dsReq, start)
+}
+
+func (p *DeepSeekProvider) buildRequest(req *Request, thinkingEnabled, streaming bool) dsRequest {
+	r := dsRequest{
+		Model:    p.modelName,
+		Messages: toDSMessages(req.Messages),
+		Tools:    req.Tools,
+		Stream:   streaming,
 	}
 	if p.maxTokens > 0 {
-		chatReq.MaxTokens = openai.Int(int64(p.maxTokens))
+		r.MaxTokens = p.maxTokens
 	}
 	if p.temperature != 0 && !thinkingEnabled {
-		chatReq.Temperature = openai.Float(p.temperature)
+		t := p.temperature
+		r.Temperature = &t
 	}
-
-	requestOpts := []oaioption.RequestOption{}
 	if thinkingEnabled {
-		// Official DeepSeek guide: OpenAI SDK should pass thinking switch via extra_body.
-		requestOpts = append(requestOpts, oaioption.WithJSONSet("extra_body.thinking.type", "enabled"))
+		r.Thinking = &dsThinking{Type: "enabled"}
 	}
+	if streaming {
+		r.StreamOptions = &dsStreamOpts{IncludeUsage: true}
+	}
+	return r
+}
 
-	chatResp, err := p.client.Chat.Completions.New(ctx, chatReq, requestOpts...)
+func (p *DeepSeekProvider) doPost(ctx context.Context, body any) (*http.Response, error) {
+	jsonBody, err := json.Marshal(body)
 	if err != nil {
-		logger.Error("deepseek request send error", "provider", "deepseek", "err", err)
+		return nil, fmt.Errorf("marshal request: %w", err)
+	}
+	httpReq, err := http.NewRequestWithContext(ctx, "POST", p.endpoint(), bytes.NewReader(jsonBody))
+	if err != nil {
+		return nil, fmt.Errorf("create request: %w", err)
+	}
+	httpReq.Header.Set("Content-Type", "application/json")
+	httpReq.Header.Set("Authorization", "Bearer "+p.apiKey)
+
+	return p.client.Do(httpReq)
+}
+
+// chatSync handles non-streaming completion.
+func (p *DeepSeekProvider) chatSync(ctx context.Context, dsReq dsRequest, start time.Time) (*Response, error) {
+	httpResp, err := p.doPost(ctx, dsReq)
+	if err != nil {
+		logger.Error("deepseek request error", "provider", "deepseek", "err", err)
 		return nil, fmt.Errorf("request failed: %w", err)
 	}
+	defer httpResp.Body.Close()
 
-	if len(chatResp.Choices) == 0 {
-		logger.Error("deepseek no choices", "provider", "deepseek")
+	body, err := io.ReadAll(httpResp.Body)
+	if err != nil {
+		return nil, fmt.Errorf("read response: %w", err)
+	}
+
+	if httpResp.StatusCode != http.StatusOK {
+		var apiErr dsErrorResp
+		if json.Unmarshal(body, &apiErr) == nil && apiErr.Error.Message != "" {
+			return nil, fmt.Errorf("deepseek API error (%d): %s", httpResp.StatusCode, apiErr.Error.Message)
+		}
+		return nil, fmt.Errorf("deepseek API error (%d): %s", httpResp.StatusCode, string(body))
+	}
+
+	var resp dsResponse
+	if err := json.Unmarshal(body, &resp); err != nil {
+		return nil, fmt.Errorf("unmarshal response: %w", err)
+	}
+
+	if len(resp.Choices) == 0 {
 		return nil, fmt.Errorf("no choices in response")
 	}
 
-	choice := chatResp.Choices[0]
-	toolCalls := fromOpenAIChatToolCalls(choice.Message.ToolCalls)
-	reasoningTokens := chatResp.Usage.CompletionTokensDetails.ReasoningTokens
-	rawMessage := choice.Message.RawJSON()
-	rawResponse := chatResp.RawJSON()
-	reasoningText := extractReasoningText(rawMessage)
+	choice := resp.Choices[0]
 	finalContent := choice.Message.Content
-	if strings.TrimSpace(finalContent) == "" && len(toolCalls) == 0 && strings.TrimSpace(reasoningText) != "" {
+	reasoningText := choice.Message.ReasoningContent
+	if strings.TrimSpace(finalContent) == "" && len(choice.Message.ToolCalls) == 0 && strings.TrimSpace(reasoningText) != "" {
 		logger.Warn("deepseek response content empty, using reasoning text fallback")
 		finalContent = reasoningText
 	}
 
+	u := resp.Usage
 	logger.Info(
 		"deepseek response",
 		"provider", "deepseek",
 		"modelType", p.modelType,
 		"modelName", p.modelName,
 		"finishReason", choice.FinishReason,
-		"reasoningInResponse", reasoningTokens > 0 || strings.TrimSpace(reasoningText) != "",
-		"hasToolCalls", len(toolCalls) > 0,
-		"toolCallCount", len(toolCalls),
-		"promptTokens", chatResp.Usage.PromptTokens,
-		"completionTokens", chatResp.Usage.CompletionTokens,
-		"reasoningTokens", reasoningTokens,
-		"totalTokens", chatResp.Usage.TotalTokens,
-		"promptCacheHitTokens", chatResp.Usage.JSON.ExtraFields["prompt_cache_hit_tokens"].Raw(),
-		"promptCacheMissTokens", chatResp.Usage.JSON.ExtraFields["prompt_cache_miss_tokens"].Raw(),
-		"outputChars", len(choice.Message.Content),
+		"reasoningInResponse", u.CompletionTokensDetails.ReasoningTokens > 0 || strings.TrimSpace(reasoningText) != "",
+		"hasToolCalls", len(choice.Message.ToolCalls) > 0,
+		"toolCallCount", len(choice.Message.ToolCalls),
+		"promptTokens", u.PromptTokens,
+		"completionTokens", u.CompletionTokens,
+		"reasoningTokens", u.CompletionTokensDetails.ReasoningTokens,
+		"totalTokens", u.TotalTokens,
+		"promptCacheHitTokens", u.PromptCacheHitTokens,
+		"promptCacheMissTokens", u.PromptCacheMissTokens,
+		"outputChars", len(finalContent),
 		"latencyMs", time.Since(start).Milliseconds(),
 	)
-	logger.Debug(
-		"deepseek raw output",
-		"rawMessage", rawMessage,
-		"rawResponse", rawResponse,
-		"reasoningText", reasoningText,
+
+	return &Response{
+		Content:          finalContent,
+		ReasoningContent: reasoningText,
+		ToolCalls:        choice.Message.ToolCalls,
+		Usage: Usage{
+			PromptTokens:     u.PromptTokens,
+			CompletionTokens: u.CompletionTokens,
+			TotalTokens:      u.TotalTokens,
+		},
+	}, nil
+}
+
+// chatStream handles streaming completion with SSE parsing.
+func (p *DeepSeekProvider) chatStream(ctx context.Context, req *Request, dsReq dsRequest, start time.Time) (*Response, error) {
+	httpResp, err := p.doPost(ctx, dsReq)
+	if err != nil {
+		logger.Error("deepseek streaming request error", "provider", "deepseek", "err", err)
+		return nil, fmt.Errorf("request failed: %w", err)
+	}
+	defer httpResp.Body.Close()
+
+	if httpResp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(httpResp.Body)
+		var apiErr dsErrorResp
+		if json.Unmarshal(body, &apiErr) == nil && apiErr.Error.Message != "" {
+			return nil, fmt.Errorf("deepseek API error (%d): %s", httpResp.StatusCode, apiErr.Error.Message)
+		}
+		return nil, fmt.Errorf("deepseek API error (%d): %s", httpResp.StatusCode, string(body))
+	}
+
+	var (
+		content     strings.Builder
+		reasoning   strings.Builder
+		toolCallAcc = map[int]*streamToolCallAcc{}
+		usage       dsUsage
+		finishReason string
+	)
+
+	scanner := bufio.NewScanner(httpResp.Body)
+	scanner.Buffer(make([]byte, 0, 64*1024), 1024*1024)
+
+	for scanner.Scan() {
+		line := scanner.Text()
+
+		// Skip SSE comments (: keep-alive), empty lines, retry directives.
+		if line == "" || strings.HasPrefix(line, ":") || strings.HasPrefix(line, "retry:") {
+			continue
+		}
+		if !strings.HasPrefix(line, "data: ") {
+			continue
+		}
+		data := line[6:]
+		if data == "[DONE]" {
+			break
+		}
+
+		var chunk dsChunk
+		if err := json.Unmarshal([]byte(data), &chunk); err != nil {
+			logger.Debug("deepseek stream chunk parse skip", "err", err)
+			continue
+		}
+
+		if chunk.Usage != nil {
+			usage = *chunk.Usage
+		}
+		if len(chunk.Choices) == 0 {
+			continue
+		}
+
+		delta := chunk.Choices[0].Delta
+
+		if delta.ReasoningContent != "" {
+			reasoning.WriteString(delta.ReasoningContent)
+		}
+		if delta.Content != "" {
+			content.WriteString(delta.Content)
+			req.OnTextDelta(delta.Content)
+		}
+
+		// Accumulate tool calls by index.
+		for _, tc := range delta.ToolCalls {
+			acc, ok := toolCallAcc[tc.Index]
+			if !ok {
+				acc = &streamToolCallAcc{}
+				toolCallAcc[tc.Index] = acc
+			}
+			if tc.ID != "" {
+				acc.id = tc.ID
+			}
+			if tc.Type != "" {
+				acc.typ = tc.Type
+			}
+			if tc.Function.Name != "" {
+				acc.name = tc.Function.Name
+			}
+			acc.args.WriteString(tc.Function.Arguments)
+		}
+
+		if chunk.Choices[0].FinishReason != nil {
+			finishReason = *chunk.Choices[0].FinishReason
+		}
+	}
+
+	if err := scanner.Err(); err != nil {
+		logger.Error("deepseek stream read error", "err", err)
+		return nil, fmt.Errorf("stream read error: %w", err)
+	}
+
+	// Assemble tool calls from accumulated deltas.
+	var toolCalls []ToolCall
+	for i := 0; i < len(toolCallAcc); i++ {
+		tc := toolCallAcc[i]
+		if tc == nil {
+			continue
+		}
+		toolCalls = append(toolCalls, ToolCall{
+			ID:   tc.id,
+			Type: tc.typ,
+			Function: FunctionCall{
+				Name:      tc.name,
+				Arguments: tc.args.String(),
+			},
+		})
+	}
+
+	finalContent := content.String()
+	reasoningText := reasoning.String()
+	if strings.TrimSpace(finalContent) == "" && len(toolCalls) == 0 && strings.TrimSpace(reasoningText) != "" {
+		logger.Warn("deepseek streaming response content empty, using reasoning text fallback")
+		finalContent = reasoningText
+	}
+
+	logger.Info(
+		"deepseek streaming response",
+		"provider", "deepseek",
+		"modelType", p.modelType,
+		"modelName", p.modelName,
+		"finishReason", finishReason,
+		"reasoningInResponse", usage.CompletionTokensDetails.ReasoningTokens > 0 || strings.TrimSpace(reasoningText) != "",
+		"hasToolCalls", len(toolCalls) > 0,
+		"toolCallCount", len(toolCalls),
+		"promptTokens", usage.PromptTokens,
+		"completionTokens", usage.CompletionTokens,
+		"reasoningTokens", usage.CompletionTokensDetails.ReasoningTokens,
+		"totalTokens", usage.TotalTokens,
+		"outputChars", len(finalContent),
+		"latencyMs", time.Since(start).Milliseconds(),
 	)
 
 	return &Response{
@@ -155,9 +444,36 @@ func (p *DeepSeekProvider) Chat(ctx context.Context, req *Request) (*Response, e
 		ReasoningContent: reasoningText,
 		ToolCalls:        toolCalls,
 		Usage: Usage{
-			PromptTokens:     int(chatResp.Usage.PromptTokens),
-			CompletionTokens: int(chatResp.Usage.CompletionTokens),
-			TotalTokens:      int(chatResp.Usage.TotalTokens),
+			PromptTokens:     usage.PromptTokens,
+			CompletionTokens: usage.CompletionTokens,
+			TotalTokens:      usage.TotalTokens,
 		},
 	}, nil
+}
+
+// ---------- helpers ----------
+
+func toDSMessages(messages []Message) []dsMessage {
+	out := make([]dsMessage, 0, len(messages))
+	for _, m := range messages {
+		dm := dsMessage{
+			Role:       m.Role,
+			ToolCallID: m.ToolCallID,
+			Name:       m.Name,
+		}
+		switch m.Role {
+		case "assistant":
+			if m.Content != "" {
+				dm.Content = &m.Content
+			}
+			if m.ReasoningContent != "" {
+				dm.ReasoningContent = &m.ReasoningContent
+			}
+			dm.ToolCalls = m.ToolCalls
+		default: // system, user, tool
+			dm.Content = &m.Content
+		}
+		out = append(out, dm)
+	}
+	return out
 }
