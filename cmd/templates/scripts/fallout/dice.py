@@ -287,7 +287,19 @@ def _evaluate_check(state, player_names, attr, skill_name, difficulty, ap_dice=0
         }
 
     if total_complications > 0:
-        result["complication_note"] = "A complication occurred! Even on a success, trouble is brewing."
+        oracle = random.randint(1, 6)
+        oracle_table = {
+            1: {"type": "Blessing in Disguise", "prompt": "The complication unexpectedly brings a benefit — narrate how the mishap opens a new opportunity or reveals something useful."},
+            2: {"type": "Minor Nuisance", "prompt": "Minor inconvenience, easily dealt with — narrate a small hiccup that doesn't affect the bigger picture."},
+            3: {"type": "Hidden Threat", "prompt": "No immediate impact, but foreshadow a future problem — plant a seed that will surface 2-3 turns later."},
+            4: {"type": "Costly Success", "prompt": "Real trouble, but with a way out — narrate the problem AND hint at how players might mitigate it."},
+            5: {"type": "Immediate Trouble", "prompt": "Genuine problem with immediate consequences — narrate a concrete setback that affects the current situation right now."},
+            6: {"type": "Cascading Failure", "prompt": "Cascading failure — narrate how the complication triggers a chain reaction that makes the current situation significantly worse."},
+        }
+        result["complication"] = {
+            "oracle_roll": oracle,
+            **oracle_table[oracle],
+        }
 
     # Report unused tag skills for each participant
     unused_tags = {}
