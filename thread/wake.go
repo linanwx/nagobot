@@ -196,11 +196,11 @@ func buildWakePayload(source, message, threadID, sessionKey, deliveryLabel strin
 func wakeActionHint(source string) string {
 	switch source {
 	case "telegram", "cli", "web", "discord":
-		return "Respond directly to the user request."
+		return "A user sent a message. Respond to the user."
 	case "user_active":
 		return "Resume the target session and respond to this wake message."
 	case "child_task":
-		return "Execute this delegated task and return a result."
+		return "A parent thread delegated a task to you. Execute this task and output the result."
 	case "child_completed":
 		return "A child thread completed. Summarize the result and report the original result."
 	case "sleep_completed":
@@ -208,7 +208,7 @@ func wakeActionHint(source string) string {
 	case "cron":
 		return "A scheduled cron task has started. Execute it based on the provided job context."
 	case "cron_finished":
-		return "A cron task has finished. Summarize the result and report the original result."
+		return "A cron task has finished and forwarded its result to this thread. Summarize and report the result."
 	case "external":
 		return "Process this external wake message and continue the session."
 	default:
