@@ -144,6 +144,20 @@ def cmd_set(args):
     if field == "chapter":
         players = list(state.get("players", {}).keys())
         result["hint"] = f"New chapter! Use 'skill-up <player> <skill>' to level up each player: {', '.join(players)}"
+
+    # Location change: d6 treasure roll
+    if field == "location" and old != value:
+        treasure_roll = random.randint(1, 6)
+        result["treasure_roll"] = treasure_roll
+        if treasure_roll == 1:
+            result["treasure_found"] = True
+            result["treasure_prompt"] = (
+                "A locked container was discovered at this location! "
+                "Players must pass a Lockpick or Hacking check to open it. "
+                "If opened, use 'loot' to generate its contents. "
+                "Narrate the container — chained footlocker, sealed wall safe, locked ammo crate, etc."
+            )
+
     ok(f"Set {field}", **result)
 
 
