@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"slices"
 	"strings"
 	"time"
 
@@ -51,6 +52,10 @@ func NewRunner(p provider.Provider, t *tools.Registry, m *ExecMetrics) *Runner {
 // RunWithMessages executes the agent loop with pre-built messages.
 func (r *Runner) RunWithMessages(ctx context.Context, messages []provider.Message) (string, error) {
 	toolDefs := r.tools.Defs()
+	// Track insertion point for mid-execution user messages: right after the
+	// original user message(s), before the tool chain. This makes the model
+	// see consecutive user messages rather than a user message after tool results.
+	insertAt := len(messages)
 
 	for {
 		if r.metrics != nil {
@@ -116,15 +121,18 @@ func (r *Runner) RunWithMessages(ctx context.Context, messages []provider.Messag
 			}
 		}
 
-		// Inject mid-execution user messages (if any) before the next LLM call.
+		// Inject mid-execution user messages into the history region (after the
+		// original user message, before the tool chain) so the model sees them
+		// as pending requests rather than post-tool-result noise.
 		if r.onIterationEnd != nil {
 			if injected := r.onIterationEnd(); len(injected) > 0 {
-				for _, m := range injected {
-					messages = append(messages, m)
+				for i, m := range injected {
+					messages = slices.Insert(messages, insertAt+i, m)
 					if r.onMessage != nil {
 						r.onMessage(m)
 					}
 				}
+				insertAt += len(injected)
 			}
 		}
 	}
