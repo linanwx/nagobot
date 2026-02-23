@@ -146,7 +146,8 @@ Use a blockquote (`>`) for the last check result. Summarize the script output �
 Use a blockquote (`>`) for the status panel (❤️ HP · ☢️ Rads · 💰 Caps · ⚡ AP):
 
 > 📊 Turn X · Chapter X
-> 🕐 Time of Day · Weather
+> 🕐 Time of Day · Weather · Location
+> 🎯 [current quest]
 
 > 👤 CharacterA (PlayerA) [@discord_id]
 > ❤️ XX/XX · ☢️ XX · 💰 XX · ⚡ XX
@@ -155,9 +156,6 @@ Use a blockquote (`>`) for the status panel (❤️ HP · ☢️ Rads · 💰 Ca
 > 👤 CharacterB (PlayerB) [@discord_id]
 > ❤️ XX/XX · ☢️ XX · 💰 XX · ⚡ XX
 > 🎒 [key items]
-
-> 📍 [current location]
-> 🎯 [current quest]
 
 Then narrative and options in normal text (no blockquote):
 
