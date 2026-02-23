@@ -46,3 +46,7 @@ You can perform multi-step reasoning and repeatedly call tools to execute comman
 The skills available in this system are listed below. The `use_skill` tool is the single source of truth for skill instructions, and these instructions may change during a session. Whenever you need to use a skill, you must call `use_skill` to load its latest instructions.
 
 {{SKILLS}}
+
+## Active Sessions
+
+{{SESSIONS_SUMMARY}}

@@ -2,6 +2,7 @@
 package agent
 
 import (
+	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -47,6 +48,7 @@ func (a *Agent) Build() string {
 		prompt = strings.ReplaceAll(prompt, "{{WORKSPACE}}", a.workspace)
 		// {{USER}} is resolved as a runtime var in thread/run.go (per-session).
 		prompt = strings.ReplaceAll(prompt, "{{AGENTS}}", buildAgentsPromptSection(a.workspace))
+		prompt = strings.ReplaceAll(prompt, "{{SESSIONS_SUMMARY}}", buildSessionsSummary(a.workspace))
 	}
 
 	for key, value := range a.vars {
@@ -169,4 +171,41 @@ func buildAgentsPromptSection(workspace string) string {
 	}
 	reg := NewRegistry(workspace)
 	return reg.BuildPromptSection()
+}
+
+// buildSessionsSummary reads system/sessions_summary.json and formats it for prompt injection.
+func buildSessionsSummary(workspace string) string {
+	if strings.TrimSpace(workspace) == "" {
+		return "(no session summaries available)"
+	}
+	data, err := os.ReadFile(filepath.Join(workspace, "system", "sessions_summary.json"))
+	if err != nil {
+		return "(no session summaries available)"
+	}
+
+	type entry struct {
+		Summary   string    `json:"summary"`
+		SummaryAt time.Time `json:"summary_at"`
+	}
+	var summaries map[string]entry
+	if err := json.Unmarshal(data, &summaries); err != nil || len(summaries) == 0 {
+		return "(no session summaries available)"
+	}
+
+	var sb strings.Builder
+	for key, e := range summaries {
+		if strings.TrimSpace(e.Summary) == "" {
+			continue
+		}
+		date := "unknown"
+		if !e.SummaryAt.IsZero() {
+			date = e.SummaryAt.Format("2006-01-02")
+		}
+		fmt.Fprintf(&sb, "- %s (%s): %s\n", key, date, e.Summary)
+	}
+	result := strings.TrimSpace(sb.String())
+	if result == "" {
+		return "(no session summaries available)"
+	}
+	return result
 }

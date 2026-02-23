@@ -55,6 +55,13 @@ func DefaultConfig() *Config {
 				Agent:  "tidyup",
 				Silent: true,
 			},
+			{
+				ID:     "session-summary",
+				Expr:   "0 */6 * * *",
+				Task:   "session-summary",
+				Agent:  "session-summary",
+				Silent: true,
+			},
 		},
 	}
 }
