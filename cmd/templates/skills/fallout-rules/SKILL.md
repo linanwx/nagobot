@@ -79,11 +79,11 @@ Tag skills get a special crit: any roll ≤ skill level counts as a critical suc
 ## Skill Checks (2d20 System)
 
 ```
-exec: python3 scripts/fallout_game.py check <players> <attribute> <skill> <difficulty> [ap_spend]
+exec: python3 scripts/fallout_game.py check <players> <attribute> <skill> <difficulty> [--ap N] [--bonus N]
 ```
 
 ### How It Works
-1. Target Number = Effective Attribute + Skill Level (radiation/drug modifiers applied automatically)
+1. Target Number = Effective Attribute + Skill Level + Bonus (radiation/drug modifiers applied automatically)
 2. Roll 2d20 (solo), 3d20 (assisted), or more (group)
 3. Each die ≤ Target Number = 1 success
 4. Die = 1 → Critical success (counts as 2 successes)
@@ -101,11 +101,19 @@ The engine auto-selects the **leader** (highest target number). Each helper cont
 
 ### Spending AP for Extra Dice
 
-Add `ap_spend` (0-3) as the last argument. Each AP adds 1d20. Maximum 5d20 total.
+Add `--ap N` (0-3). Each AP adds 1d20. Maximum 5d20 total.
 
 ```
-check Jake PER Lockpick 4 2     # Solo + 2 AP → 4d20
-check Jake,Sarah PER Lockpick 3 1  # Assisted + 1 AP → 4d20
+check Jake PER Lockpick 4 --ap 2     # Solo + 2 AP → 4d20
+check Jake,Sarah PER Lockpick 3 --ap 1  # Assisted + 1 AP → 4d20
+```
+
+### Situational Bonus
+
+Add `--bonus N` when the scene provides a minor advantage (e.g. high ground, tools, prior intel). Bonus adds directly to the target number without changing difficulty.
+
+```
+check Jake PER Lockpick 2 --bonus 2  # Target = PER + Lockpick + 2
 ```
 
 AP is deducted from the leader before rolling. If already at 5d20 from helpers, no AP can be spent.
@@ -152,7 +160,7 @@ Use `check` with appropriate attribute + skill. The GM picks the attribute based
 
 ### Damage
 ```
-exec: python3 scripts/fallout_game.py damage <player> <weapon> [ap_spend]
+exec: python3 scripts/fallout_game.py damage <player> <weapon> [--ap N]
 ```
 Weapon is looked up automatically for dice count and type. Each AP spent adds 1d6 (max 3 AP).
 Melee weapons auto-roll a **STR check** (2d20 vs STR, difficulty 2) — if triggered, adds STR/2 bonus damage.
@@ -340,7 +348,7 @@ Chems with addiction risk: 15% chance (roll ≤ 3 on d20) per use. Addiction is 
 ## Status Effects
 
 ```
-exec: python3 scripts/fallout_game.py effect <player> add <name> <duration>
+exec: python3 scripts/fallout_game.py effect <player> add <name> --duration N
 exec: python3 scripts/fallout_game.py effect <player> list
 exec: python3 scripts/fallout_game.py effect <player> remove <name>
 ```
@@ -353,7 +361,7 @@ Duration -1 = permanent (addiction, mutations).
 ## Rest & Recovery
 
 ```
-exec: python3 scripts/fallout_game.py rest [hours]
+exec: python3 scripts/fallout_game.py rest [--hours N]
 ```
 
 All players heal 5 HP/hour (capped at max HP). Clears all temporary status effects. Does NOT clear permanent effects (addiction).
@@ -403,9 +411,9 @@ add-player <id> <name> <char> <bg> S P E C I A L skill1 skill2 skill3
 remove-player <name>
 
 # Dice & Checks
-check <players> <attr> <skill> <diff> [ap]  # Skill check (comma-sep for multi-player)
+check <players> <attr> <skill> <diff> [--ap N] [--bonus N]  # Skill check
 roll <NdM>                              # Generic dice
-damage <player> <weapon> [ap]           # Combat damage (auto weapon lookup)
+damage <player> <weapon> [--ap N]       # Combat damage (auto weapon lookup)
 initiative                              # Turn order (players + enemies)
 
 # Enemy Tracking
@@ -421,16 +429,16 @@ heal <player> <amount>
 rads <player> <amount>
 caps <player> <amount>
 ap <player> <amount>
-inventory <player> add/remove <item> [qty] # Qty defaults to 1; also supports "Item xN"
+inventory <player> add/remove <item> [--qty N]  # Qty defaults to 1; also supports "Item xN"
 use-item <player> <item>                # Consumable (auto effects + addiction check)
-effect <player> add/remove/list <effect> [turns]
-rest [hours]                            # Rest & recover (heals all, clears temp effects)
-skill-up <player> <skill>
+effect <player> add/remove/list [name] [--duration N]
+rest [--hours N]                        # Rest & recover (default 8h, heals all, clears temp effects)
+skill-up <player> <skill> [--amount N]  # Default +1
 
 # Random Generation
-loot [tier] [count]                     # Random loot
+loot [tier] [--count N]                 # Random loot
 trade <player> <price> buy/sell         # Price calc with CHA + Barter
-npc-gen [count]                         # Random NPC
+npc-gen [--count N]                     # Random NPC
 
 # Recovery
 recover                                 # Restore from backup

@@ -10,18 +10,9 @@ from .data import (
 
 
 def cmd_loot(args):
-    """Generate random loot.
-    Usage: loot [tier] [count]
-    Tiers: junk, common, uncommon, rare, unique
-    No tier = weighted random
-    """
-    tier = args[0].lower() if args else None
-    count = 1
-    if len(args) > 1:
-        count = parse_int(args[1], "count")
-        if count is None:
-            return
-    count = max(1, min(count, 10))
+    """Generate random loot."""
+    tier = args.tier.lower() if args.tier else None
+    count = max(1, min(args.count, 10))
 
     hint = "Use 'inventory <player> add <item>' to give loot to a player."
     if tier and tier in LOOT_TABLES:
@@ -45,30 +36,22 @@ def cmd_loot(args):
     else:
         valid = list(LOOT_TABLES.keys())
         error(f"Unknown tier: {tier}", valid_tiers=valid,
-              hint="Example: loot rare 3 | loot common | loot (random tier)")
+              hint="Example: loot rare --count 3 | loot common | loot (random tier)")
 
 
 def cmd_trade(args):
-    """Calculate trade price.
-    Usage: trade <player> <base_price> buy/sell
-    """
-    if len(args) < 3:
-        return error("Usage: trade <player> <base_price> buy/sell",
-                      hint="Example: trade Jake 100 buy")
-
+    """Calculate trade price."""
     state = require_state()
     if not state:
         return
 
-    name = args[0]
-    base = parse_int(args[1], "base_price")
-    if base is None:
-        return
+    name = args.player
+    base = args.base_price
     if base < 1:
         return error("Base price must be positive",
                       hint="Base price is the item's standard value in caps before CHA/Barter modifiers.")
 
-    action = args[2].lower()
+    action = args.action.lower()
     if action not in ("buy", "sell"):
         return error("Action must be 'buy' or 'sell'",
                       hint="'buy' = player purchases (price reduced by CHA/Barter). 'sell' = player sells (price increased by CHA/Barter).")
@@ -101,15 +84,8 @@ def cmd_trade(args):
 
 
 def cmd_npc_gen(args):
-    """Generate random NPC(s).
-    Usage: npc-gen [count]
-    """
-    count = 1
-    if args:
-        count = parse_int(args[0], "count")
-        if count is None:
-            return
-    count = max(1, min(count, 5))
+    """Generate random NPC(s)."""
+    count = max(1, min(args.count, 5))
 
     npcs = []
     for _ in range(count):
@@ -148,4 +124,3 @@ def cmd_npc_gen(args):
         save_state(state)
 
     output({"ok": True, "npcs": npcs, "hint": "NPC(s) auto-registered to game state. Use 'status' to review."}, indent=True)
-

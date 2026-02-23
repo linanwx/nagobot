@@ -11,10 +11,7 @@ from .util import (
 
 def cmd_roll(args):
     """Roll dice. Usage: roll <NdM> e.g. roll 2d20, roll 3d6"""
-    if not args:
-        return error("Usage: roll <NdM>, e.g. roll 2d20")
-
-    expr = args[0].lower()
+    expr = args.expr.lower()
     try:
         count_s, sides_s = expr.split("d")
         count = int(count_s) if count_s else 1
@@ -72,7 +69,7 @@ def _find_leader_name(state, player_names, attr, skill_name):
     return best_name
 
 
-def _evaluate_check(state, player_names, attr, skill_name, difficulty, ap_dice=0):
+def _evaluate_check(state, player_names, attr, skill_name, difficulty, ap_dice=0, bonus=0):
     """Core check evaluation for solo, assisted, and group checks.
 
     Leader auto-selected as player with highest target number.
@@ -88,7 +85,7 @@ def _evaluate_check(state, player_names, attr, skill_name, difficulty, ap_dice=0
         attr_val = effective.get(attr, 0)
         skill_val = player.get("skills", {}).get(skill_name, 0)
         is_tag = skill_name in player.get("tag_skills", [])
-        target = attr_val + skill_val
+        target = attr_val + skill_val + bonus
         participants.append({
             "name": pname,
             "attr_val": attr_val,
@@ -207,6 +204,9 @@ def _evaluate_check(state, player_names, attr, skill_name, difficulty, ap_dice=0
         "verdict": "Success!" if passed else "Failure...",
     }
 
+    if bonus != 0:
+        result["bonus"] = bonus
+
     if helpers:
         result["helpers"] = helper_results
         if not leader_contributed:
@@ -252,29 +252,13 @@ def _evaluate_check(state, player_names, attr, skill_name, difficulty, ap_dice=0
 
 
 def cmd_check(args):
-    """Skill check (unified solo/assisted/group).
-    Usage: check <players> <attribute> <skill> <difficulty> [ap_spend]
-
-    Players: comma-separated names (Jake or Jake,Sarah or Jake,Sarah,Bob)
-    - 1 player: solo check (2d20)
-    - 2 players: assisted check (3d20, leader auto-selected)
-    - 3+ players: group check (leader 2d20 + helpers 1d20 each)
-
-    AP: spend 0-3 AP for extra d20s (max 5d20 total).
-    Leader auto-selected as player with highest target number.
-    """
-    if len(args) < 4:
-        return error(
-            "Usage: check <players> <attribute> <skill> <difficulty> [ap_spend]",
-            hint="Examples: check Jake PER Lockpick 2 | check Jake,Sarah PER Lockpick 3 1",
-        )
-
+    """Skill check (unified solo/assisted/group)."""
     state = require_state()
     if not state:
         return
 
     # Parse comma-separated player names
-    player_names = [n.strip() for n in args[0].split(",") if n.strip()]
+    player_names = [n.strip() for n in args.players.split(",") if n.strip()]
     if not player_names:
         return error("At least one player name required")
 
@@ -283,29 +267,24 @@ def cmd_check(args):
         if not require_player(state, pname):
             return
 
-    attr = validate_attr(args[1])
+    attr = validate_attr(args.attr)
     if not attr:
         return
 
-    skill_name = validate_skill(args[2])
+    skill_name = validate_skill(args.skill)
     if not skill_name:
         return
 
-    difficulty = parse_int(args[3], "difficulty")
-    if difficulty is None:
-        return
+    difficulty = args.difficulty
     if difficulty < 0:
         return error(f"Difficulty must be non-negative, got {difficulty}",
-                      hint="Typical difficulty: 0 (trivial), 1 (easy), 2 (standard), 3 (hard), 4 (very hard)")
+                      hint="Typical difficulty: 0 (easy), 1 (normal), 2 (hard), 3 (extremely hard)")
 
-    # Optional AP spend
-    ap_spend = 0
-    if len(args) > 4:
-        ap_spend = parse_int(args[4], "ap_spend")
-        if ap_spend is None:
-            return
-        if ap_spend < 0 or ap_spend > 3:
-            return error("AP spend must be 0-3", hint="Each AP adds 1d20, max 5d20 total")
+    ap_spend = args.ap
+    bonus = args.bonus
+
+    if ap_spend < 0 or ap_spend > 3:
+        return error("AP spend must be 0-3", hint="Each AP adds 1d20, max 5d20 total")
 
     # Validate dice cap: leader(2) + helpers(N-1) + AP <= 5
     base_dice = len(player_names) + 1
@@ -332,7 +311,7 @@ def cmd_check(args):
         leader_player["ap"] -= ap_spend
 
     # Roll
-    result, excess_ap = _evaluate_check(state, player_names, attr, skill_name, difficulty, ap_spend)
+    result, excess_ap = _evaluate_check(state, player_names, attr, skill_name, difficulty, ap_spend, bonus)
 
     # Add excess AP to leader
     if excess_ap > 0:
@@ -370,42 +349,20 @@ def cmd_check(args):
 # ---------------------------------------------------------------------------
 
 def cmd_damage(args):
-    """Roll combat damage dice using a weapon.
-    Usage: damage <player> <weapon> [ap_spend]
-    Weapon is looked up from the weapon table for dice count and type.
-    Melee weapons auto-roll a STR check (2d20 vs STR, difficulty 2) for bonus damage.
-    Each AP spent adds 1d6 (max 3 AP).
-    Example: damage Jake "10mm Pistol"  |  damage Jake Knife 2
-    """
-    if len(args) < 2:
-        from .data import WEAPONS
-        return error("Usage: damage <player> <weapon> [ap_spend]",
-                      hint=f"Weapons: {', '.join(WEAPONS.keys())}")
-
+    """Roll combat damage dice using a weapon."""
     state = require_state()
     if not state:
         return
 
-    player_name = args[0]
+    player_name = args.player
     player = require_player(state, player_name)
     if not player:
         return
 
     from .data import WEAPONS
 
-    # Weapon lookup (case-insensitive)
-    weapon_name = " ".join(args[1:])  # grab all remaining as weapon + optional ap
-    ap_spend = 0
-
-    # Try to parse last arg as ap_spend
-    if len(args) > 2:
-        try:
-            maybe_ap = int(args[-1])
-            if 0 <= maybe_ap <= 3:
-                ap_spend = maybe_ap
-                weapon_name = " ".join(args[1:-1])
-        except ValueError:
-            pass
+    weapon_name = " ".join(args.weapon)
+    ap_spend = args.ap
 
     # Find weapon (case-insensitive match)
     weapon = None
@@ -436,7 +393,7 @@ def cmd_damage(args):
         if ammo_count <= 0:
             return error(f"{player_name} has no {ammo_type}!",
                           inventory=inv,
-                          hint=f"Add ammo: inventory {player_name} add '{ammo_type}' <qty> | Or use a melee weapon instead.")
+                          hint=f"Add ammo: inventory {player_name} add '{ammo_type}' --qty <N> | Or use a melee weapon instead.")
         inv[ammo_type] -= 1
         if inv[ammo_type] <= 0:
             del inv[ammo_type]
@@ -452,7 +409,7 @@ def cmd_damage(args):
     if ap_spend > 0:
         if original_ap < ap_spend:
             return error(f"{player_name} has {original_ap} AP, cannot spend {ap_spend}",
-                          hint="Earn AP from excess successes on skill checks. Use ap_spend=0 or lower.")
+                          hint="Earn AP from excess successes on skill checks. Use --ap 0 or lower.")
         player["ap"] -= ap_spend
 
     total_dice = count + ap_spend

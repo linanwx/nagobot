@@ -14,25 +14,23 @@ State file: fallout_game.json (in workspace root by default)
 import json
 import sys
 
-from fallout import COMMANDS
+from fallout import build_parser
 
 
 def main():
+    parser = build_parser()
+
     if len(sys.argv) < 2:
-        COMMANDS["help"]([])
+        parser.print_help()
         sys.exit(0)
 
-    command = sys.argv[1].lower()
-    args = sys.argv[2:]
-
-    if command in COMMANDS:
-        COMMANDS[command](args)
-    else:
-        print(json.dumps({
-            "error": f"Unknown command: {command}",
-            "hint": "Run 'help' to see available commands",
-        }))
+    args = parser.parse_args()
+    if not hasattr(args, "func"):
+        print(json.dumps({"error": f"Unknown command: {sys.argv[1]}",
+                          "hint": "Run without arguments to see available commands"}))
         sys.exit(1)
+
+    args.func(args)
 
 
 if __name__ == "__main__":

@@ -8,8 +8,8 @@ tags: [game, fallout, events]
 ## Using the Game Engine
 
 ```
-exec: python3 scripts/fallout_game.py loot [tier] [count]
-exec: python3 scripts/fallout_game.py npc-gen [count]
+exec: python3 scripts/fallout_game.py loot [tier] [--count N]
+exec: python3 scripts/fallout_game.py npc-gen [--count N]
 exec: python3 scripts/fallout_game.py enemy-add <template>
 exec: python3 scripts/fallout_game.py enemy-add <name> <template>
 ```

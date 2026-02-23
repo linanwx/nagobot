@@ -43,25 +43,25 @@ exec: python3 scripts/fallout_game.py heal <player> <amount>
 exec: python3 scripts/fallout_game.py rads <player> <amount>
 exec: python3 scripts/fallout_game.py caps <player> <amount>
 exec: python3 scripts/fallout_game.py ap <player> <amount>
-exec: python3 scripts/fallout_game.py inventory <player> add/remove <item> [qty]
+exec: python3 scripts/fallout_game.py inventory <player> add/remove <item> [--qty N]
 exec: python3 scripts/fallout_game.py use-item <player> <item>
-exec: python3 scripts/fallout_game.py effect <player> add/remove/list <name> [duration]
-exec: python3 scripts/fallout_game.py skill-up <player> <skill>
+exec: python3 scripts/fallout_game.py effect <player> add/remove/list [name] [--duration N]
+exec: python3 scripts/fallout_game.py skill-up <player> <skill> [--amount N]
 
 # Dice & Combat
-exec: python3 scripts/fallout_game.py check <players> <attr> <skill> <difficulty> [ap_spend]
+exec: python3 scripts/fallout_game.py check <players> <attr> <skill> <difficulty> [--ap N] [--bonus N]
 exec: python3 scripts/fallout_game.py roll <NdM>
-exec: python3 scripts/fallout_game.py damage <player> <weapon> [ap_spend]
+exec: python3 scripts/fallout_game.py damage <player> <weapon> [--ap N]
 exec: python3 scripts/fallout_game.py initiative
 exec: python3 scripts/fallout_game.py enemy-add <template>
 exec: python3 scripts/fallout_game.py enemy-attack <enemy> <target>
 exec: python3 scripts/fallout_game.py enemy-hurt <name> <amount>
 
 # Utility
-exec: python3 scripts/fallout_game.py loot [tier] [count]
+exec: python3 scripts/fallout_game.py loot [tier] [--count N]
 exec: python3 scripts/fallout_game.py trade <player> <base_price> buy/sell
-exec: python3 scripts/fallout_game.py npc-gen [count]
-exec: python3 scripts/fallout_game.py rest [hours]
+exec: python3 scripts/fallout_game.py npc-gen [--count N]
+exec: python3 scripts/fallout_game.py rest [--hours N]
 exec: python3 scripts/fallout_game.py recover
 ```
 
@@ -72,7 +72,8 @@ exec: python3 scripts/fallout_game.py recover
 - **Action tracking:** `check`, `damage`, `use-item`, and `enemy-attack` auto-register which units have acted. When all living players and alive enemies have acted, output includes a hint to call `turn`.
 - **Skill checks:** Always call `check`. Comma-separated names for multi-player. Engine auto-selects leader, rolls dice, handles crits/complications, updates AP. If no skill clearly fits, pick any — unleveled skills are 0 and won't affect the target number, making it a pure attribute check.
 - **Choosing attr/skill/difficulty:** Check the player's SPECIAL and tag skills, consider the current scene and what the player described, then pick the most fitting attribute + skill. Difficulty is a pacing lever: easy = 0 (skip `check` entirely — just narrate the result, e.g. picking up items), normal = 1, hard = 2, extremely hard = 3 (high stakes or high reward). Raise difficulty when success would give a large advantage; lower it to keep the story moving.
-- **AP spending:** Add `ap_spend` (0-3) as last arg to `check` or `damage`. Each AP adds 1 die. Excess successes beyond difficulty are earned back as AP.
+- **AP spending:** Add `--ap N` (0-3) to `check` or `damage`. Each AP adds 1 die. Excess successes beyond difficulty are earned back as AP.
+- **Situational bonus:** Add `--bonus N` to `check` when the scene provides a minor advantage (e.g. high ground, tools, prior intel). Bonus adds directly to the target number.
 - **Combat damage:** `damage <player> <weapon>` → then `enemy-hurt`. Melee auto-rolls STR check for bonus.
 - **Enemies:** `enemy-add <template>` from built-in library (e.g. `enemy-add Raider`). `enemy-attack` for their turns, `enemy-hurt` when players deal damage. Engine enforces encounter budget per chapter.
 - **Luck:** Every `check` auto-rolls Luck. If `luck_reroll_available` appears, ask player: accept this fate or reconsider?

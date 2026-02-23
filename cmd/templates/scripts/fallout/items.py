@@ -7,19 +7,13 @@ from .data import CHEM_EFFECTS
 
 
 def cmd_use_item(args):
-    """Use a consumable item.
-    Usage: use-item <player> <item_name>
-    """
-    if len(args) < 2:
-        return error("Usage: use-item <player> <item_name>",
-                      hint=f"Known consumables: {', '.join(CHEM_EFFECTS.keys())}")
-
+    """Use a consumable item."""
     state = require_state()
     if not state:
         return
 
-    name = args[0]
-    item = " ".join(args[1:])
+    name = args.player
+    item = " ".join(args.item)
 
     player = require_player(state, name)
     if not player:
@@ -29,7 +23,7 @@ def cmd_use_item(args):
     if inv.get(item, 0) <= 0:
         return error(f"Player {name} does not have item: {item}",
                       inventory=inv,
-                      hint=f"Add it first: inventory {name} add '{item}' 1")
+                      hint=f"Add it first: inventory {name} add '{item}'")
 
     chem = CHEM_EFFECTS.get(item)
     if not chem:
@@ -105,31 +99,13 @@ def cmd_use_item(args):
 
 
 def cmd_effect(args):
-    """Manage status effects.
-    Usage: effect <player> add <name> <duration>
-           effect <player> remove <name>
-           effect <player> list
-    Note: effects are automatically ticked down by the 'turn' command.
-    """
-    if not args:
-        return error("Usage: effect <player> add/remove/list <name> [duration]",
-                      hint="Example: effect Jake add Inspired 3 | effect Jake remove Poisoned | effect Jake list")
-
+    """Manage status effects."""
     state = require_state()
     if not state:
         return
 
-    # Legacy support: 'effect tick' redirects to a note
-    if args[0] == "tick":
-        return error("'effect tick' is deprecated. Use 'turn' command which automatically ticks effects.",
-                      hint="Run: python3 scripts/fallout_game.py turn")
-
-    if len(args) < 2:
-        return error("Usage: effect <player> add/remove/list <name> [duration]",
-                      hint="Example: effect Jake add Inspired 3 | effect Jake list")
-
-    name = args[0]
-    action = args[1].lower()
+    name = args.player
+    action = args.action.lower()
 
     player = require_player(state, name)
     if not player:
@@ -138,43 +114,42 @@ def cmd_effect(args):
     if action == "list":
         effects = player.get("status_effects", [])
         output({"ok": True, "player": name, "effects": effects}, indent=True)
-    elif action == "add" and len(args) >= 4:
-        effect_name = args[2]
-        duration = parse_int(args[3], "duration")
+    elif action == "add":
+        if not args.name:
+            return error("Usage: effect <player> add <name> --duration <N>",
+                          hint="Example: effect Jake add Inspired --duration 3")
+        duration = args.duration
         if duration is None:
-            return
+            return error("Duration required for add: effect <player> add <name> --duration <N>",
+                          hint="Example: effect Jake add Inspired --duration 3")
         player.setdefault("status_effects", []).append({
-            "name": effect_name,
+            "name": args.name,
             "remaining": duration,
             "source": "gm",
         })
         save_state(state)
-        ok(f"Added effect: {effect_name} ({duration} turns)", player=name)
-    elif action == "remove" and len(args) >= 3:
-        effect_name = args[2]
+        ok(f"Added effect: {args.name} ({duration} turns)", player=name)
+    elif action == "remove":
+        if not args.name:
+            return error("Usage: effect <player> remove <name>",
+                          hint="Example: effect Jake remove Poisoned")
+        effect_name = args.name
         effects = player.get("status_effects", [])
         player["status_effects"] = [e for e in effects if e["name"] != effect_name]
         save_state(state)
         ok(f"Removed effect: {effect_name}", player=name)
     else:
-        error("Usage: effect <player> add/remove/list <name> [duration]",
-              hint="'add' needs: <name> <duration>. 'remove' needs: <name>. 'list' takes no extra args.")
+        error("Action must be 'add', 'remove', or 'list'",
+              hint="Example: effect Jake add Inspired --duration 3 | effect Jake remove Poisoned | effect Jake list")
 
 
 def cmd_rest(args):
-    """Rest at a safe location. Heals HP and clears temporary effects.
-    Usage: rest [hours]  (default: 8 hours)
-    """
+    """Rest at a safe location. Heals HP and clears temporary effects."""
     state = require_state()
     if not state:
         return
 
-    hours = 8
-    if args:
-        hours = parse_int(args[0], "hours")
-        if hours is None:
-            return
-        hours = max(1, min(hours, 24))
+    hours = max(1, min(args.hours, 24))
 
     # Force exploration mode on rest
     transition = exit_combat(state)
@@ -217,9 +192,7 @@ def cmd_rest(args):
 
 
 def cmd_recover(args):
-    """Recover from state file backup.
-    Usage: recover
-    """
+    """Recover from state file backup."""
     backup = STATE_FILE + ".bak"
     if not os.path.exists(backup):
         return error("No backup file found",

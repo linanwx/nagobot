@@ -43,15 +43,13 @@ def cmd_init(args):
 
 
 def cmd_status(args):
-    """View game or player status.
-    Usage: status [player_name]
-    """
+    """View game or player status."""
     state = require_state()
     if not state:
         return
 
-    if args:
-        name = " ".join(args)
+    name = args.player
+    if name:
         player = state.get("players", {}).get(name)
         if player:
             effective, modifiers = get_effective_special(player)
@@ -107,22 +105,15 @@ def cmd_status(args):
 
 
 def cmd_set(args):
-    """Set a game state field.
-    Usage: set <field> <value>
-    Fields: chapter, location, quest, time_of_day, weather, chapter_title, mode
-    """
+    """Set a game state field."""
     allowed = ["chapter", "location", "quest", "time_of_day", "weather", "chapter_title", "mode"]
-
-    if len(args) < 2:
-        return error("Usage: set <field> <value>", valid_fields=allowed,
-                      hint="Example: set location 'Diamond City' | set chapter 2 | set weather Rainstorm")
 
     state = require_state()
     if not state:
         return
 
-    field = args[0]
-    value = " ".join(args[1:])
+    field = args.field
+    value = " ".join(args.value)
 
     if field not in allowed:
         return error(f"Invalid field: {field}", valid_fields=allowed,
@@ -161,10 +152,7 @@ def cmd_set(args):
 # ---------------------------------------------------------------------------
 
 def cmd_turn(args):
-    """Advance turn (mode-aware).
-    Exploration: full turn (time, weather, effects, random events).
-    Combat: combat round only (tick effects, clear dead, check combat end).
-    """
+    """Advance turn (mode-aware)."""
     state = require_state()
     if not state:
         return

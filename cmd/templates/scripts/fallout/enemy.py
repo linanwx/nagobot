@@ -20,16 +20,12 @@ def _find_template(name):
 
 def cmd_enemy_add(args):
     """Add an enemy to the battlefield.
-    Usage:
-      enemy-add <template>                    # e.g. enemy-add Raider
-      enemy-add <name> <template>             # e.g. enemy-add "Raider 1" Raider
-      enemy-add <name> <hp> <damage> <skill> <drops> [special]  # full custom
+    Modes by arg count:
+      1 arg: template only (e.g. Raider)
+      2 args: named template (e.g. "Raider 1" Raider)
+      5+ args: full custom (name hp damage skill drops [special])
     """
-    if not args:
-        from .data import ENEMY_TEMPLATES
-        return error("Usage: enemy-add <template> | enemy-add <name> <template> | enemy-add <name> <hp> <damage> <skill> <drops>",
-                      templates=list(ENEMY_TEMPLATES.keys()),
-                      hint="Example: enemy-add Raider | enemy-add 'Raider Boss' Raider | enemy-add Boss 50 4d6 14 rare")
+    raw = args.args  # list of strings from nargs='+'
 
     state = require_state()
     if not state:
@@ -37,12 +33,12 @@ def cmd_enemy_add(args):
 
     # Mode detection by arg count
     template = None
-    if len(args) == 1:
+    if len(raw) == 1:
         # Template mode: enemy-add Raider
-        tname, template = _find_template(args[0])
+        tname, template = _find_template(raw[0])
         if not template:
             from .data import ENEMY_TEMPLATES
-            return error(f"Unknown template: {args[0]}", templates=list(ENEMY_TEMPLATES.keys()),
+            return error(f"Unknown template: {raw[0]}", templates=list(ENEMY_TEMPLATES.keys()),
                           hint="Use one of the listed templates, or provide full custom stats: enemy-add <name> <hp> <damage> <skill> <drops>")
         name = tname
         hp = template["hp"]
@@ -51,11 +47,11 @@ def cmd_enemy_add(args):
         drops = template["drops"]
         special = template["special"]
 
-    elif len(args) == 2:
+    elif len(raw) == 2:
         # Named template: enemy-add "Raider 1" Raider
-        tname, template = _find_template(args[1])
+        tname, template = _find_template(raw[1])
         if template:
-            name = args[0]
+            name = raw[0]
             hp = template["hp"]
             damage_expr = template["damage"]
             attack_skill = template["attack_skill"]
@@ -63,35 +59,35 @@ def cmd_enemy_add(args):
             special = template["special"]
         else:
             from .data import ENEMY_TEMPLATES
-            return error(f"Unknown template: {args[1]}", templates=list(ENEMY_TEMPLATES.keys()),
+            return error(f"Unknown template: {raw[1]}", templates=list(ENEMY_TEMPLATES.keys()),
                           hint="Use one of the listed templates, or provide full custom stats: enemy-add <name> <hp> <damage> <skill> <drops>")
 
-    elif len(args) >= 5:
+    elif len(raw) >= 5:
         # Full custom: enemy-add "Boss" 50 4d6 14 rare "special"
-        name = args[0]
-        hp = parse_int(args[1], "hp")
+        name = raw[0]
+        hp = parse_int(raw[1], "hp")
         if hp is None:
             return
         if hp < 1:
             return error("HP must be positive", hint="Typical range: 5 (weak) to 60 (boss)")
 
-        damage_expr = args[2].lower()
+        damage_expr = raw[2].lower()
         if not re.match(r"^\d+d\d+$", damage_expr):
             return error(f"Invalid damage dice: {damage_expr}", hint="Format: NdM, e.g. 3d6")
 
-        attack_skill = parse_int(args[3], "attack_skill")
+        attack_skill = parse_int(raw[3], "attack_skill")
         if attack_skill is None:
             return
         if attack_skill < 1 or attack_skill > 20:
             return error(f"Attack skill must be 1-20, got {attack_skill}",
                           hint="Low: 6-8 (weak), Medium: 10-12 (standard), High: 14+ (elite)")
 
-        drops = args[4].lower()
+        drops = raw[4].lower()
         valid_drops = ["junk", "common", "uncommon", "rare", "unique", "none"]
         if drops not in valid_drops:
             return error(f"Invalid drops tier: {drops}", valid_tiers=valid_drops)
 
-        special = " ".join(args[5:]) if len(args) > 5 else ""
+        special = " ".join(raw[5:]) if len(raw) > 5 else ""
     else:
         from .data import ENEMY_TEMPLATES
         return error("Usage: enemy-add <template> | enemy-add <name> <template> | enemy-add <name> <hp> <damage> <skill> <drops>",
@@ -192,25 +188,13 @@ def cmd_enemy_add(args):
 
 
 def cmd_enemy_hurt(args):
-    """Deal damage to an enemy (negative heals).
-    Usage: enemy-hurt <name> <amount>
-    On kill: auto-rolls loot from enemy's drops tier.
-    """
-    if len(args) < 2:
-        state = require_state()
-        alive = [n for n, e in state.get("enemies", {}).items() if e["status"] == "alive"] if state else []
-        return error("Usage: enemy-hurt <name> <amount>",
-                      hint=f"Example: enemy-hurt Raider 10 | Use negative to heal: enemy-hurt Raider -5",
-                      alive_enemies=alive or "none")
-
+    """Deal damage to an enemy (negative heals)."""
     state = require_state()
     if not state:
         return
 
-    name = args[0]
-    amount = parse_int(args[1], "amount")
-    if amount is None:
-        return
+    name = args.name
+    amount = args.amount
 
     enemy = require_enemy(state, name)
     if not enemy:
@@ -267,20 +251,13 @@ def cmd_enemy_hurt(args):
 
 
 def cmd_enemy_attack(args):
-    """Enemy attacks a player. Rolls 1d20 vs attack_skill, auto-applies damage.
-    Usage: enemy-attack <enemy> <target_player>
-    Roll 1 = critical hit (bonus damage). Roll 20 = fumble (miss).
-    """
-    if len(args) < 2:
-        return error("Usage: enemy-attack <enemy> <target_player>",
-                      hint="Example: enemy-attack Raider Jake")
-
+    """Enemy attacks a player. Rolls 1d20 vs attack_skill, auto-applies damage."""
     state = require_state()
     if not state:
         return
 
-    enemy_name = args[0]
-    target_name = args[1]
+    enemy_name = args.enemy
+    target_name = args.target
 
     enemy = require_enemy(state, enemy_name)
     if not enemy:
@@ -366,5 +343,3 @@ def cmd_enemy_attack(args):
 
     save_state(state)
     output(result, indent=True)
-
-

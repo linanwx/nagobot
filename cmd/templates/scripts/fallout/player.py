@@ -1,5 +1,6 @@
 """Player management: creation, removal, HP/rads/caps/AP, inventory, skills."""
 
+import re
 from .util import (
     error, ok, output, parse_int,
     require_state, require_player, validate_skill, save_state,
@@ -9,31 +10,20 @@ from .util import (
 
 
 def cmd_add_player(args):
-    """Add a new player.
-    Usage: add-player <player_id> <name> <character> <background> <STR> <PER> <END> <CHA> <INT> <AGI> <LCK> <skill1> <skill2> <skill3>
-    player_id: Discord username or user ID (for persistent identity tracking)
-    """
-    if len(args) < 14:
-        return error(
-            "Usage: add-player <player_id> <name> <character> <background> STR PER END CHA INT AGI LCK skill1 skill2 skill3",
-            hint="Example: add-player @Linan Jake 'Vault Dweller' 'Tech Specialist' 4 7 5 4 8 6 6 Science Lockpick 'Small Guns'",
-        )
-
+    """Add a new player."""
     state = require_state()
     if not state:
         return
 
-    player_id = args[0]
-    name = args[1]
-    character = args[2]
-    background = args[3]
+    player_id = args.player_id
+    name = args.name
+    character = args.character
+    background = args.background
 
-    # Parse and validate SPECIAL
+    # Validate SPECIAL
     special = {}
-    for i, attr in enumerate(SPECIAL_ATTRS):
-        val = parse_int(args[4 + i], attr)
-        if val is None:
-            return
+    for attr in SPECIAL_ATTRS:
+        val = getattr(args, attr)
         if val < 1 or val > 10:
             return error(f"{attr} must be 1-10, got {val}", hint="Each SPECIAL attribute must be between 1 and 10")
         special[attr] = val
@@ -47,7 +37,7 @@ def cmd_add_player(args):
 
     # Validate tag skills
     tag_skills = []
-    for raw in args[11:14]:
+    for raw in [args.skill1, args.skill2, args.skill3]:
         canonical = validate_skill(raw)
         if not canonical:
             return
@@ -84,20 +74,16 @@ def cmd_add_player(args):
     state["players"][name] = player
     save_state(state)
     ok(f"Player {name} has joined the game", player=player, derived={"hp": hp, "carry_weight": carry},
-       hint=f"Use 'inventory {name} add/remove <item>' to customize starting gear. Call 'status {name}' to verify.")
+       hint=f"Use 'inventory {name} add <item>' to customize starting gear. Call 'status {name}' to verify.")
 
 
 def cmd_remove_player(args):
-    """Remove a player. Usage: remove-player <name>"""
-    if not args:
-        return error("Usage: remove-player <name>",
-                      hint="Example: remove-player Jake")
-
+    """Remove a player."""
     state = require_state()
     if not state:
         return
 
-    name = " ".join(args)
+    name = " ".join(args.name)
     if name in state.get("players", {}):
         del state["players"][name]
         save_state(state)
@@ -107,23 +93,13 @@ def cmd_remove_player(args):
         error(f"Player not found: {name}", available_players=available)
 
 
-def _modify_hp(args, negative):
+def _modify_hp(player_name, amount, negative):
     """Shared HP modification logic for hurt/heal."""
-    action = "hurt" if negative else "heal"
-    if len(args) < 2:
-        return error(f"Usage: {action} <player> <amount>",
-                      hint=f"Example: {action} Jake 15")
-
     state = require_state()
     if not state:
         return
 
-    name = args[0]
-    amount = parse_int(args[1], "amount")
-    if amount is None:
-        return
-
-    player = require_player(state, name)
+    player = require_player(state, player_name)
     if not player:
         return
 
@@ -163,7 +139,7 @@ def _modify_hp(args, negative):
     status = "Down! (Incapacitated — 3 turns to stabilize)" if player["hp"] <= 0 else "OK"
     result = {
         "ok": True,
-        "player": name,
+        "player": player_name,
         "action": "Damage" if negative else "Heal",
         "amount": amount,
         "hp_before": old_hp,
@@ -172,7 +148,7 @@ def _modify_hp(args, negative):
         "status": status,
     }
     if player["hp"] <= 0 and negative:
-        result["hint"] = f"{name} is down! Allies must stabilize within 3 turns (Medicine check or heal above 0 HP), or {name} dies."
+        result["hint"] = f"{player_name} is down! Allies must stabilize within 3 turns (Medicine check or heal above 0 HP), or {player_name} dies."
     if medicine_bonus > 0:
         result["medicine_bonus"] = medicine_bonus
     if dmg_reduction > 0:
@@ -181,29 +157,23 @@ def _modify_hp(args, negative):
 
 
 def cmd_hurt(args):
-    """Deal damage to a player. Usage: hurt <player> <amount>"""
-    _modify_hp(args, negative=True)
+    """Deal damage to a player."""
+    _modify_hp(args.player, args.amount, negative=True)
 
 
 def cmd_heal(args):
-    """Heal a player. Usage: heal <player> <amount>"""
-    _modify_hp(args, negative=False)
+    """Heal a player."""
+    _modify_hp(args.player, args.amount, negative=False)
 
 
 def cmd_rads(args):
-    """Modify radiation level. Usage: rads <player> <amount> (negative to reduce)"""
-    if len(args) < 2:
-        return error("Usage: rads <player> <amount>",
-                      hint="Example: rads Jake 50 (add rads) | rads Jake -100 (reduce rads)")
-
+    """Modify radiation level."""
     state = require_state()
     if not state:
         return
 
-    name = args[0]
-    amount = parse_int(args[1], "amount")
-    if amount is None:
-        return
+    name = args.player
+    amount = args.amount
 
     player = require_player(state, name)
     if not player:
@@ -235,19 +205,13 @@ def cmd_rads(args):
 
 
 def cmd_caps(args):
-    """Modify caps. Usage: caps <player> <amount> (negative to spend)"""
-    if len(args) < 2:
-        return error("Usage: caps <player> <amount>",
-                      hint="Example: caps Jake 50 (earn) | caps Jake -30 (spend)")
-
+    """Modify caps."""
     state = require_state()
     if not state:
         return
 
-    name = args[0]
-    amount = parse_int(args[1], "amount")
-    if amount is None:
-        return
+    name = args.player
+    amount = args.amount
 
     player = require_player(state, name)
     if not player:
@@ -266,19 +230,13 @@ def cmd_caps(args):
 
 
 def cmd_ap(args):
-    """Modify action points. Usage: ap <player> <amount>"""
-    if len(args) < 2:
-        return error("Usage: ap <player> <amount>",
-                      hint="Example: ap Jake 2 (grant AP) | ap Jake -1 (spend AP)")
-
+    """Modify action points."""
     state = require_state()
     if not state:
         return
 
-    name = args[0]
-    amount = parse_int(args[1], "amount")
-    if amount is None:
-        return
+    name = args.player
+    amount = args.amount
 
     player = require_player(state, name)
     if not player:
@@ -297,20 +255,13 @@ def cmd_ap(args):
 
 
 def cmd_inventory(args):
-    """Manage inventory (dict-based: {item: qty}).
-    Usage: inventory <player> add/remove <item> [qty]
-    Qty defaults to 1. Also parses 'Item xN' suffix.
-    """
-    if len(args) < 3:
-        return error("Usage: inventory <player> add/remove <item> [qty]",
-                      hint="Example: inventory Jake add Stimpak 2")
-
+    """Manage inventory."""
     state = require_state()
     if not state:
         return
 
-    name = args[0]
-    action = args[1].lower()
+    name = args.player
+    action = args.action.lower()
 
     player = require_player(state, name)
     if not player:
@@ -318,21 +269,10 @@ def cmd_inventory(args):
 
     inv = player.setdefault("inventory", {})
 
-    # Parse item name and optional qty (last arg may be integer)
-    item_args = args[2:]
-    qty = 1
-    if len(item_args) > 1:
-        try:
-            maybe_qty = int(item_args[-1])
-            if maybe_qty > 0:
-                qty = maybe_qty
-                item_args = item_args[:-1]
-        except ValueError:
-            pass
-    item = " ".join(item_args)
+    item = " ".join(args.item)
+    qty = args.qty
 
-    # Also handle "Item xN" suffix in item name
-    import re
+    # Handle "Item xN" suffix in item name
     match = re.match(r'^(.+?)\s+x(\d+)$', item)
     if match:
         item = match.group(1)
@@ -356,37 +296,27 @@ def cmd_inventory(args):
             ok(f"Removed {item} x{qty}", player=name, item=item, qty=inv[item], inventory=inv)
     else:
         error("Action must be 'add' or 'remove'",
-              hint="Example: inventory Jake add Stimpak 3 | inventory Jake remove 'Fusion Cell' 10")
+              hint="Example: inventory Jake add Stimpak --qty 3 | inventory Jake remove 'Fusion Cell' --qty 10")
 
 
 def cmd_skill_up(args):
-    """Increase a player's skill level.
-    Usage: skill-up <player> <skill> [amount]
-    """
-    if len(args) < 2:
-        return error("Usage: skill-up <player> <skill> [amount]",
-                      hint=f"Valid skills: {', '.join(ALL_SKILLS)}")
-
+    """Increase a player's skill level."""
     state = require_state()
     if not state:
         return
 
-    name = args[0]
+    name = args.player
     player = require_player(state, name)
     if not player:
         return
 
-    skill = validate_skill(args[1])
+    skill = validate_skill(args.skill)
     if not skill:
         return
 
-    amount = 1
-    if len(args) > 2:
-        amount = parse_int(args[2], "amount")
-        if amount is None:
-            return
-        if amount < 1:
-            return error("Amount must be positive", hint="Example: skill-up Jake Lockpick 1")
+    amount = args.amount
+    if amount < 1:
+        return error("Amount must be positive", hint="Example: skill-up Jake Lockpick --amount 1")
 
     old = player.get("skills", {}).get(skill, 0)
     new = min(6, old + amount)
