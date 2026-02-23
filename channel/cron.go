@@ -12,6 +12,7 @@ import (
 	cronpkg "github.com/linanwx/nagobot/cron"
 	"github.com/linanwx/nagobot/logger"
 	"github.com/linanwx/nagobot/thread"
+	"github.com/linanwx/nagobot/thread/msg"
 )
 
 // CronChannel wraps a cron.Scheduler as a Channel. Each fired job produces
@@ -23,7 +24,7 @@ type CronChannel struct {
 	scheduler    *cronpkg.Scheduler
 	messages     chan *Message
 	done         chan struct{}
-	onDirectWake func(sessionKey, source, message string)
+	onDirectWake func(sessionKey string, source msg.WakeSource, message string)
 }
 
 // NewCronChannel creates a CronChannel from config.
@@ -45,7 +46,7 @@ func (c *CronChannel) Name() string { return "cron" }
 
 // SetDirectWake sets a callback for jobs with DirectWake=true.
 // Called instead of posting a channel message.
-func (c *CronChannel) SetDirectWake(fn func(sessionKey, source, message string)) {
+func (c *CronChannel) SetDirectWake(fn func(sessionKey string, source msg.WakeSource, message string)) {
 	c.onDirectWake = fn
 }
 
@@ -60,7 +61,7 @@ func (c *CronChannel) AddJob(job cronpkg.Job) error {
 func (c *CronChannel) Start(ctx context.Context) error {
 	factory := func(job *cronpkg.Job) (string, error) {
 		if job != nil && job.DirectWake && job.WakeSession != "" && c.onDirectWake != nil {
-			c.onDirectWake(job.WakeSession, "sleep_completed", job.Task)
+			c.onDirectWake(job.WakeSession, msg.WakeSleepCompleted, job.Task)
 			return "", nil
 		}
 		c.messages <- c.buildMessage(job)

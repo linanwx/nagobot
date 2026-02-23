@@ -32,7 +32,7 @@ func (t *Thread) SpawnChild(ctx context.Context, agentName string, task string) 
 
 	parentThread := t
 	child.Enqueue(&WakeMessage{
-		Source:  "child_task",
+		Source:  WakeChildTask,
 		Message: task,
 		Sink: Sink{
 			Label: "your response will be forwarded to parent thread",
@@ -44,7 +44,7 @@ func (t *Thread) SpawnChild(ctx context.Context, agentName string, task string) 
 					message = fmt.Sprintf("Child %s completed (no output)", child.id)
 				}
 				parentThread.Enqueue(&WakeMessage{
-					Source:  "child_completed",
+					Source:  WakeChildCompleted,
 					Message: message,
 				})
 				return nil

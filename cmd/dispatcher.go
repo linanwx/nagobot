@@ -199,7 +199,7 @@ func (d *Dispatcher) buildCronSink(msg *channel.Message) thread.Sink {
 				strings.TrimSpace(response),
 			)
 			d.threads.Wake(reportTo, &thread.WakeMessage{
-				Source:  "cron_finished",
+				Source:  thread.WakeCronFinished,
 				Message: wakeMsg,
 			})
 			return nil
@@ -252,9 +252,9 @@ func (d *Dispatcher) preprocessMessage(msg *channel.Message) string {
 	return text
 }
 
-// wakeSource returns the wake source string for a channel.
-func (d *Dispatcher) wakeSource(ch channel.Channel) string {
-	return ch.Name() // "telegram", "cli", "web", "cron", etc.
+// wakeSource returns the wake source for a channel.
+func (d *Dispatcher) wakeSource(ch channel.Channel) thread.WakeSource {
+	return thread.WakeSource(ch.Name())
 }
 
 func truncate(s string, maxLen int) string {

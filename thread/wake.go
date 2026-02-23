@@ -157,8 +157,7 @@ func (t *Thread) RunOnce(ctx context.Context) {
 }
 
 // buildWakePayload constructs the user message from a wake source and message.
-func buildWakePayload(source, message, threadID, sessionKey, deliveryLabel string) string {
-	source = strings.TrimSpace(source)
+func buildWakePayload(source WakeSource, message, threadID, sessionKey, deliveryLabel string) string {
 	message = strings.TrimSpace(message)
 	if message == "" {
 		return ""
@@ -193,23 +192,23 @@ func buildWakePayload(source, message, threadID, sessionKey, deliveryLabel strin
 	return "[system]\n" + wakeHeader + "\n" + deliveryHint + "\n[Wake Action]\n" + action + "\n\n" + message
 }
 
-func wakeActionHint(source string) string {
+func wakeActionHint(source WakeSource) string {
 	switch source {
-	case "telegram", "cli", "web", "discord":
+	case WakeTelegram, WakeCLI, WakeWeb, WakeDiscord, WakeFeishu:
 		return "A user sent a message. Respond to the user."
-	case "user_active":
+	case WakeUserActive:
 		return "Resume the target session and respond to this wake message."
-	case "child_task":
+	case WakeChildTask:
 		return "A parent thread delegated a task to you. Execute this task and output the result."
-	case "child_completed":
+	case WakeChildCompleted:
 		return "A child thread completed. Summarize the result and report the original result."
-	case "sleep_completed":
+	case WakeSleepCompleted:
 		return "You previously set a sleep timer. You have been woken up. Resume your session."
-	case "cron":
+	case WakeCron:
 		return "A scheduled cron task has started. Execute it based on the provided job context."
-	case "cron_finished":
+	case WakeCronFinished:
 		return "A cron task has finished and forwarded its result to this thread. Summarize and report the result."
-	case "external":
+	case WakeExternal:
 		return "Process this external wake message and continue the session."
 	default:
 		return "Process this wake message and continue."

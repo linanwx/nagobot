@@ -20,6 +20,25 @@ type Sink = msg.Sink
 // WakeMessage is an alias for msg.WakeMessage.
 type WakeMessage = msg.WakeMessage
 
+// WakeSource is an alias for msg.WakeSource.
+type WakeSource = msg.WakeSource
+
+// Wake source constants re-exported from msg package.
+const (
+	WakeTelegram       = msg.WakeTelegram
+	WakeCLI            = msg.WakeCLI
+	WakeWeb            = msg.WakeWeb
+	WakeDiscord        = msg.WakeDiscord
+	WakeFeishu         = msg.WakeFeishu
+	WakeUserActive     = msg.WakeUserActive
+	WakeChildTask      = msg.WakeChildTask
+	WakeChildCompleted = msg.WakeChildCompleted
+	WakeSleepCompleted = msg.WakeSleepCompleted
+	WakeCron           = msg.WakeCron
+	WakeCronFinished   = msg.WakeCronFinished
+	WakeExternal       = msg.WakeExternal
+)
+
 // threadState represents the runtime state of a thread.
 type threadState int
 

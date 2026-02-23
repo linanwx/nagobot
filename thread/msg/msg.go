@@ -36,9 +36,27 @@ type ThreadInfo struct {
 	ToolTrace      []ToolCallRecord `json:"toolTrace,omitempty"`
 }
 
+// WakeSource identifies how a thread was woken.
+type WakeSource string
+
+const (
+	WakeTelegram       WakeSource = "telegram"
+	WakeCLI            WakeSource = "cli"
+	WakeWeb            WakeSource = "web"
+	WakeDiscord        WakeSource = "discord"
+	WakeFeishu         WakeSource = "feishu"
+	WakeUserActive     WakeSource = "user_active"
+	WakeChildTask      WakeSource = "child_task"
+	WakeChildCompleted WakeSource = "child_completed"
+	WakeSleepCompleted WakeSource = "sleep_completed"
+	WakeCron           WakeSource = "cron"
+	WakeCronFinished   WakeSource = "cron_finished"
+	WakeExternal       WakeSource = "external"
+)
+
 // WakeMessage is an item in a thread's wake queue.
 type WakeMessage struct {
-	Source    string            // Wake source: "telegram", "cron", "child_completed", etc.
+	Source    WakeSource        // Wake source.
 	Message  string            // Wake payload text.
 	Sink     Sink              // Per-wake sink. Zero value = no per-wake delivery.
 	AgentName string           // Optional agent name override for this wake.

@@ -76,7 +76,7 @@ func (t *WakeThreadTool) Run(ctx context.Context, args json.RawMessage) string {
 	}
 
 	t.waker.Wake(sessionKey, &msg.WakeMessage{
-		Source:  "user_active",
+		Source:  msg.WakeUserActive,
 		Message: message,
 	})
 	return fmt.Sprintf("Thread awakened: %s", sessionKey)
