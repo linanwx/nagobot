@@ -111,14 +111,17 @@ check Jake,Sarah PER Lockpick 3 1  # Assisted + 1 AP → 4d20
 AP is deducted from the leader before rolling. If already at 5d20 from helpers, no AP can be spent.
 
 ### Difficulty Levels
+
+Success rates assume Target Number = 10 (e.g. attribute 8 + skill 2). Lower targets reduce these rates significantly.
+
 | Difficulty | Successes | When to Use | Solo (no AP) | Solo (3 AP) |
 |-----------|-----------|-------------|-------------|-------------|
-| 0 | Auto | Trivial tasks | 100% | 100% |
-| 1 | 1 | Simple tasks | ~75% | ~97% |
-| 2 | 2 | Requires competence | ~30% | ~83% |
-| 3 | 3 | Professional-level | ~5% | ~56% |
-| 4 | 4 | Extremely hard | ~0.25% | ~28% |
-| 5 | 5 | Near impossible | 0% | ~9% |
+| 0 | Auto | Simple tasks | 100% | 100% |
+| 1 | 1 | Requires competence | ~75% | ~97% |
+| 2 | 2 | Professional-level | ~30% | ~83% |
+| 3 | 3 | Extremely hard | ~5% | ~56% |
+| 4 | 4 | Near impossible | ~0.25% | ~28% |
+| 5 | 5 | Impossible | 0% | ~9% |
 
 ### Excess Successes → Action Points
 Successes beyond difficulty become AP, added to the leader. AP can be spent on:
