@@ -38,7 +38,7 @@ Multi-provider AI assistant with tool calling, async multi-threading, cron sched
 - Web
 - CLI
 
-Recommended: glm-5 for chat, kimi-k2.5 for tool calls.
+Recommended: deepseek-reasoner for chat, kimi-k2.5 for tool calls.
 
 ## Requirements
 
