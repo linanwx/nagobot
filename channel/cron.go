@@ -33,7 +33,7 @@ func NewCronChannel(cfg *config.Config) *CronChannel {
 		logger.Warn("cron channel: failed to get workspace path", "err", err)
 	}
 	ch := &CronChannel{
-		storePath: filepath.Join(workspace, "cron.jsonl"),
+		storePath: filepath.Join(workspace, "system", "cron.jsonl"),
 		seedJobs:  cfg.Cron,
 		messages:  make(chan *Message, 64),
 		done:      make(chan struct{}),

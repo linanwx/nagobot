@@ -244,7 +244,7 @@ func cronStorePath() (string, error) {
 	if err != nil {
 		return "", fmt.Errorf("failed to get workspace: %w", err)
 	}
-	return filepath.Join(workspace, "cron.jsonl"), nil
+	return filepath.Join(workspace, "system", "cron.jsonl"), nil
 }
 
 // upsertJob writes a job to the store. Returns true if an existing job was updated.

@@ -71,7 +71,7 @@ func Collect(opts Options) Snapshot {
 		s.Sessions = inspectSessionsRoot(opts.SessionsRoot)
 	}
 	if opts.Workspace != "" {
-		s.Cron = inspectCronFile(filepath.Join(opts.Workspace, "cron.jsonl"))
+		s.Cron = inspectCronFile(filepath.Join(opts.Workspace, "system", "cron.jsonl"))
 	}
 
 	if opts.Channels != nil {

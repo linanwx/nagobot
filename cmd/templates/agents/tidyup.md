@@ -20,7 +20,7 @@ You are the workspace tidyup agent. You run once daily. Your job is to organize 
 
 These are system files, runtime data, and core directories — never move, rename, or delete them:
 
-- System config: `cron.jsonl`, `heartbeat-state.json`, `system/CORE_MECHANISM.md`, `USER.md`
+- System config: `system/` directory (`CORE_MECHANISM.md`, `cron.jsonl`, `heartbeat-state.json`), `USER.md`
 - Runtime data: `save/` directory (game saves, state files), any `*.json` that looks like program state/save data
 - Directories: `sessions/`, `agents/`, `skills/`, `logs/`, `bin/`, `reports/`, `docs/`, `scripts/`, `system/`, `save/`, `.tmp/`
 - Hidden files: `.DS_Store`, any dotfile
