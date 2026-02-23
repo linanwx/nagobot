@@ -1,7 +1,7 @@
 """Random generation: loot, trade, NPC."""
 
 import random
-from .util import error, output, parse_int, require_state, require_player, get_effective_special
+from .util import error, output, parse_int, load_state, save_state, require_state, require_player, get_effective_special
 from .data import (
     LOOT_TABLES,
     NPC_SURNAMES, NPC_NAMES, NPC_BUILDS, NPC_FEATURES,
@@ -131,6 +131,21 @@ def cmd_npc_gen(args):
             "speech_style": speech,
         })
 
-    # Always use consistent format: {"npcs": [...]}
-    output({"ok": True, "npcs": npcs}, indent=True)
+    # Auto-persist to state if game is initialized.
+    state = load_state()
+    if state is not None:
+        if "npcs" not in state:
+            state["npcs"] = {}
+        for npc in npcs:
+            state["npcs"][npc["name"]] = {
+                "appearance": npc["appearance"],
+                "motive": npc["motive"],
+                "knowledge": npc["knowledge"],
+                "speech_style": npc["speech_style"],
+                "met_turn": state.get("turn", 0),
+                "location": state.get("location", ""),
+            }
+        save_state(state)
+
+    output({"ok": True, "npcs": npcs, "hint": "NPC(s) auto-registered to game state. Use 'status' to review."}, indent=True)
 

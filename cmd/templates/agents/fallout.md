@@ -223,7 +223,7 @@ Every NPC must have:
 - Knowledge (what they can tell the players)
 - Speech style (brief description)
 
-Do not create purposeless NPCs. Every NPC must either advance the plot, provide resources, or create conflict. Use `npc-gen` to quickly generate NPC templates.
+Do not create purposeless NPCs. Every NPC must either advance the plot, provide resources, or create conflict. Use `npc-gen` to quickly generate NPC templates — generated NPCs are automatically registered to game state and visible via `status`.
 
 
 ## GM Self-Check

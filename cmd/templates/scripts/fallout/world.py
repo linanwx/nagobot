@@ -8,6 +8,17 @@ from .util import (
 )
 
 
+_HISTORY_MAX = 50
+
+
+def _log(state, event):
+    """Append a history entry. Keeps the most recent _HISTORY_MAX entries."""
+    history = state.setdefault("history", [])
+    history.append({"turn": state.get("turn", 0), "event": event})
+    if len(history) > _HISTORY_MAX:
+        state["history"] = history[-_HISTORY_MAX:]
+
+
 def cmd_init(args):
     """Initialize a new game state."""
     state = {
@@ -21,6 +32,8 @@ def cmd_init(args):
         "quest": "Escape the vault",
         "players": {},
         "enemies": {},
+        "npcs": {},
+        "history": [],
         "mode": "exploration",
         "combat_round": 0,
         "turn_actions": {},
@@ -60,6 +73,18 @@ def cmd_status(args):
             effective, modifiers = get_effective_special(player)
             if effective != player.get("special", {}):
                 result["players"][pname]["effective_special"] = effective
+
+        # NPC registry (omit if empty)
+        npcs = state.get("npcs", {})
+        if not npcs:
+            result.pop("npcs", None)
+
+        # History (show last 10, omit if empty)
+        history = state.get("history", [])
+        if history:
+            result["history"] = history[-10:]
+        else:
+            result.pop("history", None)
 
         # Action tracking summary in combat mode
         if get_mode(state) == "combat":
@@ -116,6 +141,7 @@ def cmd_set(args):
 
     old = state.get(field)
     state[field] = value
+    _log(state, f"{field}: {old} → {value}")
 
     # Track when chapter changes for encounter safe_turns
     if field == "chapter":
@@ -189,11 +215,13 @@ def _exploration_turn(state):
     current_idx = times.index(current) if current in times else 0
     new_time = times[(current_idx + 1) % len(times)]
     state["time_of_day"] = new_time
+    _log(state, f"time: {current} → {new_time}")
 
     # Auto-generate weather on new day (Early Morning)
     weather_changed = None
     if new_time == "Early Morning":
         from .data import WEATHER_TABLE
+        old_weather = state.get("weather", "Clear")
         total = sum(w["weight"] for w in WEATHER_TABLE)
         roll = random.randint(1, total)
         cumulative = 0
@@ -205,6 +233,7 @@ def _exploration_turn(state):
                 break
         state["weather"] = chosen["weather"]
         weather_changed = {"weather": chosen["weather"], "description": chosen["desc"], "effect": chosen["effect"]}
+        _log(state, f"weather: {old_weather} → {chosen['weather']}")
 
     # Tick effects
     expired_effects, active_effects, deaths = _tick_effects(state)
@@ -233,6 +262,7 @@ def _exploration_turn(state):
         del enemies[n]
     if dead:
         result["enemies_cleared"] = dead
+        _log(state, f"enemies cleared: {', '.join(dead)}")
 
     # Report alive enemies
     alive = [{"name": n, "hp": f"{e['hp']}/{e['max_hp']}"} for n, e in enemies.items() if e["status"] == "alive"]
@@ -265,6 +295,7 @@ def _exploration_turn(state):
 def _combat_turn(state):
     """Combat round: tick effects, clear dead, check combat end. No time advancement."""
     state["combat_round"] = state.get("combat_round", 0) + 1
+    _log(state, f"combat round {state['combat_round']}")
 
     # Tick effects
     expired_effects, active_effects, deaths = _tick_effects(state)
@@ -300,6 +331,7 @@ def _combat_turn(state):
     if not alive:
         transition = exit_combat(state)
         if transition:
+            _log(state, "combat ended → exploration")
             result.update(transition)
 
     # Reset action tracking
