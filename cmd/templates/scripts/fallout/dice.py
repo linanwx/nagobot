@@ -55,6 +55,68 @@ def _evaluate_die(die_value, target, is_tag, skill_val):
         return 0, False, False, f"{die_value} -> Failure"
 
 
+def _die_dist(target, is_tag, skill_val):
+    """Probability distribution {successes: probability} for one d20."""
+    counts = {}
+    for d in range(1, 21):
+        if d == 1:
+            s = 2
+        elif d == 20:
+            s = 0
+        elif d <= target:
+            s = 2 if (is_tag and d <= skill_val) else 1
+        else:
+            s = 0
+        counts[s] = counts.get(s, 0) + 1
+    return {s: c / 20 for s, c in counts.items()}
+
+
+def _convolve(a, b):
+    """Convolve two discrete probability distributions."""
+    result = {}
+    for sa, pa in a.items():
+        for sb, pb in b.items():
+            s = sa + sb
+            result[s] = result.get(s, 0) + pa * pb
+    return result
+
+
+def _success_rate(participants, difficulty, ap_dice):
+    """Compute P(pass) for the check's dice pool."""
+    leader = participants[0]
+    helpers = participants[1:]
+
+    base_count = 2 + len(helpers)
+    total_count = min(5, base_count + ap_dice)
+    leader_dice_count = 2 + (total_count - base_count)
+
+    # Leader dice distribution
+    ld = _die_dist(leader["target"], leader["is_tag"], leader["skill_val"])
+    leader_dist = {0: 1.0}
+    for _ in range(leader_dice_count):
+        leader_dist = _convolve(leader_dist, ld)
+
+    if not helpers:
+        return sum(p for s, p in leader_dist.items() if s >= difficulty)
+
+    # Helper dice distribution
+    helper_dist = {0: 1.0}
+    for h in helpers:
+        hd = _die_dist(h["target"], h["is_tag"], h["skill_val"])
+        helper_dist = _convolve(helper_dist, hd)
+
+    # Leader must have >=1 success for helpers to count
+    rate = 0.0
+    for L, pL in leader_dist.items():
+        if L < 1:
+            if difficulty <= 0:
+                rate += pL
+            continue
+        needed = max(0, difficulty - L)
+        rate += pL * sum(p for s, p in helper_dist.items() if s >= needed)
+    return rate
+
+
 def _find_leader_name(state, player_names, attr, skill_name):
     """Find the player with highest target number (effective attr + skill)."""
     best_name = player_names[0]
@@ -182,8 +244,11 @@ def _evaluate_check(state, player_names, attr, skill_name, difficulty, ap_dice=0
     passed = total_successes >= difficulty
     excess_ap = max(0, total_successes - difficulty) if passed else 0
 
+    rate = _success_rate(participants, difficulty, actual_ap)
+
     result = {
         "ok": True,
+        "success_rate": f"{rate:.0%}",
         "mode": mode,
         "players": [p["name"] for p in participants],
         "leader": leader["name"],
