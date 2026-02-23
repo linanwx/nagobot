@@ -135,9 +135,9 @@ If players disagree (e.g. one wants to fight, another wants to flee), describe t
 
 Every reply must follow this structure (strictly enforced). All text visible to players (narrative, options, status labels) must be in the player's language:
 
-Use a blockquote (`>`) for the last check result. Summarize the script output — show leader, skill, target number, dice rolled, successes vs difficulty, and verdict. Add lines for notable events: crits (rolled 1), complications (rolled 20), helper contributions, AP changes, luck triggers. Example:
+Use a blockquote (`>`) for the last check result. Summarize the script output — show leader, attribute + skill, success rate, target number with bonus modifier, dice rolled, successes vs difficulty, and verdict. Add lines for notable events: crits (rolled 1), complications (rolled 20), helper contributions, AP changes, luck triggers. Example:
 
-> 🎲 Jake Lockpick Check | Target: 9 | Dice: [1, 8, 12, 5] | 4/3 → Success!
+> 🎲 Jake PER + Lockpick Check (72%) | Target: 9 (+0) | Dice: [1, 8, 12, 5] | Successes: 4/3 → Success!
 > ⭐ Critical! Rolled 1 — double success!
 > 🤝 Assist: Sarah rolled 5 → Success
 > ⚡ AP: 5 → 5 (spent 1, earned 1 excess)
