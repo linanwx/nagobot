@@ -188,9 +188,9 @@ func buildWakePayload(source, message, threadID, sessionKey, deliveryLabel strin
 
 	action := wakeActionHint(source)
 	if action == "" {
-		return wakeHeader + "\n" + deliveryHint + "\n" + message
+		return "[system]\n" + wakeHeader + "\n" + deliveryHint + "\n" + message
 	}
-	return wakeHeader + "\n" + deliveryHint + "\n[Wake Action]\n" + action + "\n\n" + message
+	return "[system]\n" + wakeHeader + "\n" + deliveryHint + "\n[Wake Action]\n" + action + "\n\n" + message
 }
 
 func wakeActionHint(source string) string {
