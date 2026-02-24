@@ -417,6 +417,43 @@ def cmd_check(args):
         action_status = register_action(state, pname)
     result["action_status"] = action_status
 
+    # Generate formatted check blockquote and assign ID
+    check_id = state.get("next_check_id", 1)
+    state["next_check_id"] = check_id + 1
+
+    fmt_lines = []
+    leader_name = result["leader"]
+    fmt_lines.append(f"> 🎲 {leader_name} {result['attribute']} + {result['skill']} Check ({result['success_rate']}) | Target: {result['leader_target']} ({'+' if bonus >= 0 else ''}{bonus}) | Dice: {result['dice']} | Successes: {result['total_successes']}/{difficulty} → {result['verdict']}")
+    if result.get("crits", 0) > 0:
+        fmt_lines.append(f"> ⭐ Critical! {result['crits']}× double success")
+    complication = result.get("complication")
+    if complication:
+        fmt_lines.append(f"> ⚠️ Complication! Oracle: {complication['type']} — {complication['prompt']}")
+    for h in result.get("helpers", []):
+        counted = "✓" if h.get("counted") else "✗ (leader failed)"
+        fmt_lines.append(f"> 🤝 Assist: {h['name']} rolled {h['die']} → {h['detail']} {counted}")
+    detail_parts = []
+    if result.get("ap_spent", 0):
+        detail_parts.append(f"spent {result['ap_spent']}")
+    if result.get("excess_ap", 0):
+        detail_parts.append(f"earned {result['excess_ap']} excess")
+    detail = f" ({', '.join(detail_parts)})" if detail_parts else ""
+    fmt_lines.append(f"> ⚡ AP: {result['ap_before']} → {result['ap_after']}{detail}")
+    luck = result.get("luck_check", {})
+    if luck.get("triggered"):
+        fmt_lines.append(f"> 🍀 {result.get('luck_message', 'Luck triggered!')}")
+    formatted = "\n".join(fmt_lines)
+
+    check_store = state.setdefault("check_results", {})
+    check_store[str(check_id)] = formatted
+    # Keep at most 50 entries, prune oldest
+    if len(check_store) > 50:
+        keys = sorted(check_store.keys(), key=int)
+        for k in keys[:len(keys) - 50]:
+            del check_store[k]
+    result["check_id"] = check_id
+    result["formatted"] = formatted
+
     save_state(state)
     output(result, indent=True)
 

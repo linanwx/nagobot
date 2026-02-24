@@ -24,8 +24,18 @@ def cmd_format_response(args):
             if opt:
                 option_map.setdefault(name, []).append(opt)
 
-    # --- Build status panel ---
+    # --- Build response ---
     lines = []
+
+    # Insert check results by ID
+    if args.checks:
+        check_store = state.get("check_results", {})
+        for cid in args.checks.split(","):
+            cid = cid.strip()
+            fmt = check_store.get(cid)
+            if fmt:
+                lines.append(fmt)
+                lines.append("")
 
     # Turn / Chapter header
     turn = state.get("turn", 0)
@@ -140,7 +150,6 @@ def cmd_format_response(args):
         "Options must only describe actions. Do NOT mention difficulty values, skill names, SPECIAL attributes, success rates, or consequences in option text. No hints like '[Easy]', '[Lockpick]', or '[STR check]'.",
         "Respond in the player's language. If the player writes in Chinese, translate ALL content (narrative, options, status labels) into Chinese.",
     ]
-
 
     if truncated:
         hints.append("Options were truncated to 3 per player. Do NOT output more than 3 options per player.")

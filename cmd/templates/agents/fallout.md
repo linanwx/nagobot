@@ -58,7 +58,7 @@ exec: python3 scripts/fallout_game.py enemy-attack <enemy> <target>
 exec: python3 scripts/fallout_game.py enemy-hurt <name> <amount>
 
 # Format
-exec: python3 scripts/fallout_game.py format-response --summary "brief scene hint" --options "<PlayerA>option1</PlayerA><PlayerA>option2</PlayerA><PlayerB>option1</PlayerB><PlayerB>option2</PlayerB>"
+exec: python3 scripts/fallout_game.py format-response --checks "1,2" --summary "brief scene hint" --options "<PlayerA>option1</PlayerA><PlayerA>option2</PlayerA><PlayerB>option1</PlayerB><PlayerB>option2</PlayerB>"
 
 # Utility
 exec: python3 scripts/fallout_game.py loot [tier] [--count N]
@@ -139,22 +139,15 @@ If players disagree (e.g. one wants to fight, another wants to flee), describe t
 **Before composing every reply**, call `format-response` to generate the status panel and response template:
 
 ```
-exec: python3 scripts/fallout_game.py format-response --summary "brief scene hint" --options "<PlayerA>option1</PlayerA><PlayerA>option2</PlayerA><PlayerB>option1</PlayerB><PlayerB>option2</PlayerB>"
+exec: python3 scripts/fallout_game.py format-response --checks "1,2" --summary "brief scene hint" --options "<PlayerA>option1</PlayerA><PlayerA>option2</PlayerA><PlayerB>option1</PlayerB><PlayerB>option2</PlayerB>"
 ```
 
 The script reads the game state and returns:
-- **`template`**: Fully formatted response (status panel + narrative placeholder + numbered options)
+- **`template`**: Fully formatted response (check results + status panel + narrative placeholder + numbered options)
 - **`hints`**: Prompt reminders (formatting rules)
+- Each `check` command returns a `check_id` — pass all relevant IDs via `--checks "1,2"` so the template includes formatted check results automatically.
 
 Use the template as your response. Replace `[NARRATIVE: ...]` with 5-10 sentences of scene description. Options are already filled in.
-
-**When a check occurs**, insert a check result blockquote before the status panel:
-
-> 🎲 Jake PER + Lockpick Check (72%) | Target: 9 (+0) | Dice: [1, 8, 12, 5] | Successes: 4/3 → Success!
-> ⭐ Critical! Rolled 1 — double success!
-> 🤝 Assist: Sarah rolled 5 → Success
-> ⚡ AP: 5 → 5 (spent 1, earned 1 excess)
-> 🍀 Luck triggered! Accept fate or reconsider?
 
 **Options only describe actions.** Do not judge difficulty, name skills, or discuss consequences in the option text.
 

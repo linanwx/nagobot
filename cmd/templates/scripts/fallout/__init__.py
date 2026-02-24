@@ -158,7 +158,8 @@ def build_parser():
 
     # -- Format --
     p = _sub(sub, "format-response", cmd_format_response)
+    p.add_argument("--checks", default="", help="Comma-separated check IDs to include, e.g. '1,2'")
     p.add_argument("--summary", default="", help="Brief narrative summary / scene description hint")
-    p.add_argument("--options", default="", help="Per-player option counts, e.g. 'PlayerA:3,PlayerB:3'")
+    p.add_argument("--options", default="", help="Per-player options as XML, e.g. '<Name>opt</Name>'")
 
     return parser
