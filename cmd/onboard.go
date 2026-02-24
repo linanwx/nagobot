@@ -28,6 +28,7 @@ var onboardCmd = &cobra.Command{
 }
 
 func init() {
+	onboardCmd.Flags().Bool("sync", false, "Skip configuration wizard, only sync template files to workspace")
 	rootCmd.AddCommand(onboardCmd)
 }
 
@@ -47,7 +48,12 @@ var providerURLs = map[string]string{
 	"minimax-global":  "https://platform.minimax.io",
 }
 
-func runOnboard(_ *cobra.Command, _ []string) error {
+func runOnboard(cmd *cobra.Command, _ []string) error {
+	syncOnly, _ := cmd.Flags().GetBool("sync")
+	if syncOnly {
+		return runSync()
+	}
+
 	configPath, err := config.ConfigPath()
 	if err != nil {
 		return err
@@ -651,6 +657,25 @@ func authenticateProvider(existing *config.Config, providerName string) error {
 		return err
 	}
 	existing.EnsureProviderConfigFor(providerName).APIKey = strings.TrimSpace(apiKey)
+	return nil
+}
+
+func runSync() error {
+	cfg, err := config.Load()
+	if err != nil {
+		return fmt.Errorf("failed to load config: %w", err)
+	}
+	if cfg == nil {
+		return fmt.Errorf("no config found — run 'nagobot onboard' first")
+	}
+	workspace, err := cfg.WorkspacePath()
+	if err != nil {
+		return fmt.Errorf("failed to determine workspace path: %w", err)
+	}
+	if err := createBootstrapFiles(workspace); err != nil {
+		return fmt.Errorf("failed to sync files: %w", err)
+	}
+	fmt.Println("Synced template files to", workspace)
 	return nil
 }
 
