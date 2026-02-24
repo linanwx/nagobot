@@ -167,7 +167,7 @@ def cmd_format_response(args):
     # --- Prompt hints ---
     hints = [
         "Review the template: if turn, location, items, or other state info is wrong, fix it first (e.g. call 'turn' if you forgot, 'set location' if location changed), then call format-response again.",
-        "Replace [NARRATIVE: ...] with 5-10 sentences of scene description.",
+        f"Replace [NARRATIVE: ...] with 5-10 sentences of scene description. This chapter's turns (currently chapter turn {chapter_turn}) form one Dan Harmon's Story Circle — pace the narrative so each turn advances through the circle.",
         "Options must only describe actions. Do NOT mention difficulty values, skill names, SPECIAL attributes, success rates, or consequences in option text. No hints like '[Easy]', '[Lockpick]', or '[STR check]'.",
         "Respond in the player's language. If the player writes in Chinese, translate ALL content (narrative, options, status labels) into Chinese.",
     ]
