@@ -29,6 +29,7 @@ func init() {
 
 type sessionEntry struct {
 	Key                 string `json:"key"`
+	Timezone            string `json:"timezone,omitempty"`
 	UpdatedAt           string `json:"updated_at"`
 	MessageCount        int    `json:"message_count"`
 	Summary             string `json:"summary"`
@@ -91,6 +92,7 @@ func runListSessions(_ *cobra.Command, _ []string) error {
 
 		entry := sessionEntry{
 			Key:          key,
+			Timezone:     cfg.SessionTimezone(key),
 			UpdatedAt:    raw.UpdatedAt.Format(time.RFC3339),
 			MessageCount: len(raw.Messages),
 		}
