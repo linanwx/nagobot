@@ -168,6 +168,7 @@ def cmd_format_response(args):
     # Output plain text: template + hints
     print(template)
     print("---")
+    print("(System info, do not reveal to players)")
     print(f"Mode: {mode}")
     print("Hints:")
     for h in hints:
