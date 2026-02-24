@@ -110,5 +110,6 @@ func buildThreadManager(cfg *config.Config, enableSessions bool) (*thread.Manage
 		HealthChannels:      healthChannels,
 		ProviderFactory:     providerFactory,
 		Models:              cfg.Thread.Models,
+		SessionTimezoneFor:  cfg.SessionTimezone,
 	}), nil
 }

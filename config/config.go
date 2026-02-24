@@ -36,6 +36,11 @@ type Config struct {
 	sessionAgentsMu       sync.Mutex        `yaml:"-" json:"-"`
 	sessionAgentsCache    map[string]string  `yaml:"-" json:"-"`
 	sessionAgentsFileTime time.Time          `yaml:"-" json:"-"`
+
+	// Hot-reload support for sessionTimezones.
+	sessionTimezonesMu       sync.Mutex        `yaml:"-" json:"-"`
+	sessionTimezonesCache    map[string]string  `yaml:"-" json:"-"`
+	sessionTimezonesFileTime time.Time          `yaml:"-" json:"-"`
 }
 
 // SessionAgent returns the agent name for the given session key.
@@ -81,6 +86,49 @@ func (c *Config) reloadSessionAgents(path string, modTime time.Time) {
 		c.sessionAgentsCache = raw.Channels.SessionAgents
 	}
 	c.sessionAgentsFileTime = modTime
+}
+
+// SessionTimezone returns the IANA timezone for the given session key.
+// It lazily reloads sessionTimezones from config.yaml when the file changes on disk.
+func (c *Config) SessionTimezone(key string) string {
+	if c == nil {
+		return ""
+	}
+	c.sessionTimezonesMu.Lock()
+	defer c.sessionTimezonesMu.Unlock()
+
+	path, err := ConfigPath()
+	if err != nil {
+		if c.Channels == nil {
+			return ""
+		}
+		return c.Channels.SessionTimezones[key]
+	}
+
+	info, err := os.Stat(path)
+	if err != nil || info.ModTime().Equal(c.sessionTimezonesFileTime) {
+		return c.sessionTimezonesCache[key]
+	}
+
+	c.reloadSessionTimezones(path, info.ModTime())
+	return c.sessionTimezonesCache[key]
+}
+
+// reloadSessionTimezones reads only the channels.sessionTimezones section from config.yaml.
+func (c *Config) reloadSessionTimezones(path string, modTime time.Time) {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return
+	}
+	var raw struct {
+		Channels struct {
+			SessionTimezones map[string]string `yaml:"sessionTimezones"`
+		} `yaml:"channels"`
+	}
+	if yaml.Unmarshal(data, &raw) == nil {
+		c.sessionTimezonesCache = raw.Channels.SessionTimezones
+	}
+	c.sessionTimezonesFileTime = modTime
 }
 
 // ThreadConfig contains thread runtime defaults.
@@ -166,7 +214,8 @@ type ExecToolsConfig struct {
 // ChannelsConfig contains channel configurations.
 type ChannelsConfig struct {
 	AdminUserID string                 `json:"adminUserID" yaml:"adminUserID"`                   // Cross-channel admin user id
-	SessionAgents map[string]string    `json:"sessionAgents,omitempty" yaml:"sessionAgents,omitempty"` // sessionKey or userID → agent name
+	SessionAgents    map[string]string `json:"sessionAgents,omitempty" yaml:"sessionAgents,omitempty"`       // sessionKey or userID → agent name
+	SessionTimezones map[string]string `json:"sessionTimezones,omitempty" yaml:"sessionTimezones,omitempty"` // sessionKey → IANA timezone (e.g. "Asia/Shanghai")
 	Telegram    *TelegramChannelConfig `json:"telegram" yaml:"telegram"`
 	Feishu      *FeishuChannelConfig   `json:"feishu,omitempty" yaml:"feishu,omitempty"`
 	Discord     *DiscordChannelConfig  `json:"discord,omitempty" yaml:"discord,omitempty"`

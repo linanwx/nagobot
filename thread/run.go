@@ -33,7 +33,7 @@ func (t *Thread) run(ctx context.Context, userMessage string, sink Sink, injectF
 
 	systemPrompt := ""
 	if activeAgent != nil {
-		activeAgent.Set("TIME", time.Now())
+		activeAgent.Set("TIME", t.now())
 		activeAgent.Set("TOOLS", t.tools.Names())
 		activeAgent.Set("SKILLS", skillsSection)
 		activeAgent.Set("USER", t.buildUserSection())

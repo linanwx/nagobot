@@ -110,7 +110,8 @@ func (t *Thread) RunOnce(ctx context.Context) {
 			deliveryLabel = t.defaultSink.Label
 		}
 
-		userMessage := buildWakePayload(msg.Source, msg.Message, t.id, t.sessionKey, deliveryLabel)
+		loc := t.location()
+		userMessage := buildWakePayload(msg.Source, msg.Message, t.id, t.sessionKey, deliveryLabel, loc)
 
 		// Build injection function: between tool iterations, drain inbox for
 		// mergeable user messages and inject them into the LLM conversation.
@@ -120,7 +121,7 @@ func (t *Thread) RunOnce(ctx context.Context) {
 				select {
 				case next := <-t.inbox:
 					if canMerge(msg, next) {
-						payload := buildWakePayload(next.Source, next.Message, t.id, t.sessionKey, deliveryLabel)
+						payload := buildWakePayload(next.Source, next.Message, t.id, t.sessionKey, deliveryLabel, loc)
 						if payload != "" {
 							injected = append(injected, provider.UserMessage(payload))
 							logger.Info("injected mid-execution message",
@@ -157,7 +158,7 @@ func (t *Thread) RunOnce(ctx context.Context) {
 }
 
 // buildWakePayload constructs the user message from a wake source and message.
-func buildWakePayload(source WakeSource, message, threadID, sessionKey, deliveryLabel string) string {
+func buildWakePayload(source WakeSource, message, threadID, sessionKey, deliveryLabel string, loc *time.Location) string {
 	message = strings.TrimSpace(message)
 	if message == "" {
 		return ""
@@ -166,7 +167,7 @@ func buildWakePayload(source WakeSource, message, threadID, sessionKey, delivery
 		source = "unknown"
 	}
 
-	now := time.Now()
+	now := time.Now().In(loc)
 	wakeHeader := fmt.Sprintf(
 		"[Wake reason: %s | thread: %s | session: %s | %s (%s, %s, UTC%s)]",
 		source,

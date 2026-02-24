@@ -74,6 +74,7 @@ type ThreadConfig struct {
 	ProviderFactory     *provider.Factory              // For per-agent model routing
 	Models              map[string]*config.ModelConfig  // Model type → provider/model mapping
 	AddJob              func(cron.Job) error           // Persistent job scheduling (for sleep_thread)
+	SessionTimezoneFor  func(sessionKey string) string // Session key → IANA timezone
 }
 
 // Thread is a single execution unit with an agent, wake queue, and optional session.
@@ -119,4 +120,23 @@ func (t *Thread) cfg() *ThreadConfig {
 		return t.mgr.cfg
 	}
 	return &ThreadConfig{}
+}
+
+// location returns the *time.Location for this thread's session timezone.
+// Falls back to the system local timezone if not configured or invalid.
+func (t *Thread) location() *time.Location {
+	cfg := t.cfg()
+	if cfg.SessionTimezoneFor != nil {
+		if tz := cfg.SessionTimezoneFor(t.sessionKey); tz != "" {
+			if loc, err := time.LoadLocation(tz); err == nil {
+				return loc
+			}
+		}
+	}
+	return time.Now().Location()
+}
+
+// now returns the current time in the thread's session timezone.
+func (t *Thread) now() time.Time {
+	return time.Now().In(t.location())
 }
