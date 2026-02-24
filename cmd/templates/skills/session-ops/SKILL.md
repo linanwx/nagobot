@@ -12,13 +12,14 @@ CLI commands for inspecting and summarizing sessions. All commands output to std
 List all sessions with summary status. Filtered by recent activity.
 
 ```
-exec: nagobot list-sessions [--days N]
+exec: {{WORKSPACE}}/bin/nagobot list-sessions [--days N]
 ```
 
 - `--days N`: Only show sessions active within N days (default: 2)
 
 Output: JSON with fields per session:
 - `key`: Session identifier (e.g. `telegram:12345`, `cli`)
+- `timezone`: IANA timezone if configured (e.g. `Asia/Shanghai`), empty if not set
 - `updated_at`: Last activity timestamp
 - `message_count`: Total messages (including tool messages)
 - `summary`: Current summary text (empty if none)
@@ -32,7 +33,7 @@ Also includes `filter`, `total_sessions`, `shown_sessions` metadata.
 Read filtered chat history with pagination.
 
 ```
-exec: nagobot read-session <key> [--offset N] [--limit N]
+exec: {{WORKSPACE}}/bin/nagobot read-session <key> [--offset N] [--limit N]
 ```
 
 - `<key>`: Session key (e.g. `cli`, `telegram:12345`)
@@ -46,7 +47,7 @@ Tool messages (`role=tool`), system messages, and tool-call-only assistant messa
 Evenly sample filtered messages across the full conversation.
 
 ```
-exec: nagobot sample-session <key> [--count N]
+exec: {{WORKSPACE}}/bin/nagobot sample-session <key> [--count N]
 ```
 
 - `<key>`: Session key
@@ -59,7 +60,7 @@ Sampling is **deterministic** (no randomness): messages are picked at evenly spa
 Set or update the summary for a session.
 
 ```
-exec: nagobot set-summary <key> <summary>
+exec: {{WORKSPACE}}/bin/nagobot set-summary <key> <summary>
 ```
 
 - `<key>`: Session key

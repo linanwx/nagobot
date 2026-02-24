@@ -25,11 +25,12 @@ Steps:
      }
    }
    ```
-2. List the `sessions/` directory under the workspace root to discover all user sessions. User sessions have keys like `telegram:<id>`, `feishu:<id>`, or `cli`. Ignore `cron:*` sessions.
+2. Run `bin/nagobot list-sessions` (via exec) to discover all user sessions. Ignore `cron:*` sessions. The output includes each session's configured `timezone` (IANA format, empty if not set).
 3. For each user session:
    - If `greetings[session_key]` equals today's date, skip (already greeted).
-   - Read the session file (`sessions/<session_key>/session.json`) and check the timestamps of recent messages to understand the user's active hours and timezone. Since the end of the conversation is at the end of the file, check the file end first.
-   - Determine whether now is a good time to greet this user. Consider their typical active hours and inferred timezone. If you cannot determine the user's active hours, skip this session.
+   - Use the session's `timezone` from the list-sessions output to determine the user's local time. If no timezone is configured, skip this session.
+   - Read recent messages from the session (via `bin/nagobot read-session <key>`) to understand the user's active hours and conversation habits.
+   - Determine whether now is a good time to greet this user based on their local time and observed activity patterns.
    - If appropriate, call `wake_thread` with the session key and a message instructing the session's agent to send a brief, warm greeting suited to the time of day. Keep the instruction concise. Then update `system/heartbeat-state.json` to set this session's date to today. Calling `wake_thread` will force the thread to run inference, generate a greeting, and send it to the user.
    - If now is NOT a good time, do nothing for this session. Do not call `wake_thread`. Do NOT update the state file. A later heartbeat run will retry.
 4. Only write `system/heartbeat-state.json` if you actually sent at least one greeting. If no greetings were sent this run, do not touch the file.
