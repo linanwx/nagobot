@@ -47,6 +47,16 @@ def cmd_format_response(args):
                 lines.append(fmt)
                 lines.append("")
 
+    # Insert attack results by ID
+    if args.attacks:
+        atk_store = state.get("attack_results", {})
+        for aid in args.attacks.split(","):
+            aid = aid.strip()
+            fmt = atk_store.get(aid)
+            if fmt:
+                lines.append(fmt)
+                lines.append("")
+
     # Turn / Chapter header
     turn = state.get("turn", 0)
     chapter = state.get("chapter", 1)

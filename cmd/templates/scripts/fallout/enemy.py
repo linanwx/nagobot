@@ -341,5 +341,37 @@ def cmd_enemy_attack(args):
     action_status = register_action(state, enemy_name)
     result["action_status"] = action_status
 
+    # Generate formatted attack blockquote and assign ID
+    atk_id = state.get("next_attack_id", 1)
+    state["next_attack_id"] = atk_id + 1
+
+    fmt_lines = []
+    if is_fumble:
+        fmt_lines.append(f"> ⚔️ {enemy_name} attacks {target_name} | Roll: {attack_roll} vs {enemy['attack_skill']} → Fumble!")
+    elif hit:
+        verdict = "Critical Hit!" if is_crit else "Hit"
+        fmt_lines.append(f"> ⚔️ {enemy_name} attacks {target_name} | Roll: {attack_roll} vs {enemy['attack_skill']} → {verdict}")
+        fmt_lines.append(f"> 💥 Damage: {result['damage_dice']} = {result['total_damage']}")
+        if is_crit:
+            fmt_lines.append(f"> ⭐ Critical! +{result['crit_bonus']} bonus damage")
+        if result.get("damage_reduction", 0) > 0:
+            fmt_lines.append(f"> 🛡️ Damage reduced by {result['damage_reduction']}")
+        fmt_lines.append(f"> ❤️ {target_name}: {result['target_hp_before']} → {result['target_hp_after']}/{result['target_max_hp']} HP")
+        if result.get("target_down"):
+            fmt_lines.append(f"> ☠️ {target_name} is down!")
+    else:
+        fmt_lines.append(f"> ⚔️ {enemy_name} attacks {target_name} | Roll: {attack_roll} vs {enemy['attack_skill']} → Miss")
+    formatted = "\n".join(fmt_lines)
+
+    atk_store = state.setdefault("attack_results", {})
+    atk_store[str(atk_id)] = formatted
+    if len(atk_store) > 50:
+        keys = sorted(atk_store.keys(), key=int)
+        for k in keys[:len(keys) - 50]:
+            del atk_store[k]
+
+    result["attack_id"] = atk_id
+    result["formatted"] = formatted
+
     save_state(state)
     output(result, indent=True)
