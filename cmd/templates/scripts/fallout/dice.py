@@ -622,6 +622,35 @@ def cmd_damage(args):
     action_status = register_action(state, player_name)
     result["action_status"] = action_status
 
+    # Generate formatted damage blockquote and assign ID
+    dmg_id = state.get("next_damage_id", 1)
+    state["next_damage_id"] = dmg_id + 1
+
+    fmt_lines = []
+    fmt_lines.append(f"> 💥 {player_name} attacks with {matched_name} ({result['weapon_dice']}) | Dice: {dice} | Damage: {total_damage}")
+    if effects:
+        fmt_lines.append(f"> 🔥 Special: {', '.join(effects)}")
+    if str_check:
+        str_verdict = "Triggered" if str_check["triggered"] else "Failed"
+        fmt_lines.append(f"> 💪 STR Check: {str_check['dice']} → {str_check['successes']}/{str_check['needed']} {str_verdict}" + (f" (+{str_bonus} damage)" if str_bonus else ""))
+    if dmg_bonus > 0:
+        fmt_lines.append(f"> 🔥 Rage bonus: +{dmg_bonus} damage")
+    if ammo_consumed:
+        fmt_lines.append(f"> 🔫 Ammo: {ammo_consumed['ammo_type']} {ammo_consumed['ammo_before']} → {ammo_consumed['ammo_after']}")
+    if ap_spend > 0:
+        fmt_lines.append(f"> ⚡ AP: {original_ap} → {player['ap']} (spent {ap_spend})")
+    formatted = "\n".join(fmt_lines)
+
+    dmg_store = state.setdefault("damage_results", {})
+    dmg_store[str(dmg_id)] = formatted
+    if len(dmg_store) > 50:
+        keys = sorted(dmg_store.keys(), key=int)
+        for k in keys[:len(keys) - 50]:
+            del dmg_store[k]
+
+    result["damage_id"] = dmg_id
+    result["formatted"] = formatted
+
     save_state(state)
     output(result, indent=True)
 

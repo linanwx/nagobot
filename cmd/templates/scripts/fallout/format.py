@@ -37,6 +37,16 @@ def cmd_format_response(args):
                 lines.append(fmt)
                 lines.append("")
 
+    # Insert damage results by ID
+    if args.damages:
+        dmg_store = state.get("damage_results", {})
+        for did in args.damages.split(","):
+            did = did.strip()
+            fmt = dmg_store.get(did)
+            if fmt:
+                lines.append(fmt)
+                lines.append("")
+
     # Turn / Chapter header
     turn = state.get("turn", 0)
     chapter = state.get("chapter", 1)
@@ -146,6 +156,7 @@ def cmd_format_response(args):
 
     # --- Prompt hints ---
     hints = [
+        "Review the template: if turn, location, items, or other state info is wrong, fix it first (e.g. call 'turn' if you forgot, 'set location' if location changed), then call format-response again.",
         "Replace [NARRATIVE: ...] with 5-10 sentences of scene description.",
         "Options must only describe actions. Do NOT mention difficulty values, skill names, SPECIAL attributes, success rates, or consequences in option text. No hints like '[Easy]', '[Lockpick]', or '[STR check]'.",
         "Respond in the player's language. If the player writes in Chinese, translate ALL content (narrative, options, status labels) into Chinese.",
@@ -154,9 +165,10 @@ def cmd_format_response(args):
     if truncated:
         hints.append("Options were truncated to 3 per player. Do NOT output more than 3 options per player.")
 
-    output({
-        "ok": True,
-        "template": template,
-        "hints": hints,
-        "mode": mode,
-    })
+    # Output plain text: template + hints
+    print(template)
+    print("---")
+    print(f"Mode: {mode}")
+    print("Hints:")
+    for h in hints:
+        print(f"- {h}")
