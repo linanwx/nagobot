@@ -58,7 +58,7 @@ exec: python3 scripts/fallout_game.py enemy-attack <enemy> <target>
 exec: python3 scripts/fallout_game.py enemy-hurt <name> <amount>
 
 # Format
-exec: python3 scripts/fallout_game.py format-response --summary "<brief scene hint>" --options "PlayerA:3,PlayerB:3"
+exec: python3 scripts/fallout_game.py format-response --summary "brief scene hint" --options "<PlayerA>option1</PlayerA><PlayerA>option2</PlayerA><PlayerB>option1</PlayerB><PlayerB>option2</PlayerB>"
 
 # Utility
 exec: python3 scripts/fallout_game.py loot [tier] [--count N]
@@ -139,14 +139,14 @@ If players disagree (e.g. one wants to fight, another wants to flee), describe t
 **Before composing every reply**, call `format-response` to generate the status panel and response template:
 
 ```
-exec: python3 scripts/fallout_game.py format-response --summary "<brief scene hint>" --options "PlayerA:3,PlayerB:3"
+exec: python3 scripts/fallout_game.py format-response --summary "brief scene hint" --options "<PlayerA>option1</PlayerA><PlayerA>option2</PlayerA><PlayerB>option1</PlayerB><PlayerB>option2</PlayerB>"
 ```
 
 The script reads the game state and returns:
-- **`template`**: Status panel + option placeholders (ready to use)
-- **`hints`**: Prompt reminders (tag skills per player, formatting rules)
+- **`template`**: Fully formatted response (status panel + narrative placeholder + numbered options)
+- **`hints`**: Prompt reminders (formatting rules)
 
-Use the template as your response skeleton. Replace `[NARRATIVE: ...]` with 5-10 sentences of scene description, and replace each `[option N]` with a concrete action.
+Use the template as your response. Replace `[NARRATIVE: ...]` with 5-10 sentences of scene description. Options are already filled in.
 
 **When a check occurs**, insert a check result blockquote before the status panel:
 

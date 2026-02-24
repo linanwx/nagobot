@@ -15,19 +15,14 @@ def cmd_format_response(args):
     players = state.get("players", {})
     mode = get_mode(state)
 
-    # Parse per-player option counts: "PlayerA:3,PlayerB:3"
+    # Parse per-player options: XML tags <PlayerName>option text</PlayerName>
     option_map = {}
     if args.options:
-        for pair in args.options.split(","):
-            pair = pair.strip()
-            if ":" in pair:
-                name, count = pair.rsplit(":", 1)
-                try:
-                    option_map[name.strip()] = int(count.strip())
-                except ValueError:
-                    option_map[name.strip()] = 3
-            else:
-                option_map[pair.strip()] = 3
+        import re
+        for m in re.finditer(r"<([^>]+)>(.*?)</\1>", args.options, re.DOTALL):
+            name, opt = m.group(1), m.group(2).strip()
+            if opt:
+                option_map.setdefault(name, []).append(opt)
 
     # --- Build status panel ---
     lines = []
@@ -121,32 +116,34 @@ def cmd_format_response(args):
     lines.append("")
 
     # --- Options per player ---
+    truncated = False
     for pname, player in players.items():
         if player.get("hp", 0) <= 0:
             continue
         character = player.get("character", pname)
-        count = option_map.get(pname, option_map.get(character, 3))
-        lines.append(f"{character}, what do you want to do?")
-        for i in range(1, count + 1):
-            lines.append(f"{i}. [option {i}]")
-        lines.append("")
+        raw_opts = option_map.get(pname, option_map.get(character, []))
+        opts = raw_opts[:3]
+        if len(raw_opts) > 3:
+            truncated = True
+        if opts:
+            lines.append(f"{character}, what do you want to do?")
+            for i, opt in enumerate(opts, 1):
+                lines.append(f"{i}. {opt}")
+            lines.append(f"{len(opts) + 1}. Other (describe your action)")
+            lines.append("")
 
     template = "\n".join(lines)
 
     # --- Prompt hints ---
     hints = [
         "Replace [NARRATIVE: ...] with 5-10 sentences of scene description.",
-        "Replace each [option N] with a concrete action. Do NOT mention difficulty, skill names, or consequences in options.",
+        "Options must only describe actions. Do NOT mention difficulty values, skill names, SPECIAL attributes, success rates, or consequences in option text. No hints like '[Easy]', '[Lockpick]', or '[STR check]'.",
+        "Respond in the player's language. If the player writes in Chinese, translate ALL content (narrative, options, status labels) into Chinese.",
     ]
 
-    # Tag skill reminders per player
-    for pname, player in players.items():
-        if player.get("hp", 0) <= 0:
-            continue
-        tags = player.get("tag_skills", [])
-        if tags:
-            character = player.get("character", pname)
-            hints.append(f"{character}'s tag skills: {', '.join(tags)} — design at least one option that uses them.")
+
+    if truncated:
+        hints.append("Options were truncated to 3 per player. Do NOT output more than 3 options per player.")
 
     output({
         "ok": True,
