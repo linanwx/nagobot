@@ -234,15 +234,18 @@ def _evaluate_check(state, player_names, attr, skill_name, difficulty, ap_dice=0
             "counted": leader_contributed,
         })
 
-    # --- Luck check for leader (d100 ≤ LCK, i.e. LCK% chance) ---
+    passed = total_successes >= difficulty
+    excess_ap = max(0, total_successes - difficulty) if passed else 0
+
+    # --- Luck check: only on failure or complication ---
     leader_player = state["players"][leader["name"]]
     effective_leader, _ = get_effective_special(leader_player)
     luck_val = effective_leader.get("LCK", 5)
-    luck_roll = random.randint(1, 100)
-    luck_triggered = luck_roll <= luck_val
-
-    passed = total_successes >= difficulty
-    excess_ap = max(0, total_successes - difficulty) if passed else 0
+    luck_triggered = False
+    luck_roll = None
+    if not passed or total_complications > 0:
+        luck_roll = random.randint(1, 100)
+        luck_triggered = luck_roll <= luck_val
 
     rate = _success_rate(participants, difficulty, actual_ap)
 
@@ -314,17 +317,18 @@ def _evaluate_check(state, player_names, attr, skill_name, difficulty, ap_dice=0
         result["unused_tag_skills"] = unused_tags
         result["tag_hint"] = "These tag skills were not used in this check. Consider if an alternative approach could leverage them."
 
-    # Luck check result (always included for transparency)
-    result["luck_check"] = {
-        "roller": leader["name"],
-        "LCK": luck_val,
-        "d100": luck_roll,
-        "threshold": f"≤{luck_val} ({luck_val}%)",
-        "triggered": luck_triggered,
-    }
-    if luck_triggered:
-        result["luck_reroll_available"] = True
-        result["luck_message"] = f"{leader['name']} foresaw this outcome. Accept this fate, or go back and decide again?"
+    # Luck check result (only when rolled)
+    if luck_roll is not None:
+        result["luck_check"] = {
+            "roller": leader["name"],
+            "LCK": luck_val,
+            "d100": luck_roll,
+            "threshold": f"≤{luck_val} ({luck_val}%)",
+            "triggered": luck_triggered,
+        }
+        if luck_triggered:
+            result["luck_reroll_available"] = True
+            result["luck_message"] = f"{leader['name']} foresaw this outcome. Accept this fate, or go back and decide again?"
 
     return result, excess_ap
 
