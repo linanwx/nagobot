@@ -57,6 +57,9 @@ exec: python3 scripts/fallout_game.py enemy-add <template>
 exec: python3 scripts/fallout_game.py enemy-attack <enemy> <target>
 exec: python3 scripts/fallout_game.py enemy-hurt <name> <amount>
 
+# Format
+exec: python3 scripts/fallout_game.py format-response --summary "<brief scene hint>" --options "PlayerA:3,PlayerB:3"
+
 # Utility
 exec: python3 scripts/fallout_game.py loot [tier] [--count N]
 exec: python3 scripts/fallout_game.py trade <player> <base_price> buy/sell
@@ -133,9 +136,19 @@ If players disagree (e.g. one wants to fight, another wants to flee), describe t
 
 ## Response Format
 
-Every reply must follow this structure (strictly enforced). All text visible to players (narrative, options, status labels) must be in the player's language:
+**Before composing every reply**, call `format-response` to generate the status panel and response template:
 
-Use a blockquote (`>`) for the last check result. Summarize the script output — show leader, attribute + skill, success rate, target number with bonus modifier, dice rolled, successes vs difficulty, and verdict. Add lines for notable events: crits (rolled 1), complications (rolled 20), helper contributions, AP changes, luck triggers. Example:
+```
+exec: python3 scripts/fallout_game.py format-response --summary "<brief scene hint>" --options "PlayerA:3,PlayerB:3"
+```
+
+The script reads the game state and returns:
+- **`template`**: Status panel + option placeholders (ready to use)
+- **`hints`**: Prompt reminders (tag skills per player, formatting rules)
+
+Use the template as your response skeleton. Replace `[NARRATIVE: ...]` with 5-10 sentences of scene description, and replace each `[option N]` with a concrete action.
+
+**When a check occurs**, insert a check result blockquote before the status panel:
 
 > 🎲 Jake PER + Lockpick Check (72%) | Target: 9 (+0) | Dice: [1, 8, 12, 5] | Successes: 4/3 → Success!
 > ⭐ Critical! Rolled 1 — double success!
@@ -143,39 +156,9 @@ Use a blockquote (`>`) for the last check result. Summarize the script output �
 > ⚡ AP: 5 → 5 (spent 1, earned 1 excess)
 > 🍀 Luck triggered! Accept fate or reconsider?
 
-Use a blockquote (`>`) for the status panel (❤️ HP · ☢️ Rads · 💰 Caps · ⚡ AP):
-
-> 📊 Turn X · Chapter X
-> 🕐 Time of Day · Weather · Location
-> 🎯 [current quest]
-
-> 👤 CharacterA (PlayerA) [@discord_id]
-> ❤️ XX/XX · ☢️ XX · 💰 XX · ⚡ XX
-> 🎒 [items]
-
-> 👤 CharacterB (PlayerB) [@discord_id]
-> ❤️ XX/XX · ☢️ XX · 💰 XX · ⚡ XX
-> 🎒 [items]
-
-Then narrative and options in normal text (no blockquote):
-
-[Narrative description, 5-10 sentences, in the player's language]
-
-[CharacterA], what do you want to do?
-1. [option]
-2. [option]
-3. [option]
-
-[CharacterB], what do you want to do?
-1. [option]
-2. [option]
-3. [option]
-
 **Options only describe actions.** Do not judge difficulty, name skills, or discuss consequences in the option text.
 
 **Options may be shared or unique** — if players are in the same scene, options are usually identical; if split up, each gets their own.
-
-**When a check occurs**, insert the check result blockquote (shown above) before the status panel.
 
 
 ## Game Flow

@@ -10,6 +10,7 @@ from .world import cmd_init, cmd_status, cmd_set, cmd_turn
 from .items import cmd_use_item, cmd_effect, cmd_rest, cmd_recover
 from .events import cmd_loot, cmd_trade, cmd_npc_gen
 from .enemy import cmd_enemy_add, cmd_enemy_hurt, cmd_enemy_attack
+from .format import cmd_format_response
 
 
 class GameParser(argparse.ArgumentParser):
@@ -154,5 +155,10 @@ def build_parser():
     p = _sub(sub, "enemy-attack", cmd_enemy_attack)
     p.add_argument("enemy")
     p.add_argument("target")
+
+    # -- Format --
+    p = _sub(sub, "format-response", cmd_format_response)
+    p.add_argument("--summary", default="", help="Brief narrative summary / scene description hint")
+    p.add_argument("--options", default="", help="Per-player option counts, e.g. 'PlayerA:3,PlayerB:3'")
 
     return parser
