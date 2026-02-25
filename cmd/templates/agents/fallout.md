@@ -58,7 +58,7 @@ exec: python3 scripts/fallout_game.py enemy-attack <enemy> <target>
 exec: python3 scripts/fallout_game.py enemy-hurt <name> <amount>
 
 # Format
-exec: python3 scripts/fallout_game.py format-response --checks "1" --damages "1" --attacks "1" --summary "brief scene hint" --options "<PlayerA>option1</PlayerA><PlayerA>option2</PlayerA><PlayerB>option1</PlayerB><PlayerB>option2</PlayerB>"
+exec: python3 scripts/fallout_game.py format-response --checks "1,2" --damages "1,2" --attacks "1,2" --summary "brief scene hint" --options "<PlayerA>option1</PlayerA><PlayerA>option2</PlayerA><PlayerB>option1</PlayerB><PlayerB>option2</PlayerB>"
 
 # Utility
 exec: python3 scripts/fallout_game.py loot [tier] [--count N]
@@ -139,7 +139,7 @@ If players disagree (e.g. one wants to fight, another wants to flee), describe t
 **Before composing every reply**, call `format-response` to generate the status panel and response template:
 
 ```
-exec: python3 scripts/fallout_game.py format-response --checks "1" --damages "1" --attacks "1" --summary "brief scene hint" --options "<PlayerA>option1</PlayerA><PlayerA>option2</PlayerA><PlayerB>option1</PlayerB><PlayerB>option2</PlayerB>"
+exec: python3 scripts/fallout_game.py format-response --checks "1,2" --damages "1,2" --attacks "1,2" --summary "brief scene hint" --options "<PlayerA>option1</PlayerA><PlayerA>option2</PlayerA><PlayerB>option1</PlayerB><PlayerB>option2</PlayerB>"
 ```
 
 The script reads the game state and returns:
