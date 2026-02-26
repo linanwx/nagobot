@@ -230,6 +230,11 @@ func SanitizeMessages(messages []Message) []Message {
 				callIDs[tc.ID] = true
 			}
 		}
+		// Drop empty assistant messages (no content, no reasoning, no tool calls)
+		// to avoid 400 errors from providers like DeepSeek.
+		if m.Role == "assistant" && m.Content == "" && m.ReasoningContent == "" && len(m.ToolCalls) == 0 {
+			continue
+		}
 		if m.Role == "tool" && !callIDs[m.ToolCallID] {
 			continue
 		}
