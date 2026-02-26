@@ -319,10 +319,10 @@ SPECIAL attributes do NOT increase through leveling (only through rare items or 
 ## Consumable Items
 
 ```
-exec: python3 scripts/fallout_game.py use-item <player> <item_name>
+exec: python3 scripts/fallout_game.py use-item <player> <item_name> [--provider <player>] [--target <player>]
 ```
 
-Automatically removes item from inventory, applies effects, and checks for addiction.
+No skill check required — consumables take effect immediately. Player performs the action (Medicine bonus from player's skill), provider supplies the item (default: player), target receives the effect (default: player).
 
 | Item | Effect | Notes |
 |------|--------|-------|
@@ -430,7 +430,7 @@ rads <player> <amount>
 caps <player> <amount>
 ap <player> <amount>
 inventory <player> add/remove <item> [--qty N]  # Qty defaults to 1; also supports "Item xN"
-use-item <player> <item>                # Consumable (auto effects + addiction check)
+use-item <player> <item> [--provider P] [--target T]  # Consumable (no check needed, auto effects + addiction)
 effect <player> add/remove/list [name] [--duration N]
 rest [--hours N]                        # Rest & recover (default 8h, heals all, clears temp effects)
 skill-up <player> <skill> [--amount N]  # Default +1
