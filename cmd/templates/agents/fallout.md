@@ -44,7 +44,7 @@ exec: python3 scripts/fallout_game.py rads <player> <amount>
 exec: python3 scripts/fallout_game.py caps <player> <amount>
 exec: python3 scripts/fallout_game.py ap <player> <amount>
 exec: python3 scripts/fallout_game.py inventory <player> add/remove <item> [--qty N]
-exec: python3 scripts/fallout_game.py use-item <player> <item>
+exec: python3 scripts/fallout_game.py use-item <player> <item> [--provider <player>] [--target <player>]
 exec: python3 scripts/fallout_game.py effect <player> add/remove/list [name] [--duration N]
 exec: python3 scripts/fallout_game.py skill-up <player> <skill> [--amount N]
 
@@ -81,7 +81,7 @@ exec: python3 scripts/fallout_game.py recover
 - **Enemies:** `enemy-add <template>` from built-in library (e.g. `enemy-add Raider`). `enemy-attack` for their turns, `enemy-hurt` when players deal damage. Engine enforces encounter budget per chapter.
 - **Luck:** Every `check` auto-rolls Luck. If `luck_reroll_available` appears, ask player: accept this fate or reconsider?
 - **Radiation/drugs** automatically modify effective SPECIAL values for all checks.
-- **Consumables:** `use-item` auto-removes from inventory, applies effects, checks addiction.
+- **Consumables:** `use-item` auto-removes from inventory, applies effects, checks addiction. Use `--target` to apply effects to another player, `--provider` to consume from another player's inventory. Medicine bonus always comes from the performer.
 - **Rest:** `rest` heals all players, clears temp effects and all enemies.
 - **If state corrupted:** `recover` restores from backup.
 

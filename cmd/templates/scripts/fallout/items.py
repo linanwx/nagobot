@@ -7,57 +7,72 @@ from .data import CHEM_EFFECTS
 
 
 def cmd_use_item(args):
-    """Use a consumable item."""
+    """Use a consumable item. Player performs the action, provider supplies the item, target receives the effect."""
     state = require_state()
     if not state:
         return
 
-    name = args.player
+    player_name = args.player
+    provider_name = args.provider or player_name
+    target_name = args.target or player_name
     item = " ".join(args.item)
 
-    player = require_player(state, name)
+    # Validate all three roles
+    player = require_player(state, player_name)
     if not player:
         return
+    provider = require_player(state, provider_name)
+    if not provider:
+        return
+    target = require_player(state, target_name)
+    if not target:
+        return
 
-    inv = player.setdefault("inventory", {})
+    # Check provider's inventory
+    inv = provider.setdefault("inventory", {})
     if inv.get(item, 0) <= 0:
-        return error(f"Player {name} does not have item: {item}",
+        return error(f"Player {provider_name} does not have item: {item}",
                       inventory=inv,
-                      hint=f"Add it first: inventory {name} add '{item}'")
+                      hint=f"Add it first: inventory {provider_name} add '{item}'")
 
     chem = CHEM_EFFECTS.get(item)
     if not chem:
         return error(f"Unknown consumable: {item}. This item cannot be used — it may be equipment or a crafting material.",
                       known_consumables=list(CHEM_EFFECTS.keys()))
 
-    # Remove from inventory
+    # Remove from provider's inventory
     inv[item] -= 1
     if inv[item] <= 0:
         del inv[item]
 
-    results = {"ok": True, "player": name, "item": item, "effects": []}
+    results = {"ok": True, "player": player_name, "provider": provider_name,
+               "target": target_name, "item": item, "effects": []}
 
+    # Heal: Medicine bonus from player (performer), HP restored on target
     if "heal" in chem:
-        old_hp = player["hp"]
+        old_hp = target["hp"]
         heal_amount = chem["heal"]
         medicine_level = player.get("skills", {}).get("Medicine", 0)
         medicine_bonus = medicine_level * 2
-        player["hp"] = min(player["max_hp"], player["hp"] + heal_amount + medicine_bonus)
-        heal_desc = f"HP: {old_hp} -> {player['hp']}"
+        target["hp"] = min(target["max_hp"], target["hp"] + heal_amount + medicine_bonus)
+        heal_desc = f"{target_name} HP: {old_hp} -> {target['hp']}"
         if medicine_bonus > 0:
-            heal_desc += f" (Medicine +{medicine_bonus})"
+            heal_desc += f" ({player_name} Medicine +{medicine_bonus})"
         results["effects"].append(heal_desc)
 
+    # Rads: applied to target
     if "rads" in chem:
-        old_rads = player.get("rads", 0)
-        player["rads"] = max(0, old_rads + chem["rads"])
-        results["effects"].append(f"Rads: {old_rads} -> {player['rads']}")
+        old_rads = target.get("rads", 0)
+        target["rads"] = max(0, old_rads + chem["rads"])
+        results["effects"].append(f"{target_name} Rads: {old_rads} -> {target['rads']}")
 
+    # AP: applied to target
     if "ap" in chem:
-        old_ap = player.get("ap", 0)
-        player["ap"] = old_ap + chem["ap"]
-        results["effects"].append(f"AP: {old_ap} -> {player['ap']}")
+        old_ap = target.get("ap", 0)
+        target["ap"] = old_ap + chem["ap"]
+        results["effects"].append(f"{target_name} AP: {old_ap} -> {target['ap']}")
 
+    # Status effect: applied to target
     if "effect" in chem:
         effect_entry = {
             "name": chem["effect"],
@@ -70,28 +85,28 @@ def cmd_use_item(args):
             effect_entry["damage_bonus"] = chem["damage_bonus"]
         if chem.get("damage_reduction"):
             effect_entry["damage_reduction"] = chem["damage_reduction"]
-        player.setdefault("status_effects", []).append(effect_entry)
-        results["effects"].append(f"Status gained: {chem['effect']} ({chem.get('duration', 1)} rounds)")
+        target.setdefault("status_effects", []).append(effect_entry)
+        results["effects"].append(f"{target_name} Status gained: {chem['effect']} ({chem.get('duration', 1)} rounds)")
 
-        # Addiction check for chems
+        # Addiction check: target is the one who might get addicted
         if "Addiction risk" in chem.get("desc", ""):
             addiction_roll = random.randint(1, 20)
             if addiction_roll <= 3:
-                player.setdefault("status_effects", []).append({
+                target.setdefault("status_effects", []).append({
                     "name": f"{item} Addiction",
                     "remaining": -1,
                     "source": "addiction",
                 })
-                results["effects"].append(f"WARNING: Addicted! (Roll: {addiction_roll}, needed >3)")
+                results["effects"].append(f"WARNING: {target_name} Addicted! (Roll: {addiction_roll}, needed >3)")
                 results["addicted"] = True
                 results["addiction_hint"] = f"{item} Addiction is permanent until cured. Treatment: Medicine check (difficulty 3) or Addictol."
             else:
-                results["effects"].append(f"Not addicted (Roll: {addiction_roll}, needed <=3)")
+                results["effects"].append(f"{target_name} Not addicted (Roll: {addiction_roll}, needed <=3)")
 
     results["description"] = chem["desc"]
 
-    # Register action for the player
-    action_status = register_action(state, name)
+    # Register action for the player (performer)
+    action_status = register_action(state, player_name)
     results["action_status"] = action_status
 
     save_state(state)

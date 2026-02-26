@@ -119,6 +119,8 @@ def build_parser():
     p = _sub(sub, "use-item", cmd_use_item)
     p.add_argument("player")
     p.add_argument("item", nargs="+")
+    p.add_argument("--provider", default=None, help="Who provides the item (default: player)")
+    p.add_argument("--target", default=None, help="Who receives the effect (default: player)")
 
     p = _sub(sub, "effect", cmd_effect)
     p.add_argument("player")
