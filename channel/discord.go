@@ -108,13 +108,138 @@ func (d *DiscordChannel) Send(_ context.Context, resp *Response) error {
 		replyTo = ch.ID
 	}
 
-	chunks := SplitMessage(resp.Text, DiscordMaxMessageLength)
+	text := convertTablesToLists(resp.Text)
+	chunks := SplitMessage(text, DiscordMaxMessageLength)
 	for _, chunk := range chunks {
 		if _, err := d.session.ChannelMessageSend(replyTo, chunk); err != nil {
 			return fmt.Errorf("discord send error: %w", err)
 		}
 	}
 	return nil
+}
+
+// convertTablesToLists converts Markdown tables into numbered list format
+// because Discord's table rendering is poor (misaligned, broken on mobile).
+func convertTablesToLists(text string) string {
+	lines := strings.Split(text, "\n")
+	var result []string
+	inCodeBlock := false
+
+	i := 0
+	for i < len(lines) {
+		line := lines[i]
+		trimmed := strings.TrimSpace(line)
+
+		// Track code blocks — don't touch tables inside them.
+		if strings.HasPrefix(trimmed, "```") {
+			inCodeBlock = !inCodeBlock
+			result = append(result, line)
+			i++
+			continue
+		}
+		if inCodeBlock {
+			result = append(result, line)
+			i++
+			continue
+		}
+
+		// Detect table block: consecutive lines starting with |
+		if strings.HasPrefix(trimmed, "|") {
+			tableStart := i
+			for i < len(lines) && strings.HasPrefix(strings.TrimSpace(lines[i]), "|") {
+				i++
+			}
+			tableLines := lines[tableStart:i]
+			result = append(result, renderTableAsList(tableLines)...)
+			continue
+		}
+
+		result = append(result, line)
+		i++
+	}
+
+	return strings.Join(result, "\n")
+}
+
+// renderTableAsList converts parsed table lines into a numbered list.
+func renderTableAsList(tableLines []string) []string {
+	var headers []string
+	var dataRows [][]string
+
+	for _, line := range tableLines {
+		cells := parseTableRow(line)
+		if cells == nil {
+			continue
+		}
+		// Skip separator rows (|---|---|)
+		if isSeparatorRow(cells) {
+			continue
+		}
+		if headers == nil {
+			headers = cells
+		} else {
+			dataRows = append(dataRows, cells)
+		}
+	}
+
+	if headers == nil {
+		return tableLines // can't parse, return as-is
+	}
+
+	// Normalize column count.
+	numCols := len(headers)
+	for _, row := range dataRows {
+		if len(row) > numCols {
+			numCols = len(row)
+		}
+	}
+	for len(headers) < numCols {
+		headers = append(headers, "")
+	}
+
+	var out []string
+	for i, row := range dataRows {
+		out = append(out, fmt.Sprintf("**%d.**", i+1))
+		for j := 0; j < numCols && j < len(row); j++ {
+			h := headers[j]
+			if h == "" {
+				h = fmt.Sprintf("Column %d", j+1)
+			}
+			out = append(out, fmt.Sprintf("• **%s**: %s", h, row[j]))
+		}
+		if i < len(dataRows)-1 {
+			out = append(out, "")
+		}
+	}
+	return out
+}
+
+// parseTableRow splits a |-delimited row into trimmed cell values.
+func parseTableRow(line string) []string {
+	line = strings.TrimSpace(line)
+	if !strings.HasPrefix(line, "|") {
+		return nil
+	}
+	// Trim leading and trailing |
+	line = strings.TrimPrefix(line, "|")
+	line = strings.TrimSuffix(line, "|")
+	parts := strings.Split(line, "|")
+	cells := make([]string, len(parts))
+	for i, p := range parts {
+		cells[i] = strings.TrimSpace(p)
+	}
+	return cells
+}
+
+// isSeparatorRow checks if all cells look like |---|
+func isSeparatorRow(cells []string) bool {
+	for _, c := range cells {
+		cleaned := strings.Trim(c, "-: ")
+		if cleaned != "" {
+			return false
+		}
+	}
+	return true
 }
 
 func (d *DiscordChannel) Messages() <-chan *Message {
