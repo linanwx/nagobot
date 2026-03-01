@@ -126,8 +126,16 @@ func (t *Thread) run(ctx context.Context, userMessage string, sink Sink, injectF
 	var streamer *MarkdownStreamer
 	if !sink.IsZero() && sink.Idempotent {
 		streamer = NewMarkdownStreamer(sink, ctx, 600)
-		runner.OnText(streamer.OnDelta)
-		runner.OnChatEnd(streamer.Flush)
+		runner.OnText(func(delta string) {
+			if !t.isSuppressSink() {
+				streamer.OnDelta(delta)
+			}
+		})
+		runner.OnChatEnd(func() {
+			if !t.isSuppressSink() {
+				streamer.Flush()
+			}
+		})
 	}
 
 	runner.OnMessage(func(m provider.Message) {
