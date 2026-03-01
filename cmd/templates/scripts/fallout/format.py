@@ -64,7 +64,7 @@ def cmd_format_response(args):
     chapter_start = state.get("chapter_start_turn", 0)
     chapter_turn = turn - chapter_start
 
-    header = f"> 📊 Turn {turn} (Chapter Turn {chapter_turn}) · Chapter {chapter}"
+    header = f"> 📊 Chapter {chapter} · Turn {chapter_turn} (Total {turn})"
     if chapter_title:
         header += f": {chapter_title}"
     if mode == "combat":

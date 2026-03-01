@@ -146,7 +146,7 @@ def _evaluate_check(state, player_names, attr, skill_name, difficulty, ap_dice=0
         effective, modifiers = get_effective_special(player)
         attr_val = effective.get(attr, 0)
         skill_val = player.get("skills", {}).get(skill_name, 0)
-        is_tag = skill_name in player.get("tag_skills", [])
+        is_tag = skill_val > 0
         target = attr_val + skill_val + bonus
         participants.append({
             "name": pname,
@@ -309,7 +309,7 @@ def _evaluate_check(state, player_names, attr, skill_name, difficulty, ap_dice=0
     unused_tags = {}
     for p in participants:
         player = state["players"][p["name"]]
-        tags = player.get("tag_skills", [])
+        tags = [s for s, v in player.get("skills", {}).items() if v > 0]
         other_tags = [t for t in tags if t != skill_name]
         if other_tags:
             unused_tags[p["name"]] = other_tags
@@ -426,7 +426,7 @@ def cmd_check(args):
             "hp": f"{p['hp']}/{p['max_hp']}",
             "ap": p.get("ap", 0),
             "rads": p.get("rads", 0),
-            "tag_skills": p.get("tag_skills", []),
+            "tag_skills": [s for s, v in p.get("skills", {}).items() if v > 0],
         }
     result["player_info"] = player_info
 

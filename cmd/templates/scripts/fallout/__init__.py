@@ -136,7 +136,8 @@ def build_parser():
     # -- Events --
     p = _sub(sub, "loot", cmd_loot)
     p.add_argument("tier", nargs="?", default=None)
-    p.add_argument("--count", type=int, default=1)
+    p.add_argument("--count", type=int, default=None)
+    p.add_argument("--random-tier", action="store_true", default=False)
 
     p = _sub(sub, "trade", cmd_trade)
     p.add_argument("player")
