@@ -26,6 +26,13 @@ ALL_SKILLS = [
 
 SPECIAL_ATTRS = ["STR", "PER", "END", "CHA", "INT", "AGI", "LCK"]
 
+MAX_AP = 6
+
+
+def clamp_ap(player):
+    """Clamp player AP to [0, MAX_AP]."""
+    player["ap"] = max(0, min(MAX_AP, player.get("ap", 0)))
+
 # Radiation penalty tiers (first match wins, not cumulative)
 RAD_PENALTIES = [
     (1000, {"STR": -4, "PER": -3, "END": -4, "AGI": -3, "LCK": -3}),

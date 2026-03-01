@@ -2,7 +2,7 @@
 
 import os
 import random
-from .util import error, ok, output, parse_int, require_state, require_player, save_state, STATE_FILE, register_action, get_mode, exit_combat
+from .util import error, ok, output, parse_int, require_state, require_player, save_state, STATE_FILE, register_action, get_mode, exit_combat, clamp_ap
 from .data import CHEM_EFFECTS
 
 
@@ -70,6 +70,7 @@ def cmd_use_item(args):
     if "ap" in chem:
         old_ap = target.get("ap", 0)
         target["ap"] = old_ap + chem["ap"]
+        clamp_ap(target)
         results["effects"].append(f"{target_name} AP: {old_ap} -> {target['ap']}")
 
     # Status effect: applied to target

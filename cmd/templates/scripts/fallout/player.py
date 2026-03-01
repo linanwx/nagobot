@@ -5,7 +5,7 @@ from .util import (
     error, ok, output, parse_int,
     require_state, require_player, validate_skill, save_state,
     roll_dice, get_effective_special,
-    ALL_SKILLS, SPECIAL_ATTRS, RAD_PENALTIES,
+    ALL_SKILLS, SPECIAL_ATTRS, RAD_PENALTIES, clamp_ap,
 )
 
 
@@ -244,6 +244,7 @@ def cmd_ap(args):
 
     old_ap = player.get("ap", 0)
     player["ap"] = max(0, old_ap + amount)
+    clamp_ap(player)
     save_state(state)
     output({
         "ok": True,

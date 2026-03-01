@@ -5,7 +5,7 @@ from .util import (
     error, ok, output, parse_int,
     require_state, require_player, validate_attr, validate_skill,
     roll_dice, save_state, get_effective_special,
-    register_action,
+    register_action, clamp_ap,
 )
 
 
@@ -398,6 +398,7 @@ def cmd_check(args):
     # Add excess AP to leader
     if excess_ap > 0:
         leader_player["ap"] += excess_ap
+    clamp_ap(leader_player)
 
     # Track AP change in output
     result["ap_before"] = original_ap
