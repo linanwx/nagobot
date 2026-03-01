@@ -459,6 +459,29 @@ def cmd_check(args):
     result["check_id"] = check_id
     result["formatted"] = formatted
 
+    # Skill growth on failure: d100 ≤ effective INT → skill +1
+    if not result["passed"]:
+        growth_results = []
+        for pname in player_names:
+            player = state["players"][pname]
+            effective, _ = get_effective_special(player)
+            int_val = effective.get("INT", 5)
+            growth_roll = random.randint(1, 100)
+            if growth_roll <= int_val:
+                skills = player.setdefault("skills", {})
+                old_val = skills.get(skill_name, 0)
+                skills[skill_name] = old_val + 1
+                growth_results.append({
+                    "player": pname,
+                    "skill": skill_name,
+                    "INT": int_val,
+                    "d100": growth_roll,
+                    "old": old_val,
+                    "new": old_val + 1,
+                })
+        if growth_results:
+            result["skill_growth"] = growth_results
+
     # Track check history for dynamic GM hints
     hist = state.setdefault("check_history", [])
     hist.append({"passed": result["passed"]})
