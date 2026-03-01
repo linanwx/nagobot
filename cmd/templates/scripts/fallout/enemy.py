@@ -268,6 +268,8 @@ def cmd_enemy_hurt(args):
 
 def cmd_enemy_attack(args):
     """Enemy attacks a player. Rolls 1d20 vs attack_skill, auto-applies damage."""
+    import random as _rand
+
     state = require_state()
     if not state:
         return
@@ -282,6 +284,13 @@ def cmd_enemy_attack(args):
         alive_names = [n for n, e in state.get("enemies", {}).items() if e["status"] == "alive"]
         return error(f"{enemy_name} is dead and cannot attack",
                       alive_enemies=alive_names or "none")
+
+    # --random: pick a random living player
+    if args.random or not target_name:
+        alive_players = [n for n, p in state.get("players", {}).items() if p.get("hp", 0) > 0]
+        if not alive_players:
+            return error("No living players to attack")
+        target_name = _rand.choice(alive_players)
 
     player = require_player(state, target_name)
     if not player:

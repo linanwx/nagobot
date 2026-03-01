@@ -54,7 +54,7 @@ exec: python3 scripts/fallout_game.py roll <NdM>
 exec: python3 scripts/fallout_game.py damage <player> <weapon> [--ap N]
 exec: python3 scripts/fallout_game.py initiative
 exec: python3 scripts/fallout_game.py enemy-add <template>
-exec: python3 scripts/fallout_game.py enemy-attack <enemy> <target>
+exec: python3 scripts/fallout_game.py enemy-attack <enemy> [<target>] [--random]
 exec: python3 scripts/fallout_game.py enemy-hurt <name> <amount>
 
 # Format
@@ -78,7 +78,7 @@ exec: python3 scripts/fallout_game.py recover
 - **AP spending:** Add `--ap N` (0-3) to `check` or `damage`. Each AP adds 1 die. Excess successes beyond difficulty are earned back as AP.
 - **Situational bonus:** Add `--bonus N` to `check` when the scene provides a minor advantage (e.g. high ground, tools, prior intel). Bonus adds directly to the target number.
 - **Combat damage:** `damage <player> <weapon>` → then `enemy-hurt`. Melee auto-rolls STR check for bonus.
-- **Enemies:** `enemy-add <template>` from built-in library (e.g. `enemy-add Raider`). `enemy-attack` for their turns, `enemy-hurt` when players deal damage. Engine enforces encounter budget per chapter.
+- **Enemies:** `enemy-add <template>` from built-in library (e.g. `enemy-add Raider`). `enemy-attack` for their turns, `enemy-hurt` when players deal damage. Engine enforces encounter budget per chapter. Enemy targeting: use `--random` for generic aggression (engine picks a random living player); specify `<target>` explicitly when the narrative demands it (e.g. enemy retaliates against the player who just attacked it). Prefer `--random` for most enemies to keep combat fair and reduce repetitive targeting.
 - **Luck:** Every `check` auto-rolls Luck. If `luck_reroll_available` appears, ask player: accept this fate or reconsider?
 - **Radiation/drugs** automatically modify effective SPECIAL values for all checks.
 - **Consumables:** `use-item` auto-removes from inventory, applies effects, checks addiction. Use `--target` to apply effects to another player, `--provider` to consume from another player's inventory. Medicine bonus always comes from the performer.
@@ -115,7 +115,7 @@ Player messages arrive as `[Name]: content`. Use the name to distinguish players
 1. Encounter triggered → `enemy-add` for each enemy (auto-enters combat mode on first enemy)
 2. `initiative` → sorted order (players + enemies)
 3. Player turn: `check` → `damage` → `enemy-hurt`
-4. Enemy turn: `enemy-attack <enemy> <target>` (single command, auto-rolls and applies damage)
+4. Enemy turn: `enemy-attack <enemy> --random` (random target) or `enemy-attack <enemy> <target>` (specific target)
 5. `turn` after all units acted → advances combat round, ticks effects, clears dead
 6. Repeat until enemies dead or players flee
 7. Last enemy killed → auto-exits to exploration mode

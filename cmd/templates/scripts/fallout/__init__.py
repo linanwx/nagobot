@@ -156,7 +156,8 @@ def build_parser():
 
     p = _sub(sub, "enemy-attack", cmd_enemy_attack)
     p.add_argument("enemy")
-    p.add_argument("target")
+    p.add_argument("target", nargs="?", default="")
+    p.add_argument("--random", action="store_true", help="Randomly select a living player as target")
 
     # -- Format --
     p = _sub(sub, "format-response", cmd_format_response)
