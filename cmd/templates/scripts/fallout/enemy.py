@@ -187,6 +187,48 @@ def cmd_enemy_add(args):
     ok(f"Enemy added: {name}", **result_data)
 
 
+def _apply_enemy_damage(state, name, enemy, amount):
+    """Apply damage to an enemy and handle kill/loot/combat-exit.
+
+    Returns a dict with hp_before, hp_after, killed, loot_drop, etc.
+    Does NOT save state — caller is responsible.
+    """
+    import random
+    old_hp = enemy["hp"]
+    enemy["hp"] = max(0, enemy["hp"] - amount)
+
+    result = {
+        "enemy": name,
+        "hp_before": old_hp,
+        "hp_after": enemy["hp"],
+        "max_hp": enemy["max_hp"],
+        "amount": amount,
+    }
+
+    if enemy["hp"] <= 0 and enemy["status"] != "dead":
+        enemy["status"] = "dead"
+        result["killed"] = True
+        result["message"] = f"{name} has been defeated!"
+
+        # Auto-roll loot
+        if enemy["drops"] != "none":
+            from .data import LOOT_TABLES
+            tier = enemy["drops"]
+            if tier in LOOT_TABLES:
+                loot = random.choice(LOOT_TABLES[tier])
+                result["loot_drop"] = {"tier": tier, "item": loot}
+                result["loot_hint"] = f"Loot dropped: {loot}. Use 'inventory <player> add {loot}' to give to a player."
+
+        # Auto-exit combat if last enemy killed
+        alive_remaining = [e for e in state.get("enemies", {}).values() if e["status"] == "alive"]
+        if not alive_remaining:
+            transition = exit_combat(state)
+            if transition:
+                result.update(transition)
+
+    return result
+
+
 def cmd_enemy_hurt(args):
     """Deal damage to an enemy (negative heals)."""
     state = require_state()
@@ -206,46 +248,20 @@ def cmd_enemy_hurt(args):
                       alive_enemies=alive_names or "none",
                       hint="Use negative amount to revive: enemy-hurt <name> -<amount>")
 
-    old_hp = enemy["hp"]
     if amount < 0:
         # Heal
+        old_hp = enemy["hp"]
         enemy["hp"] = min(enemy["max_hp"], enemy["hp"] - amount)
         if enemy["status"] == "dead":
             enemy["status"] = "alive"
-    else:
-        enemy["hp"] = max(0, enemy["hp"] - amount)
+        save_state(state)
+        output({"ok": True, "enemy": name, "hp_before": old_hp,
+                "hp_after": enemy["hp"], "max_hp": enemy["max_hp"],
+                "amount": amount}, indent=True)
+        return
 
-    result = {
-        "ok": True,
-        "enemy": name,
-        "hp_before": old_hp,
-        "hp_after": enemy["hp"],
-        "max_hp": enemy["max_hp"],
-        "amount": amount,
-    }
-
-    if enemy["hp"] <= 0 and enemy["status"] != "dead":
-        enemy["status"] = "dead"
-        result["killed"] = True
-        result["message"] = f"{name} has been defeated!"
-
-        # Auto-roll loot
-        if enemy["drops"] != "none":
-            from .data import LOOT_TABLES
-            import random
-            tier = enemy["drops"]
-            if tier in LOOT_TABLES:
-                loot = random.choice(LOOT_TABLES[tier])
-                result["loot_drop"] = {"tier": tier, "item": loot}
-                result["loot_hint"] = f"Loot dropped: {loot}. Use 'inventory <player> add {loot}' to give to a player."
-
-        # Auto-exit combat if last enemy killed
-        alive_remaining = [e for e in state.get("enemies", {}).values() if e["status"] == "alive"]
-        if not alive_remaining:
-            transition = exit_combat(state)
-            if transition:
-                result.update(transition)
-
+    result = _apply_enemy_damage(state, name, enemy, amount)
+    result["ok"] = True
     save_state(state)
     output(result, indent=True)
 
@@ -277,15 +293,16 @@ def cmd_enemy_attack(args):
     is_crit = attack_roll == 1
     is_fumble = attack_roll == 20
 
-    # Dodge check: d100 ≤ effective AGI × 2
+    # Dodge check: 1d20 ≤ effective AGI → dodge, roll 1 = dodge + counter-attack
     dodged = False
+    counter = False
     dodge_roll = None
     effective, _ = get_effective_special(player)
     agi_val = effective.get("AGI", 5)
-    dodge_chance = agi_val * 2
     if hit and not is_crit:
-        dodge_roll = roll_dice(1, 100)[0]
-        dodged = dodge_roll <= dodge_chance
+        dodge_roll = roll_dice(1, 20)[0]
+        dodged = dodge_roll <= agi_val
+        counter = dodge_roll == 1
         if dodged:
             hit = False
 
@@ -301,8 +318,20 @@ def cmd_enemy_attack(args):
         result["hit"] = False
         result["dodged"] = True
         result["dodge_roll"] = dodge_roll
-        result["dodge_chance"] = f"{dodge_chance}% (AGI {agi_val})"
-        result["detail"] = f"Roll {attack_roll} -> Hit, but {target_name} dodged! (d100: {dodge_roll} ≤ {dodge_chance})"
+        result["dodge_chance"] = f"d20 ≤ {agi_val} (AGI {agi_val})"
+        if counter:
+            # Counter-attack: roll enemy's own damage dice back at them
+            parts = enemy["damage"].split("d")
+            counter_dice = roll_dice(int(parts[0]), int(parts[1]))
+            counter_dmg = sum(counter_dice)
+            counter_result = _apply_enemy_damage(state, enemy_name, enemy, counter_dmg)
+            result["counter"] = True
+            result["counter_damage"] = counter_dmg
+            result["counter_dice"] = counter_dice
+            result["counter_result"] = counter_result
+            result["detail"] = f"Roll {attack_roll} -> Hit, but {target_name} dodged and counter-attacked! (d20: {dodge_roll}) → {counter_dmg} damage to {enemy_name}"
+        else:
+            result["detail"] = f"Roll {attack_roll} -> Hit, but {target_name} dodged! (d20: {dodge_roll} ≤ {agi_val})"
     elif is_fumble:
         result["hit"] = False
         result["fumble"] = True
@@ -365,7 +394,17 @@ def cmd_enemy_attack(args):
 
     fmt_lines = []
     if dodged:
-        fmt_lines.append(f"> ⚔️ {enemy_name} attacks {target_name} | Roll: {attack_roll} vs {enemy['attack_skill']} → Hit, but dodged! (d100: {dodge_roll} ≤ {dodge_chance}%)")
+        if counter:
+            fmt_lines.append(f"> ⚔️ {enemy_name} attacks {target_name} | Roll: {attack_roll} vs {enemy['attack_skill']} → Dodged + Counter!")
+            cr = result["counter_result"]
+            fmt_lines.append(f"> ⚡ {target_name} counter-attacks! Dice: {result['counter_dice']} = {result['counter_damage']} damage to {enemy_name}")
+            fmt_lines.append(f"> ❤️ {enemy_name}: {cr['hp_before']} → {cr['hp_after']}/{cr['max_hp']} HP")
+            if cr.get("killed"):
+                fmt_lines.append(f"> ☠️ {enemy_name} defeated by counter-attack!")
+                if cr.get("loot_drop"):
+                    fmt_lines.append(f"> 🎁 Loot: {cr['loot_drop']['item']} ({cr['loot_drop']['tier']})")
+        else:
+            fmt_lines.append(f"> ⚔️ {enemy_name} attacks {target_name} | Roll: {attack_roll} vs {enemy['attack_skill']} → Dodged! (d20: {dodge_roll} ≤ {agi_val})")
     elif is_fumble:
         fmt_lines.append(f"> ⚔️ {enemy_name} attacks {target_name} | Roll: {attack_roll} vs {enemy['attack_skill']} → Fumble!")
     elif hit:

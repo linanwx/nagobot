@@ -392,8 +392,20 @@ def cmd_check(args):
                          hint="Earn AP from excess successes on checks")
         leader_player["ap"] -= ap_spend
 
+    # PER awareness: 1d20 ≤ leader's effective PER → +1 target, roll 1 = crit +2
+    effective_leader, _ = get_effective_special(leader_player)
+    per_val = effective_leader.get("PER", 5)
+    per_roll = random.randint(1, 20)
+    per_crit = per_roll == 1
+    per_triggered = per_roll <= per_val
+    per_bonus = 2 if per_crit else (1 if per_triggered else 0)
+
     # Roll
-    result, excess_ap = _evaluate_check(state, player_names, attr, skill_name, difficulty, ap_spend, bonus)
+    result, excess_ap = _evaluate_check(state, player_names, attr, skill_name, difficulty, ap_spend, bonus + per_bonus)
+
+    if per_triggered:
+        result["perception"] = {"PER": per_val, "d20": per_roll, "bonus": f"+{per_bonus} target", "crit": per_crit}
+    result["perception_roll"] = {"PER": per_val, "d20": per_roll, "threshold": per_val, "triggered": per_triggered}
 
     # Add excess AP to leader
     if excess_ap > 0:
@@ -445,6 +457,11 @@ def cmd_check(args):
         detail_parts.append(f"earned {result['excess_ap']} excess")
     detail = f" ({', '.join(detail_parts)})" if detail_parts else ""
     fmt_lines.append(f"> ⚡ AP: {result['ap_before']} → {result['ap_after']}{detail}")
+    if per_triggered:
+        if per_crit:
+            fmt_lines.append(f"> 👁️ Keen Awareness! PER {per_val} spotted a critical weakness (d20: {per_roll}) → target +2")
+        else:
+            fmt_lines.append(f"> 👁️ Awareness! PER {per_val} spotted a weakness (d20: {per_roll} ≤ {per_val}) → target +1")
     luck = result.get("luck_check", {})
     if luck.get("triggered"):
         fmt_lines.append(f"> 🍀 {result.get('luck_message', 'Luck triggered!')}")
