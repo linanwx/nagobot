@@ -459,6 +459,11 @@ def cmd_check(args):
     result["check_id"] = check_id
     result["formatted"] = formatted
 
+    # Track check history for dynamic GM hints
+    hist = state.setdefault("check_history", [])
+    hist.append({"passed": result["passed"]})
+    state["check_history"] = hist[-10:]
+
     save_state(state)
     output(result, indent=True)
 

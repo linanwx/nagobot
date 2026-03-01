@@ -175,6 +175,16 @@ def cmd_format_response(args):
     if truncated:
         hints.append("Options were truncated to 3 per player. Do NOT output more than 3 options per player.")
 
+    # Dynamic hint: consecutive check failures
+    check_hist = state.get("check_history", [])
+    if len(check_hist) >= 3 and not any(h["passed"] for h in check_hist[-3:]):
+        hints.append(
+            "Players have failed multiple checks in a row. "
+            "Consider changing the current obstacle — transform it, have an NPC intervene, "
+            "or open an alternative path. Avoid letting players keep attempting the same blocked objective. "
+            "Review your narrative for flow and dramatic engagement."
+        )
+
     # Output plain text: template + hints
     print(template)
     print("---")
