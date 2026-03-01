@@ -85,10 +85,9 @@ func formatVar(value any) string {
 }
 
 // newAgent creates an agent. Template path: workspace/agents/<name>.md.
-// Name is lowercased to match filesystem convention.
 func newAgent(name, workspace string) *Agent {
 	return &Agent{
-		Name:      strings.ToLower(name),
+		Name:      name,
 		workspace: workspace,
 	}
 }
@@ -97,7 +96,16 @@ func (a *Agent) templatePath() string {
 	if a.workspace == "" {
 		return ""
 	}
-	return filepath.Join(a.workspace, "agents", a.Name+".md")
+	// Try exact name first, then lowercase fallback.
+	path := filepath.Join(a.workspace, "agents", a.Name+".md")
+	if _, err := os.Stat(path); err == nil {
+		return path
+	}
+	lower := filepath.Join(a.workspace, "agents", strings.ToLower(a.Name)+".md")
+	if _, err := os.Stat(lower); err == nil {
+		return lower
+	}
+	return path // return original for error reporting
 }
 
 func (a *Agent) readTemplate() string {
