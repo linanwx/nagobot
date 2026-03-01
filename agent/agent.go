@@ -85,9 +85,10 @@ func formatVar(value any) string {
 }
 
 // newAgent creates an agent. Template path: workspace/agents/<name>.md.
+// Name is lowercased to match filesystem convention.
 func newAgent(name, workspace string) *Agent {
 	return &Agent{
-		Name:      name,
+		Name:      strings.ToLower(name),
 		workspace: workspace,
 	}
 }
