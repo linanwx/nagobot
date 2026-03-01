@@ -4,7 +4,7 @@ import re
 from .util import (
     error, ok, output, parse_int,
     require_state, require_player, require_enemy,
-    roll_dice, save_state,
+    roll_dice, save_state, get_effective_special,
     enter_combat, exit_combat, register_action, get_mode,
 )
 
@@ -277,6 +277,18 @@ def cmd_enemy_attack(args):
     is_crit = attack_roll == 1
     is_fumble = attack_roll == 20
 
+    # Dodge check: d100 ≤ effective AGI × 2
+    dodged = False
+    dodge_roll = None
+    effective, _ = get_effective_special(player)
+    agi_val = effective.get("AGI", 5)
+    dodge_chance = agi_val * 2
+    if hit and not is_crit:
+        dodge_roll = roll_dice(1, 100)[0]
+        dodged = dodge_roll <= dodge_chance
+        if dodged:
+            hit = False
+
     result = {
         "ok": True,
         "attacker": enemy_name,
@@ -285,7 +297,13 @@ def cmd_enemy_attack(args):
         "attack_skill": enemy["attack_skill"],
     }
 
-    if is_fumble:
+    if dodged:
+        result["hit"] = False
+        result["dodged"] = True
+        result["dodge_roll"] = dodge_roll
+        result["dodge_chance"] = f"{dodge_chance}% (AGI {agi_val})"
+        result["detail"] = f"Roll {attack_roll} -> Hit, but {target_name} dodged! (d100: {dodge_roll} ≤ {dodge_chance})"
+    elif is_fumble:
         result["hit"] = False
         result["fumble"] = True
         result["detail"] = f"Roll {attack_roll} -> Fumble! Miss + complication"
@@ -346,7 +364,9 @@ def cmd_enemy_attack(args):
     state["next_attack_id"] = atk_id + 1
 
     fmt_lines = []
-    if is_fumble:
+    if dodged:
+        fmt_lines.append(f"> ⚔️ {enemy_name} attacks {target_name} | Roll: {attack_roll} vs {enemy['attack_skill']} → Hit, but dodged! (d100: {dodge_roll} ≤ {dodge_chance}%)")
+    elif is_fumble:
         fmt_lines.append(f"> ⚔️ {enemy_name} attacks {target_name} | Roll: {attack_roll} vs {enemy['attack_skill']} → Fumble!")
     elif hit:
         verdict = "Critical Hit!" if is_crit else "Hit"
