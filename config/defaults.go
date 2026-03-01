@@ -44,7 +44,7 @@ func DefaultConfig() *Config {
 			{
 				ID:          "heartbeat",
 				Expr:        "*/30 * * * *",
-				Task:        "heartbeat",
+				Task:        "Run all scheduled routines: daily greeting check, stale task detection.",
 				Agent:       "heartbeat",
 				Silent:      true,
 			},
@@ -114,16 +114,18 @@ func (c *Config) applyDefaults() {
 		c.Channels.Web.Addr = defaultWebAddr
 	}
 
-	// Merge default cron seeds by ID (new defaults auto-appear for existing users).
+	// Merge default cron seeds by ID.
+	// Default seeds always override user config (forced), and missing ones are appended.
 	for _, seed := range DefaultConfig().Cron {
-		found := false
-		for _, j := range c.Cron {
+		replaced := false
+		for i, j := range c.Cron {
 			if j.ID == seed.ID {
-				found = true
+				c.Cron[i] = seed
+				replaced = true
 				break
 			}
 		}
-		if !found {
+		if !replaced {
 			c.Cron = append(c.Cron, seed)
 		}
 	}
