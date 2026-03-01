@@ -77,12 +77,15 @@ def cmd_status(args):
         if not npcs:
             result.pop("npcs", None)
 
-        # History (show last 10, omit if empty)
+        # History (show last 3, omit if empty)
         history = state.get("history", [])
         if history:
-            result["history"] = history[-10:]
+            result["history"] = history[-3:]
         else:
             result.pop("history", None)
+
+        # Remove internal-only fields from output
+        result.pop("check_history", None)
 
         # Action tracking summary in combat mode
         if get_mode(state) == "combat":
