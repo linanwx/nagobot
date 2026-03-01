@@ -35,6 +35,27 @@ Steps:
    - If now is NOT a good time, do nothing for this session. Do not call `wake_thread`. Do NOT update the state file. A later heartbeat run will retry.
 4. Only write `system/heartbeat-state.json` if you actually sent at least one greeting. If no greetings were sent this run, do not touch the file.
 
+### Stale Task Detection
+
+Check idle threads for obvious unfulfilled commitments.
+
+Steps:
+
+1. Call `health` to get all active threads.
+2. For each thread that is **idle** (no pending messages) and has been idle for at least 30 minutes:
+   - Skip `cron:*` sessions.
+   - Run `bin/nagobot read-session <key> --limit 10` to read the most recent messages.
+   - Scan the assistant's **last message** for explicit commitments — phrases like:
+     - "I will do X next"
+     - "Let me check/handle/process that"
+     - "I'll get back to you"
+     - "稍后" / "我来处理" / "马上"
+     - Any clear promise of a follow-up action
+   - If the assistant's last message contains such a commitment AND there is **no subsequent assistant action or tool call** that fulfilled it, this is a stale task.
+3. For each detected stale task:
+   - Call `wake_thread` with the session key and a message like: "You previously committed to: [brief quote]. This appears unfulfilled. Please complete it or acknowledge it's no longer needed."
+4. **Conservative threshold**: Only trigger when the commitment is unambiguous and clearly unfulfilled. When in doubt, do NOT wake. False positives are worse than missed detections.
+
 ### Default
 
 If no routine is triggered, do nothing. Reply with: `HEARTBEAT_OK`
