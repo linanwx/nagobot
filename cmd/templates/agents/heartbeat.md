@@ -52,9 +52,11 @@ Steps:
      - "稍后" / "我来处理" / "马上"
      - Any clear promise of a follow-up action
    - If the assistant's last message contains such a commitment AND there is **no subsequent assistant action or tool call** that fulfilled it, this is a stale task.
-3. For each detected stale task:
-   - Call `wake_thread` with the session key and a message like: "You previously committed to: [brief quote]. This appears unfulfilled. Please complete it or acknowledge it's no longer needed."
-4. **Conservative threshold**: Only trigger when the commitment is unambiguous and clearly unfulfilled. When in doubt, do NOT wake. False positives are worse than missed detections.
+   - **Unanswered user message**: If the **last message** in the session is from the user (not the assistant), the thread is idle, and at least 30 minutes have passed, the LLM likely failed to respond. This should also be woken.
+3. For each detected issue:
+   - **Stale commitment**: Call `wake_thread` with a message like: "You previously committed to: [brief quote]. This appears unfulfilled. Please complete it or acknowledge it's no longer needed."
+   - **Unanswered user message**: Call `wake_thread` with a message like: "The user sent a message but received no response. Please read the conversation and respond to the user."
+4. **Conservative threshold**: Only trigger when the commitment is unambiguous and clearly unfulfilled, or the unanswered message is clearly directed at the assistant. When in doubt, do NOT wake. False positives are worse than missed detections.
 
 ### Default
 
