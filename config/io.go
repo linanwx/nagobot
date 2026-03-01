@@ -33,6 +33,9 @@ func Load() (*Config, error) {
 	}
 
 	cfg.applyDefaults()
+	if err := cfg.Save(); err != nil {
+		return nil, err
+	}
 	return &cfg, nil
 }
 
