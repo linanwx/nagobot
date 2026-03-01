@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"net/url"
 	"strings"
+	"sync"
 
 	"time"
 
@@ -179,6 +180,19 @@ func normalizeSearchResultURL(rawURL string) string {
 	return rawURL
 }
 
+// webFetchCache is a simple in-memory cache for fetched page content.
+var webFetchCache = struct {
+	sync.Mutex
+	entries map[string]webFetchCacheEntry
+}{entries: make(map[string]webFetchCacheEntry)}
+
+type webFetchCacheEntry struct {
+	content   string
+	fetchedAt time.Time
+}
+
+const webFetchCacheTTL = 10 * time.Minute
+
 // WebFetchTool fetches content from a URL.
 type WebFetchTool struct{}
 
@@ -188,7 +202,7 @@ func (t *WebFetchTool) Def() provider.ToolDef {
 		Type: "function",
 		Function: provider.FunctionDef{
 			Name:        "web_fetch",
-			Description: "Fetch the content of a web page. Returns the text content (HTML tags stripped for readability).",
+			Description: "Fetch the content of a web page. Returns the text content (HTML tags stripped for readability). Content is cached for 10 minutes — repeated fetches of the same URL are free. Use offset/limit to paginate through long pages without re-fetching.",
 			Parameters: map[string]any{
 				"type": "object",
 				"properties": map[string]any{
@@ -200,6 +214,14 @@ func (t *WebFetchTool) Def() provider.ToolDef {
 						"type":        "boolean",
 						"description": "Set to true to return raw HTML instead of stripped text. Can be omitted.",
 					},
+					"offset": map[string]any{
+						"type":        "integer",
+						"description": "Character offset to start returning content from. Use to paginate through long pages. Default: 0.",
+					},
+					"limit": map[string]any{
+						"type":        "integer",
+						"description": "Maximum number of characters to return. Default: 10000.",
+					},
 				},
 				"required": []string{"url"},
 			},
@@ -209,8 +231,10 @@ func (t *WebFetchTool) Def() provider.ToolDef {
 
 // webFetchArgs are the arguments for web_fetch.
 type webFetchArgs struct {
-	URL string `json:"url"`
-	Raw bool   `json:"raw,omitempty"`
+	URL    string `json:"url"`
+	Raw    bool   `json:"raw,omitempty"`
+	Offset int    `json:"offset,omitempty"`
+	Limit  int    `json:"limit,omitempty"`
 }
 
 // Run executes the tool.
@@ -228,40 +252,110 @@ func (t *WebFetchTool) Run(ctx context.Context, args json.RawMessage) string {
 		return "Error: only http and https URLs are supported"
 	}
 
-	client := &http.Client{Timeout: webFetchHTTPTimeout}
-	req, err := http.NewRequestWithContext(ctx, "GET", a.URL, nil)
-	if err != nil {
-		return fmt.Sprintf("Error: failed to create request: %v", err)
+	// Build cache key: url + raw flag
+	cacheKey := a.URL
+	if a.Raw {
+		cacheKey += "::raw"
 	}
 
-	req.Header.Set("User-Agent", "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36")
-	req.Header.Set("Accept", "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8")
+	// Check cache
+	content, cached := webFetchCacheLookup(cacheKey)
+	if !cached {
+		// Fetch from network
+		client := &http.Client{Timeout: webFetchHTTPTimeout}
+		req, err := http.NewRequestWithContext(ctx, "GET", a.URL, nil)
+		if err != nil {
+			return fmt.Sprintf("Error: failed to create request: %v", err)
+		}
 
-	resp, err := client.Do(req)
-	if err != nil {
-		return fmt.Sprintf("Error: request failed: %v", err)
+		req.Header.Set("User-Agent", "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36")
+		req.Header.Set("Accept", "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8")
+
+		resp, err := client.Do(req)
+		if err != nil {
+			return fmt.Sprintf("Error: request failed: %v", err)
+		}
+		defer resp.Body.Close()
+
+		if resp.StatusCode != http.StatusOK {
+			return fmt.Sprintf("Error: HTTP %d %s", resp.StatusCode, resp.Status)
+		}
+
+		body, err := io.ReadAll(io.LimitReader(resp.Body, webFetchMaxReadBytes))
+		if err != nil {
+			return fmt.Sprintf("Error: failed to read response: %v", err)
+		}
+
+		content = string(body)
+		if !a.Raw {
+			content = extractTextContent(content)
+		}
+
+		// Store full content in cache
+		webFetchCacheStore(cacheKey, content)
 	}
-	defer resp.Body.Close()
 
-	if resp.StatusCode != http.StatusOK {
-		return fmt.Sprintf("Error: HTTP %d %s", resp.StatusCode, resp.Status)
+	totalChars := len(content)
+
+	// Apply offset/limit pagination
+	offset := a.Offset
+	limit := a.Limit
+	if limit <= 0 {
+		limit = webFetchMaxContentChars
+	}
+	if offset < 0 {
+		offset = 0
+	}
+	if offset >= totalChars {
+		return fmt.Sprintf("[Total: %d chars | offset %d is beyond end of content]", totalChars, offset)
 	}
 
-	body, err := io.ReadAll(io.LimitReader(resp.Body, webFetchMaxReadBytes))
-	if err != nil {
-		return fmt.Sprintf("Error: failed to read response: %v", err)
+	end := offset + limit
+	if end > totalChars {
+		end = totalChars
+	}
+	slice := content[offset:end]
+
+	// Build header with pagination info
+	var header string
+	if cached {
+		header = fmt.Sprintf("[Cached | Total: %d chars | Showing: %d–%d]", totalChars, offset, end)
+	} else {
+		header = fmt.Sprintf("[Total: %d chars | Showing: %d–%d]", totalChars, offset, end)
+	}
+	if end < totalChars {
+		header += fmt.Sprintf(" [Next page: offset=%d]", end)
 	}
 
-	content := string(body)
-	if !a.Raw {
-		content = extractTextContent(content)
-	}
+	return header + "\n" + slice
+}
 
-	if len(content) > webFetchMaxContentChars {
-		content, _ = truncateWithNotice(content, webFetchMaxContentChars)
+func webFetchCacheLookup(key string) (string, bool) {
+	webFetchCache.Lock()
+	defer webFetchCache.Unlock()
+	entry, ok := webFetchCache.entries[key]
+	if !ok || time.Since(entry.fetchedAt) > webFetchCacheTTL {
+		if ok {
+			delete(webFetchCache.entries, key)
+		}
+		return "", false
 	}
+	return entry.content, true
+}
 
-	return content
+func webFetchCacheStore(key, content string) {
+	webFetchCache.Lock()
+	defer webFetchCache.Unlock()
+	// Evict expired entries if cache grows beyond 20
+	if len(webFetchCache.entries) >= 20 {
+		now := time.Now()
+		for k, e := range webFetchCache.entries {
+			if now.Sub(e.fetchedAt) > webFetchCacheTTL {
+				delete(webFetchCache.entries, k)
+			}
+		}
+	}
+	webFetchCache.entries[key] = webFetchCacheEntry{content: content, fetchedAt: time.Now()}
 }
 
 // extractTextContent extracts readable text from HTML.
