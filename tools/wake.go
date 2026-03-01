@@ -79,5 +79,12 @@ func (t *WakeThreadTool) Run(ctx context.Context, args json.RawMessage) string {
 		Source:  msg.WakeUserActive,
 		Message: message,
 	})
-	return fmt.Sprintf("Thread awakened: %s", sessionKey)
+	return fmt.Sprintf(
+		"Thread awakened: %s\n"+
+			"The target thread will run reasoning asynchronously — it may take a moment to produce output.\n"+
+			"When it finishes, its result will be pushed back via a wake message to the originating thread.\n"+
+			"You can: continue with other actions now, or sleep this thread to wait for the result.\n"+
+			"Use the thread-ops skill for more thread operations (check status, list threads, etc.).",
+		sessionKey,
+	)
 }
