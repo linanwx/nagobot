@@ -50,7 +50,7 @@ const (
 const (
 	defaultMaxConcurrency = 16
 	defaultInboxSize      = 64
-	defaultThreadTTL      = 1 * time.Hour
+	defaultThreadTTL      = 3 * time.Hour
 	gcInterval            = 5 * time.Minute
 )
 
