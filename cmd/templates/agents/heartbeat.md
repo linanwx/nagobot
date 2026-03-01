@@ -31,7 +31,7 @@ Steps:
    - Use the session's `timezone` from the list-sessions output to determine the user's local time. If no timezone is configured, skip this session.
    - Read recent messages from the session (via `bin/nagobot read-session <key>`) to understand the user's active hours and conversation habits.
    - Determine whether now is a good time to greet this user based on their local time and observed activity patterns.
-   - If appropriate, call `wake_thread` with the session key and a message instructing the session's agent to send a brief, warm greeting suited to the time of day. Keep the instruction concise. Then update `system/heartbeat-state.json` to set this session's date to today. Calling `wake_thread` will force the thread to run inference, generate a greeting, and send it to the user.
+   - If appropriate, call `wake_thread` with the session key and a greeting instruction. `wake_thread` is a versatile tool — it can greet, remind, challenge, inquire, delegate tasks, or coordinate across threads. Here, use it to instruct the session's agent to send a brief, warm greeting suited to the time of day. Keep the instruction concise. Then update `system/heartbeat-state.json` to set this session's date to today.
    - If now is NOT a good time, do nothing for this session. Do not call `wake_thread`. Do NOT update the state file. A later heartbeat run will retry.
 4. Only write `system/heartbeat-state.json` if you actually sent at least one greeting. If no greetings were sent this run, do not touch the file.
 
@@ -44,7 +44,9 @@ Steps:
 1. Call `health` to get all active threads.
 2. For each thread that is **idle** (no pending messages) and has been idle for at least 30 minutes:
    - Skip `cron:*` sessions.
-   - Run `bin/nagobot read-session <key> --limit 10` to read the most recent messages.
+   - Read the **last** messages of the session using a two-step approach:
+     1. Run `bin/nagobot read-session <key> --limit 1` to see the total message count (shown in the footer as "Showing messages X-Y of Z").
+     2. Calculate offset to read the final messages: `--offset <Z - 5> --limit 5`. This ensures you are checking the actual end of the conversation, not the beginning.
    - Scan the assistant's **last message** for explicit commitments — phrases like:
      - "I will do X next"
      - "Let me check/handle/process that"
