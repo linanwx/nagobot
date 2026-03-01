@@ -61,7 +61,8 @@ exec: python3 scripts/fallout_game.py enemy-hurt <name> <amount>
 exec: python3 scripts/fallout_game.py format-response --checks "1,2" --damages "1,2" --attacks "1,2" --summary "brief scene hint" --options "<PlayerA>option1</PlayerA><PlayerA>option2</PlayerA><PlayerB>option1</PlayerB><PlayerB>option2</PlayerB>"
 
 # Utility
-exec: python3 scripts/fallout_game.py loot [tier] [--count N]
+exec: python3 scripts/fallout_game.py loot <tier> --count N
+exec: python3 scripts/fallout_game.py loot --random-tier --count N
 exec: python3 scripts/fallout_game.py trade <player> <base_price> buy/sell
 exec: python3 scripts/fallout_game.py npc-gen [--count N]
 exec: python3 scripts/fallout_game.py rest [--hours N]
