@@ -225,6 +225,10 @@ def _exploration_turn(state):
     """Full exploration turn: increment turn, cycle time, weather, tick effects, random events."""
     state["turn"] = state.get("turn", 0) + 1
 
+    # Hunger: +4 per exploration turn
+    for player in state.get("players", {}).values():
+        player["hunger"] = min(100, player.get("hunger", 0) + 4)
+
     # Cycle time of day
     times = ["Early Morning", "Morning", "Noon", "Afternoon", "Evening", "Night", "Late Night", "Pre-Dawn"]
     current = state.get("time_of_day", "Early Morning")
@@ -270,6 +274,12 @@ def _exploration_turn(state):
         result["expired_effects"] = expired_effects
     if active_effects:
         result["active_effects"] = active_effects
+
+    # Hunger warnings
+    hungry = {n: p["hunger"] for n, p in state.get("players", {}).items() if p.get("hunger", 0) > 60}
+    if hungry:
+        result["hunger_warning"] = hungry
+        result["hunger_hint"] = "Hungry players suffer -1 on checks. Use food items to reduce hunger."
 
     # Auto-clear dead enemies
     enemies = state.get("enemies", {})

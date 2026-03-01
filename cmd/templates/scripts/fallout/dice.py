@@ -400,12 +400,19 @@ def cmd_check(args):
     per_triggered = per_roll <= per_val
     per_bonus = 2 if per_crit else (1 if per_triggered else 0)
 
+    # Hunger modifier: >60 penalty, <20 bonus
+    leader_hunger = leader_player.get("hunger", 0)
+    hunger_mod = -1 if leader_hunger > 60 else (1 if leader_hunger < 20 else 0)
+
     # Roll
-    result, excess_ap = _evaluate_check(state, player_names, attr, skill_name, difficulty, ap_spend, bonus + per_bonus)
+    result, excess_ap = _evaluate_check(state, player_names, attr, skill_name, difficulty, ap_spend, bonus + per_bonus + hunger_mod)
 
     if per_triggered:
         result["perception"] = {"PER": per_val, "d20": per_roll, "bonus": f"+{per_bonus} target", "crit": per_crit}
     result["perception_roll"] = {"PER": per_val, "d20": per_roll, "threshold": per_val, "triggered": per_triggered}
+
+    if hunger_mod != 0:
+        result["hunger_effect"] = {"hunger": leader_hunger, "modifier": hunger_mod}
 
     # Add excess AP to leader
     if excess_ap > 0:
@@ -462,6 +469,10 @@ def cmd_check(args):
             fmt_lines.append(f"> 👁️ Keen Awareness! PER {per_val} spotted a critical weakness (d20: {per_roll}) → target +2")
         else:
             fmt_lines.append(f"> 👁️ Awareness! PER {per_val} spotted a weakness (d20: {per_roll} ≤ {per_val}) → target +1")
+    if hunger_mod < 0:
+        fmt_lines.append(f"> 🍖 Hunger penalty! ({leader_hunger}/100) → target -1")
+    elif hunger_mod > 0:
+        fmt_lines.append(f"> 🍖 Well-fed bonus! ({leader_hunger}/100) → target +1")
     luck = result.get("luck_check", {})
     if luck.get("triggered"):
         fmt_lines.append(f"> 🍀 {result.get('luck_message', 'Luck triggered!')}")

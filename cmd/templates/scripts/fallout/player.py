@@ -66,6 +66,7 @@ def cmd_add_player(args):
         "tag_skills": tag_skills,
         "skills": skills,
         "inventory": {"10mm Pistol": 1, "10mm Ammo": 24, "Stimpak": 2, "Purified Water": 3},
+        "hunger": 0,
         "status_effects": [],
         "kills": 0,
         "quests_completed": 0,

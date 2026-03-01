@@ -73,6 +73,12 @@ def cmd_use_item(args):
         clamp_ap(target)
         results["effects"].append(f"{target_name} AP: {old_ap} -> {target['ap']}")
 
+    # Hunger: applied to target
+    if "hunger" in chem:
+        old_hunger = target.get("hunger", 0)
+        target["hunger"] = max(0, old_hunger + chem["hunger"])
+        results["effects"].append(f"{target_name} Hunger: {old_hunger} -> {target['hunger']}")
+
     # Status effect: applied to target
     if "effect" in chem:
         effect_entry = {

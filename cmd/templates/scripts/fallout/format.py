@@ -92,12 +92,13 @@ def cmd_format_response(args):
         hp = player.get("hp", 0)
         max_hp = player.get("max_hp", 0)
         rads = player.get("rads", 0)
+        hunger = player.get("hunger", 0)
         caps = player.get("caps", 0)
         ap = player.get("ap", 0)
 
         id_tag = f" [<@{discord_id}>]" if discord_id else ""
         lines.append(f"> 👤 {character} ({pname}){id_tag}")
-        lines.append(f"> ❤️ {hp}/{max_hp} · ☢️ {rads} · 💰 {caps} · ⚡ {ap}")
+        lines.append(f"> ❤️ {hp}/{max_hp} · ☢️ {rads} · 🍖 {hunger} · 💰 {caps} · ⚡ {ap}")
 
         # Inventory
         inventory = player.get("inventory", [])
