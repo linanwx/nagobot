@@ -196,7 +196,7 @@ func buildWakePayload(source WakeSource, message, threadID, sessionKey, delivery
 func wakeActionHint(source WakeSource) string {
 	switch source {
 	case WakeTelegram, WakeCLI, WakeWeb, WakeDiscord, WakeFeishu:
-		return "A user sent a message. Respond to the user."
+		return "A user sent a message. React accordingly."
 	case WakeUserActive:
 		return "Resume the target session and respond to this wake message."
 	case WakeChildTask:
