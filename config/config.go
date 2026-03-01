@@ -201,8 +201,8 @@ type WebToolsConfig struct {
 
 // SearchConfig contains web search configuration.
 type SearchConfig struct {
-	APIKey     string `json:"apiKey,omitempty" yaml:"apiKey,omitempty"` // Brave API key
-	MaxResults int    `json:"maxResults,omitempty" yaml:"maxResults,omitempty"`
+	Keys       map[string]string `json:"keys,omitempty" yaml:"keys,omitempty"`             // provider_name -> API key
+	MaxResults int               `json:"maxResults,omitempty" yaml:"maxResults,omitempty"`
 }
 
 // ExecToolsConfig contains exec tool configuration.

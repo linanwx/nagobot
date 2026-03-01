@@ -51,9 +51,26 @@ func buildThreadManager(cfg *config.Config, enableSessions bool) (*thread.Manage
 	toolLogsDir := filepath.Join(workspace, "logs", "tool_calls")
 	toolRegistry.SetLogsDir(toolLogsDir)
 	tools.CleanupLogsDir(toolLogsDir)
+	// Build search providers
+	searchProviders := map[string]tools.SearchProvider{
+		"duckduckgo": &tools.DuckDuckGoProvider{},
+	}
+	if cfg.GetSearchKey("brave") != "" {
+		searchProviders["brave"] = &tools.BraveSearchProvider{
+			KeyFn: func() string {
+				c, err := config.Load()
+				if err != nil {
+					return ""
+				}
+				return c.GetSearchKey("brave")
+			},
+		}
+	}
+
 	toolRegistry.RegisterDefaultTools(workspace, tools.DefaultToolsConfig{
 		ExecTimeout:         cfg.GetExecTimeout(),
 		WebSearchMaxResults: cfg.GetWebSearchMaxResults(),
+		SearchProviders:     searchProviders,
 		RestrictToWorkspace: cfg.GetExecRestrictToWorkspace(),
 		Skills:              skillRegistry,
 	})

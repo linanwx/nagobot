@@ -1,0 +1,40 @@
+package tools
+
+import (
+	"context"
+	"fmt"
+	"strings"
+)
+
+// SearchResult represents a single search result.
+type SearchResult struct {
+	Title   string
+	URL     string
+	Snippet string
+}
+
+// SearchProvider is the interface for pluggable search backends.
+type SearchProvider interface {
+	// Name returns the provider identifier (e.g. "duckduckgo", "brave").
+	Name() string
+	// Search performs a web search and returns results.
+	Search(ctx context.Context, query string, maxResults int) ([]SearchResult, error)
+}
+
+// formatSearchResults formats search results into a human-readable string.
+func FormatSearchResults(query string, results []SearchResult) string {
+	if len(results) == 0 {
+		return "No search results found."
+	}
+
+	var sb strings.Builder
+	sb.WriteString(fmt.Sprintf("Search results for: %s\n\n", query))
+	for i, r := range results {
+		sb.WriteString(fmt.Sprintf("%d. %s\n   %s\n", i+1, r.Title, r.URL))
+		if r.Snippet != "" {
+			sb.WriteString(fmt.Sprintf("   %s\n", r.Snippet))
+		}
+		sb.WriteByte('\n')
+	}
+	return sb.String()
+}

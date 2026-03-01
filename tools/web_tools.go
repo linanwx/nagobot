@@ -7,6 +7,7 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"sort"
 	"strings"
 	"sync"
 
@@ -24,18 +25,27 @@ const (
 	webFetchMaxContentChars    = 10000
 )
 
-// WebSearchTool searches the web using DuckDuckGo.
+// WebSearchTool searches the web using pluggable providers.
 type WebSearchTool struct {
 	defaultMaxResults int
+	providers         map[string]SearchProvider
 }
 
 // Def returns the tool definition.
 func (t *WebSearchTool) Def() provider.ToolDef {
+	// Build available sources list dynamically
+	sources := make([]string, 0, len(t.providers))
+	for name := range t.providers {
+		sources = append(sources, name)
+	}
+	sort.Strings(sources)
+	sourceDesc := fmt.Sprintf("Search source. Available: %s. Default: duckduckgo.", strings.Join(sources, ", "))
+
 	return provider.ToolDef{
 		Type: "function",
 		Function: provider.FunctionDef{
 			Name:        "web_search",
-			Description: "Search the web using DuckDuckGo and return results. Use for finding current information, documentation, etc.",
+			Description: "Search the web and return results. Use for finding current information, documentation, etc.",
 			Parameters: map[string]any{
 				"type": "object",
 				"properties": map[string]any{
@@ -46,6 +56,10 @@ func (t *WebSearchTool) Def() provider.ToolDef {
 					"max_results": map[string]any{
 						"type":        "integer",
 						"description": "Maximum number of results to return. If omitted, uses the system-configured default.",
+					},
+					"source": map[string]any{
+						"type":        "string",
+						"description": sourceDesc,
 					},
 				},
 				"required": []string{"query"},
@@ -58,6 +72,7 @@ func (t *WebSearchTool) Def() provider.ToolDef {
 type webSearchArgs struct {
 	Query      string `json:"query"`
 	MaxResults int    `json:"max_results,omitempty"`
+	Source     string `json:"source,omitempty"`
 }
 
 // Run executes the tool.
@@ -75,109 +90,27 @@ func (t *WebSearchTool) Run(ctx context.Context, args json.RawMessage) string {
 		}
 	}
 
-	searchURL := fmt.Sprintf("https://html.duckduckgo.com/html/?q=%s", url.QueryEscape(a.Query))
-
-	client := &http.Client{Timeout: webSearchHTTPTimeout}
-	req, err := http.NewRequestWithContext(ctx, "GET", searchURL, nil)
-	if err != nil {
-		return fmt.Sprintf("Error: failed to create request: %v", err)
-	}
-	req.Header.Set("User-Agent", "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36")
-
-	resp, err := client.Do(req)
-	if err != nil {
-		return fmt.Sprintf("Error: search request failed: %v", err)
-	}
-	defer resp.Body.Close()
-
-	body, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return fmt.Sprintf("Error: failed to read response: %v", err)
+	source := a.Source
+	if source == "" {
+		source = "duckduckgo"
 	}
 
-	results := parseDuckDuckGoResults(string(body), a.MaxResults)
-	if len(results) == 0 {
-		return "No search results found."
-	}
-
-	var sb strings.Builder
-	sb.WriteString(fmt.Sprintf("Search results for: %s\n\n", a.Query))
-	for i, r := range results {
-		sb.WriteString(fmt.Sprintf("%d. %s\n   %s\n   %s\n\n", i+1, r.Title, r.URL, r.Snippet))
-	}
-
-	return sb.String()
-}
-
-// searchResult represents a single search result.
-type searchResult struct {
-	Title   string
-	URL     string
-	Snippet string
-}
-
-// parseDuckDuckGoResults extracts results from DuckDuckGo HTML.
-func parseDuckDuckGoResults(html string, maxResults int) []searchResult {
-	doc, err := goquery.NewDocumentFromReader(strings.NewReader(html))
-	if err != nil {
-		return nil
-	}
-
-	results := make([]searchResult, 0, maxResults)
-	doc.Find("div.result").EachWithBreak(func(_ int, sel *goquery.Selection) bool {
-		link := sel.Find("a.result__a").First()
-		if link.Length() == 0 {
-			return true
+	p, ok := t.providers[source]
+	if !ok {
+		available := make([]string, 0, len(t.providers))
+		for name := range t.providers {
+			available = append(available, name)
 		}
-
-		title := strings.TrimSpace(link.Text())
-		rawURL, ok := link.Attr("href")
-		if !ok {
-			return true
-		}
-		resolvedURL := normalizeSearchResultURL(rawURL)
-		snippet := strings.TrimSpace(sel.Find(".result__snippet").First().Text())
-
-		if title != "" && resolvedURL != "" {
-			results = append(results, searchResult{Title: title, URL: resolvedURL, Snippet: snippet})
-		}
-		return len(results) < maxResults
-	})
-
-	if len(results) == 0 {
-		doc.Find("a.result__a").EachWithBreak(func(_ int, link *goquery.Selection) bool {
-			title := strings.TrimSpace(link.Text())
-			rawURL, ok := link.Attr("href")
-			if !ok {
-				return true
-			}
-			resolvedURL := normalizeSearchResultURL(rawURL)
-			if title != "" && resolvedURL != "" {
-				results = append(results, searchResult{Title: title, URL: resolvedURL})
-			}
-			return len(results) < maxResults
-		})
+		sort.Strings(available)
+		return fmt.Sprintf("Error: unknown search source %q. Available: %s", source, strings.Join(available, ", "))
 	}
 
-	return results
-}
-
-func normalizeSearchResultURL(rawURL string) string {
-	if rawURL == "" {
-		return ""
-	}
-	decoded, err := url.QueryUnescape(rawURL)
+	results, err := p.Search(ctx, a.Query, a.MaxResults)
 	if err != nil {
-		decoded = rawURL
+		return fmt.Sprintf("Error: %v", err)
 	}
-	if idx := strings.Index(decoded, "uddg="); idx != -1 {
-		u := decoded[idx+5:]
-		if ampIdx := strings.Index(u, "&"); ampIdx != -1 {
-			u = u[:ampIdx]
-		}
-		return u
-	}
-	return rawURL
+
+	return FormatSearchResults(a.Query, results)
 }
 
 // webFetchCache is a simple in-memory cache for fetched page content.

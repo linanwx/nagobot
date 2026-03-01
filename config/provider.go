@@ -342,6 +342,14 @@ func (c *Config) GetWebSearchMaxResults() int {
 	return c.Tools.Web.Search.MaxResults
 }
 
+// GetSearchKey returns the API key for a specific search provider.
+func (c *Config) GetSearchKey(provider string) string {
+	if c == nil || c.Tools.Web.Search.Keys == nil {
+		return ""
+	}
+	return strings.TrimSpace(c.Tools.Web.Search.Keys[provider])
+}
+
 // BuildLoggerConfig returns a logger.Config ready for logger.Init().
 func (c *Config) BuildLoggerConfig() logger.Config {
 	enabled := true
