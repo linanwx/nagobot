@@ -33,10 +33,12 @@ type WebSearchTool struct {
 
 // Def returns the tool definition.
 func (t *WebSearchTool) Def() provider.ToolDef {
-	// Build available sources list dynamically
+	// Build available sources list dynamically (only providers that are ready right now)
 	sources := make([]string, 0, len(t.providers))
-	for name := range t.providers {
-		sources = append(sources, name)
+	for name, p := range t.providers {
+		if p.Available() {
+			sources = append(sources, name)
+		}
 	}
 	sort.Strings(sources)
 	sourceDesc := fmt.Sprintf("Search source. Available: %s. Default: duckduckgo.", strings.Join(sources, ", "))
@@ -96,12 +98,17 @@ func (t *WebSearchTool) Run(ctx context.Context, args json.RawMessage) string {
 	}
 
 	p, ok := t.providers[source]
-	if !ok {
+	if !ok || !p.Available() {
 		available := make([]string, 0, len(t.providers))
-		for name := range t.providers {
-			available = append(available, name)
+		for name, prov := range t.providers {
+			if prov.Available() {
+				available = append(available, name)
+			}
 		}
 		sort.Strings(available)
+		if ok && !p.Available() {
+			return fmt.Sprintf("Error: search source %q is not available (API key not configured). Use the manage-search skill to set it up. Available: %s", source, strings.Join(available, ", "))
+		}
 		return fmt.Sprintf("Error: unknown search source %q. Available: %s", source, strings.Join(available, ", "))
 	}
 

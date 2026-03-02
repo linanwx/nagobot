@@ -14,7 +14,8 @@ import (
 // DuckDuckGoProvider searches via DuckDuckGo HTML scraping (no API key needed).
 type DuckDuckGoProvider struct{}
 
-func (p *DuckDuckGoProvider) Name() string { return "duckduckgo" }
+func (p *DuckDuckGoProvider) Name() string      { return "duckduckgo" }
+func (p *DuckDuckGoProvider) Available() bool { return true }
 
 func (p *DuckDuckGoProvider) Search(ctx context.Context, query string, maxResults int) ([]SearchResult, error) {
 	searchURL := fmt.Sprintf("https://html.duckduckgo.com/html/?q=%s", url.QueryEscape(query))

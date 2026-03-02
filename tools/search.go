@@ -17,6 +17,9 @@ type SearchResult struct {
 type SearchProvider interface {
 	// Name returns the provider identifier (e.g. "duckduckgo", "brave").
 	Name() string
+	// Available reports whether the provider can serve requests right now.
+	// This is checked at call time to support hot-reloading of config (e.g. API keys).
+	Available() bool
 	// Search performs a web search and returns results.
 	Search(ctx context.Context, query string, maxResults int) ([]SearchResult, error)
 }

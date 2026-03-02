@@ -15,7 +15,8 @@ type BraveSearchProvider struct {
 	KeyFn func() string
 }
 
-func (p *BraveSearchProvider) Name() string { return "brave" }
+func (p *BraveSearchProvider) Name() string      { return "brave" }
+func (p *BraveSearchProvider) Available() bool { return p.KeyFn != nil && p.KeyFn() != "" }
 
 func (p *BraveSearchProvider) Search(ctx context.Context, query string, maxResults int) ([]SearchResult, error) {
 	key := p.KeyFn()

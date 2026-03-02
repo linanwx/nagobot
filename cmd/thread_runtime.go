@@ -51,12 +51,10 @@ func buildThreadManager(cfg *config.Config, enableSessions bool) (*thread.Manage
 	toolLogsDir := filepath.Join(workspace, "logs", "tool_calls")
 	toolRegistry.SetLogsDir(toolLogsDir)
 	tools.CleanupLogsDir(toolLogsDir)
-	// Build search providers
+	// Build search providers (all registered; availability checked at call time via Available())
 	searchProviders := map[string]tools.SearchProvider{
 		"duckduckgo": &tools.DuckDuckGoProvider{},
-	}
-	if cfg.GetSearchKey("brave") != "" {
-		searchProviders["brave"] = &tools.BraveSearchProvider{
+		"brave": &tools.BraveSearchProvider{
 			KeyFn: func() string {
 				c, err := config.Load()
 				if err != nil {
@@ -64,7 +62,7 @@ func buildThreadManager(cfg *config.Config, enableSessions bool) (*thread.Manage
 				}
 				return c.GetSearchKey("brave")
 			},
-		}
+		},
 	}
 
 	toolRegistry.RegisterDefaultTools(workspace, tools.DefaultToolsConfig{
