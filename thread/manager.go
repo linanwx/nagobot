@@ -47,6 +47,7 @@ func (m *Manager) Run(ctx context.Context) {
 			m.scheduleReady(ctx, sem)
 		case <-ticker.C:
 			m.gc()
+			m.compressIdleSessions()
 		}
 	}
 }
