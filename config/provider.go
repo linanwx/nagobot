@@ -350,6 +350,14 @@ func (c *Config) GetSearchKey(provider string) string {
 	return strings.TrimSpace(c.Tools.Web.Search.Keys[provider])
 }
 
+// GetJinaKey returns the Jina Reader API key.
+func (c *Config) GetJinaKey() string {
+	if c == nil {
+		return ""
+	}
+	return strings.TrimSpace(c.Tools.Web.Fetch.JinaKey)
+}
+
 // BuildLoggerConfig returns a logger.Config ready for logger.Init().
 func (c *Config) BuildLoggerConfig() logger.Config {
 	enabled := true

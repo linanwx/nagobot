@@ -50,6 +50,7 @@ type DefaultToolsConfig struct {
 	ExecTimeout         int
 	WebSearchMaxResults int
 	SearchProviders     map[string]SearchProvider
+	FetchProviders      map[string]FetchProvider
 	RestrictToWorkspace bool
 	Skills              SkillProvider
 }
@@ -149,7 +150,7 @@ func (r *Registry) RegisterDefaultTools(workspace string, cfg DefaultToolsConfig
 	r.Register(&ExecTool{workspace: workspace, defaultTimeout: cfg.ExecTimeout, restrictToWorkspace: cfg.RestrictToWorkspace})
 	r.Register(&HealthTool{Workspace: workspace})
 	r.Register(&WebSearchTool{defaultMaxResults: cfg.WebSearchMaxResults, providers: cfg.SearchProviders})
-	r.Register(&WebFetchTool{})
+	r.Register(&WebFetchTool{providers: cfg.FetchProviders})
 	r.Register(&ReadImageTool{workspace: workspace})
 	if cfg.Skills != nil {
 		r.Register(NewUseSkillTool(cfg.Skills))

@@ -4,13 +4,10 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"io"
-	"net/http"
 	"net/url"
 	"sort"
 	"strings"
 	"sync"
-
 	"time"
 
 	"github.com/PuerkitoBio/goquery"
@@ -133,22 +130,38 @@ type webFetchCacheEntry struct {
 
 const webFetchCacheTTL = 10 * time.Minute
 
-// WebFetchTool fetches content from a URL.
-type WebFetchTool struct{}
+// WebFetchTool fetches content from a URL using pluggable providers.
+type WebFetchTool struct {
+	providers map[string]FetchProvider
+}
 
 // Def returns the tool definition.
 func (t *WebFetchTool) Def() provider.ToolDef {
+	// Build available sources list dynamically.
+	sources := make([]string, 0, len(t.providers))
+	for name, p := range t.providers {
+		if p.Available() {
+			sources = append(sources, name)
+		}
+	}
+	sort.Strings(sources)
+	sourceDesc := fmt.Sprintf("Fetch source. Available: %s. Default: direct. Use 'jina' for anti-bot bypass (returns clean markdown).", strings.Join(sources, ", "))
+
 	return provider.ToolDef{
 		Type: "function",
 		Function: provider.FunctionDef{
 			Name:        "web_fetch",
-			Description: "Fetch the content of a web page. Returns the text content (HTML tags stripped for readability). Content is cached for 10 minutes — repeated fetches of the same URL are free. Use offset/limit to paginate through long pages without re-fetching.",
+			Description: "Fetch the content of a web page. Returns the text content (HTML tags stripped for readability). Content is cached for 10 minutes — repeated fetches of the same URL are free. Use offset/limit to paginate through long pages without re-fetching. If a site returns 403/503 (anti-bot), retry with a different source (e.g. jina or browser).",
 			Parameters: map[string]any{
 				"type": "object",
 				"properties": map[string]any{
 					"url": map[string]any{
 						"type":        "string",
 						"description": "The URL to fetch.",
+					},
+					"source": map[string]any{
+						"type":        "string",
+						"description": sourceDesc,
 					},
 					"raw": map[string]any{
 						"type":        "boolean",
@@ -172,6 +185,7 @@ func (t *WebFetchTool) Def() provider.ToolDef {
 // webFetchArgs are the arguments for web_fetch.
 type webFetchArgs struct {
 	URL    string `json:"url"`
+	Source string `json:"source,omitempty"`
 	Raw    bool   `json:"raw,omitempty"`
 	Offset int    `json:"offset,omitempty"`
 	Limit  int    `json:"limit,omitempty"`
@@ -192,8 +206,22 @@ func (t *WebFetchTool) Run(ctx context.Context, args json.RawMessage) string {
 		return "Error: only http and https URLs are supported"
 	}
 
-	// Build cache key: url + raw flag
-	cacheKey := a.URL
+	source := a.Source
+	if source == "" {
+		source = "direct"
+	}
+
+	p, ok := t.providers[source]
+	if !ok || !p.Available() {
+		available := t.availableSources()
+		if ok && !p.Available() {
+			return fmt.Sprintf("Error: fetch source %q is not available. Available: %s", source, strings.Join(available, ", "))
+		}
+		return fmt.Sprintf("Error: unknown fetch source %q. Available: %s", source, strings.Join(available, ", "))
+	}
+
+	// Build cache key: url + source + raw flag
+	cacheKey := a.URL + "::" + source
 	if a.Raw {
 		cacheKey += "::raw"
 	}
@@ -201,37 +229,22 @@ func (t *WebFetchTool) Run(ctx context.Context, args json.RawMessage) string {
 	// Check cache
 	content, cached := webFetchCacheLookup(cacheKey)
 	if !cached {
-		// Fetch from network
-		client := &http.Client{Timeout: webFetchHTTPTimeout}
-		req, err := http.NewRequestWithContext(ctx, "GET", a.URL, nil)
+		content, err = p.Fetch(ctx, a.URL)
 		if err != nil {
-			return fmt.Sprintf("Error: failed to create request: %v", err)
+			// On 403/503, hint available sources.
+			if httpErr, ok := err.(*HTTPError); ok && (httpErr.StatusCode == 403 || httpErr.StatusCode == 503) {
+				available := t.availableSources()
+				return fmt.Sprintf("Error: %v. Try a different source to bypass anti-bot protection. Available: %s", err, strings.Join(available, ", "))
+			}
+			return fmt.Sprintf("Error: %v", err)
 		}
 
-		req.Header.Set("User-Agent", "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36")
-		req.Header.Set("Accept", "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8")
-
-		resp, err := client.Do(req)
-		if err != nil {
-			return fmt.Sprintf("Error: request failed: %v", err)
-		}
-		defer resp.Body.Close()
-
-		if resp.StatusCode != http.StatusOK {
-			return fmt.Sprintf("Error: HTTP %d %s", resp.StatusCode, resp.Status)
-		}
-
-		body, err := io.ReadAll(io.LimitReader(resp.Body, webFetchMaxReadBytes))
-		if err != nil {
-			return fmt.Sprintf("Error: failed to read response: %v", err)
-		}
-
-		content = string(body)
-		if !a.Raw {
+		// Jina returns markdown — skip HTML extraction.
+		// Direct and browser return HTML — extract text unless raw.
+		if !a.Raw && source != "jina" {
 			content = extractTextContent(content)
 		}
 
-		// Store full content in cache
 		webFetchCacheStore(cacheKey, content)
 	}
 
@@ -258,9 +271,12 @@ func (t *WebFetchTool) Run(ctx context.Context, args json.RawMessage) string {
 
 	// Build header with pagination info
 	var header string
-	if cached {
+	switch {
+	case cached:
 		header = fmt.Sprintf("[Cached | Total: %d chars | Showing: %d–%d]", totalChars, offset, end)
-	} else {
+	case source != "direct":
+		header = fmt.Sprintf("[via %s | Total: %d chars | Showing: %d–%d]", source, totalChars, offset, end)
+	default:
 		header = fmt.Sprintf("[Total: %d chars | Showing: %d–%d]", totalChars, offset, end)
 	}
 	if end < totalChars {
@@ -268,6 +284,17 @@ func (t *WebFetchTool) Run(ctx context.Context, args json.RawMessage) string {
 	}
 
 	return header + "\n" + slice
+}
+
+func (t *WebFetchTool) availableSources() []string {
+	available := make([]string, 0, len(t.providers))
+	for name, prov := range t.providers {
+		if prov.Available() {
+			available = append(available, name)
+		}
+	}
+	sort.Strings(available)
+	return available
 }
 
 func webFetchCacheLookup(key string) (string, bool) {

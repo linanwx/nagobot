@@ -197,6 +197,12 @@ type LoggingConfig struct {
 // WebToolsConfig contains web tool configuration.
 type WebToolsConfig struct {
 	Search SearchConfig `json:"search,omitempty" yaml:"search,omitempty"`
+	Fetch  FetchConfig  `json:"fetch,omitempty" yaml:"fetch,omitempty"`
+}
+
+// FetchConfig contains web fetch configuration.
+type FetchConfig struct {
+	JinaKey string `json:"jinaKey,omitempty" yaml:"jinaKey,omitempty"`
 }
 
 // SearchConfig contains web search configuration.

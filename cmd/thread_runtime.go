@@ -65,10 +65,24 @@ func buildThreadManager(cfg *config.Config, enableSessions bool) (*thread.Manage
 		},
 	}
 
+	fetchProviders := map[string]tools.FetchProvider{
+		"direct": &tools.DirectFetchProvider{},
+		"jina": &tools.JinaFetchProvider{
+			KeyFn: func() string {
+				c, err := config.Load()
+				if err != nil {
+					return ""
+				}
+				return c.GetJinaKey()
+			},
+		},
+	}
+
 	toolRegistry.RegisterDefaultTools(workspace, tools.DefaultToolsConfig{
 		ExecTimeout:         cfg.GetExecTimeout(),
 		WebSearchMaxResults: cfg.GetWebSearchMaxResults(),
 		SearchProviders:     searchProviders,
+		FetchProviders:      fetchProviders,
 		RestrictToWorkspace: cfg.GetExecRestrictToWorkspace(),
 		Skills:              skillRegistry,
 	})
