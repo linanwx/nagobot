@@ -10,6 +10,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/linanwx/nagobot/logger"
 	"github.com/linanwx/nagobot/provider"
 )
 
@@ -131,7 +132,14 @@ func (t *ExecTool) Run(ctx context.Context, args json.RawMessage) string {
 	if result == "" {
 		return "(no output)"
 	}
-	result, _ = truncateWithNotice(result, execOutputMaxChars)
+	result, truncated := truncateWithNotice(result, execOutputMaxChars)
+	if truncated {
+		logger.Warn("exec output truncated",
+			"originalChars", len(output),
+			"resultChars", len(result),
+			"limit", execOutputMaxChars,
+		)
+	}
 
 	return result
 }

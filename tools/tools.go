@@ -113,6 +113,14 @@ func (r *Registry) Run(ctx context.Context, name string, args json.RawMessage) s
 	latency := time.Since(start)
 	originalChars := len(result)
 	result, truncated := truncateWithNotice(result, toolResultMaxChars)
+	if truncated {
+		logger.Warn("tool output truncated",
+			"tool", name,
+			"originalChars", originalChars,
+			"resultChars", len(result),
+			"limit", toolResultMaxChars,
+		)
+	}
 	okResult := !strings.HasPrefix(result, "Error:")
 	logger.Debug(
 		"tool call finished",
