@@ -85,8 +85,8 @@ func runInstall(cmd *cobra.Command, args []string) error {
 	}
 
 	fmt.Println("==> Next steps:")
-	fmt.Println("    1. nagobot cli")
-	fmt.Println("    2. /init --provider openrouter --api-key YOUR_KEY --model moonshotai/kimi-k2.5")
+	fmt.Println("    1. nagobot onboard")
+	fmt.Println("    2. nagobot cli")
 	return nil
 }
 

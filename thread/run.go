@@ -245,7 +245,7 @@ func (t *Thread) resolvedModelConfig() *config.ModelConfig {
 func noProviderMessage() string {
 	return `No LLM provider configured. To get started, send:
 
-/init --provider openrouter --api-key YOUR_KEY --model moonshotai/kimi-k2.5
+/init --provider openrouter --model moonshotai/kimi-k2.5 --api-key YOUR_KEY
 
 Supported providers: openrouter, anthropic, deepseek, openai`
 }
