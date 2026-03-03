@@ -122,6 +122,11 @@ func runUpdate(cmd *cobra.Command, args []string) error {
 
 	fmt.Printf("Updated to %s at %s\n", latest, installPath)
 
+	// Sync template files (skills, agents, scripts) to workspace.
+	if err := runSync(); err != nil {
+		fmt.Printf("Warning: failed to sync templates: %v\n", err)
+	}
+
 	// Restart service.
 	fmt.Println("Restarting service...")
 	mgr := service.New()

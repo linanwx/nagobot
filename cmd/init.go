@@ -41,7 +41,7 @@ func init() {
 func runInit(cmd *cobra.Command, _ []string) error {
 	apiKey := strings.TrimSpace(initAPIKey)
 	if apiKey == "" {
-		return fmt.Errorf("--api-key is required")
+		return fmt.Errorf("--api-key is required.\nFix: nagobot init --provider %s --api-key YOUR_KEY", initProvider)
 	}
 
 	// Load existing config or create default.
