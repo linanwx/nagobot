@@ -84,7 +84,7 @@ func (d *Dispatcher) route(msg *channel.Message) string {
 		return "cli"
 	}
 
-	if msg.ChannelID == "cli:local" || strings.HasPrefix(msg.ChannelID, "web:") {
+	if msg.ChannelID == "cli:local" || strings.HasPrefix(msg.ChannelID, "web:") || strings.HasPrefix(msg.ChannelID, "socket:") {
 		return "cli"
 	}
 

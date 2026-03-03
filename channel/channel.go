@@ -84,34 +84,23 @@ func (m *Manager) SendTo(ctx context.Context, channelName, text, replyTo string)
 
 // StartAll starts all registered channels.
 func (m *Manager) StartAll(ctx context.Context) error {
-	if cliCh, ok := m.channels["cli"]; ok {
-		if err := cliCh.Start(ctx); err != nil {
+	// Start channels in a deterministic order: socket first, then web, telegram, feishu, then rest.
+	ordered := []string{"socket", "web", "telegram", "feishu"}
+	started := make(map[string]bool)
+	for _, name := range ordered {
+		ch, ok := m.channels[name]
+		if !ok {
+			continue
+		}
+		if err := ch.Start(ctx); err != nil {
 			return err
 		}
-	}
-	
-	if webCh, ok := m.channels["web"]; ok {
-		if err := webCh.Start(ctx); err != nil {
-			return err
-		}
-	}
-
-	telegramCh, hasTelegram := m.channels["telegram"]
-	if hasTelegram {
-		if err := telegramCh.Start(ctx); err != nil {
-			return err
-		}
-	}
-
-	if feishuCh, ok := m.channels["feishu"]; ok {
-		if err := feishuCh.Start(ctx); err != nil {
-			return err
-		}
+		started[name] = true
 	}
 
 	// Start any remaining channels not handled above.
 	for name, ch := range m.channels {
-		if name == "web" || name == "telegram" || name == "feishu" || name == "cli" {
+		if started[name] {
 			continue
 		}
 		if err := ch.Start(ctx); err != nil {
