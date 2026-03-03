@@ -76,3 +76,9 @@ if [ "$OS" = "darwin" ]; then
 else
   "${INSTALL_DIR}/nagobot" install
 fi
+
+# Remind user to reload shell if PATH was updated
+if [ "${RC:-}" != "" ]; then
+  echo ""
+  echo "    Restart your terminal or run: source ${RC}"
+fi
