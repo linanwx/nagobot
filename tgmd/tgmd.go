@@ -376,12 +376,6 @@ func (r *renderer) table(t *east.Table) {
 		copy(headers, rows[headerIdx])
 		dataRows = append(rows[:headerIdx], rows[headerIdx+1:]...)
 	}
-	for i := range headers {
-		if strings.TrimSpace(headers[i]) == "" {
-			headers[i] = fmt.Sprintf("Column %d", i+1)
-		}
-	}
-
 	// Fallback for malformed "header-only" tables: keep one shell row.
 	if len(dataRows) == 0 {
 		dataRows = [][]string{make([]string, numCols)}
@@ -390,10 +384,16 @@ func (r *renderer) table(t *east.Table) {
 	for i, row := range dataRows {
 		fmt.Fprintf(&r.buf, "<b>%d.</b>\n", i+1)
 		for j, cell := range row {
-			r.buf.WriteString("• <b>")
-			r.buf.WriteString(escapeHTML(headers[j]))
-			r.buf.WriteString("</b>: ")
-			r.buf.WriteString(escapeHTML(cell))
+			h := strings.TrimSpace(headers[j])
+			if h != "" {
+				r.buf.WriteString("• <b>")
+				r.buf.WriteString(escapeHTML(h))
+				r.buf.WriteString("</b>: ")
+				r.buf.WriteString(escapeHTML(cell))
+			} else {
+				r.buf.WriteString("• ")
+				r.buf.WriteString(escapeHTML(cell))
+			}
 			r.buf.WriteByte('\n')
 		}
 		if i < len(dataRows)-1 {
