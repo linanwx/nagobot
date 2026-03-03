@@ -39,6 +39,9 @@ else
   mkdir -p "$INSTALL_DIR"
 
   echo "Downloading nagobot ${VERSION}..."
+  # Remove old binary first — on Linux a running process keeps its inode,
+  # so deleting is safe and avoids "text file busy" / write errors.
+  rm -f "${INSTALL_DIR}/nagobot"
   curl -fsSL "$URL" -o "${INSTALL_DIR}/nagobot"
   chmod +x "${INSTALL_DIR}/nagobot"
 
