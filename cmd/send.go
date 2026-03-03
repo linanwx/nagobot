@@ -27,8 +27,9 @@ var (
 )
 
 func init() {
-	sendCmd.Flags().StringVar(&sendTo, "to", "", "Telegram chat/user ID (defaults to admin user ID)")
+	sendCmd.Flags().StringVar(&sendTo, "to", "", "Telegram chat/user ID (required)")
 	sendCmd.Flags().StringVar(&sendText, "text", "", "Message text (required)")
+	_ = sendCmd.MarkFlagRequired("to")
 	_ = sendCmd.MarkFlagRequired("text")
 	rootCmd.AddCommand(sendCmd)
 }
@@ -46,10 +47,7 @@ func runSend(_ *cobra.Command, _ []string) error {
 
 	to := strings.TrimSpace(sendTo)
 	if to == "" {
-		to = strings.TrimSpace(cfg.GetAdminUserID())
-	}
-	if to == "" {
-		return fmt.Errorf("--to is required (no admin user ID configured as fallback)")
+		return fmt.Errorf("--to is required.\nFix: nagobot send --to <chat_id> --text \"message\"")
 	}
 
 	chatID, err := strconv.ParseInt(to, 10, 64)

@@ -28,7 +28,6 @@ The interactive `nagobot onboard` wizard can configure Telegram for you. To conf
 
 ```yaml
 channels:
-  adminUserID: "1234567890"
   telegram:
     token: "1234567890:AA***************"
     allowedIds:
@@ -36,7 +35,6 @@ channels:
 ```
 
 - **token**: Open [@BotFather](https://t.me/BotFather) on Telegram, run `/newbot`, and paste the generated token here.
-- **adminUserID**: Open [@userinfobot](https://t.me/userinfobot) on Telegram, send `/start`, and paste your numeric user ID here. Messages from this ID share the `main` session.
 - **allowedIds**: Open [@userinfobot](https://t.me/userinfobot) for each user, paste their numeric IDs here. Leave empty to allow all.
 
 ## Discord

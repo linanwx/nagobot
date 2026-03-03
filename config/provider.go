@@ -91,14 +91,6 @@ func (c *Config) GetContextWarnRatio() float64 {
 	return c.Thread.ContextWarnRatio
 }
 
-// GetAdminUserID returns the cross-channel admin user ID.
-func (c *Config) GetAdminUserID() string {
-	if c == nil || c.Channels == nil {
-		return ""
-	}
-	return c.Channels.AdminUserID
-}
-
 // GetWebAddr returns the configured web channel listen address.
 func (c *Config) GetWebAddr() string {
 	if c == nil || c.Channels == nil || c.Channels.Web == nil {

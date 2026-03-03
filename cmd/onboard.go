@@ -246,7 +246,6 @@ func runOnboard(cmd *cobra.Command, _ []string) error {
 	}
 
 	tgToken := defaults.tgToken
-	tgAdminID := defaults.tgAdminID
 	tgAllowedIDs := defaults.tgAllowedIDs
 	if configureTG {
 		err = huh.NewForm(
@@ -261,10 +260,6 @@ func runOnboard(cmd *cobra.Command, _ []string) error {
 						return nil
 					}).
 					Value(&tgToken),
-				huh.NewInput().
-					Title("Admin User ID").
-					Description("Open @userinfobot on Telegram, send /start, and paste your numeric user ID here.").
-					Value(&tgAdminID),
 				huh.NewInput().
 					Title("Allowed User IDs").
 					Description("Open @userinfobot for each user, paste their IDs comma-separated. Leave empty to allow all.").
@@ -328,7 +323,6 @@ func runOnboard(cmd *cobra.Command, _ []string) error {
 	}
 
 	if configureTG {
-		cfg.Channels.AdminUserID = strings.TrimSpace(tgAdminID)
 		cfg.Channels.Telegram.Token = strings.TrimSpace(tgToken)
 		cfg.Channels.Telegram.AllowedIDs = parseAllowedIDs(tgAllowedIDs)
 	}
@@ -385,7 +379,6 @@ type onboardDefaults struct {
 	provider     string
 	model        string
 	tgToken      string
-	tgAdminID    string
 	tgAllowedIDs string
 	discordToken string
 }
@@ -398,7 +391,6 @@ func loadOnboardDefaults(cfg *config.Config) onboardDefaults {
 		provider:     cfg.GetProvider(),
 		model:        cfg.GetModelType(),
 		tgToken:      cfg.GetTelegramToken(),
-		tgAdminID:    cfg.GetAdminUserID(),
 		tgAllowedIDs: formatAllowedIDs(cfg.GetTelegramAllowedIDs()),
 		discordToken: cfg.GetDiscordToken(),
 	}

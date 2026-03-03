@@ -11,14 +11,9 @@ Send a message to Telegram:
 exec: {{WORKSPACE}}/bin/nagobot send --to <chat-id> --text "<message>"
 ```
 
-Send to admin (default, no --to needed):
-```
-exec: {{WORKSPACE}}/bin/nagobot send --text "<message>"
-```
-
 ## Flag Reference
 
-- `--to`: Telegram chat/user ID. Defaults to admin user ID from config.
+- `--to`: Telegram chat/user ID (required).
 - `--text`: message content (required). Wrap in double quotes; escape inner quotes with `\"`.
 
 ## Notes

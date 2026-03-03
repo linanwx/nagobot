@@ -219,7 +219,6 @@ type ExecToolsConfig struct {
 
 // ChannelsConfig contains channel configurations.
 type ChannelsConfig struct {
-	AdminUserID string                 `json:"adminUserID" yaml:"adminUserID"`                   // Cross-channel admin user id
 	SessionAgents    map[string]string `json:"sessionAgents,omitempty" yaml:"sessionAgents,omitempty"`       // sessionKey or userID → agent name
 	SessionTimezones map[string]string `json:"sessionTimezones,omitempty" yaml:"sessionTimezones,omitempty"` // sessionKey → IANA timezone (e.g. "Asia/Shanghai")
 	Telegram    *TelegramChannelConfig `json:"telegram" yaml:"telegram"`

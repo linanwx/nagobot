@@ -26,7 +26,6 @@ var (
 	initModel         string
 	initAPIKey        string
 	initTelegramToken string
-	initAdminUserID   string
 )
 
 func init() {
@@ -34,7 +33,6 @@ func init() {
 	initCmd.Flags().StringVar(&initModel, "model", "", "Model type (defaults to provider's first supported model)")
 	initCmd.Flags().StringVar(&initAPIKey, "api-key", "", "Provider API key (required)")
 	initCmd.Flags().StringVar(&initTelegramToken, "telegram-token", "", "Telegram bot token (optional)")
-	initCmd.Flags().StringVar(&initAdminUserID, "admin-user-id", "", "Admin user ID for Telegram (optional)")
 	rootCmd.AddCommand(initCmd)
 }
 
@@ -58,9 +56,6 @@ func runInit(cmd *cobra.Command, _ []string) error {
 
 	if strings.TrimSpace(initTelegramToken) != "" {
 		cfg.Channels.Telegram.Token = strings.TrimSpace(initTelegramToken)
-	}
-	if strings.TrimSpace(initAdminUserID) != "" {
-		cfg.Channels.AdminUserID = strings.TrimSpace(initAdminUserID)
 	}
 
 	if err := cfg.Save(); err != nil {

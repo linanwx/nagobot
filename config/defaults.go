@@ -30,7 +30,6 @@ func DefaultConfig() *Config {
 			},
 		},
 		Channels: &ChannelsConfig{
-			AdminUserID: "",
 			Telegram: &TelegramChannelConfig{
 				Token:      "",
 				AllowedIDs: []int64{},
