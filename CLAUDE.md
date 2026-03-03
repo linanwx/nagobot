@@ -7,7 +7,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 ```bash
 go build -o nagobot .          # Build
 go test ./...                   # Run all tests
-./scripts/deploy.sh             # Build + install binary + sync templates + restart service
+nagobot update                  # Self-update from GitHub Releases
 ```
 
 Single package test: `go test ./provider -v -run TestSanitize`
@@ -62,7 +62,7 @@ Conversation history persisted as `{sessionsDir}/{sessionKey}/session.json`. Aut
 
 ## Key Patterns
 
-- **Hot-reload config**: Provider keys use `KeyFn` closures that call `config.Load()` each invocation. `Available()` checks at call time, not registration time.
+- **Hot-reload config**: Provider keys use `KeyFn` closures that call `config.Load()` each invocation. `Available()` checks at call time, not registration time. Channels (Telegram/Discord/Feishu) are hot-reloaded every 10s — adding a token to config auto-starts the channel.
 - **Per-wake sink**: Each WakeMessage carries its own Sink callback for response delivery. Zero Sink falls back to thread default.
 - **Agent override**: `WakeMessage.AgentName` overrides the thread's agent for that turn only.
 - **Async child threads**: `SpawnChild()` is fully async. Child completion wakes parent via Sink → Enqueue.
@@ -70,6 +70,8 @@ Conversation history persisted as `{sessionsDir}/{sessionKey}/session.json`. Aut
 
 ## Deployment
 
-Local Mac via launchd. `./scripts/deploy.sh` handles the full cycle. Service plist at `~/Library/LaunchAgents/com.nagobot.serve.plist`. Logs at `~/.nagobot/logs/`.
+Install: `curl -fsSL https://nagobot.com/install.sh | bash` (all platforms). Update: `nagobot update`.
 
-Release pipeline: push `v*` tag → GitHub Actions builds Linux/Windows binaries → publishes to GitHub Releases → updates Homebrew tap (`linanwx/homebrew-nagobot`).
+Service managed via launchd (macOS), systemd (Linux), or Task Scheduler (Windows). Logs at `~/.nagobot/logs/`.
+
+Release pipeline: push `v*` tag → GitHub Actions builds all platform binaries (linux/darwin/windows) → publishes to GitHub Releases.

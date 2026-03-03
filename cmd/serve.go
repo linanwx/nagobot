@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"strings"
 	"syscall"
+	"time"
 
 	"github.com/linanwx/nagobot/channel"
 	"github.com/linanwx/nagobot/config"
@@ -135,8 +136,12 @@ func runServe(cmd *cobra.Command, args []string) error {
 	// Start thread manager run loop in background.
 	go threadMgr.Run(ctx)
 
-	// Dispatcher reads from channels and dispatches to threads. Blocks until ctx done.
+	// Dispatcher reads from channels and dispatches to threads.
 	dispatcher := NewDispatcher(chManager, threadMgr, cfg)
+
+	// Hot-reload: periodically check config for new/removed channel tokens.
+	go refreshChannelsLoop(ctx, chManager, dispatcher)
+
 	dispatcher.Run(ctx)
 
 	if err := chManager.StopAll(); err != nil {
@@ -272,6 +277,60 @@ func resolveServeTargets(cmd *cobra.Command) (finalServeTelegram, finalServeFeis
 		return false, false, false, false, fmt.Errorf("no channels enabled; use --telegram, --feishu, --discord, or --web")
 	}
 	return finalServeTelegram, finalServeFeishu, finalServeDiscord, finalServeWeb, nil
+}
+
+// refreshChannelsLoop periodically checks config for new channel tokens and
+// dynamically starts/stops channels without restarting the service.
+func refreshChannelsLoop(ctx context.Context, chMgr *channel.Manager, dispatcher *Dispatcher) {
+	ticker := time.NewTicker(10 * time.Second)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			refreshChannels(ctx, chMgr, dispatcher)
+		}
+	}
+}
+
+// channelSpec describes a dynamically loadable channel.
+type channelSpec struct {
+	name      string
+	hasToken  func(*config.Config) bool
+	newCh     func(*config.Config) channel.Channel
+}
+
+var dynamicChannels = []channelSpec{
+	{"telegram", func(c *config.Config) bool { return c.GetTelegramToken() != "" }, func(c *config.Config) channel.Channel { return channel.NewTelegramChannel(c) }},
+	{"discord", func(c *config.Config) bool { return c.GetDiscordToken() != "" }, func(c *config.Config) channel.Channel { return channel.NewDiscordChannel(c) }},
+	{"feishu", func(c *config.Config) bool { return c.GetFeishuAppID() != "" }, func(c *config.Config) channel.Channel { return channel.NewFeishuChannel(c) }},
+}
+
+func refreshChannels(ctx context.Context, chMgr *channel.Manager, dispatcher *Dispatcher) {
+	cfg, err := config.Load()
+	if err != nil {
+		return
+	}
+
+	for _, spec := range dynamicChannels {
+		registered := chMgr.Has(spec.name)
+		configured := spec.hasToken(cfg)
+
+		if configured && !registered {
+			ch := spec.newCh(cfg)
+			if ch == nil {
+				continue
+			}
+			if err := ch.Start(ctx); err != nil {
+				logger.Warn("hot-reload: failed to start channel", "channel", spec.name, "err", err)
+				continue
+			}
+			chMgr.Register(ch)
+			dispatcher.StartDispatching(ch)
+			logger.Info("hot-reload: channel started", "channel", spec.name)
+		}
+	}
 }
 
 // installBinary copies the running executable to workspace/bin/nagobot.

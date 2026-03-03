@@ -18,6 +18,7 @@ type Dispatcher struct {
 	channels *channel.Manager
 	threads  *thread.Manager
 	cfg      *config.Config
+	ctx      context.Context
 }
 
 // NewDispatcher creates a new dispatcher.
@@ -36,10 +37,16 @@ func NewDispatcher(
 // Run starts a goroutine for each channel that reads messages and dispatches
 // them to threads. Blocks until ctx is cancelled.
 func (d *Dispatcher) Run(ctx context.Context) {
+	d.ctx = ctx
 	d.channels.Each(func(ch channel.Channel) {
 		go d.processChannel(ctx, ch)
 	})
 	<-ctx.Done()
+}
+
+// StartDispatching begins dispatching for a dynamically added channel.
+func (d *Dispatcher) StartDispatching(ch channel.Channel) {
+	go d.processChannel(d.ctx, ch)
 }
 
 func (d *Dispatcher) processChannel(ctx context.Context, ch channel.Channel) {

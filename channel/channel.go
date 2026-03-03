@@ -5,6 +5,7 @@ import (
 	"context"
 	"fmt"
 	"strings"
+	"sync"
 	"unicode/utf8"
 
 	"github.com/linanwx/nagobot/logger"
@@ -48,6 +49,7 @@ type Channel interface {
 
 // Manager manages multiple channels as a pure registry.
 type Manager struct {
+	mu       sync.RWMutex
 	channels map[string]Channel
 }
 
@@ -63,19 +65,47 @@ func (m *Manager) Register(ch Channel) {
 	if ch == nil {
 		return
 	}
+	m.mu.Lock()
 	m.channels[ch.Name()] = ch
+	m.mu.Unlock()
 	logger.Info("channel registered", "channel", ch.Name())
+}
+
+// Unregister stops and removes a channel by name.
+func (m *Manager) Unregister(name string) {
+	m.mu.Lock()
+	ch, ok := m.channels[name]
+	if ok {
+		delete(m.channels, name)
+	}
+	m.mu.Unlock()
+	if ok {
+		_ = ch.Stop()
+		logger.Info("channel unregistered", "channel", name)
+	}
+}
+
+// Has returns whether a channel with the given name is registered.
+func (m *Manager) Has(name string) bool {
+	m.mu.RLock()
+	_, ok := m.channels[name]
+	m.mu.RUnlock()
+	return ok
 }
 
 // Get returns a channel by name.
 func (m *Manager) Get(name string) (Channel, bool) {
+	m.mu.RLock()
 	ch, ok := m.channels[name]
+	m.mu.RUnlock()
 	return ch, ok
 }
 
 // SendTo sends a text message to a named channel.
 func (m *Manager) SendTo(ctx context.Context, channelName, text, replyTo string) error {
+	m.mu.RLock()
 	ch, ok := m.channels[channelName]
+	m.mu.RUnlock()
 	if !ok {
 		return fmt.Errorf("channel not found: %s", channelName)
 	}
@@ -84,25 +114,28 @@ func (m *Manager) SendTo(ctx context.Context, channelName, text, replyTo string)
 
 // StartAll starts all registered channels.
 func (m *Manager) StartAll(ctx context.Context) error {
+	m.mu.RLock()
 	// Start channels in a deterministic order: socket first, then web, telegram, feishu, then rest.
 	ordered := []string{"socket", "web", "telegram", "feishu"}
 	started := make(map[string]bool)
+	var toStart []Channel
 	for _, name := range ordered {
 		ch, ok := m.channels[name]
 		if !ok {
 			continue
 		}
-		if err := ch.Start(ctx); err != nil {
-			return err
-		}
+		toStart = append(toStart, ch)
 		started[name] = true
 	}
-
-	// Start any remaining channels not handled above.
 	for name, ch := range m.channels {
 		if started[name] {
 			continue
 		}
+		toStart = append(toStart, ch)
+	}
+	m.mu.RUnlock()
+
+	for _, ch := range toStart {
 		if err := ch.Start(ctx); err != nil {
 			return err
 		}
@@ -112,7 +145,13 @@ func (m *Manager) StartAll(ctx context.Context) error {
 
 // StopAll stops all registered channels.
 func (m *Manager) StopAll() error {
+	m.mu.RLock()
+	channels := make([]Channel, 0, len(m.channels))
 	for _, ch := range m.channels {
+		channels = append(channels, ch)
+	}
+	m.mu.RUnlock()
+	for _, ch := range channels {
 		if err := ch.Stop(); err != nil {
 			return err
 		}
@@ -122,7 +161,13 @@ func (m *Manager) StopAll() error {
 
 // Each iterates over all registered channels.
 func (m *Manager) Each(fn func(Channel)) {
+	m.mu.RLock()
+	channels := make([]Channel, 0, len(m.channels))
 	for _, ch := range m.channels {
+		channels = append(channels, ch)
+	}
+	m.mu.RUnlock()
+	for _, ch := range channels {
 		fn(ch)
 	}
 }
