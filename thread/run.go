@@ -309,7 +309,7 @@ func (t *Thread) buildTools() *tools.Registry {
 		SkillsRoot:   cfg.SkillsDir,
 		ProviderName: providerName,
 		ModelName:    modelName,
-		Channels:     cfg.HealthChannels,
+		ChannelsFn:   cfg.HealthChannelsFn,
 		ThreadsListFn: func() []tools.ThreadInfo {
 			return t.mgr.ListThreads()
 		},

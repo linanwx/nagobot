@@ -70,7 +70,7 @@ type ThreadConfig struct {
 	Sessions            *session.Manager
 	DefaultSinkFor      func(sessionKey string) Sink
 	DefaultAgentFor     func(sessionKey string) string // Session key → default agent name
-	HealthChannels      *tools.HealthChannelsInfo
+	HealthChannelsFn    func() *tools.HealthChannelsInfo
 	ProviderFactory     *provider.Factory              // For per-agent model routing
 	Models              map[string]*config.ModelConfig  // Model type → provider/model mapping (startup snapshot)
 	ModelsFn            func() map[string]*config.ModelConfig // Hot-reload: returns latest Models from config

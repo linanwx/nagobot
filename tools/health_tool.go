@@ -41,7 +41,7 @@ type HealthTool struct {
 	SkillsRoot   string
 	ProviderName string
 	ModelName    string
-	Channels      *HealthChannelsInfo
+	ChannelsFn    func() *HealthChannelsInfo
 	CtxFn         HealthContextProvider
 	ThreadsListFn func() []ThreadInfo
 }
@@ -65,6 +65,13 @@ func (t *HealthTool) Def() provider.ToolDef {
 			},
 		},
 	}
+}
+
+func (t *HealthTool) channels() *HealthChannelsInfo {
+	if t.ChannelsFn != nil {
+		return t.ChannelsFn()
+	}
+	return nil
 }
 
 type healthArgs struct {
@@ -100,7 +107,7 @@ func (t *HealthTool) Run(ctx context.Context, args json.RawMessage) string {
 		AgentName:      runtimeCtx.AgentName,
 		SessionKey:     runtimeCtx.SessionKey,
 		SessionFile:    runtimeCtx.SessionFile,
-		Channels:       t.Channels,
+		Channels:       t.channels(),
 		IncludeTree:    true,
 		TreeDepth:      treeDepth,
 		TreeMaxEntries: treeMaxEntries,

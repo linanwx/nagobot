@@ -101,29 +101,34 @@ func buildThreadManager(cfg *config.Config, enableSessions bool) (*thread.Manage
 		}
 	}
 
-	var healthChannels *tools.HealthChannelsInfo
-	if ch := cfg.Channels; ch != nil {
-		healthChannels = &tools.HealthChannelsInfo{
-			SessionAgents:  ch.SessionAgents,
+	healthChannelsFn := func() *tools.HealthChannelsInfo {
+		c := cfgFn()
+		ch := c.Channels
+		if ch == nil {
+			return nil
+		}
+		info := &tools.HealthChannelsInfo{
+			SessionAgents: ch.SessionAgents,
 		}
 		if ch.Telegram != nil {
-			healthChannels.Telegram = &tools.HealthTelegramInfo{
+			info.Telegram = &tools.HealthTelegramInfo{
 				Configured: ch.Telegram.Token != "",
 				AllowedIDs: ch.Telegram.AllowedIDs,
 			}
 		}
 		if ch.Discord != nil {
-			healthChannels.Discord = &tools.HealthDiscordInfo{
+			info.Discord = &tools.HealthDiscordInfo{
 				Configured:      ch.Discord.Token != "",
 				AllowedGuildIDs: ch.Discord.AllowedGuildIDs,
 				AllowedUserIDs:  ch.Discord.AllowedUserIDs,
 			}
 		}
 		if ch.Web != nil {
-			healthChannels.Web = &tools.HealthWebInfo{
+			info.Web = &tools.HealthWebInfo{
 				Addr: ch.Web.Addr,
 			}
 		}
+		return info
 	}
 
 	return thread.NewManager(&thread.ThreadConfig{
@@ -139,7 +144,7 @@ func buildThreadManager(cfg *config.Config, enableSessions bool) (*thread.Manage
 		ContextWindowTokens: cfg.GetContextWindowTokens(),
 		ContextWarnRatio:    cfg.GetContextWarnRatio(),
 		Sessions:            sessions,
-		HealthChannels:      healthChannels,
+		HealthChannelsFn:    healthChannelsFn,
 		ProviderFactory:     providerFactory,
 		Models:              cfg.Thread.Models,
 		ModelsFn: func() map[string]*config.ModelConfig {
