@@ -376,7 +376,7 @@ func runOnboard(cmd *cobra.Command, _ []string) error {
 		}
 	}
 	fmt.Println()
-	fmt.Println("Run 'nagobot serve' to start.")
+	fmt.Println("Run 'nagobot cli' to start chatting.")
 	return nil
 }
 
