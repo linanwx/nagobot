@@ -261,22 +261,29 @@ func (t *Thread) currentModelSupportsVision() bool {
 }
 
 // resolveProvider returns the provider for the current agent's model type,
-// falling back to t.provider (the default set at thread creation).
+// falling back to the default provider via factory (re-reads config each call
+// so /init changes take effect immediately).
 func (t *Thread) resolveProvider() provider.Provider {
-	mc := t.resolvedModelConfig()
-	if mc == nil {
-		return t.provider
-	}
 	cfg := t.cfg()
-	if cfg.ProviderFactory == nil {
-		return t.provider
-	}
-	p, err := cfg.ProviderFactory.Create(mc.Provider, mc.ModelType)
-	if err != nil {
+
+	mc := t.resolvedModelConfig()
+	if mc != nil && cfg.ProviderFactory != nil {
+		p, err := cfg.ProviderFactory.Create(mc.Provider, mc.ModelType)
+		if err == nil {
+			return p
+		}
 		logger.Warn("failed to create provider, using default", "agent", t.Agent.Name, "model", mc.ModelType, "err", err)
-		return t.provider
 	}
-	return p
+
+	// Always try factory for default provider (picks up config changes).
+	if cfg.ProviderFactory != nil {
+		p, err := cfg.ProviderFactory.Create("", "")
+		if err == nil {
+			return p
+		}
+	}
+
+	return t.provider
 }
 
 func (t *Thread) buildTools() *tools.Registry {
