@@ -119,8 +119,10 @@ func (t *Thread) run(ctx context.Context, userMessage string, sink Sink, injectF
 		Workspace:      cfg.Workspace,
 		SupportsVision: t.currentModelSupportsVision(),
 	})
+	t.resetHaltLoop()
 	var intermediates []provider.Message
 	runner := NewRunner(t.resolveProvider(), t.tools, metrics)
+	runner.ShouldHalt(t.isHaltLoop)
 
 	// Set up streaming for idempotent sinks (Telegram, Discord, Feishu, CLI).
 	var streamer *MarkdownStreamer

@@ -22,6 +22,7 @@ type Runner struct {
 	onIterationEnd func() []provider.Message // optional: called after each tool iteration; returned messages are injected before the next LLM call
 	onText         func(delta string)        // optional: called with each text chunk during streaming generation
 	onChatEnd      func()                    // optional: called after each provider.Chat() returns
+	shouldHalt     func() bool               // optional: if true, stop loop after current tool calls
 }
 
 // OnMessage sets a callback invoked for each intermediate message
@@ -38,6 +39,10 @@ func (r *Runner) OnText(fn func(string)) { r.onText = fn }
 
 // OnChatEnd sets a callback invoked after each provider.Chat() call returns.
 func (r *Runner) OnChatEnd(fn func()) { r.onChatEnd = fn }
+
+// ShouldHalt sets a callback checked after each tool-call iteration.
+// If it returns true, the loop exits immediately without calling the LLM again.
+func (r *Runner) ShouldHalt(fn func() bool) { r.shouldHalt = fn }
 
 // NewRunner creates a new Runner. Pass a non-nil ExecMetrics to enable
 // real-time metrics collection visible to other threads.
@@ -119,6 +124,12 @@ func (r *Runner) RunWithMessages(ctx context.Context, messages []provider.Messag
 				r.metrics.CurrentTool = ""
 				r.metrics.mu.Unlock()
 			}
+		}
+
+		// A tool (e.g. sleep_thread) requested an immediate halt — stop the
+		// loop without calling the LLM again.
+		if r.shouldHalt != nil && r.shouldHalt() {
+			return resp.Content, nil
 		}
 
 		// Inject mid-execution user messages into the history region (after the

@@ -97,6 +97,7 @@ type Thread struct {
 	defaultSink  Sink      // Fallback sink when WakeMessage.Sink is nil.
 	lastActiveAt time.Time // Last time this thread completed work.
 	suppressSink bool      // When true, RunOnce skips sink delivery (reset after each turn).
+	haltLoop     bool      // When true, Runner stops after current tool calls complete.
 
 	execMetrics *ExecMetrics // Non-nil only while a turn is executing.
 }

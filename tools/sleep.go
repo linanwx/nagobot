@@ -14,6 +14,7 @@ import (
 type ThreadSleeper interface {
 	SleepThread(duration time.Duration, message string) error
 	SetSuppressSink()
+	SetHaltLoop()
 }
 
 // SleepThreadTool lets the model sleep the current thread.
@@ -80,8 +81,8 @@ func (t *SleepThreadTool) Run(_ context.Context, args json.RawMessage) string {
 
 	// Skip mode: suppress output only, no scheduled wake.
 	if a.Skip {
-		return "Thread sleeping. Output suppressed.\n" +
-			"You MUST output only \"SLEEP_OK\" and stop. Do not call any other tools or produce any other output."
+		t.sleeper.SetHaltLoop()
+		return "Thread sleeping. Output suppressed."
 	}
 
 	// Default duration: 2 minutes.
@@ -110,10 +111,9 @@ func (t *SleepThreadTool) Run(_ context.Context, args json.RawMessage) string {
 		return fmt.Sprintf("Error: %v", err)
 	}
 
+	t.sleeper.SetHaltLoop()
 	wakeAt := time.Now().Add(d)
-	return fmt.Sprintf(
-		"Sleep scheduled. Wake at %s (%s from now). Output suppressed.\n"+
-			"You MUST output only \"SLEEP_OK\" and stop. Do not call any other tools or produce any other output.",
+	return fmt.Sprintf("Sleep scheduled. Wake at %s (%s from now).",
 		wakeAt.Format(time.RFC3339), durationStr,
 	)
 }
