@@ -13,6 +13,8 @@ type Manager interface {
 	Install(binPath, logDir string) error
 	// Uninstall stops and removes the system service.
 	Uninstall() error
+	// Restart restarts the running service.
+	Restart() error
 }
 
 // DefaultInstallDir returns the platform-appropriate binary install directory.

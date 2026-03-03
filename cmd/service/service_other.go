@@ -19,3 +19,7 @@ func (m *unsupportedManager) Install(string, string) error {
 func (m *unsupportedManager) Uninstall() error {
 	return fmt.Errorf("service management is not supported on %s", runtime.GOOS)
 }
+
+func (m *unsupportedManager) Restart() error {
+	return fmt.Errorf("service management is not supported on %s", runtime.GOOS)
+}

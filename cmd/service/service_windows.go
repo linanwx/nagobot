@@ -37,6 +37,14 @@ func (m *windowsManager) Install(binPath, logDir string) error {
 	return nil
 }
 
+func (m *windowsManager) Restart() error {
+	_ = exec.Command("schtasks", "/end", "/tn", taskName).Run()
+	if out, err := exec.Command("schtasks", "/run", "/tn", taskName).CombinedOutput(); err != nil {
+		return fmt.Errorf("schtasks restart failed: %s (%w)", string(out), err)
+	}
+	return nil
+}
+
 func (m *windowsManager) Uninstall() error {
 	fmt.Println("==> Stopping scheduled task...")
 	_ = exec.Command("schtasks", "/end", "/tn", taskName).Run()

@@ -76,6 +76,13 @@ func (m *linuxManager) Install(binPath, logDir string) error {
 	return nil
 }
 
+func (m *linuxManager) Restart() error {
+	if out, err := exec.Command("systemctl", "--user", "restart", "nagobot").CombinedOutput(); err != nil {
+		return fmt.Errorf("systemctl restart failed: %s (%w)", string(out), err)
+	}
+	return nil
+}
+
 func (m *linuxManager) Uninstall() error {
 	home, err := os.UserHomeDir()
 	if err != nil {

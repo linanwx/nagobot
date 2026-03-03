@@ -120,6 +120,15 @@ func (m *darwinManager) Uninstall() error {
 	return nil
 }
 
+func (m *darwinManager) Restart() error {
+	uid := os.Getuid()
+	target := fmt.Sprintf("gui/%d/%s", uid, darwinLabel)
+	if out, err := exec.Command("launchctl", "kickstart", "-k", target).CombinedOutput(); err != nil {
+		return fmt.Errorf("launchctl kickstart failed: %s (%w)", string(out), err)
+	}
+	return nil
+}
+
 func detectBrewPrefix() string {
 	if info, err := os.Stat("/opt/homebrew"); err == nil && info.IsDir() {
 		return "/opt/homebrew"

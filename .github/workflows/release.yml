@@ -21,7 +21,7 @@ jobs:
         run: |
           VERSION="${GITHUB_REF_NAME}"
           LDFLAGS="-X github.com/linanwx/nagobot/cmd.Version=${VERSION}"
-          for pair in linux/amd64 linux/arm64 windows/amd64; do
+          for pair in linux/amd64 linux/arm64 darwin/amd64 darwin/arm64 windows/amd64; do
             GOOS="${pair%/*}"
             GOARCH="${pair#*/}"
             OUT="nagobot-${GOOS}-${GOARCH}"
@@ -36,39 +36,3 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Update Homebrew formula
-        if: env.TAP_TOKEN != ''
-        run: |
-          VERSION="${GITHUB_REF_NAME}"
-          REVISION="${GITHUB_SHA}"
-          git clone https://x-access-token:${TAP_TOKEN}@github.com/linanwx/homebrew-nagobot.git /tmp/tap
-          cd /tmp/tap
-          cat > Formula/nagobot.rb << FORMULA
-          class Nagobot < Formula
-            desc "AI bot framework with multi-channel support"
-            homepage "https://github.com/linanwx/nagobot"
-            url "https://github.com/linanwx/nagobot.git",
-                tag:      "${VERSION}",
-                revision: "${REVISION}"
-            license "MIT"
-
-            depends_on "go" => :build
-
-            def install
-              ldflags = "-X github.com/linanwx/nagobot/cmd.Version=#{version}"
-              system "go", "build", *std_go_args(ldflags: ldflags)
-            end
-
-            test do
-              assert_match version.to_s, shell_output("#{bin}/nagobot --version")
-            end
-          end
-          FORMULA
-          sed -i 's/^          //' Formula/nagobot.rb
-          git config user.name "github-actions[bot]"
-          git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add Formula/nagobot.rb
-          git commit -m "Update nagobot to ${VERSION}" || true
-          git push
-        env:
-          TAP_TOKEN: ${{ secrets.TAP_TOKEN }}
