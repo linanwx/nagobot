@@ -1,6 +1,7 @@
 package cmd
 
 import (
+	"bytes"
 	"context"
 	"fmt"
 	"strings"
@@ -55,13 +56,19 @@ func (d *Dispatcher) processChannel(ctx context.Context, ch channel.Channel) {
 	}
 }
 
-func (d *Dispatcher) dispatch(_ context.Context, ch channel.Channel, msg *channel.Message) {
+func (d *Dispatcher) dispatch(ctx context.Context, ch channel.Channel, msg *channel.Message) {
 	logger.Debug("dispatching message",
 		"channel", ch.Name(),
 		"channelID", msg.ChannelID,
 		"user", msg.Username,
 		"text", truncate(msg.Text, 50),
 	)
+
+	// Intercept /init command — execute directly, bypass LLM.
+	if text := strings.TrimSpace(msg.Text); strings.HasPrefix(text, "/init") {
+		d.handleInit(ctx, ch, msg, text)
+		return
+	}
 
 	sessionKey := d.route(msg)
 	sink := d.buildSink(ch, msg)
@@ -76,6 +83,34 @@ func (d *Dispatcher) dispatch(_ context.Context, ch channel.Channel, msg *channe
 		AgentName: agentName,
 		Vars:      vars,
 	})
+}
+
+// handleInit intercepts /init messages and executes the init command directly.
+func (d *Dispatcher) handleInit(ctx context.Context, ch channel.Channel, msg *channel.Message, text string) {
+	args := strings.Fields(text)
+	if len(args) > 0 {
+		args = args[1:] // remove "/init"
+	}
+
+	var buf bytes.Buffer
+	initCmd.SetOut(&buf)
+	initCmd.SetErr(&buf)
+	initCmd.SetArgs(args)
+
+	var response string
+	if err := initCmd.Execute(); err != nil {
+		response = fmt.Sprintf("Error: %v", err)
+	} else {
+		response = buf.String()
+		if strings.TrimSpace(response) == "" {
+			response = "Configuration saved."
+		}
+	}
+
+	sink := d.buildSink(ch, msg)
+	if !sink.IsZero() {
+		_ = sink.Send(ctx, response)
+	}
 }
 
 // route determines the session key for a message.

@@ -1,7 +1,6 @@
 package config
 
 import (
-	"errors"
 	"os"
 	"path/filepath"
 	"sync"
@@ -22,7 +21,10 @@ func Load() (*Config, error) {
 	data, err := os.ReadFile(path)
 	if err != nil {
 		if os.IsNotExist(err) {
-			return nil, errors.New("config not found, run 'nagobot onboard' first")
+			cfg := DefaultConfig()
+			cfg.applyDefaults()
+			_ = cfg.Save()
+			return cfg, nil
 		}
 		return nil, err
 	}

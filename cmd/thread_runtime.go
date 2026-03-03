@@ -28,10 +28,7 @@ func buildThreadManager(cfg *config.Config, enableSessions bool) (*thread.Manage
 		return nil, fmt.Errorf("failed to create provider factory: %w", err)
 	}
 
-	defaultProvider, err := providerFactory.Create("", "")
-	if err != nil {
-		return nil, fmt.Errorf("failed to create default provider: %w", err)
-	}
+	defaultProvider, _ := providerFactory.Create("", "")
 
 	skillsDir, err := cfg.SkillsDir()
 	if err != nil {

@@ -2,7 +2,6 @@ package cmd
 
 import (
 	"fmt"
-	"os"
 	"strings"
 
 	"github.com/spf13/cobra"
@@ -14,10 +13,10 @@ var initCmd = &cobra.Command{
 	Use:   "init",
 	Short: "Non-interactive setup: generate config and workspace files",
 	Long: `Generate config.yaml and bootstrap workspace files without interactive prompts.
-Existing files are never overwritten.
 
 Examples:
   nagobot init --provider deepseek --model deepseek-reasoner --api-key sk-xxx
+  nagobot init --provider openrouter --api-key sk-xxx --model moonshotai/kimi-k2.5
   nagobot init --provider anthropic --model claude-sonnet-4-6 --api-key sk-xxx --telegram-token BOT_TOKEN`,
 	RunE: runInit,
 }
@@ -39,13 +38,18 @@ func init() {
 	rootCmd.AddCommand(initCmd)
 }
 
-func runInit(_ *cobra.Command, _ []string) error {
+func runInit(cmd *cobra.Command, _ []string) error {
 	apiKey := strings.TrimSpace(initAPIKey)
 	if apiKey == "" {
 		return fmt.Errorf("--api-key is required")
 	}
 
-	cfg := config.DefaultConfig()
+	// Load existing config or create default.
+	cfg, err := config.Load()
+	if err != nil {
+		cfg = config.DefaultConfig()
+	}
+
 	cfg.SetProvider(initProvider)
 	if initModel != "" {
 		cfg.SetModelType(initModel)
@@ -59,19 +63,14 @@ func runInit(_ *cobra.Command, _ []string) error {
 		cfg.Channels.AdminUserID = strings.TrimSpace(initAdminUserID)
 	}
 
-	// Save config only if it does not exist.
-	configPath, err := config.ConfigPath()
-	if err != nil {
-		return err
+	if err := cfg.Save(); err != nil {
+		return fmt.Errorf("failed to save config: %w", err)
 	}
-	if _, err := os.Stat(configPath); err == nil {
-		fmt.Println("Config already exists, skipping:", configPath)
-	} else {
-		if err := cfg.Save(); err != nil {
-			return fmt.Errorf("failed to save config: %w", err)
-		}
-		fmt.Println("Config created:", configPath)
+	cmd.Printf("Configuration saved. Provider: %s", initProvider)
+	if initModel != "" {
+		cmd.Printf(", Model: %s", initModel)
 	}
+	cmd.Println()
 
 	// Bootstrap workspace files (skip existing).
 	if err := cfg.EnsureWorkspace(); err != nil {
@@ -85,7 +84,5 @@ func runInit(_ *cobra.Command, _ []string) error {
 		return fmt.Errorf("failed to create workspace files: %w", err)
 	}
 
-	fmt.Println("Workspace ready:", workspace)
-	fmt.Println("Run 'nagobot serve' to start.")
 	return nil
 }

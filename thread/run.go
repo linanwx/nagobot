@@ -120,8 +120,12 @@ func (t *Thread) run(ctx context.Context, userMessage string, sink Sink, injectF
 		SupportsVision: t.currentModelSupportsVision(),
 	})
 	t.resetHaltLoop()
+	p := t.resolveProvider()
+	if p == nil {
+		return noProviderMessage(), nil
+	}
 	var intermediates []provider.Message
-	runner := NewRunner(t.resolveProvider(), t.tools, metrics)
+	runner := NewRunner(p, t.tools, metrics)
 	runner.ShouldHalt(t.isHaltLoop)
 
 	// Set up streaming for idempotent sinks (Telegram, Discord, Feishu, CLI).
@@ -236,6 +240,14 @@ func (t *Thread) resolvedModelConfig() *config.ModelConfig {
 		return nil
 	}
 	return mc
+}
+
+func noProviderMessage() string {
+	return `No LLM provider configured. To get started, send:
+
+/init --provider openrouter --api-key YOUR_KEY --model moonshotai/kimi-k2.5
+
+Supported providers: openrouter, anthropic, deepseek, openai`
 }
 
 // currentModelSupportsVision returns whether the current thread's model supports vision.

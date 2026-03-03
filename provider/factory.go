@@ -76,10 +76,7 @@ func NewFactory(cfg *config.Config) (*Factory, error) {
 		}
 	}
 
-	if conf, ok := f.configs[defaultProv]; !ok || strings.TrimSpace(conf.APIKey) == "" {
-		return nil, fmt.Errorf("%s API key not configured", defaultProv)
-	}
-
+	// Allow factory creation even without API key — errors surface at call time.
 	return f, nil
 }
 
