@@ -50,5 +50,9 @@ else
   fi
 fi
 
-echo "Binary installed. Registering system service..."
-nagobot install
+echo "Registering system service..."
+if [ "$OS" = "darwin" ]; then
+  nagobot install
+else
+  "${INSTALL_DIR}/nagobot" install
+fi
