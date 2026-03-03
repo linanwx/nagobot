@@ -16,25 +16,21 @@ const (
 	oauthExpiryGraceSec        = 30 // refresh token 30s before actual expiry
 )
 
-// FactoryConfig stores provider-level credentials and endpoint settings.
-type FactoryConfig struct {
-	APIKey  string
-	APIBase string
-}
-
 // Factory creates provider instances for the requested provider/model.
 type Factory struct {
-	cfg              *config.Config // live config for OAuth token re-resolution
-	configs          map[string]FactoryConfig
-	defaultProv      string
-	defaultModel     string
-	defaultModelName string
+	cfgFn            func() *config.Config // returns latest config (re-reads from disk)
+	fallbackCfg      *config.Config        // startup config used as fallback
+	defaultProv      string                // startup default (fallback only)
+	defaultModel     string                // startup default (fallback only)
 	maxTokens        int
 	temperature      float64
 }
 
-// NewFactory builds a provider factory from config.
-func NewFactory(cfg *config.Config) (*Factory, error) {
+// NewFactory builds a provider factory. cfgFn is called on each Create() to
+// get the latest config from disk, enabling hot-reload of provider keys,
+// default provider/model, and model routing.
+func NewFactory(cfgFn func() *config.Config) (*Factory, error) {
+	cfg := cfgFn()
 	if cfg == nil {
 		return nil, fmt.Errorf("config is nil")
 	}
@@ -53,54 +49,53 @@ func NewFactory(cfg *config.Config) (*Factory, error) {
 		return nil, err
 	}
 
-	maxTokens := cfg.GetMaxTokens()
-	temperature := cfg.GetTemperature()
-
-	f := &Factory{
-		cfg:              cfg,
-		configs:          make(map[string]FactoryConfig),
-		defaultProv:      defaultProv,
-		defaultModel:     defaultModel,
-		defaultModelName: cfg.GetModelName(),
-		maxTokens:        maxTokens,
-		temperature:      temperature,
-	}
-
-	for _, providerName := range SupportedProviders() {
-		providerCfg := FactoryConfig{
-			APIKey:  providerAPIKey(cfg, providerName),
-			APIBase: providerAPIBase(cfg, providerName),
-		}
-		if providerCfg.APIKey != "" || providerName == defaultProv {
-			f.configs[providerName] = providerCfg
-		}
-	}
-
-	// Allow factory creation even without API key — errors surface at call time.
-	return f, nil
+	return &Factory{
+		cfgFn:       cfgFn,
+		fallbackCfg: cfg,
+		defaultProv: defaultProv,
+		defaultModel: defaultModel,
+		maxTokens:   cfg.GetMaxTokens(),
+		temperature: cfg.GetTemperature(),
+	}, nil
 }
 
-// Create builds a provider instance for provider/model. Empty values fall back to defaults.
+// Create builds a provider instance for provider/model. Empty values fall back
+// to the latest default from config (hot-reloaded from disk).
 func (f *Factory) Create(providerName, modelType string) (Provider, error) {
 	if f == nil {
 		return nil, fmt.Errorf("provider factory is nil")
 	}
 
+	// Get latest config from disk.
+	cfg := f.cfgFn()
+	if cfg == nil {
+		cfg = f.fallbackCfg
+	}
+
 	providerName = strings.TrimSpace(providerName)
 	if providerName == "" {
-		providerName = f.defaultProv
+		providerName = strings.TrimSpace(cfg.GetProvider())
+		if providerName == "" {
+			providerName = f.defaultProv
+		}
 	}
 
 	modelType = strings.TrimSpace(modelType)
 	if modelType == "" {
-		if providerName == f.defaultProv {
-			modelType = f.defaultModel
-		} else {
-			models := SupportedModelsForProvider(providerName)
-			if len(models) == 0 {
-				return nil, fmt.Errorf("unknown provider: %s", providerName)
+		// For default provider, use latest default model from config.
+		if dp := strings.TrimSpace(cfg.GetProvider()); providerName == dp {
+			modelType = strings.TrimSpace(cfg.GetModelType())
+		}
+		if modelType == "" {
+			if providerName == f.defaultProv {
+				modelType = f.defaultModel
+			} else {
+				models := SupportedModelsForProvider(providerName)
+				if len(models) == 0 {
+					return nil, fmt.Errorf("unknown provider: %s", providerName)
+				}
+				modelType = models[0]
 			}
-			modelType = models[0]
 		}
 	}
 
@@ -108,15 +103,12 @@ func (f *Factory) Create(providerName, modelType string) (Provider, error) {
 		return nil, err
 	}
 
-	// Re-resolve API key from config to pick up OAuth token refreshes.
-	apiKey := providerAPIKey(f.cfg, providerName)
-	provCfg, hasCfg := f.configs[providerName]
+	// Resolve API key from latest config (hot-reload).
+	apiKey := providerAPIKey(cfg, providerName)
 	if apiKey == "" {
-		if !hasCfg || strings.TrimSpace(provCfg.APIKey) == "" {
-			return nil, fmt.Errorf("%s API key not configured", providerName)
-		}
-		apiKey = provCfg.APIKey
+		return nil, fmt.Errorf("%s API key not configured.\nFix: nagobot set-provider-key --provider %s --api-key YOUR_KEY", providerName, providerName)
 	}
+
 	reg, ok := providerRegistry[providerName]
 	if !ok {
 		return nil, fmt.Errorf("unknown provider: %s", providerName)
@@ -126,16 +118,19 @@ func (f *Factory) Create(providerName, modelType string) (Provider, error) {
 	}
 
 	modelName := modelType
-	if providerName == f.defaultProv && modelType == f.defaultModel && strings.TrimSpace(f.defaultModelName) != "" {
-		modelName = f.defaultModelName
+	if providerName == strings.TrimSpace(cfg.GetProvider()) &&
+		modelType == strings.TrimSpace(cfg.GetModelType()) {
+		if mn := strings.TrimSpace(cfg.GetModelName()); mn != "" {
+			modelName = mn
+		}
 	}
 
-	apiBase := provCfg.APIBase
+	apiBase := providerAPIBase(cfg, providerName)
 	p := reg.Constructor(apiKey, apiBase, modelType, modelName, f.maxTokens, f.temperature)
 
 	// Set account ID from OAuth token if available (e.g. OpenAI ChatGPT-Account-ID).
 	if setter, ok := p.(AccountIDSetter); ok {
-		if token := f.cfg.GetOAuthToken(providerName); token != nil && token.AccountID != "" {
+		if token := cfg.GetOAuthToken(providerName); token != nil && token.AccountID != "" {
 			setter.SetAccountID(token.AccountID)
 		}
 	}

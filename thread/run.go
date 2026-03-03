@@ -223,6 +223,7 @@ func isUserFacingContent(s string) bool {
 
 // resolvedModelConfig returns the model config for the current agent's model type,
 // or nil if the agent uses the default provider.
+// Uses ModelsFn for hot-reload if available, falling back to the startup snapshot.
 func (t *Thread) resolvedModelConfig() *config.ModelConfig {
 	cfg := t.cfg()
 	if t.Agent == nil || cfg.Agents == nil {
@@ -232,10 +233,14 @@ func (t *Thread) resolvedModelConfig() *config.ModelConfig {
 	if def == nil || def.Model == "" {
 		return nil
 	}
-	if len(cfg.Models) == 0 {
+	models := cfg.Models
+	if cfg.ModelsFn != nil {
+		models = cfg.ModelsFn()
+	}
+	if len(models) == 0 {
 		return nil
 	}
-	mc, ok := cfg.Models[def.Model]
+	mc, ok := models[def.Model]
 	if !ok || mc == nil {
 		return nil
 	}

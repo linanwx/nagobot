@@ -72,7 +72,8 @@ type ThreadConfig struct {
 	DefaultAgentFor     func(sessionKey string) string // Session key → default agent name
 	HealthChannels      *tools.HealthChannelsInfo
 	ProviderFactory     *provider.Factory              // For per-agent model routing
-	Models              map[string]*config.ModelConfig  // Model type → provider/model mapping
+	Models              map[string]*config.ModelConfig  // Model type → provider/model mapping (startup snapshot)
+	ModelsFn            func() map[string]*config.ModelConfig // Hot-reload: returns latest Models from config
 	AddJob              func(cron.Job) error           // Persistent job scheduling (for sleep_thread)
 	SessionTimezoneFor  func(sessionKey string) string // Session key → IANA timezone
 }

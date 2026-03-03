@@ -23,7 +23,14 @@ func buildThreadManager(cfg *config.Config, enableSessions bool) (*thread.Manage
 		return nil, fmt.Errorf("failed to get workspace: %w", err)
 	}
 
-	providerFactory, err := provider.NewFactory(cfg)
+	cfgFn := func() *config.Config {
+		c, err := config.Load()
+		if err != nil {
+			return cfg // fallback to startup config
+		}
+		return c
+	}
+	providerFactory, err := provider.NewFactory(cfgFn)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create provider factory: %w", err)
 	}
@@ -97,7 +104,6 @@ func buildThreadManager(cfg *config.Config, enableSessions bool) (*thread.Manage
 	var healthChannels *tools.HealthChannelsInfo
 	if ch := cfg.Channels; ch != nil {
 		healthChannels = &tools.HealthChannelsInfo{
-			AdminUserID: ch.AdminUserID,
 			SessionAgents:  ch.SessionAgents,
 		}
 		if ch.Telegram != nil {
@@ -136,6 +142,13 @@ func buildThreadManager(cfg *config.Config, enableSessions bool) (*thread.Manage
 		HealthChannels:      healthChannels,
 		ProviderFactory:     providerFactory,
 		Models:              cfg.Thread.Models,
+		ModelsFn: func() map[string]*config.ModelConfig {
+			c, err := config.Load()
+			if err != nil {
+				return cfg.Thread.Models
+			}
+			return c.Thread.Models
+		},
 		SessionTimezoneFor:  cfg.SessionTimezone,
 	}), nil
 }
