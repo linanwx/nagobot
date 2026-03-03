@@ -42,11 +42,28 @@ else
   curl -fsSL "$URL" -o "${INSTALL_DIR}/nagobot"
   chmod +x "${INSTALL_DIR}/nagobot"
 
+  # Add to PATH persistently if not already present
   if ! echo "$PATH" | tr ':' '\n' | grep -qx "$INSTALL_DIR"; then
-    echo ""
-    echo "NOTE: Add ${INSTALL_DIR} to your PATH:"
-    echo "  export PATH=\"${INSTALL_DIR}:\$PATH\""
-    echo ""
+    LINE="export PATH=\"${INSTALL_DIR}:\$PATH\""
+    # Detect shell config file
+    RC=""
+    if [ -n "${ZSH_VERSION:-}" ] || [ "$(basename "${SHELL:-}")" = "zsh" ]; then
+      RC="$HOME/.zshrc"
+    elif [ -f "$HOME/.bashrc" ]; then
+      RC="$HOME/.bashrc"
+    elif [ -f "$HOME/.profile" ]; then
+      RC="$HOME/.profile"
+    fi
+    if [ -n "$RC" ]; then
+      if ! grep -qF "$INSTALL_DIR" "$RC" 2>/dev/null; then
+        echo "" >> "$RC"
+        echo "# nagobot" >> "$RC"
+        echo "$LINE" >> "$RC"
+        echo "Added ${INSTALL_DIR} to PATH in ${RC}"
+      fi
+    fi
+    # Also export for current session
+    export PATH="${INSTALL_DIR}:$PATH"
   fi
 fi
 
