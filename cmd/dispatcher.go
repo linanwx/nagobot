@@ -95,10 +95,13 @@ func (d *Dispatcher) handleInit(ctx context.Context, ch channel.Channel, msg *ch
 	var buf bytes.Buffer
 	initCmd.SetOut(&buf)
 	initCmd.SetErr(&buf)
-	initCmd.SetArgs(args)
 
+	// Parse flags directly and call RunE — avoid Execute() which
+	// traverses to root and re-runs the parent command (e.g. serve).
 	var response string
-	if err := initCmd.Execute(); err != nil {
+	if err := initCmd.ParseFlags(args); err != nil {
+		response = fmt.Sprintf("Error: %v", err)
+	} else if err := initCmd.RunE(initCmd, initCmd.Flags().Args()); err != nil {
 		response = fmt.Sprintf("Error: %v", err)
 	} else {
 		response = buf.String()
