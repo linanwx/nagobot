@@ -75,7 +75,6 @@ func runInstall(cmd *cobra.Command, args []string) error {
 	fmt.Println("==> Installation complete!")
 	fmt.Printf("    Binary:  %s\n", installPath)
 	fmt.Printf("    Logs:    %s/\n", logDir)
-	fmt.Println("    CLI:     nagobot cli")
 	fmt.Println()
 
 	// Check if install dir is in PATH.
@@ -85,7 +84,9 @@ func runInstall(cmd *cobra.Command, args []string) error {
 		fmt.Println()
 	}
 
-	fmt.Println("    To connect: nagobot cli")
+	fmt.Println("==> Next steps:")
+	fmt.Println("    1. nagobot cli")
+	fmt.Println("    2. /init --provider openrouter --api-key YOUR_KEY --model moonshotai/kimi-k2.5")
 	return nil
 }
 
