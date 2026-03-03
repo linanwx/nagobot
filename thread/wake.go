@@ -158,6 +158,8 @@ func (t *Thread) RunOnce(ctx context.Context) {
 }
 
 // buildWakePayload constructs the user message from a wake source and message.
+// Uses XML format with per-source visibility annotations so the AI knows
+// which content the user can see and which is assistant-only.
 func buildWakePayload(source WakeSource, message, threadID, sessionKey, deliveryLabel string, loc *time.Location) string {
 	message = strings.TrimSpace(message)
 	if message == "" {
@@ -168,29 +170,42 @@ func buildWakePayload(source WakeSource, message, threadID, sessionKey, delivery
 	}
 
 	now := time.Now().In(loc)
-	wakeHeader := fmt.Sprintf(
-		"[Wake reason: %s | thread: %s | session: %s | %s (%s, %s, UTC%s)]",
-		source,
-		threadID,
-		sessionKey,
+
+	var delivery string
+	if deliveryLabel != "" {
+		delivery = deliveryLabel
+	} else {
+		delivery = "no auto-delivery, use tools to send messages if needed"
+	}
+
+	var sb strings.Builder
+	sb.WriteString("<wake>\n")
+	fmt.Fprintf(&sb, "  <source>%s</source>\n", source)
+	fmt.Fprintf(&sb, "  <thread>%s</thread>\n", threadID)
+	fmt.Fprintf(&sb, "  <session>%s</session>\n", sessionKey)
+	fmt.Fprintf(&sb, "  <time>%s (%s, %s, UTC%s)</time>\n",
 		now.Format(time.RFC3339),
 		now.Weekday().String(),
 		now.Location().String(),
 		now.Format("-07:00"),
 	)
+	fmt.Fprintf(&sb, "  <delivery>%s</delivery>\n", delivery)
+	fmt.Fprintf(&sb, "  <action>%s</action>\n", wakeActionHint(source))
+	fmt.Fprintf(&sb, "  <message visibility=%q>\n%s\n  </message>\n", messageVisibility(source), message)
+	sb.WriteString("</wake>")
 
-	var deliveryHint string
-	if deliveryLabel != "" {
-		deliveryHint = fmt.Sprintf("[Delivery: %s]", deliveryLabel)
-	} else {
-		deliveryHint = "[Delivery: no auto-delivery, use tools to send messages if needed]"
-	}
+	return sb.String()
+}
 
-	action := wakeActionHint(source)
-	if action == "" {
-		return "[system]\n" + wakeHeader + "\n" + deliveryHint + "\n" + message
+// messageVisibility returns the visibility label for a wake source.
+// User-originated messages are "user-visible"; system messages are "assistant-only".
+func messageVisibility(source WakeSource) string {
+	switch source {
+	case WakeTelegram, WakeCLI, WakeWeb, WakeDiscord, WakeFeishu:
+		return "user-visible"
+	default:
+		return "assistant-only"
 	}
-	return "[system]\n" + wakeHeader + "\n" + deliveryHint + "\n[Wake Action]\n" + action + "\n\n" + message
 }
 
 func wakeActionHint(source WakeSource) string {
@@ -198,19 +213,19 @@ func wakeActionHint(source WakeSource) string {
 	case WakeTelegram, WakeCLI, WakeWeb, WakeDiscord, WakeFeishu:
 		return "A user sent a message. React accordingly."
 	case WakeUserActive:
-		return "Resume the target session and respond to this wake message."
+		return "Resume the target session and respond to this wake message. The <message> content is only visible to you."
 	case WakeChildTask:
 		return "A parent thread delegated a task to you. Execute this task and output the result."
 	case WakeChildCompleted:
-		return "A child thread completed. Summarize the result and report the original result."
+		return "A child thread completed. The <message> content is ONLY visible to you. The user cannot see it. Include the complete result in your response."
 	case WakeSleepCompleted:
-		return "You previously set a sleep timer. You have been woken up. Resume your session."
+		return "Your sleep timer expired. The <message> is system context only. Resume your session."
 	case WakeCron:
 		return "A scheduled cron task has started. Execute it based on the provided job context."
 	case WakeCronFinished:
-		return "A cron task has finished and forwarded its result to this thread. Summarize and report the result."
+		return "A cron task finished. The <message> content is ONLY visible to you. Summarize and deliver the result to the user."
 	case WakeExternal:
-		return "Process this external wake message and continue the session."
+		return "Process this external wake message. The <message> content is only visible to you."
 	default:
 		return "Process this wake message and continue."
 	}

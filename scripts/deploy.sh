@@ -6,6 +6,9 @@ cd "$(dirname "$0")/.."
 echo "==> Building nagobot..."
 go build -o nagobot .
 
+echo "==> Installing binary..."
+cp nagobot ~/.local/bin/nagobot
+
 echo "==> Syncing templates..."
 ./nagobot onboard --sync
 
