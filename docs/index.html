@@ -6,37 +6,138 @@
 <title>nagobot — AI Bot Framework</title>
 <style>
   * { margin: 0; padding: 0; box-sizing: border-box; }
-  body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: #0d1117; color: #e6edf3; min-height: 100vh; display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 2rem; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    background: #0d1117;
+    color: #e6edf3;
+    min-height: 100vh;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    padding: 2rem;
+    background-image: radial-gradient(ellipse at 50% 0%, rgba(88,166,255,0.08) 0%, transparent 60%);
+  }
   .container { max-width: 640px; text-align: center; }
-  h1 { font-size: 3rem; margin-bottom: 0.5rem; }
-  .tagline { font-size: 1.2rem; color: #8b949e; margin-bottom: 2.5rem; }
-  .install-block { background: #161b22; border: 1px solid #30363d; border-radius: 8px; padding: 1.5rem; margin-bottom: 1.5rem; text-align: left; }
-  .install-block .label { font-size: 0.85rem; color: #8b949e; margin-bottom: 0.5rem; }
-  .install-block code { font-family: 'SF Mono', 'Fira Code', monospace; font-size: 0.95rem; color: #7ee787; word-break: break-all; }
-  .links { margin-top: 2rem; }
-  .links a { color: #58a6ff; text-decoration: none; margin: 0 1rem; }
-  .links a:hover { text-decoration: underline; }
+
+  h1 { font-size: 3.2rem; margin-bottom: 0.4rem; letter-spacing: -0.02em; }
+  .tagline { font-size: 1.25rem; color: #8b949e; margin-bottom: 1rem; }
+  .description { font-size: 1rem; color: #8b949e; margin-bottom: 2rem; line-height: 1.6; }
+
+  .features {
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: center;
+    gap: 0.5rem;
+    margin-bottom: 2.5rem;
+  }
+  .features span {
+    background: rgba(88,166,255,0.1);
+    border: 1px solid rgba(88,166,255,0.2);
+    color: #79c0ff;
+    font-size: 0.8rem;
+    padding: 0.35rem 0.75rem;
+    border-radius: 20px;
+  }
+
+  .install-block {
+    background: #161b22;
+    border: 1px solid #30363d;
+    border-radius: 8px;
+    padding: 1.2rem 1.5rem;
+    margin-bottom: 1rem;
+    text-align: left;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 1rem;
+  }
+  .install-block .left { flex: 1; min-width: 0; }
+  .install-block .label { font-size: 0.8rem; color: #8b949e; margin-bottom: 0.3rem; }
+  .install-block code {
+    font-family: 'SF Mono', 'Fira Code', 'Consolas', monospace;
+    font-size: 0.9rem;
+    color: #7ee787;
+    word-break: break-all;
+  }
+  .copy-btn {
+    background: none;
+    border: 1px solid #30363d;
+    color: #8b949e;
+    border-radius: 6px;
+    padding: 0.4rem 0.6rem;
+    cursor: pointer;
+    font-size: 0.8rem;
+    flex-shrink: 0;
+    transition: color 0.2s, border-color 0.2s;
+  }
+  .copy-btn:hover { color: #e6edf3; border-color: #58a6ff; }
+
+  .links {
+    margin-top: 2rem;
+    display: flex;
+    justify-content: center;
+    gap: 1rem;
+  }
+  .links a {
+    color: #e6edf3;
+    text-decoration: none;
+    padding: 0.6rem 1.4rem;
+    border: 1px solid #30363d;
+    border-radius: 6px;
+    font-size: 0.9rem;
+    transition: border-color 0.2s, background 0.2s;
+  }
+  .links a:hover { border-color: #58a6ff; background: rgba(88,166,255,0.08); }
+  .links a.primary { background: #238636; border-color: #238636; }
+  .links a.primary:hover { background: #2ea043; border-color: #2ea043; }
 </style>
 </head>
 <body>
 <div class="container">
   <h1>nagobot</h1>
-  <p class="tagline">AI bot framework with multi-channel support</p>
+  <p class="tagline">Your AI, always on.</p>
+  <p class="description">An autonomous AI bot framework that connects to Telegram, Discord, Feishu, and more. Multi-agent, cron scheduling, persistent memory — one install, all channels.</p>
 
-  <div class="install-block">
-    <div class="label">macOS / Linux</div>
-    <code>curl -fsSL https://nagobot.com/install.sh | bash</code>
+  <div class="features">
+    <span>Telegram</span>
+    <span>Discord</span>
+    <span>Feishu</span>
+    <span>Multi-Agent</span>
+    <span>Cron Jobs</span>
+    <span>Web Search</span>
   </div>
 
   <div class="install-block">
-    <div class="label">Windows (PowerShell)</div>
-    <code>irm https://nagobot.com/install.ps1 | iex</code>
+    <div class="left">
+      <div class="label">macOS / Linux</div>
+      <code id="cmd-unix">curl -fsSL https://nagobot.com/install.sh | bash</code>
+    </div>
+    <button class="copy-btn" onclick="copy('cmd-unix',this)">Copy</button>
+  </div>
+
+  <div class="install-block">
+    <div class="left">
+      <div class="label">Windows (PowerShell)</div>
+      <code id="cmd-win">irm https://nagobot.com/install.ps1 | iex</code>
+    </div>
+    <button class="copy-btn" onclick="copy('cmd-win',this)">Copy</button>
   </div>
 
   <div class="links">
-    <a href="https://github.com/linanwx/nagobot">GitHub</a>
+    <a class="primary" href="https://github.com/linanwx/nagobot">GitHub</a>
     <a href="https://github.com/linanwx/nagobot/releases">Releases</a>
   </div>
 </div>
+
+<script>
+function copy(id, btn) {
+  const text = document.getElementById(id).textContent;
+  navigator.clipboard.writeText(text).then(() => {
+    btn.textContent = 'Copied!';
+    setTimeout(() => btn.textContent = 'Copy', 1500);
+  });
+}
+</script>
 </body>
 </html>
