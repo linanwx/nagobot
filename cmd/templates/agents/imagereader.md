@@ -1,7 +1,7 @@
 ---
 name: imagereader
 description: Analyzes images and returns detailed descriptions.
-model: image
+specialty: image
 ---
 
 # Image Reader

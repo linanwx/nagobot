@@ -10,7 +10,8 @@ import (
 type TemplateMeta struct {
 	Name        string `yaml:"name"`
 	Description string `yaml:"description"`
-	Model       string `yaml:"model"`
+	Specialty   string `yaml:"specialty"`
+	Model       string `yaml:"model"` // deprecated: use Specialty; kept for backward compatibility
 }
 
 // ParseTemplate extracts YAML frontmatter and body from a template string.
@@ -22,6 +23,10 @@ func ParseTemplate(content string) (meta TemplateMeta, body string, hasHeader bo
 
 	if err := yaml.Unmarshal([]byte(header), &meta); err != nil {
 		return meta, content, true, err
+	}
+	// Backward compatibility: fall back to deprecated "model" field.
+	if meta.Specialty == "" && meta.Model != "" {
+		meta.Specialty = meta.Model
 	}
 	return meta, body, true, nil
 }

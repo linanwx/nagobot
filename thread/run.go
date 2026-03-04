@@ -230,7 +230,7 @@ func (t *Thread) resolvedModelConfig() *config.ModelConfig {
 		return nil
 	}
 	def := cfg.Agents.Def(t.Agent.Name)
-	if def == nil || def.Model == "" {
+	if def == nil || def.Specialty == "" {
 		return nil
 	}
 	models := cfg.Models
@@ -240,7 +240,7 @@ func (t *Thread) resolvedModelConfig() *config.ModelConfig {
 	if len(models) == 0 {
 		return nil
 	}
-	mc, ok := models[def.Model]
+	mc, ok := models[def.Specialty]
 	if !ok || mc == nil {
 		return nil
 	}

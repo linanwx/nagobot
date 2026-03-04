@@ -560,14 +560,14 @@ func scanAgentModelSlots() []agentModelSlot {
 			continue
 		}
 		meta, _, _, _ := agent.ParseTemplate(string(raw))
-		if strings.TrimSpace(meta.Model) != "" {
+		if strings.TrimSpace(meta.Specialty) != "" {
 			name := strings.TrimSpace(meta.Name)
 			if name == "" {
 				name = strings.TrimSuffix(e.Name(), ".md")
 			}
 			slots = append(slots, agentModelSlot{
 				AgentName: name,
-				ModelType: strings.TrimSpace(meta.Model),
+				ModelType: strings.TrimSpace(meta.Specialty),
 			})
 		}
 	}

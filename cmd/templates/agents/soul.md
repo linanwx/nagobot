@@ -1,7 +1,7 @@
 ---
 name: soul
 description: Default orchestrator agent for user-facing conversations.
-model: chat
+specialty: chat
 ---
 
 # Soul

@@ -15,7 +15,7 @@ import (
 type AgentDef struct {
 	Name        string // Callable name used by spawn_thread.agent
 	Description string // Short description shown in system prompt context
-	Model       string // Model type declared in frontmatter (e.g. "chat", "search")
+	Specialty   string // Agent specialty declared in frontmatter (e.g. "chat", "toolcall")
 	Path        string // Full path to the template file
 }
 
@@ -79,7 +79,7 @@ func (r *AgentRegistry) load() {
 		next[key] = &AgentDef{
 			Name:        name,
 			Description: strings.TrimSpace(meta.Description),
-			Model:       strings.TrimSpace(meta.Model),
+			Specialty:   strings.TrimSpace(meta.Specialty),
 			Path:        path,
 		}
 	}

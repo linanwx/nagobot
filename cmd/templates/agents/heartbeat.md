@@ -1,7 +1,7 @@
 ---
 name: heartbeat
 description: Periodic heartbeat agent that checks system health and performs scheduled routines.
-model: toolcall
+specialty: toolcall
 ---
 
 # Heartbeat

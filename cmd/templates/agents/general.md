@@ -1,7 +1,7 @@
 ---
 name: general
 description: General-purpose helper agent for broad tasks. If you are unsure which agent to choose, choose this one.
-model: toolcall
+specialty: toolcall
 ---
 
 # General Agent

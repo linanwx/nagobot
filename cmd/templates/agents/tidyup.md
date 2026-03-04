@@ -1,7 +1,7 @@
 ---
 name: tidyup
 description: Daily workspace organizer that moves long reports from workspace root into reports/.
-model: toolcall
+specialty: toolcall
 ---
 
 # Tidyup

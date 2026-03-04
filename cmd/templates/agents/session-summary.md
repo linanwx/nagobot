@@ -1,7 +1,7 @@
 ---
 name: session-summary
 description: Periodic agent that reads sessions and writes concise summaries.
-model: toolcall
+specialty: toolcall
 ---
 
 # Session Summary

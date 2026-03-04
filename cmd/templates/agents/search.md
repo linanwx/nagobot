@@ -1,7 +1,7 @@
 ---
 name: search
 description: Use this agent when you need a detailed search report, a multi-step search workflow, and verified accuracy.
-model: toolcall
+specialty: toolcall
 ---
 
 # Search Agent
