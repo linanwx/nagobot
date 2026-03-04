@@ -3,6 +3,7 @@ package session
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -11,6 +12,12 @@ import (
 
 	"github.com/linanwx/nagobot/provider"
 )
+
+// generateMessageID produces a unique, timestamp-ordered message ID.
+// Format: sessionKey:unixMillis:seq (e.g. "telegram:123456:1709571234567:001").
+func generateMessageID(sessionKey string, ts time.Time, seq int) string {
+	return fmt.Sprintf("%s:%d:%03d", sessionKey, ts.UnixMilli(), seq)
+}
 
 // Session represents a conversation session.
 type Session struct {
@@ -82,6 +89,20 @@ func (m *Manager) Reload(key string) (*Session, error) {
 func (m *Manager) Save(s *Session) error {
 	s.Key = normalizeSessionKey(s.Key)
 	s.UpdatedAt = time.Now()
+
+	// Auto-assign timestamps and IDs to messages that lack them.
+	now := time.Now()
+	seq := 0
+	for i := range s.Messages {
+		if s.Messages[i].Timestamp.IsZero() {
+			s.Messages[i].Timestamp = now
+		}
+		if s.Messages[i].ID == "" {
+			s.Messages[i].ID = generateMessageID(s.Key, s.Messages[i].Timestamp, seq)
+			seq++
+		}
+	}
+
 	s.Messages = provider.SanitizeMessages(s.Messages)
 	data, err := json.MarshalIndent(s, "", "  ")
 	if err != nil {
@@ -152,6 +173,20 @@ func (m *Manager) loadFromDisk(key string) (*Session, error) {
 	if s.UpdatedAt.IsZero() {
 		s.UpdatedAt = s.CreatedAt
 	}
+
+	// Backfill IDs and timestamps for legacy messages loaded from disk.
+	now := time.Now()
+	seq := 0
+	for i := range s.Messages {
+		if s.Messages[i].Timestamp.IsZero() {
+			s.Messages[i].Timestamp = now
+		}
+		if s.Messages[i].ID == "" {
+			s.Messages[i].ID = generateMessageID(key, s.Messages[i].Timestamp, seq)
+			seq++
+		}
+	}
+
 	return &s, nil
 }
 

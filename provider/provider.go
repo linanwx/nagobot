@@ -9,6 +9,7 @@ import (
 	"regexp"
 	"sort"
 	"strings"
+	"time"
 )
 
 // Provider is the interface for LLM providers.
@@ -38,6 +39,17 @@ type Message struct {
 	ToolCalls        []ToolCall `json:"tool_calls,omitempty"`        // for assistant messages
 	ToolCallID       string     `json:"tool_call_id,omitempty"`      // for tool result messages
 	Name             string     `json:"name,omitempty"`              // tool name for tool results
+	ID               string     `json:"id,omitempty"`                // unique message identifier
+	Timestamp        time.Time  `json:"timestamp,omitempty"`         // when message was created
+	Compressed       string     `json:"compressed,omitempty"`        // compressed version of content
+}
+
+// GetContent returns the compressed content if available, otherwise the original content.
+func (m Message) GetContent() string {
+	if m.Compressed != "" {
+		return m.Compressed
+	}
+	return m.Content
 }
 
 // ToolCall represents a tool invocation by the model.
@@ -192,27 +204,27 @@ func IsKimiModel(modelType string) bool {
 
 // UserMessage creates a user message.
 func UserMessage(content string) Message {
-	return Message{Role: "user", Content: content}
+	return Message{Role: "user", Content: content, Timestamp: time.Now()}
 }
 
 // SystemMessage creates a system message.
 func SystemMessage(content string) Message {
-	return Message{Role: "system", Content: content}
+	return Message{Role: "system", Content: content, Timestamp: time.Now()}
 }
 
 // AssistantMessage creates an assistant message.
 func AssistantMessage(content string) Message {
-	return Message{Role: "assistant", Content: content}
+	return Message{Role: "assistant", Content: content, Timestamp: time.Now()}
 }
 
 // AssistantMessageWithTools creates an assistant message with tool calls.
 func AssistantMessageWithTools(content, reasoningContent string, toolCalls []ToolCall) Message {
-	return Message{Role: "assistant", Content: content, ReasoningContent: reasoningContent, ToolCalls: toolCalls}
+	return Message{Role: "assistant", Content: content, ReasoningContent: reasoningContent, ToolCalls: toolCalls, Timestamp: time.Now()}
 }
 
 // ToolResultMessage creates a tool result message.
 func ToolResultMessage(toolCallID, name, content string) Message {
-	return Message{Role: "tool", ToolCallID: toolCallID, Name: name, Content: content}
+	return Message{Role: "tool", ToolCallID: toolCallID, Name: name, Content: content, Timestamp: time.Now()}
 }
 
 // SanitizeMessages removes orphaned tool messages that have no preceding
@@ -232,7 +244,7 @@ func SanitizeMessages(messages []Message) []Message {
 		}
 		// Drop empty assistant messages (no content, no reasoning, no tool calls)
 		// to avoid 400 errors from providers like DeepSeek.
-		if m.Role == "assistant" && m.Content == "" && m.ReasoningContent == "" && len(m.ToolCalls) == 0 {
+		if m.Role == "assistant" && m.Content == "" && m.Compressed == "" && m.ReasoningContent == "" && len(m.ToolCalls) == 0 {
 			continue
 		}
 		if m.Role == "tool" && !callIDs[m.ToolCallID] {

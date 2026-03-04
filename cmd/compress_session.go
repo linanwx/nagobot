@@ -83,8 +83,14 @@ func runCompressSession(_ *cobra.Command, args []string) error {
 
 		tailCount := origCount / 4
 		cutoff := origCount - tailCount
+		head := orig.Messages[:cutoff]
 		tail := orig.Messages[cutoff:]
-		orig.Messages = append([]provider.Message{{Role: "assistant", Content: content}}, tail...)
+		// Place summary at the chronological cutoff point
+		newMessages := make([]provider.Message, 0, len(head)+1+len(tail))
+		newMessages = append(newMessages, head...)
+		newMessages = append(newMessages, provider.Message{Role: "assistant", Content: content})
+		newMessages = append(newMessages, tail...)
+		orig.Messages = newMessages
 
 		_ = os.Remove(inputFile)
 	}
