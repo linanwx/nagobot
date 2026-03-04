@@ -48,7 +48,7 @@ exec: {{WORKSPACE}}/bin/nagobot set-model --default --provider <name> --model <m
 
 ### Set Per-Type Routing
 
-Agent templates declare a `model` type in their frontmatter (e.g. `model: chat`, `model: toolcall`). Per-type routing maps these types to a specific provider and model, overriding the default.
+Agent templates declare a `specialty` in their frontmatter (e.g. `specialty: chat`, `specialty: toolcall`). Per-type routing maps these specialties to a specific provider and model, overriding the default.
 
 ### Set Model Routing
 
@@ -78,4 +78,4 @@ exec: {{WORKSPACE}}/bin/nagobot set-model --type <model_type> --clear
 - **Dependency**: You must configure a provider's API key BEFORE routing models to it. The `set-model` command will reject routing to a provider without a key.
 - Changes take effect immediately (no server restart required).
 - Changes persist across server restarts (saved to config.yaml).
-- Agents without a `model` field in their frontmatter always use the default provider.
+- Agents without a `specialty` field in their frontmatter always use the default provider.

@@ -12,15 +12,15 @@ import (
 
 var setModelCmd = &cobra.Command{
 	Use:     "set-model",
-	Short:   "Manage model routing for agent model types",
+	Short:   "Manage model routing for agent specialties",
 	GroupID: "internal",
-	Long: `Configure which provider and model to use for each agent model type.
+	Long: `Configure which provider and model to use for each agent specialty.
 
 Use --default to set the default provider/model for all agents.
-Use --type to map a specific agent model type to a different provider/model.
+Use --type to map a specific agent specialty to a different provider/model.
 
-Agent templates declare a model type (e.g. "chat", "toolcall") in their frontmatter.
-This command maps those model types to a specific provider and model.
+Agent templates declare a specialty (e.g. "chat", "toolcall") in their frontmatter.
+This command maps those specialties to a specific provider and model.
 
 Examples:
   nagobot set-model --default --provider deepseek --model deepseek-reasoner   # set default
@@ -41,7 +41,7 @@ var (
 )
 
 func init() {
-	setModelCmd.Flags().StringVar(&setModelType, "type", "", "Model type name declared in agent frontmatter (e.g. chat, toolcall)")
+	setModelCmd.Flags().StringVar(&setModelType, "type", "", "Agent specialty declared in frontmatter (e.g. chat, toolcall)")
 	setModelCmd.Flags().StringVar(&setModelProvider, "provider", "", "Target provider name")
 	setModelCmd.Flags().StringVar(&setModelModel, "model", "", "Target model identifier for the provider")
 	setModelCmd.Flags().BoolVar(&setModelList, "list", false, "List current model routing and agent usage")
@@ -160,11 +160,11 @@ func listModelRouting(cfg *config.Config) error {
 		fmt.Printf("  %-16s -> %s / %s\n", mt, mc.Provider, mc.ModelType)
 	}
 
-	// Show agent model type usage
+	// Show agent specialty usage
 	slots := scanAgentModelSlots()
 	groups := groupAgentModelSlots(slots)
 	if len(groups) > 0 {
-		fmt.Println("\nAgent model types:")
+		fmt.Println("\nAgent specialties:")
 		for _, g := range groups {
 			routing := "(default) " + cfg.GetProvider() + " / " + cfg.GetModelType()
 			if mc, ok := cfg.Thread.Models[g.ModelType]; ok && mc != nil {

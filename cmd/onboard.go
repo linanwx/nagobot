@@ -129,7 +129,7 @@ func runOnboard(cmd *cobra.Command, _ []string) error {
 		}
 	}
 
-	// Step 3: Per-model-type override (deduplicated across agents)
+	// Step 3: Per-specialty override (deduplicated across agents)
 	defaultLabel := selectedProvider + " / " + selectedModel
 	groups := groupAgentModelSlots(scanAgentModelSlots())
 	modelOverrides := make(map[string]*config.ModelConfig)
