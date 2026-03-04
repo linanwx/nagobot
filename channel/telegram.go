@@ -29,6 +29,7 @@ const (
 // TelegramChannel implements the Channel interface for Telegram.
 type TelegramChannel struct {
 	token      string
+	mu         sync.RWMutex   // protects allowedIDs
 	allowedIDs map[int64]bool // Allowed user/chat IDs (nil = allow all)
 	messages   chan *Message
 	mediaDir   string // Local directory for downloaded media files
@@ -68,6 +69,17 @@ func NewTelegramChannel(cfg *config.Config) Channel {
 		messages:   make(chan *Message, telegramMessageBufferSize),
 		mediaDir:   mediaDir,
 	}
+}
+
+// Reconfigure updates runtime configuration from a fresh config snapshot.
+func (t *TelegramChannel) Reconfigure(cfg *config.Config) {
+	newIDs := make(map[int64]bool)
+	for _, id := range cfg.GetTelegramAllowedIDs() {
+		newIDs[id] = true
+	}
+	t.mu.Lock()
+	t.allowedIDs = newIDs
+	t.mu.Unlock()
 }
 
 // Name returns the channel name.

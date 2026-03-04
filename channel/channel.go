@@ -8,6 +8,7 @@ import (
 	"sync"
 	"unicode/utf8"
 
+	"github.com/linanwx/nagobot/config"
 	"github.com/linanwx/nagobot/logger"
 )
 
@@ -27,6 +28,12 @@ type Response struct {
 	Text     string            // Response text
 	ReplyTo  string            // Message ID to reply to
 	Metadata map[string]string // Channel-specific options
+}
+
+// Reconfigurable is an optional interface for channels that support
+// live config updates (e.g. allowedIDs changes without restart).
+type Reconfigurable interface {
+	Reconfigure(cfg *config.Config)
 }
 
 // Channel is the interface for messaging channels.

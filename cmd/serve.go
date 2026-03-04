@@ -317,6 +317,15 @@ func refreshChannels(ctx context.Context, chMgr *channel.Manager, dispatcher *Di
 		registered := chMgr.Has(spec.name)
 		configured := spec.hasToken(cfg)
 
+		// Push config updates to running channels.
+		if configured && registered {
+			if ch, ok := chMgr.Get(spec.name); ok {
+				if rc, ok := ch.(channel.Reconfigurable); ok {
+					rc.Reconfigure(cfg)
+				}
+			}
+		}
+
 		if configured && !registered {
 			ch := spec.newCh(cfg)
 			if ch == nil {

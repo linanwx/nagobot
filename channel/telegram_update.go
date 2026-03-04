@@ -31,8 +31,11 @@ func (t *TelegramChannel) handleUpdate(ctx context.Context, b *bot.Bot, update *
 		lastName = from.LastName
 	}
 
-	if len(t.allowedIDs) > 0 {
-		if !t.allowedIDs[chat.ID] && !t.allowedIDs[fromID] {
+	t.mu.RLock()
+	allowed := t.allowedIDs
+	t.mu.RUnlock()
+	if len(allowed) > 0 {
+		if !allowed[chat.ID] && !allowed[fromID] {
 			logger.Warn("telegram message from unauthorized user",
 				"userID", fromID,
 				"chatID", chat.ID,
