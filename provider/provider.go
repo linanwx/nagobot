@@ -227,20 +227,33 @@ func ToolResultMessage(toolCallID, name, content string) Message {
 	return Message{Role: "tool", ToolCallID: toolCallID, Name: name, Content: content, Timestamp: time.Now()}
 }
 
-// SanitizeMessages removes orphaned tool messages that have no preceding
-// assistant message with a matching tool_call ID. This prevents API errors
-// (e.g. DeepSeek: "Messages with role 'tool' must be a response to a
-// preceding message with 'tool_calls'") that occur after session compression
-// cuts through a tool_calls→tool sequence.
+// SanitizeMessages cleans up message sequences to prevent API errors:
+//  1. Removes orphaned tool messages (no preceding assistant with matching tool_call ID).
+//  2. Strips tool_calls from assistant messages whose tool results are missing.
+//  3. Drops empty assistant messages (no content, no reasoning, no tool calls).
 func SanitizeMessages(messages []Message) []Message {
+	// Collect all tool_call_ids that have a tool response.
+	answeredCalls := make(map[string]bool)
+	for _, m := range messages {
+		if m.Role == "tool" && m.ToolCallID != "" {
+			answeredCalls[m.ToolCallID] = true
+		}
+	}
+
 	// Forward scan: track tool_call IDs from assistant messages.
 	callIDs := make(map[string]bool)
 	result := make([]Message, 0, len(messages))
 	for _, m := range messages {
-		if m.Role == "assistant" {
+		if m.Role == "assistant" && len(m.ToolCalls) > 0 {
+			// Keep only tool_calls that have matching tool responses.
+			var answered []ToolCall
 			for _, tc := range m.ToolCalls {
-				callIDs[tc.ID] = true
+				if answeredCalls[tc.ID] {
+					answered = append(answered, tc)
+					callIDs[tc.ID] = true
+				}
 			}
+			m.ToolCalls = answered
 		}
 		// Drop empty assistant messages (no content, no reasoning, no tool calls)
 		// to avoid 400 errors from providers like DeepSeek.

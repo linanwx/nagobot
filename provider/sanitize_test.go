@@ -44,6 +44,44 @@ func TestSanitizeMessages_DropsOrphanedTool(t *testing.T) {
 	}
 }
 
+func TestSanitizeMessages_StripsUnansweredToolCalls(t *testing.T) {
+	messages := []Message{
+		UserMessage("hello"),
+		// assistant with 2 tool_calls, but only one has a tool response
+		{Role: "assistant", ToolCalls: []ToolCall{
+			{ID: "tc1", Type: "function", Function: FunctionCall{Name: "f1", Arguments: "{}"}},
+			{ID: "tc2", Type: "function", Function: FunctionCall{Name: "f2", Arguments: "{}"}},
+		}},
+		{Role: "tool", ToolCallID: "tc1", Name: "f1", Content: "ok"},
+		// tc2 has no tool response
+		AssistantMessage("done"),
+	}
+	got := SanitizeMessages(messages)
+	// Should keep: user, assistant(with only tc1), tool(tc1), assistant
+	if len(got) != 4 {
+		t.Fatalf("expected 4 messages, got %d", len(got))
+	}
+	if len(got[1].ToolCalls) != 1 || got[1].ToolCalls[0].ID != "tc1" {
+		t.Fatalf("expected assistant to keep only tc1, got %v", got[1].ToolCalls)
+	}
+}
+
+func TestSanitizeMessages_DropsAssistantWithAllUnansweredToolCalls(t *testing.T) {
+	messages := []Message{
+		UserMessage("hello"),
+		// assistant with tool_calls but NO tool responses at all
+		{Role: "assistant", ToolCalls: []ToolCall{
+			{ID: "tc1", Type: "function", Function: FunctionCall{Name: "f1", Arguments: "{}"}},
+		}},
+		AssistantMessage("fallback"),
+	}
+	got := SanitizeMessages(messages)
+	// assistant loses all tool_calls → becomes empty → dropped
+	if len(got) != 2 {
+		t.Fatalf("expected 2 messages (empty assistant dropped), got %d", len(got))
+	}
+}
+
 func TestGetContent_ReturnsCompressedWhenSet(t *testing.T) {
 	m := Message{Role: "user", Content: "original long content", Compressed: "short summary"}
 	if got := m.GetContent(); got != "short summary" {
