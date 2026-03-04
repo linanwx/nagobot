@@ -1,12 +1,14 @@
 # nagobot
 
-Tired of endless configuration and unstable runtime? Try nagobot.
+Tired of endless configuration and unstable runtime? Try [nagobot](https://nagobot.com).
 
 <p align="center">
   <img src="img/head.png" alt="nagobot head" width="120" />
 </p>
 
-`nagobot` is an ultra-light AI assistant built with Go.
+`nagobot` is an ultra-light AI assistant built with Go. One install, all channels.
+
+**[Website](https://nagobot.com)** · **[Releases](https://github.com/linanwx/nagobot/releases)** · **[Documentation](https://nagobot.com)**
 
 Inspired by nanobot (`github.com/HKUDS/nanobot`) and openclaw (`github.com/openclaw`).
 
@@ -50,12 +52,23 @@ Recommended: deepseek-reasoner for chat, kimi-k2.5 for tool calls.
 go build -o nagobot .
 ```
 
+## Install
+
+```bash
+curl -fsSL https://nagobot.com/install.sh | bash
+```
+
+Windows (PowerShell):
+```powershell
+irm https://nagobot.com/install.ps1 | iex
+```
+
 ## Quick Start
 
 1. Run the interactive setup wizard:
 
 ```bash
-./nagobot onboard
+nagobot onboard
 ```
 
 The wizard will guide you through provider selection, API key setup, and optional Telegram configuration.
@@ -65,7 +78,7 @@ The project may change drastically between versions. Please re-run `onboard` aft
 2. Start the service:
 
 ```bash
-./nagobot serve
+nagobot serve
 ```
 
 ## Documentation
