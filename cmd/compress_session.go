@@ -85,10 +85,14 @@ func runCompressSession(_ *cobra.Command, args []string) error {
 		cutoff := origCount - tailCount
 		head := orig.Messages[:cutoff]
 		tail := orig.Messages[cutoff:]
-		// Place summary at the chronological cutoff point
+		// Place summary at the chronological cutoff point with a proper timestamp.
+		summaryTS := now
+		if len(head) > 0 && !head[len(head)-1].Timestamp.IsZero() {
+			summaryTS = head[len(head)-1].Timestamp
+		}
 		newMessages := make([]provider.Message, 0, len(head)+1+len(tail))
 		newMessages = append(newMessages, head...)
-		newMessages = append(newMessages, provider.Message{Role: "assistant", Content: content})
+		newMessages = append(newMessages, provider.Message{Role: "assistant", Content: content, Timestamp: summaryTS})
 		newMessages = append(newMessages, tail...)
 		orig.Messages = newMessages
 
@@ -96,6 +100,7 @@ func runCompressSession(_ *cobra.Command, args []string) error {
 	}
 
 	orig.UpdatedAt = now
+	session.EnsureMessageIDs(orig.Key, orig.Messages)
 	newData, err := json.MarshalIndent(&orig, "", "  ")
 	if err != nil {
 		return fmt.Errorf("failed to marshal new session: %w", err)

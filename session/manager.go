@@ -19,6 +19,20 @@ func generateMessageID(sessionKey string, ts time.Time, seq int) string {
 	return fmt.Sprintf("%s:%d:%03d", sessionKey, ts.UnixMilli(), seq)
 }
 
+// EnsureMessageIDs assigns timestamps and IDs to messages that lack them.
+// Uses each message's index as the sequence number to guarantee uniqueness.
+func EnsureMessageIDs(key string, messages []provider.Message) {
+	now := time.Now()
+	for i := range messages {
+		if messages[i].Timestamp.IsZero() {
+			messages[i].Timestamp = now
+		}
+		if messages[i].ID == "" {
+			messages[i].ID = generateMessageID(key, messages[i].Timestamp, i)
+		}
+	}
+}
+
 // Session represents a conversation session.
 type Session struct {
 	Key       string             `json:"key"`
@@ -90,19 +104,7 @@ func (m *Manager) Save(s *Session) error {
 	s.Key = normalizeSessionKey(s.Key)
 	s.UpdatedAt = time.Now()
 
-	// Auto-assign timestamps and IDs to messages that lack them.
-	now := time.Now()
-	seq := 0
-	for i := range s.Messages {
-		if s.Messages[i].Timestamp.IsZero() {
-			s.Messages[i].Timestamp = now
-		}
-		if s.Messages[i].ID == "" {
-			s.Messages[i].ID = generateMessageID(s.Key, s.Messages[i].Timestamp, seq)
-			seq++
-		}
-	}
-
+	EnsureMessageIDs(s.Key, s.Messages)
 	s.Messages = provider.SanitizeMessages(s.Messages)
 	data, err := json.MarshalIndent(s, "", "  ")
 	if err != nil {
@@ -175,17 +177,7 @@ func (m *Manager) loadFromDisk(key string) (*Session, error) {
 	}
 
 	// Backfill IDs and timestamps for legacy messages loaded from disk.
-	now := time.Now()
-	seq := 0
-	for i := range s.Messages {
-		if s.Messages[i].Timestamp.IsZero() {
-			s.Messages[i].Timestamp = now
-		}
-		if s.Messages[i].ID == "" {
-			s.Messages[i].ID = generateMessageID(key, s.Messages[i].Timestamp, seq)
-			seq++
-		}
-	}
+	EnsureMessageIDs(key, s.Messages)
 
 	return &s, nil
 }
