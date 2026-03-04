@@ -24,7 +24,7 @@ func formatResolvedPath(input, resolved string) string {
 	return fmt.Sprintf("%s (resolved: %s)", input, resolved)
 }
 
-const readFileDefaultLimit = 100
+const readFileDefaultLimit = 2000
 
 // ReadFileTool reads the contents of a file with line-based pagination.
 type ReadFileTool struct {
@@ -37,7 +37,7 @@ func (t *ReadFileTool) Def() provider.ToolDef {
 		Type: "function",
 		Function: provider.FunctionDef{
 			Name: "read_file",
-			Description: "Read lines from a file. Returns up to 100 lines starting from offset (default 1). " +
+			Description: "Read lines from a file. Returns up to 2000 lines starting from offset (default 1). " +
 				"If the file has more lines than the limit, a notice is appended showing total line count " +
 				"so you can make follow-up calls with offset to read the rest. " +
 				"Use tail to read the last N lines of the file (offset and limit are ignored when tail is set).",
@@ -54,7 +54,7 @@ func (t *ReadFileTool) Def() provider.ToolDef {
 					},
 					"limit": map[string]any{
 						"type":        "integer",
-						"description": "Maximum number of lines to return. Can be omitted (reads up to 100 lines). Ignored when tail is set.",
+						"description": "Maximum number of lines to return. Can be omitted (reads up to 2000 lines). Ignored when tail is set.",
 					},
 					"tail": map[string]any{
 						"type":        "integer",
@@ -287,7 +287,7 @@ func (t *EditFileTool) Def() provider.ToolDef {
 		Type: "function",
 		Function: provider.FunctionDef{
 			Name:        "edit_file",
-			Description: "Edit a file by replacing specific text. Relative paths are resolved from workspace root. The old_text must match exactly (including whitespace).",
+			Description: "Edit a file by replacing specific text. Relative paths are resolved from workspace root. The old_text must match exactly (trailing whitespace differences are tolerated). Use replace_all to replace every occurrence (e.g. renaming a variable).",
 			Parameters: map[string]any{
 				"type": "object",
 				"properties": map[string]any{
@@ -303,6 +303,10 @@ func (t *EditFileTool) Def() provider.ToolDef {
 						"type":        "string",
 						"description": "The text to replace with.",
 					},
+					"replace_all": map[string]any{
+						"type":        "boolean",
+						"description": "Replace all occurrences instead of requiring a unique match. Defaults to false.",
+					},
 				},
 				"required": []string{"path", "old_text", "new_text"},
 			},
@@ -312,9 +316,19 @@ func (t *EditFileTool) Def() provider.ToolDef {
 
 // editFileArgs are the arguments for edit_file.
 type editFileArgs struct {
-	Path    string `json:"path"`
-	OldText string `json:"old_text"`
-	NewText string `json:"new_text"`
+	Path       string `json:"path"`
+	OldText    string `json:"old_text"`
+	NewText    string `json:"new_text"`
+	ReplaceAll bool   `json:"replace_all,omitempty"`
+}
+
+// normalizeTrailingWS strips trailing spaces/tabs from each line for fuzzy matching.
+func normalizeTrailingWS(s string) string {
+	lines := strings.Split(s, "\n")
+	for i, l := range lines {
+		lines[i] = strings.TrimRight(l, " \t")
+	}
+	return strings.Join(lines, "\n")
 }
 
 // Run executes the tool.
@@ -336,18 +350,131 @@ func (t *EditFileTool) Run(ctx context.Context, args json.RawMessage) string {
 	}
 
 	contentStr := string(content)
+	displayPath := formatResolvedPath(a.Path, resolvedPath)
+
+	// Try exact match first.
 	count := strings.Count(contentStr, a.OldText)
+
 	if count == 0 {
-		return fmt.Sprintf("Error: text not found in file: %q (path: %s)", a.OldText, formatResolvedPath(a.Path, resolvedPath))
-	}
-	if count > 1 {
-		return fmt.Sprintf("Error: text appears %d times in file (path: %s); match must be unique. Provide more context.", count, formatResolvedPath(a.Path, resolvedPath))
+		// Fuzzy fallback: normalize trailing whitespace on both sides.
+		normContent := normalizeTrailingWS(contentStr)
+		normOld := normalizeTrailingWS(a.OldText)
+		normCount := strings.Count(normContent, normOld)
+
+		if normCount == 0 {
+			return fmt.Sprintf("Error: text not found in file: %q (path: %s)", a.OldText, displayPath)
+		}
+		if normCount > 1 && !a.ReplaceAll {
+			return fmt.Sprintf("Error: text appears %d times in file (path: %s); match must be unique. Provide more context or use replace_all.", normCount, displayPath)
+		}
+
+		// Find the corresponding region in the original content and replace.
+		var newContent string
+		if a.ReplaceAll {
+			newContent = normalizedReplaceAll(contentStr, normOld, a.NewText)
+		} else {
+			newContent = normalizedReplace(contentStr, normOld, a.NewText)
+		}
+
+		if err := os.WriteFile(path, []byte(newContent), 0644); err != nil {
+			return fmt.Sprintf("Error: failed to write file: %s: %v", displayPath, err)
+		}
+		n := normCount
+		if !a.ReplaceAll {
+			n = 1
+		}
+		return fmt.Sprintf("Successfully edited %s (%d replacement(s), fuzzy whitespace match)", displayPath, n)
 	}
 
-	newContent := strings.Replace(contentStr, a.OldText, a.NewText, 1)
+	if count > 1 && !a.ReplaceAll {
+		return fmt.Sprintf("Error: text appears %d times in file (path: %s); match must be unique. Provide more context or use replace_all.", count, displayPath)
+	}
+
+	var newContent string
+	if a.ReplaceAll {
+		newContent = strings.ReplaceAll(contentStr, a.OldText, a.NewText)
+	} else {
+		newContent = strings.Replace(contentStr, a.OldText, a.NewText, 1)
+	}
+
 	if err := os.WriteFile(path, []byte(newContent), 0644); err != nil {
-		return fmt.Sprintf("Error: failed to write file: %s: %v", formatResolvedPath(a.Path, resolvedPath), err)
+		return fmt.Sprintf("Error: failed to write file: %s: %v", displayPath, err)
 	}
 
-	return fmt.Sprintf("Successfully edited %s", formatResolvedPath(a.Path, resolvedPath))
+	return fmt.Sprintf("Successfully edited %s (%d replacement(s))", displayPath, count)
+}
+
+// normToOrigPos maps a character position in normalized text back to the
+// corresponding position in the original text. Since normalization only
+// trims trailing whitespace per line, positions within a line are identical;
+// only inter-line offsets differ.
+func normToOrigPos(origLines, normLines []string, normPos int) int {
+	normOff := 0
+	origOff := 0
+	for i := range normLines {
+		nlLen := len(normLines[i])
+		if normPos <= normOff+nlLen {
+			return origOff + (normPos - normOff)
+		}
+		normOff += nlLen + 1 // +1 for \n
+		origOff += len(origLines[i]) + 1
+	}
+	return origOff
+}
+
+// normalizedReplace replaces the first occurrence of normOld in content,
+// where matching is done on trailing-whitespace-normalized text but the
+// replacement is applied to the original content.
+func normalizedReplace(content, normOld, newText string) string {
+	origLines := strings.Split(content, "\n")
+	normLines := make([]string, len(origLines))
+	for i, l := range origLines {
+		normLines[i] = strings.TrimRight(l, " \t")
+	}
+	normContent := strings.Join(normLines, "\n")
+
+	normIdx := strings.Index(normContent, normOld)
+	if normIdx < 0 {
+		return content
+	}
+
+	origStart := normToOrigPos(origLines, normLines, normIdx)
+	origEnd := normToOrigPos(origLines, normLines, normIdx+len(normOld))
+	return content[:origStart] + newText + content[origEnd:]
+}
+
+// normalizedReplaceAll replaces all occurrences using normalized matching.
+// Matches are found in normalized text and mapped back to original positions.
+// Replacements proceed back-to-front to preserve earlier positions.
+func normalizedReplaceAll(content, normOld, newText string) string {
+	origLines := strings.Split(content, "\n")
+	normLines := make([]string, len(origLines))
+	for i, l := range origLines {
+		normLines[i] = strings.TrimRight(l, " \t")
+	}
+	normContent := strings.Join(normLines, "\n")
+
+	// Collect all match positions in normalized text.
+	var matches []int
+	pos := 0
+	for {
+		idx := strings.Index(normContent[pos:], normOld)
+		if idx < 0 {
+			break
+		}
+		matches = append(matches, pos+idx)
+		pos += idx + len(normOld)
+	}
+	if len(matches) == 0 {
+		return content
+	}
+
+	// Replace back-to-front to keep earlier positions valid.
+	result := content
+	for i := len(matches) - 1; i >= 0; i-- {
+		origStart := normToOrigPos(origLines, normLines, matches[i])
+		origEnd := normToOrigPos(origLines, normLines, matches[i]+len(normOld))
+		result = result[:origStart] + newText + result[origEnd:]
+	}
+	return result
 }

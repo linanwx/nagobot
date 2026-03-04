@@ -19,7 +19,7 @@ import (
 )
 
 const (
-	toolResultMaxChars  = 20000
+	toolResultMaxChars  = 100000
 	toolLogMaxChars     = 50000
 )
 
