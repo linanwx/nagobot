@@ -73,13 +73,9 @@ nagobot onboard
 
 The wizard will guide you through provider selection, API key setup, and optional Telegram configuration.
 
+The wizard will also install the service, which starts automatically on boot.
+
 The project may change drastically between versions. Please re-run `onboard` after updating.
-
-2. Start the service:
-
-```bash
-nagobot serve
-```
 
 ## Documentation
 
