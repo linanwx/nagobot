@@ -48,7 +48,7 @@ func (t *Thread) run(ctx context.Context, userMessage string, sink Sink, injectF
 
 	sess := t.loadSession()
 	if sess != nil {
-		messages = append(messages, applyCompressed(sess.Messages)...)
+		messages = append(messages, applyCompressed(provider.SanitizeMessages(sess.Messages))...)
 	}
 
 	turnUserMessages := make([]provider.Message, 0, 4)
