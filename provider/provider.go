@@ -228,15 +228,29 @@ func ToolResultMessage(toolCallID, name, content string) Message {
 }
 
 // SanitizeMessages cleans up message sequences to prevent API errors:
-//  1. Removes orphaned tool messages (no preceding assistant with matching tool_call ID).
-//  2. Strips tool_calls from assistant messages whose tool results are missing.
+//  1. Strips tool_calls whose tool responses don't immediately follow.
+//  2. Removes orphaned tool messages (no preceding assistant with matching tool_call ID).
 //  3. Drops empty assistant messages (no content, no reasoning, no tool calls).
 func SanitizeMessages(messages []Message) []Message {
-	// Collect all tool_call_ids that have a tool response.
+	// For each assistant with tool_calls, check that the immediately following
+	// messages are the corresponding tool responses (no gaps allowed).
 	answeredCalls := make(map[string]bool)
-	for _, m := range messages {
-		if m.Role == "tool" && m.ToolCallID != "" {
-			answeredCalls[m.ToolCallID] = true
+	for i, m := range messages {
+		if m.Role != "assistant" || len(m.ToolCalls) == 0 {
+			continue
+		}
+		tcIDs := make(map[string]bool, len(m.ToolCalls))
+		for _, tc := range m.ToolCalls {
+			tcIDs[tc.ID] = true
+		}
+		// Scan immediately following tool messages.
+		for j := i + 1; j < len(messages); j++ {
+			if messages[j].Role != "tool" {
+				break
+			}
+			if tcIDs[messages[j].ToolCallID] {
+				answeredCalls[messages[j].ToolCallID] = true
+			}
 		}
 	}
 
@@ -245,7 +259,7 @@ func SanitizeMessages(messages []Message) []Message {
 	result := make([]Message, 0, len(messages))
 	for _, m := range messages {
 		if m.Role == "assistant" && len(m.ToolCalls) > 0 {
-			// Keep only tool_calls that have matching tool responses.
+			// Keep only tool_calls that have immediately following tool responses.
 			var answered []ToolCall
 			for _, tc := range m.ToolCalls {
 				if answeredCalls[tc.ID] {
@@ -255,9 +269,9 @@ func SanitizeMessages(messages []Message) []Message {
 			}
 			m.ToolCalls = answered
 		}
-		// Drop empty assistant messages (no content, no reasoning, no tool calls)
-		// to avoid 400 errors from providers like DeepSeek.
-		if m.Role == "assistant" && m.Content == "" && m.Compressed == "" && m.ReasoningContent == "" && len(m.ToolCalls) == 0 {
+		// Drop assistant messages with no visible content and no tool calls.
+		// Includes messages left with only ReasoningContent after tool_calls stripping.
+		if m.Role == "assistant" && m.Content == "" && m.Compressed == "" && len(m.ToolCalls) == 0 {
 			continue
 		}
 		if m.Role == "tool" && !callIDs[m.ToolCallID] {
