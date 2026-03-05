@@ -357,13 +357,15 @@ func installBinary(workspace string) {
 	}
 	dest := filepath.Join(binDir, "nagobot")
 
-	// Skip if same size.
+	// Skip if same size and not older than the source.
 	srcInfo, err := os.Stat(exe)
 	if err != nil {
 		logger.Warn("failed to stat executable", "err", err)
 		return
 	}
-	if dstInfo, err := os.Stat(dest); err == nil && dstInfo.Size() == srcInfo.Size() {
+	if dstInfo, err := os.Stat(dest); err == nil &&
+		dstInfo.Size() == srcInfo.Size() &&
+		!dstInfo.ModTime().Before(srcInfo.ModTime()) {
 		return
 	}
 
