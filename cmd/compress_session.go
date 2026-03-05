@@ -84,26 +84,20 @@ func runCompressSession(_ *cobra.Command, args []string) error {
 		tailCount := origCount / 4
 		cutoff := origCount - tailCount
 		// Adjust cutoff to avoid splitting a tool_calls→tool sequence.
-		// Move cutoff backward until it's not inside an assistant→tool chain.
 		for cutoff > 0 && orig.Messages[cutoff].Role == "tool" {
 			cutoff--
 		}
-		// Also back up past an assistant with tool_calls to keep the entire
-		// assistant→tool* sequence together in the tail.
 		if cutoff > 0 && orig.Messages[cutoff-1].Role == "assistant" && len(orig.Messages[cutoff-1].ToolCalls) > 0 {
 			cutoff--
 		}
-		head := orig.Messages[:cutoff]
-		tail := orig.Messages[cutoff:]
-		// Place summary at the chronological cutoff point with a proper timestamp.
-		summaryTS := now
-		if len(head) > 0 && !head[len(head)-1].Timestamp.IsZero() {
-			summaryTS = head[len(head)-1].Timestamp
+		// Ensure tail starts with a user message (required by some providers).
+		for cutoff < origCount && orig.Messages[cutoff].Role != "user" {
+			cutoff++
 		}
-		newMessages := make([]provider.Message, 0, len(head)+1+len(tail))
-		newMessages = append(newMessages, head...)
-		newMessages = append(newMessages, provider.Message{Role: "assistant", Content: content, Timestamp: summaryTS})
+		tail := orig.Messages[cutoff:]
+		newMessages := make([]provider.Message, 0, len(tail)+1)
 		newMessages = append(newMessages, tail...)
+		newMessages = append(newMessages, provider.Message{Role: "assistant", Content: content, Timestamp: now})
 		orig.Messages = newMessages
 
 		_ = os.Remove(inputFile)
