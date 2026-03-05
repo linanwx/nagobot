@@ -317,11 +317,9 @@ func buildChainInfo(chain []*config.ChainStep, currentIdx int) string {
 	sb.WriteString("  </models>\n")
 	sb.WriteString("  <instruction>")
 	if currentIdx == 0 {
-		sb.WriteString("请快速回复、简单规划。后续模型会补充深度分析。")
-	} else if currentIdx == len(chain)-1 {
-		sb.WriteString("前序模型已回复（见上方对话）。请补充、深度调查、完善回答。")
+		sb.WriteString("Reply quickly.")
 	} else {
-		sb.WriteString("前序模型已回复（见上方对话）。请从你的角度补充。")
+		sb.WriteString("Earlier models have already replied. Verify their answers or supplement with details.")
 	}
 	sb.WriteString("</instruction>\n")
 	sb.WriteString("</chain-info>")
