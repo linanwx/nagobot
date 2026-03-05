@@ -38,6 +38,7 @@ const (
 	WakeCron           = msg.WakeCron
 	WakeCronFinished   = msg.WakeCronFinished
 	WakeExternal       = msg.WakeExternal
+	WakeCompression    = msg.WakeCompression
 )
 
 // threadState represents the runtime state of a thread.
@@ -54,6 +55,16 @@ const (
 	defaultThreadTTL      = 3 * time.Hour
 	gcInterval            = 5 * time.Minute
 	streamFlushThreshold  = 600 // minimum unsent bytes before attempting a streamer split
+
+	// Tier 1: mechanical tool-result compression (idle 5-30 min)
+	tier1IdleMin   = 5 * time.Minute
+	tier1IdleMax   = 30 * time.Minute
+	tier1TokenRatio = 0.5
+
+	// Tier 2: AI-driven silent compression (idle ≥30 min)
+	tier2IdleMin    = 30 * time.Minute
+	tier2IdleMax    = 24 * time.Hour
+	tier2TokenRatio = 0.6
 )
 
 // ThreadConfig contains shared dependencies for creating threads.
@@ -103,7 +114,8 @@ type Thread struct {
 	suppressSink bool      // When true, RunOnce skips sink delivery (reset after each turn).
 	haltLoop     bool      // When true, Runner stops after current tool calls complete.
 
-	execMetrics *ExecMetrics // Non-nil only while a turn is executing.
+	execMetrics      *ExecMetrics // Non-nil only while a turn is executing.
+	lastCompressedAt time.Time    // Last time AI-driven (tier 2) compression ran.
 }
 
 // ToolCallRecord is an alias for msg.ToolCallRecord.

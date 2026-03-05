@@ -1,6 +1,7 @@
 package thread
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -9,32 +10,35 @@ import (
 
 	"github.com/linanwx/nagobot/logger"
 	"github.com/linanwx/nagobot/provider"
+	"github.com/linanwx/nagobot/thread/msg"
 )
 
 const (
-	compressIdleMinAge     = 30 * time.Minute // idle longer than this
-	compressIdleMaxAge     = 24 * time.Hour   // but active within this
-	compressTokenRatio     = 0.5              // token usage threshold
-	compressMinContentLen  = 200              // skip short tool results (idempotency)
-	compressKeepAssistants = 3                // protect last N assistant turns
+	compressMinContentLen  = 200 // skip short tool results (idempotency)
+	compressKeepAssistants = 3   // protect last N assistant turns
 )
 
-// compressIdleSessions scans threads for idle sessions eligible for
-// background tool-result compression.
-func (m *Manager) compressIdleSessions() {
+// runCompressionScan scans idle threads and applies the appropriate compression tier:
+//   - Tier 1 (idle 5-30min, >50% tokens): mechanical tool-result compression
+//   - Tier 2 (idle ≥30min, >60% tokens): AI-driven silent compression via compress-context skill
+func (m *Manager) runCompressionScan() {
 	cfg := m.cfg
 	if cfg.Sessions == nil || cfg.ContextWindowTokens <= 0 {
 		return
 	}
 
-	// Collect eligible session keys under lock.
+	type candidate struct {
+		key  string
+		idle time.Duration
+	}
+
 	m.mu.Lock()
-	var candidates []string
+	var candidates []candidate
 	now := time.Now()
 	for key, t := range m.threads {
 		idle := now.Sub(t.lastActiveAt)
-		if t.state == threadIdle && idle > compressIdleMinAge && idle < compressIdleMaxAge {
-			candidates = append(candidates, key)
+		if t.state == threadIdle && idle >= tier1IdleMin && idle < tier2IdleMax {
+			candidates = append(candidates, candidate{key: key, idle: idle})
 		}
 	}
 	m.mu.Unlock()
@@ -43,18 +47,23 @@ func (m *Manager) compressIdleSessions() {
 		return
 	}
 
-	threshold := int(float64(cfg.ContextWindowTokens) * compressTokenRatio)
-
-	for _, key := range candidates {
-		m.tryCompressSession(key, threshold)
+	for _, c := range candidates {
+		if c.idle >= tier2IdleMin {
+			m.tryTier2Compress(c.key)
+		} else {
+			// Tier 1: mechanical compression (5-30min idle)
+			threshold := int(float64(cfg.ContextWindowTokens) * tier1TokenRatio)
+			m.tryTier1Compress(c.key, threshold)
+		}
 	}
 }
 
-func (m *Manager) tryCompressSession(sessionKey string, tokenThreshold int) {
+// tryTier1Compress performs mechanical tool-result compression on an idle session.
+func (m *Manager) tryTier1Compress(sessionKey string, tokenThreshold int) {
 	cfg := m.cfg
 	sess, err := cfg.Sessions.Reload(sessionKey)
 	if err != nil {
-		logger.Debug("tier2 compress: failed to load session", "sessionKey", sessionKey, "err", err)
+		logger.Debug("tier1 compress: failed to load session", "sessionKey", sessionKey, "err", err)
 		return
 	}
 	if len(sess.Messages) == 0 {
@@ -71,25 +80,78 @@ func (m *Manager) tryCompressSession(sessionKey string, tokenThreshold int) {
 		return
 	}
 
-	// Backup before modifying.
 	sessionPath := cfg.Sessions.PathForKey(sessionKey)
 	if err := backupSession(sessionPath); err != nil {
-		logger.Warn("tier2 compress: backup failed", "sessionKey", sessionKey, "err", err)
+		logger.Warn("tier1 compress: backup failed", "sessionKey", sessionKey, "err", err)
 		return
 	}
 
 	sess.Messages = newMessages
 	if err := cfg.Sessions.Save(sess); err != nil {
-		logger.Warn("tier2 compress: save failed", "sessionKey", sessionKey, "err", err)
+		logger.Warn("tier1 compress: save failed", "sessionKey", sessionKey, "err", err)
 		return
 	}
 
 	newTokens := estimateMessagesTokens(newMessages)
-	logger.Info("tier2 compress: tool results trimmed",
+	logger.Info("tier1 compress: tool results trimmed",
 		"sessionKey", sessionKey,
 		"tokensBefore", tokens,
 		"tokensAfter", newTokens,
 		"messageCount", len(newMessages),
+	)
+}
+
+// tryTier2Compress silently wakes the thread to run AI-driven compression.
+func (m *Manager) tryTier2Compress(sessionKey string) {
+	cfg := m.cfg
+
+	sess, err := cfg.Sessions.Reload(sessionKey)
+	if err != nil || len(sess.Messages) == 0 {
+		return
+	}
+
+	tokens := estimateMessagesTokens(sess.Messages)
+	threshold := int(float64(cfg.ContextWindowTokens) * tier2TokenRatio)
+	if tokens < threshold {
+		return
+	}
+
+	m.mu.Lock()
+	t, ok := m.threads[sessionKey]
+	if !ok || t.state != threadIdle {
+		m.mu.Unlock()
+		return
+	}
+	// Skip if recently compressed (token-based guard failed, e.g. skill didn't execute).
+	if !t.lastCompressedAt.IsZero() && time.Since(t.lastCompressedAt) < 10*time.Minute {
+		m.mu.Unlock()
+		return
+	}
+	t.lastCompressedAt = time.Now()
+	m.mu.Unlock()
+
+	sessionPath := cfg.Sessions.PathForKey(sessionKey)
+	instruction := msg.BuildSystemMessage("compression_maintenance", map[string]string{
+		"session_key":      sessionKey,
+		"session_file":     sessionPath,
+		"estimated_tokens": fmt.Sprintf("%d", tokens),
+		"context_window":   fmt.Sprintf("%d", cfg.ContextWindowTokens),
+		"usage_ratio":      fmt.Sprintf("%.2f", float64(tokens)/float64(cfg.ContextWindowTokens)),
+	}, `This is an automated background maintenance task. You MUST load and execute skill "compress-context" NOW. Use the session_file path provided above. Do NOT produce any user-facing output. Just compress and finish.`)
+
+	t.Enqueue(&WakeMessage{
+		Source:  WakeCompression,
+		Message: instruction,
+		Sink: Sink{
+			Label: "maintenance task, response will not be delivered to any user",
+			Send:  func(_ context.Context, _ string) error { return nil },
+		},
+	})
+
+	logger.Info("tier2 compress: AI compression wake enqueued",
+		"sessionKey", sessionKey,
+		"tokens", tokens,
+		"threshold", threshold,
 	)
 }
 

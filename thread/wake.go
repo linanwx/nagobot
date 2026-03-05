@@ -227,6 +227,8 @@ func wakeActionHint(source WakeSource) string {
 		return "A cron task finished. The <message> content is ONLY visible to you. Summarize and deliver the result to the user."
 	case WakeExternal:
 		return "Process this external wake message. The <message> content is only visible to you."
+	case WakeCompression:
+		return "Automated background maintenance. Execute the compression skill immediately. Do not produce user-facing content."
 	default:
 		return "Process this wake message and continue."
 	}

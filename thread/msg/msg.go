@@ -84,6 +84,7 @@ const (
 	WakeCron           WakeSource = "cron"
 	WakeCronFinished   WakeSource = "cron_finished"
 	WakeExternal       WakeSource = "external"
+	WakeCompression    WakeSource = "compression"
 )
 
 // WakeMessage is an item in a thread's wake queue.
