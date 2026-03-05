@@ -11,7 +11,7 @@ import (
 
 // SkillProvider retrieves skill prompts.
 type SkillProvider interface {
-	GetSkillPrompt(name string) (string, bool)
+	GetSkillPrompt(name string) (prompt string, dir string, ok bool)
 	SkillNames() []string
 }
 
@@ -58,7 +58,7 @@ func (t *UseSkillTool) Run(ctx context.Context, args json.RawMessage) string {
 		return errMsg
 	}
 
-	prompt, ok := t.provider.GetSkillPrompt(a.Name)
+	prompt, dir, ok := t.provider.GetSkillPrompt(a.Name)
 	if !ok {
 		names := t.provider.SkillNames()
 		return fmt.Sprintf("Error: skill %q not found. Available skills: %s", a.Name, strings.Join(names, ", "))
@@ -69,5 +69,8 @@ func (t *UseSkillTool) Run(ctx context.Context, args json.RawMessage) string {
 		prompt = strings.ReplaceAll(prompt, "{{WORKSPACE}}", rt.Workspace)
 	}
 
+	if dir != "" {
+		return fmt.Sprintf("Skill directory: %s\n\n%s", dir, prompt)
+	}
 	return prompt
 }

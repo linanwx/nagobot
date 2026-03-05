@@ -252,13 +252,13 @@ func (r *Registry) SkillNames() []string {
 	return names
 }
 
-// GetSkillPrompt returns the full prompt for a skill by name.
-func (r *Registry) GetSkillPrompt(name string) (string, bool) {
+// GetSkillPrompt returns the full prompt and directory for a skill by name.
+func (r *Registry) GetSkillPrompt(name string) (prompt string, dir string, ok bool) {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
-	s, ok := r.skills[name]
-	if !ok {
-		return "", false
+	s, found := r.skills[name]
+	if !found {
+		return "", "", false
 	}
-	return s.Prompt, true
+	return s.Prompt, s.Dir, true
 }
