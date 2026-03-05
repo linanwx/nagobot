@@ -101,6 +101,22 @@ func runCompressSession(_ *cobra.Command, args []string) error {
 		newMessages = append(newMessages, provider.Message{Role: "assistant", Content: content, Timestamp: now})
 		orig.Messages = newMessages
 
+		// 4. Append summary to daily memory file.
+		memoryDir := filepath.Join(sessionDir, "memory")
+		if err := os.MkdirAll(memoryDir, 0755); err != nil {
+			logger.Warn("compress-session: failed to create memory directory", "err", err)
+		} else {
+			memoryFile := filepath.Join(memoryDir, now.Format("2006-01-02")+".md")
+			header := fmt.Sprintf("\n## Compression %s\n\n", now.Format("15:04"))
+			f, err := os.OpenFile(memoryFile, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
+			if err != nil {
+				logger.Warn("compress-session: failed to open memory file", "err", err)
+			} else {
+				_, _ = f.WriteString(header + content + "\n")
+				f.Close()
+			}
+		}
+
 		_ = os.Remove(inputFile)
 	}
 
