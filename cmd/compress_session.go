@@ -83,6 +83,11 @@ func runCompressSession(_ *cobra.Command, args []string) error {
 
 		tailCount := origCount / 4
 		cutoff := origCount - tailCount
+		// Adjust cutoff to avoid splitting a tool_calls→tool sequence.
+		// Move cutoff backward until it's not inside an assistant→tool chain.
+		for cutoff > 0 && orig.Messages[cutoff].Role == "tool" {
+			cutoff--
+		}
 		head := orig.Messages[:cutoff]
 		tail := orig.Messages[cutoff:]
 		// Place summary at the chronological cutoff point with a proper timestamp.
