@@ -7,6 +7,7 @@ import (
 	"github.com/linanwx/nagobot/agent"
 	"github.com/linanwx/nagobot/config"
 	"github.com/linanwx/nagobot/logger"
+	"github.com/linanwx/nagobot/monitor"
 	"github.com/linanwx/nagobot/provider"
 	"github.com/linanwx/nagobot/session"
 	"github.com/linanwx/nagobot/skills"
@@ -82,6 +83,10 @@ func buildThreadManager(cfg *config.Config, enableSessions bool) (*thread.Manage
 		},
 	}
 
+	metricsDir := filepath.Join(workspace, "metrics")
+	metricsStore := monitor.NewStore(metricsDir)
+	metricsStore.Rotate()
+
 	toolRegistry.RegisterDefaultTools(workspace, tools.DefaultToolsConfig{
 		ExecTimeout:         cfg.GetExecTimeout(),
 		WebSearchMaxResults: cfg.GetWebSearchMaxResults(),
@@ -155,5 +160,6 @@ func buildThreadManager(cfg *config.Config, enableSessions bool) (*thread.Manage
 			return c.Thread.Models
 		},
 		SessionTimezoneFor:  cfg.SessionTimezone,
+		MetricsStore:        metricsStore,
 	}), nil
 }

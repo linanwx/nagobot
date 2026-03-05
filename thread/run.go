@@ -10,6 +10,7 @@ import (
 
 	"github.com/linanwx/nagobot/config"
 	"github.com/linanwx/nagobot/logger"
+	"github.com/linanwx/nagobot/monitor"
 	"github.com/linanwx/nagobot/provider"
 	"github.com/linanwx/nagobot/session"
 	"github.com/linanwx/nagobot/tools"
@@ -60,12 +61,21 @@ func (t *Thread) run(ctx context.Context, userMessage string, sink Sink, injectF
 		return noProviderMessage(), nil
 	}
 
-	response, intermediates, err := t.executeRunner(ctx, runCtx, p, metrics, messages, sink, injectFn)
+	response, intermediates, usage, err := t.executeRunner(ctx, runCtx, p, metrics, messages, sink, injectFn)
 	if err != nil {
+		t.recordTurn(metrics, "", "", "", usage, true)
 		return "", err
 	}
 
 	t.persistTurnMessages(cfg, sess, intermediates, response)
+	providerName, modelName := t.resolvedProviderModel()
+	agentName := ""
+	t.mu.Lock()
+	if t.Agent != nil {
+		agentName = t.Agent.Name
+	}
+	t.mu.Unlock()
+	t.recordTurn(metrics, providerName, modelName, agentName, usage, false)
 	return response, nil
 }
 
@@ -147,7 +157,7 @@ func (t *Thread) buildMessageHistory(systemPrompt, userMessage string, sess *ses
 }
 
 // executeRunner runs the agentic loop with streaming and message callbacks.
-func (t *Thread) executeRunner(ctx, runCtx context.Context, p provider.Provider, metrics *ExecMetrics, messages []provider.Message, sink Sink, injectFn func() []provider.Message) (string, []provider.Message, error) {
+func (t *Thread) executeRunner(ctx, runCtx context.Context, p provider.Provider, metrics *ExecMetrics, messages []provider.Message, sink Sink, injectFn func() []provider.Message) (string, []provider.Message, provider.Usage, error) {
 	var intermediates []provider.Message
 	runner := NewRunner(p, t.tools, metrics)
 	runner.ShouldHalt(t.isHaltLoop)
@@ -178,8 +188,9 @@ func (t *Thread) executeRunner(ctx, runCtx context.Context, p provider.Provider,
 	})
 	runner.OnIterationEnd(injectFn)
 	response, err := runner.RunWithMessages(runCtx, messages)
+	usage := runner.TotalUsage()
 	if err != nil {
-		return "", nil, err
+		return "", nil, usage, err
 	}
 
 	// Flush remaining streamed content and suppress final sink delivery.
@@ -190,7 +201,7 @@ func (t *Thread) executeRunner(ctx, runCtx context.Context, p provider.Provider,
 		}
 	}
 
-	return response, intermediates, nil
+	return response, intermediates, usage, nil
 }
 
 // persistTurnMessages saves intermediate tool messages and final response to the session.
@@ -294,6 +305,37 @@ func noProviderMessage() string {
 /init --provider openrouter --model moonshotai/kimi-k2.5 --api-key YOUR_KEY
 
 Supported providers: openrouter, anthropic, deepseek, openai`
+}
+
+// resolvedProviderModel returns the provider and model name for the current agent.
+func (t *Thread) resolvedProviderModel() (string, string) {
+	cfg := t.cfg()
+	if mc := t.resolvedModelConfig(); mc != nil {
+		return mc.Provider, mc.ModelType
+	}
+	return cfg.ProviderName, cfg.ModelName
+}
+
+// recordTurn writes a TurnRecord to the metrics store if available.
+func (t *Thread) recordTurn(metrics *ExecMetrics, providerName, modelName, agentName string, usage provider.Usage, isError bool) {
+	cfg := t.cfg()
+	if cfg.MetricsStore == nil || metrics == nil {
+		return
+	}
+	cfg.MetricsStore.Record(monitor.TurnRecord{
+		Timestamp:        metrics.TurnStart,
+		DurationMs:       time.Since(metrics.TurnStart).Milliseconds(),
+		Provider:         providerName,
+		Model:            modelName,
+		Agent:            agentName,
+		SessionKey:       t.sessionKey,
+		Iterations:       metrics.Iterations,
+		ToolCalls:        metrics.TotalToolCalls,
+		PromptTokens:     usage.PromptTokens,
+		CompletionTokens: usage.CompletionTokens,
+		TotalTokens:      usage.TotalTokens,
+		Error:            isError,
+	})
 }
 
 // currentModelSupportsVision returns whether the current thread's model supports vision.

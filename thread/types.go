@@ -7,6 +7,7 @@ import (
 	"github.com/linanwx/nagobot/agent"
 	"github.com/linanwx/nagobot/config"
 	"github.com/linanwx/nagobot/cron"
+	"github.com/linanwx/nagobot/monitor"
 	"github.com/linanwx/nagobot/provider"
 	"github.com/linanwx/nagobot/session"
 	"github.com/linanwx/nagobot/skills"
@@ -77,6 +78,7 @@ type ThreadConfig struct {
 	ModelsFn            func() map[string]*config.ModelConfig // Hot-reload: returns latest Models from config
 	AddJob              func(cron.Job) error           // Persistent job scheduling (for sleep_thread)
 	SessionTimezoneFor  func(sessionKey string) string // Session key → IANA timezone
+	MetricsStore        *monitor.Store                 // Turn metrics storage (optional)
 }
 
 // Thread is a single execution unit with an agent, wake queue, and optional session.
