@@ -52,6 +52,7 @@ const (
 	defaultInboxSize      = 64
 	defaultThreadTTL      = 3 * time.Hour
 	gcInterval            = 5 * time.Minute
+	streamFlushThreshold  = 600 // minimum unsent bytes before attempting a streamer split
 )
 
 // ThreadConfig contains shared dependencies for creating threads.
@@ -114,6 +115,30 @@ type ExecMetrics struct {
 	TotalToolCalls int
 	CurrentTool    string           // empty when not executing a tool
 	ToolCalls      []ToolCallRecord
+}
+
+// StartIteration increments the iteration counter and clears the current tool.
+func (m *ExecMetrics) StartIteration() {
+	m.mu.Lock()
+	m.Iterations++
+	m.CurrentTool = ""
+	m.mu.Unlock()
+}
+
+// SetCurrentTool records the tool currently being executed.
+func (m *ExecMetrics) SetCurrentTool(name string) {
+	m.mu.Lock()
+	m.CurrentTool = name
+	m.mu.Unlock()
+}
+
+// RecordToolCall appends a tool call record and clears the current tool.
+func (m *ExecMetrics) RecordToolCall(record ToolCallRecord) {
+	m.mu.Lock()
+	m.TotalToolCalls++
+	m.ToolCalls = append(m.ToolCalls, record)
+	m.CurrentTool = ""
+	m.mu.Unlock()
 }
 
 // cfg returns the shared config from the manager.

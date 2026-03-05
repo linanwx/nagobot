@@ -5,6 +5,7 @@ import (
 	"path/filepath"
 	"sync"
 
+	"github.com/linanwx/nagobot/logger"
 	"gopkg.in/yaml.v3"
 )
 
@@ -23,7 +24,9 @@ func Load() (*Config, error) {
 		if os.IsNotExist(err) {
 			cfg := DefaultConfig()
 			cfg.applyDefaults()
-			_ = cfg.Save()
+			if err := cfg.Save(); err != nil {
+				logger.Warn("failed to save default config", "err", err)
+			}
 			return cfg, nil
 		}
 		return nil, err

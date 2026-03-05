@@ -180,6 +180,33 @@ type ProviderConfig struct {
 	APIBase string `json:"apiBase,omitempty" yaml:"apiBase,omitempty"` // optional custom base URL
 }
 
+// GetProviderConfig returns the provider config for a given name, or nil if not found.
+func (p *ProvidersConfig) GetProviderConfig(name string) *ProviderConfig {
+	switch name {
+	case "openai":
+		return p.OpenAI
+	case "openrouter":
+		return p.OpenRouter
+	case "anthropic":
+		return p.Anthropic
+	case "deepseek":
+		return p.DeepSeek
+	case "moonshot-cn":
+		return p.MoonshotCN
+	case "moonshot-global":
+		return p.MoonshotGlobal
+	case "zhipu-cn":
+		return p.ZhipuCN
+	case "zhipu-global":
+		return p.ZhipuGlobal
+	case "minimax-cn":
+		return p.MinimaxCN
+	case "minimax-global":
+		return p.MinimaxGlobal
+	}
+	return nil
+}
+
 // ToolsConfig contains tool-related configuration.
 type ToolsConfig struct {
 	Web  WebToolsConfig  `json:"web,omitempty" yaml:"web,omitempty"`

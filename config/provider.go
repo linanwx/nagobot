@@ -240,60 +240,34 @@ func (c *Config) ClearOAuthToken(providerName string) {
 // EnsureProviderConfigFor returns the ProviderConfig for the given provider name,
 // creating it if it does not exist.
 func (c *Config) EnsureProviderConfigFor(providerName string) *ProviderConfig {
+	if pc := c.Providers.GetProviderConfig(providerName); pc != nil {
+		return pc
+	}
+	// Provider not found or field is nil — allocate and set it.
+	pc := &ProviderConfig{}
 	switch providerName {
 	case "openai":
-		if c.Providers.OpenAI == nil {
-			c.Providers.OpenAI = &ProviderConfig{}
-		}
-		return c.Providers.OpenAI
+		c.Providers.OpenAI = pc
 	case "openrouter":
-		if c.Providers.OpenRouter == nil {
-			c.Providers.OpenRouter = &ProviderConfig{}
-		}
-		return c.Providers.OpenRouter
+		c.Providers.OpenRouter = pc
 	case "anthropic":
-		if c.Providers.Anthropic == nil {
-			c.Providers.Anthropic = &ProviderConfig{}
-		}
-		return c.Providers.Anthropic
+		c.Providers.Anthropic = pc
 	case "deepseek":
-		if c.Providers.DeepSeek == nil {
-			c.Providers.DeepSeek = &ProviderConfig{}
-		}
-		return c.Providers.DeepSeek
+		c.Providers.DeepSeek = pc
 	case "moonshot-cn":
-		if c.Providers.MoonshotCN == nil {
-			c.Providers.MoonshotCN = &ProviderConfig{}
-		}
-		return c.Providers.MoonshotCN
+		c.Providers.MoonshotCN = pc
 	case "moonshot-global":
-		if c.Providers.MoonshotGlobal == nil {
-			c.Providers.MoonshotGlobal = &ProviderConfig{}
-		}
-		return c.Providers.MoonshotGlobal
+		c.Providers.MoonshotGlobal = pc
 	case "zhipu-cn":
-		if c.Providers.ZhipuCN == nil {
-			c.Providers.ZhipuCN = &ProviderConfig{}
-		}
-		return c.Providers.ZhipuCN
+		c.Providers.ZhipuCN = pc
 	case "zhipu-global":
-		if c.Providers.ZhipuGlobal == nil {
-			c.Providers.ZhipuGlobal = &ProviderConfig{}
-		}
-		return c.Providers.ZhipuGlobal
+		c.Providers.ZhipuGlobal = pc
 	case "minimax-cn":
-		if c.Providers.MinimaxCN == nil {
-			c.Providers.MinimaxCN = &ProviderConfig{}
-		}
-		return c.Providers.MinimaxCN
+		c.Providers.MinimaxCN = pc
 	case "minimax-global":
-		if c.Providers.MinimaxGlobal == nil {
-			c.Providers.MinimaxGlobal = &ProviderConfig{}
-		}
-		return c.Providers.MinimaxGlobal
-	default:
-		return &ProviderConfig{}
+		c.Providers.MinimaxGlobal = pc
 	}
+	return pc
 }
 
 func (c *Config) ensureProviderConfig() *ProviderConfig {

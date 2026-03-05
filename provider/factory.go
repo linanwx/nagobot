@@ -66,44 +66,16 @@ func (f *Factory) Create(providerName, modelType string) (Provider, error) {
 		return nil, fmt.Errorf("provider factory is nil")
 	}
 
-	// Get latest config from disk.
-	cfg := f.cfgFn()
-	if cfg == nil {
-		cfg = f.fallbackCfg
-	}
-
-	providerName = strings.TrimSpace(providerName)
-	if providerName == "" {
-		providerName = strings.TrimSpace(cfg.GetProvider())
-		if providerName == "" {
-			providerName = f.defaultProv
-		}
-	}
-
-	modelType = strings.TrimSpace(modelType)
-	if modelType == "" {
-		// For default provider, use latest default model from config.
-		if dp := strings.TrimSpace(cfg.GetProvider()); providerName == dp {
-			modelType = strings.TrimSpace(cfg.GetModelType())
-		}
-		if modelType == "" {
-			if providerName == f.defaultProv {
-				modelType = f.defaultModel
-			} else {
-				models := SupportedModelsForProvider(providerName)
-				if len(models) == 0 {
-					return nil, fmt.Errorf("unknown provider: %s", providerName)
-				}
-				modelType = models[0]
-			}
-		}
+	cfg := f.latestConfig()
+	providerName, modelType, err := f.resolveProviderModel(cfg, providerName, modelType)
+	if err != nil {
+		return nil, err
 	}
 
 	if err := ValidateProviderModelType(providerName, modelType); err != nil {
 		return nil, err
 	}
 
-	// Resolve API key from latest config (hot-reload).
 	apiKey := providerAPIKey(cfg, providerName)
 	if apiKey == "" {
 		return nil, fmt.Errorf("%s API key not configured.\nFix: nagobot set-provider-key --provider %s --api-key YOUR_KEY", providerName, providerName)
@@ -128,7 +100,6 @@ func (f *Factory) Create(providerName, modelType string) (Provider, error) {
 	apiBase := providerAPIBase(cfg, providerName)
 	p := reg.Constructor(apiKey, apiBase, modelType, modelName, f.maxTokens, f.temperature)
 
-	// Set account ID from OAuth token if available (e.g. OpenAI ChatGPT-Account-ID).
 	if setter, ok := p.(AccountIDSetter); ok {
 		if token := cfg.GetOAuthToken(providerName); token != nil && token.AccountID != "" {
 			setter.SetAccountID(token.AccountID)
@@ -136,6 +107,47 @@ func (f *Factory) Create(providerName, modelType string) (Provider, error) {
 	}
 
 	return p, nil
+}
+
+// latestConfig returns the latest config from disk, falling back to startup config.
+func (f *Factory) latestConfig() *config.Config {
+	cfg := f.cfgFn()
+	if cfg == nil {
+		cfg = f.fallbackCfg
+	}
+	return cfg
+}
+
+// resolveProviderModel resolves provider name and model type using precedence:
+// explicit args → latest config → startup defaults.
+func (f *Factory) resolveProviderModel(cfg *config.Config, providerName, modelType string) (string, string, error) {
+	providerName = strings.TrimSpace(providerName)
+	if providerName == "" {
+		providerName = strings.TrimSpace(cfg.GetProvider())
+		if providerName == "" {
+			providerName = f.defaultProv
+		}
+	}
+
+	modelType = strings.TrimSpace(modelType)
+	if modelType == "" {
+		if dp := strings.TrimSpace(cfg.GetProvider()); providerName == dp {
+			modelType = strings.TrimSpace(cfg.GetModelType())
+		}
+		if modelType == "" {
+			if providerName == f.defaultProv {
+				modelType = f.defaultModel
+			} else {
+				models := SupportedModelsForProvider(providerName)
+				if len(models) == 0 {
+					return "", "", fmt.Errorf("unknown provider: %s", providerName)
+				}
+				modelType = models[0]
+			}
+		}
+	}
+
+	return providerName, modelType, nil
 }
 
 func providerAPIKey(cfg *config.Config, providerName string) string {
@@ -216,28 +228,5 @@ func providerConfigFor(cfg *config.Config, providerName string) *config.Provider
 	if cfg == nil {
 		return nil
 	}
-
-	switch providerName {
-	case "openai":
-		return cfg.Providers.OpenAI
-	case "openrouter":
-		return cfg.Providers.OpenRouter
-	case "anthropic":
-		return cfg.Providers.Anthropic
-	case "deepseek":
-		return cfg.Providers.DeepSeek
-	case "moonshot-cn":
-		return cfg.Providers.MoonshotCN
-	case "moonshot-global":
-		return cfg.Providers.MoonshotGlobal
-	case "zhipu-cn":
-		return cfg.Providers.ZhipuCN
-	case "zhipu-global":
-		return cfg.Providers.ZhipuGlobal
-	case "minimax-cn":
-		return cfg.Providers.MinimaxCN
-	case "minimax-global":
-		return cfg.Providers.MinimaxGlobal
-	}
-	return nil
+	return cfg.Providers.GetProviderConfig(providerName)
 }

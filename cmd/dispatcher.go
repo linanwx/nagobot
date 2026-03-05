@@ -124,6 +124,13 @@ func (d *Dispatcher) handleInit(ctx context.Context, ch channel.Channel, msg *ch
 	}
 }
 
+// chatGroupTypes defines which chat_type values count as group chats per channel prefix.
+var chatGroupTypes = map[string][]string{
+	"telegram:": {"group", "supergroup"},
+	"feishu:":   {"group"},
+	"discord:":  {"group"},
+}
+
 // route determines the session key for a message.
 func (d *Dispatcher) route(msg *channel.Message) string {
 	if msg == nil {
@@ -134,40 +141,11 @@ func (d *Dispatcher) route(msg *channel.Message) string {
 		return "cli"
 	}
 
-	if strings.HasPrefix(msg.ChannelID, "telegram:") {
-		chatType := strings.TrimSpace(msg.Metadata["chat_type"])
-		if chatType == "group" || chatType == "supergroup" {
-			return msg.ChannelID // shared session for group
+	// Chat channels (telegram, feishu, discord): group → shared session, else → per-user.
+	for prefix, groupTypes := range chatGroupTypes {
+		if strings.HasPrefix(msg.ChannelID, prefix) {
+			return d.routeChatChannel(msg, prefix, groupTypes)
 		}
-		userID := strings.TrimSpace(msg.UserID)
-		if userID != "" {
-			return "telegram:" + userID
-		}
-		return msg.ChannelID
-	}
-
-	if strings.HasPrefix(msg.ChannelID, "feishu:") {
-		chatType := strings.TrimSpace(msg.Metadata["chat_type"])
-		if chatType == "group" {
-			return msg.ChannelID // shared session for group
-		}
-		userID := strings.TrimSpace(msg.UserID)
-		if userID != "" {
-			return "feishu:" + userID
-		}
-		return msg.ChannelID
-	}
-
-	if strings.HasPrefix(msg.ChannelID, "discord:") {
-		chatType := strings.TrimSpace(msg.Metadata["chat_type"])
-		if chatType == "group" {
-			return msg.ChannelID // shared session for guild channel
-		}
-		userID := strings.TrimSpace(msg.UserID)
-		if userID != "" {
-			return "discord:" + userID
-		}
-		return msg.ChannelID
 	}
 
 	if strings.HasPrefix(msg.ChannelID, "cron:") {
@@ -183,6 +161,22 @@ func (d *Dispatcher) route(msg *channel.Message) string {
 		sessionKey = msg.ChannelID + ":" + msg.UserID
 	}
 	return sessionKey
+}
+
+// routeChatChannel routes a chat channel message to a session key.
+// Group chats share a session by channel ID; DMs use per-user keys.
+func (d *Dispatcher) routeChatChannel(msg *channel.Message, prefix string, groupTypes []string) string {
+	chatType := strings.TrimSpace(msg.Metadata["chat_type"])
+	for _, gt := range groupTypes {
+		if chatType == gt {
+			return msg.ChannelID
+		}
+	}
+	userID := strings.TrimSpace(msg.UserID)
+	if userID != "" {
+		return prefix[:len(prefix)-1] + ":" + userID // e.g. "telegram:" → "telegram" + ":" + userID
+	}
+	return msg.ChannelID
 }
 
 // buildSink creates a per-wake sink that delivers the response back to the

@@ -24,74 +24,9 @@ func (t *Thread) run(ctx context.Context, userMessage string, sink Sink, injectF
 	}
 
 	cfg := t.cfg()
-
-	t.mu.Lock()
-	activeAgent := t.Agent
-	t.mu.Unlock()
-
-	skillsSection := t.buildSkillsSection()
-
-	systemPrompt := ""
-	if activeAgent != nil {
-		activeAgent.Set("TIME", t.now())
-		activeAgent.Set("TOOLS", t.tools.Names())
-		activeAgent.Set("SKILLS", skillsSection)
-		activeAgent.Set("USER", t.buildUserSection())
-		systemPrompt = activeAgent.Build()
-	}
-	if strings.TrimSpace(systemPrompt) == "" {
-		systemPrompt = "You are a helpful AI assistant."
-	}
-
-	messages := make([]provider.Message, 0, 2)
-	messages = append(messages, provider.SystemMessage(systemPrompt))
-
+	systemPrompt := t.buildSystemPrompt()
 	sess := t.loadSession()
-	if sess != nil {
-		messages = append(messages, applyCompressed(provider.SanitizeMessages(sess.Messages))...)
-	}
-
-	turnUserMessages := make([]provider.Message, 0, 4)
-	userMsg := provider.UserMessage(userMessage)
-	messages = append(messages, userMsg)
-	turnUserMessages = append(turnUserMessages, userMsg)
-
-	sessionEstimatedTokens := 0
-	if sess != nil {
-		sessionEstimatedTokens = estimateMessagesTokens(sess.Messages)
-	}
-	requestEstimatedTokens := estimateMessagesTokens(messages)
-	contextWindowTokens, contextWarnRatio := t.contextBudget()
-	logger.Debug(
-		"context estimate",
-		"threadID", t.id,
-		"sessionKey", t.sessionKey,
-		"sessionEstimatedTokens", sessionEstimatedTokens,
-		"requestEstimatedTokens", requestEstimatedTokens,
-		"contextWindowTokens", contextWindowTokens,
-		"contextWarnRatio", contextWarnRatio,
-	)
-
-	sessionPath, _ := t.sessionFilePath()
-	hookInjections := t.runHooks(turnContext{
-		ThreadID:               t.id,
-		SessionKey:             t.sessionKey,
-		SessionPath:            sessionPath,
-		UserMessage:            userMessage,
-		SessionEstimatedTokens: sessionEstimatedTokens,
-		RequestEstimatedTokens: requestEstimatedTokens,
-		ContextWindowTokens:    contextWindowTokens,
-		ContextWarnRatio:       contextWarnRatio,
-	})
-	for _, injection := range hookInjections {
-		trimmed := strings.TrimSpace(injection)
-		if trimmed == "" {
-			continue
-		}
-		msg := provider.UserMessage(trimmed)
-		messages = append(messages, msg)
-		turnUserMessages = append(turnUserMessages, msg)
-	}
+	messages, turnUserMessages := t.buildMessageHistory(systemPrompt, userMessage, sess)
 
 	// Write-ahead: persist user messages before LLM call so they survive a crash.
 	if sess != nil {
@@ -124,6 +59,96 @@ func (t *Thread) run(ctx context.Context, userMessage string, sink Sink, injectF
 	if p == nil {
 		return noProviderMessage(), nil
 	}
+
+	response, intermediates, err := t.executeRunner(ctx, runCtx, p, metrics, messages, sink, injectFn)
+	if err != nil {
+		return "", err
+	}
+
+	t.persistTurnMessages(cfg, sess, intermediates, response)
+	return response, nil
+}
+
+// buildSystemPrompt assembles the system prompt from the active agent.
+func (t *Thread) buildSystemPrompt() string {
+	t.mu.Lock()
+	activeAgent := t.Agent
+	t.mu.Unlock()
+
+	if activeAgent == nil {
+		return "You are a helpful AI assistant."
+	}
+
+	skillsSection := t.buildSkillsSection()
+	activeAgent.Set("TIME", t.now())
+	activeAgent.Set("TOOLS", t.tools.Names())
+	activeAgent.Set("SKILLS", skillsSection)
+	activeAgent.Set("USER", t.buildUserSection())
+	prompt := activeAgent.Build()
+	if strings.TrimSpace(prompt) == "" {
+		return "You are a helpful AI assistant."
+	}
+	return prompt
+}
+
+// buildMessageHistory assembles the full message list for the LLM request,
+// including system prompt, session history, user message, and hook injections.
+// Returns the full messages slice and the turn-specific user messages (for write-ahead).
+func (t *Thread) buildMessageHistory(systemPrompt, userMessage string, sess *session.Session) ([]provider.Message, []provider.Message) {
+	messages := make([]provider.Message, 0, 2)
+	messages = append(messages, provider.SystemMessage(systemPrompt))
+
+	if sess != nil {
+		messages = append(messages, applyCompressed(provider.SanitizeMessages(sess.Messages))...)
+	}
+
+	turnUserMessages := make([]provider.Message, 0, 4)
+	userMsg := provider.UserMessage(userMessage)
+	messages = append(messages, userMsg)
+	turnUserMessages = append(turnUserMessages, userMsg)
+
+	sessionEstimatedTokens := 0
+	if sess != nil {
+		sessionEstimatedTokens = estimateMessagesTokens(sess.Messages)
+	}
+	requestEstimatedTokens := estimateMessagesTokens(messages)
+	contextWindowTokens, contextWarnRatio := t.contextBudget()
+	logger.Debug(
+		"context estimate",
+		"threadID", t.id,
+		"sessionKey", t.sessionKey,
+		"sessionEstimatedTokens", sessionEstimatedTokens,
+		"requestEstimatedTokens", requestEstimatedTokens,
+		"contextWindowTokens", contextWindowTokens,
+		"contextWarnRatio", contextWarnRatio,
+	)
+
+	sessionPath, _ := t.sessionFilePath() // ok ignored: empty path is acceptable for hooks
+	hookInjections := t.runHooks(turnContext{
+		ThreadID:               t.id,
+		SessionKey:             t.sessionKey,
+		SessionPath:            sessionPath,
+		UserMessage:            userMessage,
+		SessionEstimatedTokens: sessionEstimatedTokens,
+		RequestEstimatedTokens: requestEstimatedTokens,
+		ContextWindowTokens:    contextWindowTokens,
+		ContextWarnRatio:       contextWarnRatio,
+	})
+	for _, injection := range hookInjections {
+		trimmed := strings.TrimSpace(injection)
+		if trimmed == "" {
+			continue
+		}
+		msg := provider.UserMessage(trimmed)
+		messages = append(messages, msg)
+		turnUserMessages = append(turnUserMessages, msg)
+	}
+
+	return messages, turnUserMessages
+}
+
+// executeRunner runs the agentic loop with streaming and message callbacks.
+func (t *Thread) executeRunner(ctx, runCtx context.Context, p provider.Provider, metrics *ExecMetrics, messages []provider.Message, sink Sink, injectFn func() []provider.Message) (string, []provider.Message, error) {
 	var intermediates []provider.Message
 	runner := NewRunner(p, t.tools, metrics)
 	runner.ShouldHalt(t.isHaltLoop)
@@ -131,7 +156,7 @@ func (t *Thread) run(ctx context.Context, userMessage string, sink Sink, injectF
 	// Set up streaming for idempotent sinks (Telegram, Discord, Feishu, CLI).
 	var streamer *MarkdownStreamer
 	if !sink.IsZero() && sink.Idempotent {
-		streamer = NewMarkdownStreamer(sink, ctx, 600)
+		streamer = NewMarkdownStreamer(sink, ctx, streamFlushThreshold)
 		runner.OnText(func(delta string) {
 			if !t.isSuppressSink() {
 				streamer.OnDelta(delta)
@@ -155,7 +180,7 @@ func (t *Thread) run(ctx context.Context, userMessage string, sink Sink, injectF
 	runner.OnIterationEnd(injectFn)
 	response, err := runner.RunWithMessages(runCtx, messages)
 	if err != nil {
-		return "", err
+		return "", nil, err
 	}
 
 	// Flush remaining streamed content and suppress final sink delivery.
@@ -166,25 +191,28 @@ func (t *Thread) run(ctx context.Context, userMessage string, sink Sink, injectF
 		}
 	}
 
-	// End-of-turn: append intermediate tool chain + final assistant response.
-	if sess != nil {
-		latestSession, reloadErr := t.reloadSessionForSave()
-		if reloadErr != nil {
-			logger.Warn(
-				"failed to reload session before save; skipping save to avoid overwriting external changes",
-				"key", t.sessionKey,
-				"err", reloadErr,
-			)
-		} else {
-			latestSession.Messages = append(latestSession.Messages, intermediates...)
-			latestSession.Messages = append(latestSession.Messages, provider.AssistantMessage(response))
-			if saveErr := cfg.Sessions.Save(latestSession); saveErr != nil {
-				logger.Warn("failed to save session", "key", t.sessionKey, "err", saveErr)
-			}
-		}
-	}
+	return response, intermediates, nil
+}
 
-	return response, nil
+// persistTurnMessages saves intermediate tool messages and final response to the session.
+func (t *Thread) persistTurnMessages(cfg *ThreadConfig, sess *session.Session, intermediates []provider.Message, response string) {
+	if sess == nil {
+		return
+	}
+	latestSession, reloadErr := t.reloadSessionForSave()
+	if reloadErr != nil {
+		logger.Warn(
+			"failed to reload session before save; skipping save to avoid overwriting external changes",
+			"key", t.sessionKey,
+			"err", reloadErr,
+		)
+		return
+	}
+	latestSession.Messages = append(latestSession.Messages, intermediates...)
+	latestSession.Messages = append(latestSession.Messages, provider.AssistantMessage(response))
+	if saveErr := cfg.Sessions.Save(latestSession); saveErr != nil {
+		logger.Warn("failed to save session", "key", t.sessionKey, "err", saveErr)
+	}
 }
 
 // buildUserSection resolves the per-session USER.md into a formatted section.
@@ -328,7 +356,7 @@ func (t *Thread) buildTools() *tools.Registry {
 			return t.mgr.ListThreads()
 		},
 		CtxFn: func() tools.HealthRuntimeContext {
-			sessionPath, _ := t.sessionFilePath()
+			sessionPath, _ := t.sessionFilePath() // ok ignored: empty path is acceptable
 			t.mu.Lock()
 			agentName := ""
 			if t.Agent != nil {

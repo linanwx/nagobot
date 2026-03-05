@@ -58,10 +58,7 @@ func (r *Runner) RunWithMessages(ctx context.Context, messages []provider.Messag
 	toolDefs := r.tools.Defs()
 	for {
 		if r.metrics != nil {
-			r.metrics.mu.Lock()
-			r.metrics.Iterations++
-			r.metrics.CurrentTool = ""
-			r.metrics.mu.Unlock()
+			r.metrics.StartIteration()
 		}
 
 		chatReq := &provider.Request{
@@ -89,9 +86,7 @@ func (r *Runner) RunWithMessages(ctx context.Context, messages []provider.Messag
 
 		for _, tc := range resp.ToolCalls {
 			if r.metrics != nil {
-				r.metrics.mu.Lock()
-				r.metrics.CurrentTool = tc.Function.Name
-				r.metrics.mu.Unlock()
+				r.metrics.SetCurrentTool(tc.Function.Name)
 			}
 
 			start := time.Now()
@@ -106,17 +101,13 @@ func (r *Runner) RunWithMessages(ctx context.Context, messages []provider.Messag
 			}
 
 			if r.metrics != nil {
-				r.metrics.mu.Lock()
-				r.metrics.TotalToolCalls++
-				r.metrics.ToolCalls = append(r.metrics.ToolCalls, ToolCallRecord{
+				r.metrics.RecordToolCall(ToolCallRecord{
 					Name:          tc.Function.Name,
 					ArgsSummary:   truncateStr(tc.Function.Arguments, 200),
 					ResultPreview: truncateStr(result, 200),
 					DurationMs:    time.Since(start).Milliseconds(),
 					Error:         strings.HasPrefix(result, "Error:"),
 				})
-				r.metrics.CurrentTool = ""
-				r.metrics.mu.Unlock()
 			}
 		}
 

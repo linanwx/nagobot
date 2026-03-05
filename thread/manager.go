@@ -120,7 +120,7 @@ func (m *Manager) notify() {
 func (m *Manager) Wake(sessionKey string, msg *WakeMessage) {
 	sessionKey = strings.TrimSpace(sessionKey)
 	if sessionKey == "" {
-		sessionKey = "channel:default"
+		sessionKey = "cli"
 	}
 	t, err := m.NewThread(sessionKey, msg.AgentName)
 	if err != nil {
@@ -135,7 +135,7 @@ func (m *Manager) Wake(sessionKey string, msg *WakeMessage) {
 func (m *Manager) NewThread(sessionKey, agentName string) (*Thread, error) {
 	sessionKey = strings.TrimSpace(sessionKey)
 	if sessionKey == "" {
-		sessionKey = "channel:default"
+		sessionKey = "cli"
 	}
 
 	m.mu.Lock()

@@ -87,7 +87,9 @@ func (m *Manager) Unregister(name string) {
 	}
 	m.mu.Unlock()
 	if ok {
-		_ = ch.Stop()
+		if err := ch.Stop(); err != nil {
+			logger.Warn("failed to stop channel during unregister", "channel", name, "err", err)
+		}
 		logger.Info("channel unregistered", "channel", name)
 	}
 }
