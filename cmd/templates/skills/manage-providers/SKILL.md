@@ -61,7 +61,7 @@ Example: route all "chat" agents to OpenAI GPT-4o:
 exec: {{WORKSPACE}}/bin/nagobot set-model --type chat --provider openai --model gpt-4o
 ```
 
-### List Current Routing and Agent Usage
+### List Current Routing, Agent Usage, and Available Models
 
 ```
 exec: {{WORKSPACE}}/bin/nagobot set-model --list

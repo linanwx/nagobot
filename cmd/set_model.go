@@ -240,5 +240,14 @@ func listModelRouting(cfg *config.Config) error {
 		}
 	}
 
+	// Show available models per provider
+	fmt.Println("\nAvailable models:")
+	for _, prov := range provider.SupportedProviders() {
+		models := provider.SupportedModelsForProvider(prov)
+		if len(models) > 0 {
+			fmt.Printf("  %-16s %s\n", prov, strings.Join(models, ", "))
+		}
+	}
+
 	return nil
 }

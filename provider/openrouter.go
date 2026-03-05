@@ -78,12 +78,18 @@ var openRouterModels = map[string]openRouterModelMeta{
 	"minimax/minimax-m2.5": {
 		ProviderOrder: []string{"minimax/fp8"},
 	},
+	"qwen/qwen3.5-35b-a3b": {
+		ThinkingOpts: []oaioption.RequestOption{
+			oaioption.WithJSONSet("reasoning", map[string]any{"effort": "high"}),
+		},
+		ProviderOrder: []string{"qwen"},
+	},
 }
 
 func init() {
 	RegisterProvider("openrouter", ProviderRegistration{
-		Models:       []string{"moonshotai/kimi-k2.5", "anthropic/claude-sonnet-4.6", "anthropic/claude-opus-4.6", "z-ai/glm-5", "minimax/minimax-m2.5"},
-		VisionModels: []string{"moonshotai/kimi-k2.5", "anthropic/claude-sonnet-4.6", "anthropic/claude-opus-4.6"},
+		Models:       []string{"moonshotai/kimi-k2.5", "anthropic/claude-sonnet-4.6", "anthropic/claude-opus-4.6", "z-ai/glm-5", "minimax/minimax-m2.5", "qwen/qwen3.5-35b-a3b"},
+		VisionModels: []string{"moonshotai/kimi-k2.5", "anthropic/claude-sonnet-4.6", "anthropic/claude-opus-4.6", "qwen/qwen3.5-35b-a3b"},
 		EnvKey:       "OPENROUTER_API_KEY",
 		EnvBase:      "OPENROUTER_API_BASE",
 		Constructor: func(apiKey, apiBase, modelType, modelName string, maxTokens int, temperature float64) Provider {

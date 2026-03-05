@@ -106,7 +106,7 @@ func (t *Thread) buildMessageHistory(systemPrompt, userMessage string, sess *ses
 
 	var sessionMessages []provider.Message
 	if sess != nil {
-		sessionMessages = applyCompressed(provider.SanitizeMessages(sess.Messages))
+		sessionMessages = stripChainMessages(applyCompressed(provider.SanitizeMessages(sess.Messages)))
 		messages = append(messages, sessionMessages...)
 	}
 
@@ -303,14 +303,19 @@ func (t *Thread) resolvedChain() []*config.ChainStep {
 	return mc.Chain
 }
 
-// buildChainInfo builds the chain position prompt.
+// chainInfoPrefix is the XML tag used to identify chain-info messages for later stripping.
+const chainInfoPrefix = "<chain-info"
+
+// buildChainInfo builds the chain position prompt in XML format.
 func buildChainInfo(chain []*config.ChainStep, currentIdx int) string {
 	var sb strings.Builder
-	fmt.Fprintf(&sb, "你是模型链中的一员。共 %d 个模型按顺序回复同一条消息。\n", len(chain))
+	fmt.Fprintf(&sb, "<chain-info position=\"%d\" total=\"%d\">\n", currentIdx+1, len(chain))
+	sb.WriteString("  <models>\n")
 	for i, step := range chain {
-		fmt.Fprintf(&sb, "- 模型 %d: %s\n", i+1, step.ModelType)
+		fmt.Fprintf(&sb, "    <model position=\"%d\">%s</model>\n", i+1, step.ModelType)
 	}
-	fmt.Fprintf(&sb, "你是模型 %d。", currentIdx+1)
+	sb.WriteString("  </models>\n")
+	sb.WriteString("  <instruction>")
 	if currentIdx == 0 {
 		sb.WriteString("请快速回复、简单规划。后续模型会补充深度分析。")
 	} else if currentIdx == len(chain)-1 {
@@ -318,7 +323,25 @@ func buildChainInfo(chain []*config.ChainStep, currentIdx int) string {
 	} else {
 		sb.WriteString("前序模型已回复（见上方对话）。请从你的角度补充。")
 	}
+	sb.WriteString("</instruction>\n")
+	sb.WriteString("</chain-info>")
 	return sb.String()
+}
+
+// isChainMessage returns true if the message is a chain-info message.
+func isChainMessage(m provider.Message) bool {
+	return m.Role == "user" && strings.HasPrefix(strings.TrimSpace(m.Content), chainInfoPrefix)
+}
+
+// stripChainMessages removes chain-info messages from a message sequence.
+func stripChainMessages(msgs []provider.Message) []provider.Message {
+	result := make([]provider.Message, 0, len(msgs))
+	for _, m := range msgs {
+		if !isChainMessage(m) {
+			result = append(result, m)
+		}
+	}
+	return result
 }
 
 // runChain executes a model chain: each step uses a different provider/model.
@@ -330,20 +353,24 @@ func (t *Thread) runChain(ctx context.Context, chain []*config.ChainStep, userMe
 	var lastResponse string
 
 	for i, step := range chain {
-		chainInfo := buildChainInfo(chain, i)
-
-		// Build step-specific user message
-		var stepUserMessage string
-		if i == 0 {
-			stepUserMessage = userMessage + "\n\n" + chainInfo
-		} else {
-			// Continuation: chain info only (previous response is in session history)
-			stepUserMessage = chainInfo
-		}
+		chainInfoContent := buildChainInfo(chain, i)
 
 		systemPrompt := t.buildSystemPrompt()
 		sess := t.loadSession()
-		messages, turnUserMessages := t.buildMessageHistory(systemPrompt, stepUserMessage, sess)
+
+		var messages []provider.Message
+		var turnUserMessages []provider.Message
+
+		if i == 0 {
+			// Step 0: original wake message + chain info as separate message
+			messages, turnUserMessages = t.buildMessageHistory(systemPrompt, userMessage, sess)
+			chainMsg := provider.UserMessage(chainInfoContent)
+			messages = append(messages, chainMsg)
+			turnUserMessages = append(turnUserMessages, chainMsg)
+		} else {
+			// Step 1+: chain info only (previous wake + response in session history)
+			messages, turnUserMessages = t.buildMessageHistory(systemPrompt, chainInfoContent, sess)
+		}
 
 		// Write-ahead
 		if sess != nil {
