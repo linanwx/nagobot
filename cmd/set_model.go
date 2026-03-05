@@ -26,7 +26,6 @@ Examples:
   nagobot set-model --default --provider deepseek --model deepseek-reasoner   # set default
   nagobot set-model --type chat --provider openai --model gpt-4o              # set routing
   nagobot set-model --type toolcall --provider anthropic --model claude-sonnet-4-20250514
-  nagobot set-model --type chat --chain "openai/gpt-4o-mini,deepseek/deepseek-reasoner"
   nagobot set-model --list
   nagobot set-model --type chat --clear`,
 	RunE: runSetModel,
@@ -39,7 +38,6 @@ var (
 	setModelList     bool
 	setModelClear    bool
 	setModelDefault  bool
-	setModelChain    string
 )
 
 func init() {
@@ -49,7 +47,6 @@ func init() {
 	setModelCmd.Flags().BoolVar(&setModelList, "list", false, "List current model routing and agent usage")
 	setModelCmd.Flags().BoolVar(&setModelClear, "clear", false, "Remove routing for the specified model type (revert to default)")
 	setModelCmd.Flags().BoolVar(&setModelDefault, "default", false, "Set the default provider/model (instead of per-type routing)")
-	setModelCmd.Flags().StringVar(&setModelChain, "chain", "", "Set model chain: comma-separated provider/model pairs (e.g. \"openai/gpt-4o-mini,deepseek/deepseek-reasoner\")")
 	rootCmd.AddCommand(setModelCmd)
 }
 
@@ -86,12 +83,6 @@ func runSetModel(_ *cobra.Command, _ []string) error {
 		return nil
 	}
 
-	// --chain: set model chain for this type
-	chainStr := strings.TrimSpace(setModelChain)
-	if chainStr != "" {
-		return setModelChainRouting(cfg, modelType, chainStr)
-	}
-
 	provName := strings.TrimSpace(setModelProvider)
 	modelName := strings.TrimSpace(setModelModel)
 
@@ -103,7 +94,7 @@ func runSetModel(_ *cobra.Command, _ []string) error {
 		return err
 	}
 
-	// Set routing (single model, clear any existing chain)
+	// Set routing
 	if cfg.Thread.Models == nil {
 		cfg.Thread.Models = make(map[string]*config.ModelConfig)
 	}
@@ -161,61 +152,12 @@ func validateProviderModel(cfg *config.Config, provName, modelName, cmdPrefix st
 	return nil
 }
 
-func setModelChainRouting(cfg *config.Config, modelType, chainStr string) error {
-	parts := strings.Split(chainStr, ",")
-	var chain []*config.ChainStep
-	for _, part := range parts {
-		part = strings.TrimSpace(part)
-		if part == "" {
-			continue
-		}
-		slash := strings.SplitN(part, "/", 2)
-		if len(slash) != 2 || slash[0] == "" || slash[1] == "" {
-			return fmt.Errorf("invalid chain format %q: expected provider/model\nFix: nagobot set-model --type %s --chain \"provider1/model1,provider2/model2\"", part, modelType)
-		}
-		provName, modelName := slash[0], slash[1]
-		if err := validateProviderModel(cfg, provName, modelName, fmt.Sprintf("nagobot set-model --type %s --chain", modelType)); err != nil {
-			return err
-		}
-		chain = append(chain, &config.ChainStep{Provider: provName, ModelType: modelName})
-	}
-	if len(chain) == 0 {
-		return fmt.Errorf("chain must contain at least one provider/model pair")
-	}
-
-	if cfg.Thread.Models == nil {
-		cfg.Thread.Models = make(map[string]*config.ModelConfig)
-	}
-	cfg.Thread.Models[modelType] = &config.ModelConfig{
-		Provider:  chain[0].Provider,
-		ModelType: chain[0].ModelType,
-		Chain:     chain,
-	}
-	if err := cfg.Save(); err != nil {
-		return fmt.Errorf("failed to save config: %w", err)
-	}
-
-	fmt.Printf("Set model chain for type %q:\n", modelType)
-	for i, step := range chain {
-		fmt.Printf("  %d. %s / %s\n", i+1, step.Provider, step.ModelType)
-	}
-	return nil
-}
-
 func listModelRouting(cfg *config.Config) error {
 	// Show all routing in a unified table
 	fmt.Println("Model routing:")
 	fmt.Printf("  %-16s -> %s / %s (default)\n", "(default)", cfg.GetProvider(), cfg.GetModelType())
 	for mt, mc := range cfg.Thread.Models {
-		if len(mc.Chain) > 0 {
-			var steps []string
-			for _, step := range mc.Chain {
-				steps = append(steps, step.Provider+"/"+step.ModelType)
-			}
-			fmt.Printf("  %-16s -> chain[%s]\n", mt, strings.Join(steps, " → "))
-		} else {
-			fmt.Printf("  %-16s -> %s / %s\n", mt, mc.Provider, mc.ModelType)
-		}
+		fmt.Printf("  %-16s -> %s / %s\n", mt, mc.Provider, mc.ModelType)
 	}
 
 	// Show agent specialty usage
@@ -226,15 +168,7 @@ func listModelRouting(cfg *config.Config) error {
 		for _, g := range groups {
 			routing := "(default) " + cfg.GetProvider() + " / " + cfg.GetModelType()
 			if mc, ok := cfg.Thread.Models[g.ModelType]; ok && mc != nil {
-				if len(mc.Chain) > 0 {
-					var steps []string
-					for _, step := range mc.Chain {
-						steps = append(steps, step.Provider+"/"+step.ModelType)
-					}
-					routing = "chain[" + strings.Join(steps, " → ") + "]"
-				} else {
-					routing = mc.Provider + " / " + mc.ModelType
-				}
+				routing = mc.Provider + " / " + mc.ModelType
 			}
 			fmt.Printf("  %-16s -> %-40s (agents: %s)\n", g.ModelType, routing, strings.Join(g.AgentNames, ", "))
 		}

@@ -144,17 +144,10 @@ type ThreadConfig struct {
 	Models              map[string]*ModelConfig `json:"models,omitempty" yaml:"models,omitempty"`                           // model type → provider/model mapping
 }
 
-// ChainStep defines one step in a model chain.
-type ChainStep struct {
-	Provider  string `json:"provider" yaml:"provider"`
-	ModelType string `json:"modelType" yaml:"modelType"`
-}
-
 // ModelConfig maps a model type to a concrete provider and model.
 type ModelConfig struct {
-	Provider  string       `json:"provider" yaml:"provider"`
-	ModelType string       `json:"modelType" yaml:"modelType"`
-	Chain     []*ChainStep `json:"chain,omitempty" yaml:"chain,omitempty"`
+	Provider  string `json:"provider" yaml:"provider"`
+	ModelType string `json:"modelType" yaml:"modelType"`
 }
 
 // ProvidersConfig contains provider API configurations.
