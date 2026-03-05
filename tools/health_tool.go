@@ -13,10 +13,12 @@ import (
 
 // HealthRuntimeContext is thread/session metadata injected at runtime.
 type HealthRuntimeContext struct {
-	ThreadID    string
-	SessionKey  string
-	SessionFile string
-	AgentName   string
+	ThreadID     string
+	SessionKey   string
+	SessionFile  string
+	AgentName    string
+	ProviderName string
+	ModelName    string
 }
 
 // HealthContextProvider returns dynamic runtime context.
@@ -36,11 +38,11 @@ type HealthWebInfo = healthsnap.WebInfo
 
 // HealthTool reports runtime health info for the current process.
 type HealthTool struct {
-	Workspace    string
-	SessionsRoot string
-	SkillsRoot   string
-	ProviderName string
-	ModelName    string
+	Workspace     string
+	SessionsRoot  string
+	SkillsRoot    string
+	ProviderName  string // Fallback; overridden by CtxFn if set.
+	ModelName     string // Fallback; overridden by CtxFn if set.
 	ChannelsFn    func() *HealthChannelsInfo
 	CtxFn         HealthContextProvider
 	ThreadsListFn func() []ThreadInfo
@@ -97,12 +99,20 @@ func (t *HealthTool) Run(ctx context.Context, args json.RawMessage) string {
 		runtimeCtx = t.CtxFn()
 	}
 
+	providerName, modelName := t.ProviderName, t.ModelName
+	if runtimeCtx.ProviderName != "" {
+		providerName = runtimeCtx.ProviderName
+	}
+	if runtimeCtx.ModelName != "" {
+		modelName = runtimeCtx.ModelName
+	}
+
 	snapshot := healthsnap.Collect(healthsnap.Options{
 		Workspace:      t.Workspace,
 		SessionsRoot:   t.SessionsRoot,
 		SkillsRoot:     t.SkillsRoot,
-		Provider:       t.ProviderName,
-		Model:          t.ModelName,
+		Provider:       providerName,
+		Model:          modelName,
 		ThreadID:       runtimeCtx.ThreadID,
 		AgentName:      runtimeCtx.AgentName,
 		SessionKey:     runtimeCtx.SessionKey,

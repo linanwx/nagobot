@@ -107,13 +107,19 @@ func runCompressSession(_ *cobra.Command, args []string) error {
 			logger.Warn("compress-session: failed to create memory directory", "err", err)
 		} else {
 			memoryFile := filepath.Join(memoryDir, now.Format("2006-01-02")+".md")
-			header := fmt.Sprintf("\n## Compression %s\n\n", now.Format("15:04"))
 			f, err := os.OpenFile(memoryFile, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
 			if err != nil {
 				logger.Warn("compress-session: failed to open memory file", "err", err)
 			} else {
+				defer f.Close()
+				// Use separator newline only when appending to existing content.
+				info, _ := f.Stat()
+				sep := ""
+				if info != nil && info.Size() > 0 {
+					sep = "\n"
+				}
+				header := fmt.Sprintf("%s## Compression %s\n\n", sep, now.Format("15:04"))
 				_, _ = f.WriteString(header + content + "\n")
-				f.Close()
 			}
 		}
 

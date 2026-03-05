@@ -404,11 +404,14 @@ func (t *Thread) buildTools() *tools.Registry {
 				agentName = t.Agent.Name
 			}
 			t.mu.Unlock()
+			pn, mn := t.resolvedProviderModel()
 			return tools.HealthRuntimeContext{
-				ThreadID:    t.id,
-				AgentName:   agentName,
-				SessionKey:  t.sessionKey,
-				SessionFile: sessionPath,
+				ThreadID:     t.id,
+				AgentName:    agentName,
+				SessionKey:   t.sessionKey,
+				SessionFile:  sessionPath,
+				ProviderName: pn,
+				ModelName:    mn,
 			}
 		},
 	})
