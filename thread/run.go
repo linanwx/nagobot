@@ -25,7 +25,7 @@ func (t *Thread) run(ctx context.Context, userMessage string, sink Sink, injectF
 
 	// Check for model chain before proceeding with single-model path.
 	chain := t.resolvedChain()
-	if len(chain) > 0 {
+	if len(chain) > 1 {
 		return t.runChain(ctx, chain, userMessage, sink, injectFn)
 	}
 
