@@ -7,6 +7,7 @@ import (
 
 	"github.com/linanwx/nagobot/logger"
 	"github.com/linanwx/nagobot/provider"
+	"github.com/linanwx/nagobot/thread/msg"
 	"github.com/tiktoken-go/tokenizer"
 )
 
@@ -45,16 +46,13 @@ func (t *Thread) contextBudget() (tokens int, warnRatio float64) {
 }
 
 func (t *Thread) buildCompressionNotice(requestTokens, contextWindowTokens int, usageRatio float64, sessionPath string) string {
-	return fmt.Sprintf(`[Context Pressure Notice]
-Estimated request tokens are high for this thread.
-
-- estimated_request_tokens: %d
-- configured_context_window_tokens: %d
-- estimated_usage_ratio: %.2f
-- session_key: %s
-- session_file: %s
-
-You MUST load and execute skill "compress-context" NOW, before responding to the user. Then you can respond to the user request. Follow the skill instructions to compact the session file safely. Keep critical facts, decisions, IDs, and unresolved tasks.`, requestTokens, contextWindowTokens, usageRatio, t.sessionKey, sessionPath)
+	return msg.BuildSystemMessage("context_pressure", map[string]string{
+		"estimated_request_tokens":        fmt.Sprintf("%d", requestTokens),
+		"configured_context_window_tokens": fmt.Sprintf("%d", contextWindowTokens),
+		"estimated_usage_ratio":           fmt.Sprintf("%.2f", usageRatio),
+		"session_key":                     t.sessionKey,
+		"session_file":                    sessionPath,
+	}, `You MUST load and execute skill "compress-context" NOW, before responding to the user. Then you can respond to the user request. Follow the skill instructions to compact the session file safely. Keep critical facts, decisions, IDs, and unresolved tasks.`)
 }
 
 func estimateTextTokens(text string) int {

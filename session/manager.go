@@ -99,13 +99,14 @@ func (m *Manager) Reload(key string) (*Session, error) {
 }
 
 // Save saves a session to disk.
-// Orphaned tool messages (no preceding tool_calls) are automatically removed.
+// Raw message data is persisted; sanitization happens at read time and before
+// sending to the provider so session files can be re-sanitized with improved
+// logic later.
 func (m *Manager) Save(s *Session) error {
 	s.Key = normalizeSessionKey(s.Key)
 	s.UpdatedAt = time.Now()
 
 	EnsureMessageIDs(s.Key, s.Messages)
-	s.Messages = provider.SanitizeMessages(s.Messages)
 	data, err := json.MarshalIndent(s, "", "  ")
 	if err != nil {
 		return err

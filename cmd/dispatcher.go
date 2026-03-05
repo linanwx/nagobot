@@ -10,6 +10,7 @@ import (
 	"github.com/linanwx/nagobot/config"
 	"github.com/linanwx/nagobot/logger"
 	"github.com/linanwx/nagobot/thread"
+	sysmsg "github.com/linanwx/nagobot/thread/msg"
 )
 
 // Dispatcher routes channel messages to threads. It is the bridge between
@@ -238,11 +239,9 @@ func (d *Dispatcher) buildCronSink(msg *channel.Message) thread.Sink {
 			if strings.TrimSpace(response) == "" {
 				return nil
 			}
-			wakeMsg := fmt.Sprintf(
-				"[Cron job completed]\n- id: %s\n- result:\n%s",
-				jobID,
-				strings.TrimSpace(response),
-			)
+			wakeMsg := sysmsg.BuildSystemMessage("cron_completed", map[string]string{
+				"id": jobID,
+			}, strings.TrimSpace(response))
 			d.threads.Wake(reportTo, &thread.WakeMessage{
 				Source:  thread.WakeCronFinished,
 				Message: wakeMsg,

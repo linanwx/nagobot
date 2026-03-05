@@ -8,6 +8,7 @@ import (
 
 	"github.com/linanwx/nagobot/logger"
 	"github.com/linanwx/nagobot/provider"
+	sysmsg "github.com/linanwx/nagobot/thread/msg"
 )
 
 // Enqueue adds a wake message to the thread's inbox and notifies the manager.
@@ -143,7 +144,7 @@ func (t *Thread) RunOnce(ctx context.Context) {
 		response, err := t.run(ctx, userMessage, sink, injectFn)
 		if err != nil {
 			logger.Error("thread run error", "threadID", t.id, "sessionKey", t.sessionKey, "source", msg.Source, "err", err)
-			response = fmt.Sprintf("[Error] %v", err)
+			response = sysmsg.BuildSystemMessage("error", nil, fmt.Sprintf("%v", err))
 		}
 
 		suppress := t.checkAndResetSuppressSink()

@@ -88,6 +88,11 @@ func runCompressSession(_ *cobra.Command, args []string) error {
 		for cutoff > 0 && orig.Messages[cutoff].Role == "tool" {
 			cutoff--
 		}
+		// Also back up past an assistant with tool_calls to keep the entire
+		// assistant→tool* sequence together in the tail.
+		if cutoff > 0 && orig.Messages[cutoff-1].Role == "assistant" && len(orig.Messages[cutoff-1].ToolCalls) > 0 {
+			cutoff--
+		}
 		head := orig.Messages[:cutoff]
 		tail := orig.Messages[cutoff:]
 		// Place summary at the chronological cutoff point with a proper timestamp.

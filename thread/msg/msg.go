@@ -1,7 +1,39 @@
 // Package msg defines the WakeMessage type shared between thread and tools.
 package msg
 
-import "context"
+import (
+	"context"
+	"fmt"
+	"sort"
+	"strings"
+)
+
+// BuildSystemMessage constructs a standardized XML system message.
+// Fields are rendered as child elements in sorted order; content goes into
+// a <message visibility="assistant-only"> element.
+func BuildSystemMessage(msgType string, fields map[string]string, content string) string {
+	var sb strings.Builder
+	fmt.Fprintf(&sb, "<system type=%q>\n", msgType)
+
+	if len(fields) > 0 {
+		keys := make([]string, 0, len(fields))
+		for k := range fields {
+			keys = append(keys, k)
+		}
+		sort.Strings(keys)
+		for _, k := range keys {
+			fmt.Fprintf(&sb, "  <%s>%s</%s>\n", k, fields[k], k)
+		}
+	}
+
+	content = strings.TrimSpace(content)
+	if content != "" {
+		fmt.Fprintf(&sb, "  <message visibility=\"assistant-only\">%s</message>\n", content)
+	}
+
+	sb.WriteString("</system>")
+	return sb.String()
+}
 
 // Sink defines how thread output is delivered.
 type Sink struct {

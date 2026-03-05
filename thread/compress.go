@@ -122,7 +122,7 @@ func compressToolResults(messages []provider.Message, keepLastAssistants int) (b
 		if msg.Compressed != "" || len(msg.Content) <= compressMinContentLen {
 			continue
 		}
-		msg.Compressed = fmt.Sprintf("[tool: %s, %d chars]", msg.Name, len(msg.Content))
+		msg.Compressed = fmt.Sprintf(`<compressed tool="%s" original="%d"/>`, msg.Name, len(msg.Content))
 		modified = true
 	}
 

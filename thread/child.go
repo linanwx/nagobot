@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/linanwx/nagobot/logger"
+	"github.com/linanwx/nagobot/thread/msg"
 )
 
 // SpawnChild spawns a child thread for delegated work. Always asynchronous:
@@ -39,9 +40,13 @@ func (t *Thread) SpawnChild(ctx context.Context, agentName string, task string) 
 			Send: func(_ context.Context, response string) error {
 				var message string
 				if strings.TrimSpace(response) != "" {
-					message = fmt.Sprintf("Child %s completed:\n%s", child.id, response)
+					message = msg.BuildSystemMessage("child_completed", map[string]string{
+						"child_id": child.id,
+					}, strings.TrimSpace(response))
 				} else {
-					message = fmt.Sprintf("Child %s completed (no output)", child.id)
+					message = msg.BuildSystemMessage("child_completed", map[string]string{
+						"child_id": child.id,
+					}, "no output")
 				}
 				parentThread.Enqueue(&WakeMessage{
 					Source:  WakeChildCompleted,

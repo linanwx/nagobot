@@ -159,7 +159,7 @@ func (c *CronChannel) buildMessage(job *cronpkg.Job) *Message {
 
 func buildCronStartMessage(job *cronpkg.Job) string {
 	if job == nil {
-		return "[Cron wake notice]\nReason: scheduled cron task triggered."
+		return msg.BuildSystemMessage("cron", nil, "scheduled cron task triggered")
 	}
 
 	atTime := ""
@@ -167,16 +167,15 @@ func buildCronStartMessage(job *cronpkg.Job) string {
 		atTime = job.AtTime.UTC().Format(time.RFC3339)
 	}
 
-	return fmt.Sprintf(
-		"[Cron wake notice]\nReason: scheduled cron task triggered.\nRaw job config:\n- id: %s\n- kind: %s\n- expr: %s\n- at_time: %s\n- task: %s\n- agent: %s\n- wake_session: %s\n- silent: %t\n- created_at: %s",
-		strings.TrimSpace(job.ID),
-		strings.TrimSpace(job.Kind),
-		strings.TrimSpace(job.Expr),
-		atTime,
-		strings.TrimSpace(job.Task),
-		strings.TrimSpace(job.Agent),
-		strings.TrimSpace(job.WakeSession),
-		job.Silent,
-		job.CreatedAt.UTC().Format(time.RFC3339),
-	)
+	return msg.BuildSystemMessage("cron", map[string]string{
+		"id":           strings.TrimSpace(job.ID),
+		"kind":         strings.TrimSpace(job.Kind),
+		"expr":         strings.TrimSpace(job.Expr),
+		"at_time":      atTime,
+		"task":         strings.TrimSpace(job.Task),
+		"agent":        strings.TrimSpace(job.Agent),
+		"wake_session": strings.TrimSpace(job.WakeSession),
+		"silent":       strconv.FormatBool(job.Silent),
+		"created_at":   job.CreatedAt.UTC().Format(time.RFC3339),
+	}, "scheduled cron task triggered")
 }
