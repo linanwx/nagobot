@@ -51,15 +51,15 @@ func (m *Manager) runCompressionScan() {
 		if c.idle >= tier2IdleMin {
 			m.tryTier2Compress(c.key)
 		} else {
-			// Tier 1: mechanical compression (5-30min idle)
-			threshold := int(float64(cfg.ContextWindowTokens) * tier1TokenRatio)
-			m.tryTier1Compress(c.key, threshold)
+			// Tier 1: mechanical compression (5-30min idle), no token threshold
+			m.tryTier1Compress(c.key)
 		}
 	}
 }
 
 // tryTier1Compress performs mechanical tool-result compression on an idle session.
-func (m *Manager) tryTier1Compress(sessionKey string, tokenThreshold int) {
+// No token threshold — always compresses tool results when idle 5-30min.
+func (m *Manager) tryTier1Compress(sessionKey string) {
 	cfg := m.cfg
 	sess, err := cfg.Sessions.Reload(sessionKey)
 	if err != nil {
@@ -67,11 +67,6 @@ func (m *Manager) tryTier1Compress(sessionKey string, tokenThreshold int) {
 		return
 	}
 	if len(sess.Messages) == 0 {
-		return
-	}
-
-	tokens := estimateMessagesTokens(sess.Messages)
-	if tokens < tokenThreshold {
 		return
 	}
 
@@ -92,11 +87,8 @@ func (m *Manager) tryTier1Compress(sessionKey string, tokenThreshold int) {
 		return
 	}
 
-	newTokens := estimateMessagesTokens(newMessages)
 	logger.Info("tier1 compress: tool results trimmed",
 		"sessionKey", sessionKey,
-		"tokensBefore", tokens,
-		"tokensAfter", newTokens,
 		"messageCount", len(newMessages),
 	)
 }

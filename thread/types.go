@@ -56,15 +56,14 @@ const (
 	gcInterval            = 5 * time.Minute
 	streamFlushThreshold  = 600 // minimum unsent bytes before attempting a streamer split
 
-	// Tier 1: mechanical tool-result compression (idle 5-30 min)
-	tier1IdleMin   = 5 * time.Minute
-	tier1IdleMax   = 30 * time.Minute
-	tier1TokenRatio = 0.5
+	// Tier 1: mechanical tool-result compression (idle 5-30 min, no token threshold)
+	tier1IdleMin = 5 * time.Minute
+	tier1IdleMax = 30 * time.Minute
 
-	// Tier 2: AI-driven silent compression (idle ≥30 min)
+	// Tier 2: AI-driven silent compression (idle ≥30 min, >50% tokens)
 	tier2IdleMin    = 30 * time.Minute
 	tier2IdleMax    = 24 * time.Hour
-	tier2TokenRatio = 0.6
+	tier2TokenRatio = 0.5
 )
 
 // ThreadConfig contains shared dependencies for creating threads.

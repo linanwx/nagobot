@@ -8,6 +8,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/linanwx/nagobot/logger"
 	"github.com/linanwx/nagobot/provider"
 	"github.com/linanwx/nagobot/session"
 	"github.com/spf13/cobra"
@@ -113,6 +114,13 @@ func runCompressSession(_ *cobra.Command, args []string) error {
 		return fmt.Errorf("failed to write session file: %w", err)
 	}
 
+	logger.Info("compress-session completed",
+		"sessionKey", orig.Key,
+		"messagesBefore", origCount,
+		"messagesAfter", len(orig.Messages),
+		"backup", backupPath,
+		"session", sessionFile,
+	)
 	fmt.Printf("Session compressed: %d → %d messages\n", origCount, len(orig.Messages))
 	fmt.Printf("Backup: %s\n", backupPath)
 	fmt.Printf("Session: %s\n", sessionFile)
