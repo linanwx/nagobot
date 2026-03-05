@@ -1,6 +1,6 @@
 ---
 name: manage-providers
-description: Configure LLM provider API keys and model routing. Use when adding a new provider API key, switching which provider/model an agent uses, checking provider status, or troubleshooting model routing issues. IMPORTANT - you must configure a provider's API key before routing any model to it.
+description: Configure LLM provider API keys, model routing, and model chains. Use when adding a new provider API key, switching which provider/model an agent uses, setting up model chains (multiple models respond sequentially), checking provider status, or troubleshooting model routing issues. IMPORTANT - you must configure a provider's API key before routing any model to it.
 ---
 # Manage Providers & Model Routing
 
@@ -66,6 +66,21 @@ exec: {{WORKSPACE}}/bin/nagobot set-model --type chat --provider openai --model 
 ```
 exec: {{WORKSPACE}}/bin/nagobot set-model --list
 ```
+
+### Set Model Chain
+
+Configure multiple models to respond sequentially to the same message. The first model gives a quick reply, subsequent models provide deeper analysis.
+
+```
+exec: {{WORKSPACE}}/bin/nagobot set-model --type <model_type> --chain "provider1/model1,provider2/model2"
+```
+
+Example: fast reply from GPT-4o-mini, then deep analysis from DeepSeek Reasoner:
+```
+exec: {{WORKSPACE}}/bin/nagobot set-model --type chat --chain "openai/gpt-4o-mini,deepseek/deepseek-reasoner"
+```
+
+Each model in the chain sees the previous models' responses. Chain info is injected into the wake message so each model knows its position and role.
 
 ### Clear Model Routing (Revert to Default)
 

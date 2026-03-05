@@ -23,6 +23,12 @@ func (t *Thread) run(ctx context.Context, userMessage string, sink Sink, injectF
 		return "", nil
 	}
 
+	// Check for model chain before proceeding with single-model path.
+	chain := t.resolvedChain()
+	if len(chain) > 0 {
+		return t.runChain(ctx, chain, userMessage, sink, injectFn)
+	}
+
 	cfg := t.cfg()
 	systemPrompt := t.buildSystemPrompt()
 	sess := t.loadSession()
@@ -286,6 +292,128 @@ func (t *Thread) resolvedModelConfig() *config.ModelConfig {
 		return nil
 	}
 	return mc
+}
+
+// resolvedChain returns the chain steps for the current agent, or nil.
+func (t *Thread) resolvedChain() []*config.ChainStep {
+	mc := t.resolvedModelConfig()
+	if mc == nil || len(mc.Chain) == 0 {
+		return nil
+	}
+	return mc.Chain
+}
+
+// buildChainInfo builds the chain position prompt.
+func buildChainInfo(chain []*config.ChainStep, currentIdx int) string {
+	var sb strings.Builder
+	fmt.Fprintf(&sb, "你是模型链中的一员。共 %d 个模型按顺序回复同一条消息。\n", len(chain))
+	for i, step := range chain {
+		fmt.Fprintf(&sb, "- 模型 %d: %s\n", i+1, step.ModelType)
+	}
+	fmt.Fprintf(&sb, "你是模型 %d。", currentIdx+1)
+	if currentIdx == 0 {
+		sb.WriteString("请快速回复、简单规划。后续模型会补充深度分析。")
+	} else if currentIdx == len(chain)-1 {
+		sb.WriteString("前序模型已回复（见上方对话）。请补充、深度调查、完善回答。")
+	} else {
+		sb.WriteString("前序模型已回复（见上方对话）。请从你的角度补充。")
+	}
+	return sb.String()
+}
+
+// runChain executes a model chain: each step uses a different provider/model.
+func (t *Thread) runChain(ctx context.Context, chain []*config.ChainStep, userMessage string, sink Sink, injectFn func() []provider.Message) (string, error) {
+	cfg := t.cfg()
+	if cfg.ProviderFactory == nil {
+		return noProviderMessage(), nil
+	}
+	var lastResponse string
+
+	for i, step := range chain {
+		chainInfo := buildChainInfo(chain, i)
+
+		// Build step-specific user message
+		var stepUserMessage string
+		if i == 0 {
+			stepUserMessage = userMessage + "\n\n" + chainInfo
+		} else {
+			// Continuation: chain info only (previous response is in session history)
+			stepUserMessage = chainInfo
+		}
+
+		systemPrompt := t.buildSystemPrompt()
+		sess := t.loadSession()
+		messages, turnUserMessages := t.buildMessageHistory(systemPrompt, stepUserMessage, sess)
+
+		// Write-ahead
+		if sess != nil {
+			if waSess, waErr := t.reloadSessionForSave(); waErr == nil {
+				waSess.Messages = append(waSess.Messages, turnUserMessages...)
+				if saveErr := cfg.Sessions.Save(waSess); saveErr != nil {
+					logger.Warn("chain write-ahead save failed", "key", t.sessionKey, "step", i, "err", saveErr)
+				}
+			}
+		}
+
+		metrics := &ExecMetrics{TurnStart: time.Now()}
+		t.mu.Lock()
+		t.execMetrics = metrics
+		t.mu.Unlock()
+
+		runCtx := tools.WithRuntimeContext(ctx, tools.RuntimeContext{
+			SessionKey:     t.sessionKey,
+			Workspace:      cfg.Workspace,
+			SupportsVision: provider.SupportsVision(step.Provider, step.ModelType),
+		})
+
+		// Reset halt and suppress for each step
+		t.resetHaltLoop()
+		t.mu.Lock()
+		t.suppressSink = false
+		t.mu.Unlock()
+
+		p, err := cfg.ProviderFactory.Create(step.Provider, step.ModelType)
+		if err != nil {
+			logger.Warn("chain step provider failed, skipping", "step", i, "provider", step.Provider, "model", step.ModelType, "err", err)
+			continue
+		}
+
+		// Only first step gets injectFn (mid-execution user messages)
+		var stepInjectFn func() []provider.Message
+		if i == 0 {
+			stepInjectFn = injectFn
+		}
+
+		response, intermediates, runErr := t.executeRunner(ctx, runCtx, p, metrics, messages, sink, stepInjectFn)
+
+		t.mu.Lock()
+		t.execMetrics = nil
+		t.mu.Unlock()
+
+		if runErr != nil {
+			return "", runErr
+		}
+
+		t.persistTurnMessages(cfg, sess, intermediates, response)
+		lastResponse = response
+
+		// Deliver if not already streamed
+		suppress := t.checkAndResetSuppressSink()
+		if !sink.IsZero() && strings.TrimSpace(response) != "" && !suppress {
+			if sinkErr := sink.Send(ctx, response); sinkErr != nil {
+				logger.Error("chain sink delivery error", "step", i, "err", sinkErr)
+			}
+		}
+	}
+
+	// If no step succeeded, return a fallback message.
+	if lastResponse == "" {
+		return noProviderMessage(), nil
+	}
+
+	// Suppress final delivery in RunOnce (we already delivered per-step)
+	t.SetSuppressSink()
+	return lastResponse, nil
 }
 
 func noProviderMessage() string {
