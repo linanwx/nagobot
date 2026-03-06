@@ -419,9 +419,6 @@ func buildProviderOptions() []huh.Option[string] {
 	for _, name := range sorted {
 		models := provider.SupportedModelsForProvider(name)
 		label := name + " (" + strings.Join(models, ", ") + ")"
-		if name == "deepseek" {
-			label += " [Recommended]"
-		}
 		options = append(options, huh.NewOption(label, name))
 	}
 	return options

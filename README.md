@@ -18,20 +18,9 @@ This project is evolving rapidly.
 
 Multi-provider AI assistant with tool calling, async multi-threading, cron scheduling, web search, and context compression — deployable via Telegram, Web, or CLI.
 
-## Supported Providers and Model Types
+## Supported Providers and Models
 
-`nagobot` enforces a model whitelist. Only validated provider/model pairs are supported:
-
-- `openai`: `gpt-5.2` (OAuth or API key)
-- `deepseek`: `deepseek-reasoner`, `deepseek-chat` (recommended default)
-- `openrouter`: `moonshotai/kimi-k2.5`, `anthropic/claude-sonnet-4.6`, `anthropic/claude-opus-4.6`, `z-ai/glm-5`
-- `anthropic`: `claude-sonnet-4-6`, `claude-opus-4-6`
-- `moonshot-cn`: `kimi-k2.5`
-- `moonshot-global`: `kimi-k2.5`
-- `zhipu-cn`: `glm-5`
-- `zhipu-global`: `glm-5`
-- `minimax-cn`: `minimax-m2.5`
-- `minimax-global`: `minimax-m2.5`
+Run `nagobot set-model --list` to see all supported provider/model pairs.
 
 ## Channels
 
@@ -40,7 +29,6 @@ Multi-provider AI assistant with tool calling, async multi-threading, cron sched
 - Web
 - CLI
 
-Recommended: deepseek-reasoner for chat, kimi-k2.5 for tool calls.
 
 ## Requirements
 
