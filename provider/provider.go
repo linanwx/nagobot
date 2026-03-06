@@ -4,6 +4,7 @@ package provider
 import (
 	"context"
 	"encoding/base64"
+	"encoding/json"
 	"errors"
 	"os"
 	"regexp"
@@ -35,8 +36,9 @@ type Request struct {
 type Message struct {
 	Role             string     `json:"role"`                        // system, user, assistant, tool
 	Content          string     `json:"content,omitempty"`           // text content
-	ReasoningContent string     `json:"reasoning_content,omitempty"` // reasoning text for providers that require it
-	ToolCalls        []ToolCall `json:"tool_calls,omitempty"`        // for assistant messages
+	ReasoningContent string          `json:"reasoning_content,omitempty"` // reasoning text for providers that require it
+	ReasoningDetails json.RawMessage `json:"reasoning_details,omitempty"` // opaque reasoning details (Gemini thought_signature)
+	ToolCalls        []ToolCall      `json:"tool_calls,omitempty"`        // for assistant messages
 	ToolCallID       string     `json:"tool_call_id,omitempty"`      // for tool result messages
 	Name             string     `json:"name,omitempty"`              // tool name for tool results
 	ID               string     `json:"id,omitempty"`                // unique message identifier
@@ -67,10 +69,11 @@ type FunctionCall struct {
 
 // Response represents a chat completion response.
 type Response struct {
-	Content          string     // final text response
-	ReasoningContent string     // reasoning text (provider-specific)
-	ToolCalls        []ToolCall // tool calls (if any)
-	Usage            Usage      // token usage
+	Content          string          // final text response
+	ReasoningContent string          // reasoning text (provider-specific)
+	ReasoningDetails json.RawMessage // opaque reasoning details (Gemini thought_signature)
+	ToolCalls        []ToolCall      // tool calls (if any)
+	Usage            Usage           // token usage
 }
 
 // HasToolCalls returns true if the response contains tool calls.
@@ -218,8 +221,8 @@ func AssistantMessage(content string) Message {
 }
 
 // AssistantMessageWithTools creates an assistant message with tool calls.
-func AssistantMessageWithTools(content, reasoningContent string, toolCalls []ToolCall) Message {
-	return Message{Role: "assistant", Content: content, ReasoningContent: reasoningContent, ToolCalls: toolCalls, Timestamp: time.Now()}
+func AssistantMessageWithTools(content, reasoningContent string, reasoningDetails json.RawMessage, toolCalls []ToolCall) Message {
+	return Message{Role: "assistant", Content: content, ReasoningContent: reasoningContent, ReasoningDetails: reasoningDetails, ToolCalls: toolCalls, Timestamp: time.Now()}
 }
 
 // ToolResultMessage creates a tool result message.
@@ -268,6 +271,9 @@ func SanitizeMessages(messages []Message) []Message {
 				}
 			}
 			m.ToolCalls = answered
+			if len(m.ToolCalls) == 0 {
+				m.ReasoningDetails = nil
+			}
 		}
 		// Drop assistant messages with no visible content and no tool calls.
 		// Includes messages left with only ReasoningContent after tool_calls stripping.

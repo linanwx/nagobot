@@ -40,7 +40,45 @@ func extractReasoningText(rawMessage string) string {
 		}
 	}
 
+	// Fallback: extract text from reasoning_details array (Gemini thought_signature responses).
+	if details, ok := payload["reasoning_details"]; ok {
+		if arr, ok := details.([]any); ok {
+			var texts []string
+			for _, item := range arr {
+				m, ok := item.(map[string]any)
+				if !ok {
+					continue
+				}
+				if t, ok := m["text"].(string); ok && strings.TrimSpace(t) != "" {
+					texts = append(texts, t)
+				} else if s, ok := m["summary"].(string); ok && strings.TrimSpace(s) != "" {
+					texts = append(texts, s)
+				}
+			}
+			if len(texts) > 0 {
+				return strings.Join(texts, "\n")
+			}
+		}
+	}
+
 	return ""
+}
+
+// extractReasoningDetails extracts the reasoning_details array from a raw message JSON.
+// Returns nil if the field is absent, null, or empty.
+func extractReasoningDetails(rawMessage string) json.RawMessage {
+	if rawMessage == "" {
+		return nil
+	}
+	var payload map[string]json.RawMessage
+	if err := json.Unmarshal([]byte(rawMessage), &payload); err != nil {
+		return nil
+	}
+	details, ok := payload["reasoning_details"]
+	if !ok || len(details) == 0 || string(details) == "null" || string(details) == "[]" {
+		return nil
+	}
+	return details
 }
 
 const (
@@ -84,12 +122,18 @@ var openRouterModels = map[string]openRouterModelMeta{
 		},
 		ProviderOrder: []string{"qwen"},
 	},
+	"google/gemini-3-flash-preview": {
+		ThinkingOpts: []oaioption.RequestOption{
+			oaioption.WithJSONSet("reasoning", map[string]any{"effort": "high"}),
+		},
+		ProviderOrder: []string{"google-ai-studio"},
+	},
 }
 
 func init() {
 	RegisterProvider("openrouter", ProviderRegistration{
-		Models:       []string{"moonshotai/kimi-k2.5", "anthropic/claude-sonnet-4.6", "anthropic/claude-opus-4.6", "z-ai/glm-5", "minimax/minimax-m2.5", "qwen/qwen3.5-35b-a3b"},
-		VisionModels: []string{"moonshotai/kimi-k2.5", "anthropic/claude-sonnet-4.6", "anthropic/claude-opus-4.6", "qwen/qwen3.5-35b-a3b"},
+		Models:       []string{"moonshotai/kimi-k2.5", "anthropic/claude-sonnet-4.6", "anthropic/claude-opus-4.6", "z-ai/glm-5", "minimax/minimax-m2.5", "qwen/qwen3.5-35b-a3b", "google/gemini-3-flash-preview"},
+		VisionModels: []string{"moonshotai/kimi-k2.5", "anthropic/claude-sonnet-4.6", "anthropic/claude-opus-4.6", "qwen/qwen3.5-35b-a3b", "google/gemini-3-flash-preview"},
 		EnvKey:       "OPENROUTER_API_KEY",
 		EnvBase:      "OPENROUTER_API_BASE",
 		Constructor: func(apiKey, apiBase, modelType, modelName string, maxTokens int, temperature float64) Provider {
@@ -232,14 +276,19 @@ func toOpenAIChatMessages(messages []Message, visionCapable bool) ([]openai.Chat
 				contentStr = "(empty)"
 			}
 			assistant.Content.OfString = openai.String(contentStr)
+			extras := map[string]any{}
 			if len(m.ToolCalls) > 0 {
 				reasoningContent := strings.TrimSpace(m.ReasoningContent)
 				if reasoningContent == "" {
 					reasoningContent = contentStr
 				}
-				assistant.SetExtraFields(map[string]any{
-					"reasoning_content": reasoningContent,
-				})
+				extras["reasoning_content"] = reasoningContent
+			}
+			if len(m.ReasoningDetails) > 0 {
+				extras["reasoning_details"] = m.ReasoningDetails
+			}
+			if len(extras) > 0 {
+				assistant.SetExtraFields(extras)
 			}
 
 			if len(m.ToolCalls) > 0 {
@@ -364,6 +413,7 @@ func (p *OpenRouterProvider) Chat(ctx context.Context, req *Request) (*Response,
 	rawMessage := choice.Message.RawJSON()
 	rawResponse := chatResp.RawJSON()
 	reasoningText := extractReasoningText(rawMessage)
+	reasoningDetails := extractReasoningDetails(rawMessage)
 	finalContent := choice.Message.Content
 	if strings.TrimSpace(finalContent) == "" && len(toolCalls) == 0 && strings.TrimSpace(reasoningText) != "" {
 		logger.Warn("openrouter response content empty, using reasoning text fallback")
@@ -396,6 +446,7 @@ func (p *OpenRouterProvider) Chat(ctx context.Context, req *Request) (*Response,
 	return &Response{
 		Content:          finalContent,
 		ReasoningContent: reasoningText,
+		ReasoningDetails: reasoningDetails,
 		ToolCalls:        toolCalls,
 		Usage: Usage{
 			PromptTokens:     int(chatResp.Usage.PromptTokens),

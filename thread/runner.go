@@ -85,7 +85,7 @@ func (r *Runner) RunWithMessages(ctx context.Context, messages []provider.Messag
 			return resp.Content, nil
 		}
 
-		assistantMsg := provider.AssistantMessageWithTools(resp.Content, resp.ReasoningContent, resp.ToolCalls)
+		assistantMsg := provider.AssistantMessageWithTools(resp.Content, resp.ReasoningContent, resp.ReasoningDetails, resp.ToolCalls)
 		messages = append(messages, assistantMsg)
 		if r.onMessage != nil {
 			r.onMessage(assistantMsg)

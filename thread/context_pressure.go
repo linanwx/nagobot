@@ -72,6 +72,9 @@ func estimateMessageTokens(message provider.Message) int {
 	tokens += estimateTextTokens(message.Role)
 	tokens += estimateTextTokens(message.Content)
 	tokens += estimateTextTokens(message.ReasoningContent)
+	if len(message.ReasoningDetails) > 0 {
+		tokens += len(message.ReasoningDetails) / 3
+	}
 	tokens += estimateTextTokens(message.ToolCallID)
 	tokens += estimateTextTokens(message.Name)
 
