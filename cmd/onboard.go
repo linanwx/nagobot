@@ -97,7 +97,7 @@ func runOnboard(cmd *cobra.Command, _ []string) error {
 				huh.NewGroup(
 					huh.NewSelect[string]().
 						Title("Choose your default LLM provider").
-						Description("nagobot supports multiple LLM providers. Choose one to get started.").
+						Description("nagobot supports multiple LLM providers. Choose one to get started.\nRecommend: openrouter + google/gemini-3-flash-preview").
 						Options(providerOptions...).
 						Value(&selectedProvider),
 				),
