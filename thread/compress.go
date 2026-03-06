@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/linanwx/nagobot/logger"
@@ -13,8 +14,10 @@ import (
 )
 
 const (
-	compressMinContentLen  = 200 // skip short tool results (idempotency)
-	compressKeepAssistants = 3   // protect last N assistant turns
+	compressMinContentLen  = 2000 // skip short tool results (idempotency)
+	compressKeepAssistants = 3    // protect last N assistant turns
+	softTrimHeadChars      = 1500 // chars kept from start of result
+	softTrimTailChars      = 1500 // chars kept from end of result
 )
 
 // runCompressionScan scans idle threads and applies the appropriate compression tier:
@@ -175,7 +178,19 @@ func compressToolResults(messages []provider.Message, keepLastAssistants int) (b
 		if msg.Compressed != "" || len(msg.Content) <= compressMinContentLen {
 			continue
 		}
-		msg.Compressed = fmt.Sprintf(`<compressed tool="%s" original="%d"/>`, msg.Name, len(msg.Content))
+		if strings.Contains(msg.Content, "<<media:") {
+			continue
+		}
+		n := len(msg.Content)
+		if n > softTrimHeadChars+softTrimTailChars {
+			head := msg.Content[:softTrimHeadChars]
+			tail := msg.Content[n-softTrimTailChars:]
+			msg.Compressed = fmt.Sprintf(
+				"<compressed tool=\"%s\" original=\"%d\" trimmed=\"true\">\n%s\n...\n%s\n</compressed>",
+				msg.Name, n, head, tail)
+		} else {
+			msg.Compressed = fmt.Sprintf(`<compressed tool="%s" original="%d"/>`, msg.Name, n)
+		}
 		modified = true
 	}
 
