@@ -85,10 +85,10 @@ func runCompressSession(_ *cobra.Command, args []string) error {
 		tailCount := origCount / 4
 		cutoff := origCount - tailCount
 		// Adjust cutoff to avoid splitting a tool_calls→tool sequence.
-		for cutoff > 0 && orig.Messages[cutoff].Role == "tool" {
+		for cutoff > 0 && cutoff < origCount && orig.Messages[cutoff].Role == "tool" {
 			cutoff--
 		}
-		if cutoff > 0 && orig.Messages[cutoff-1].Role == "assistant" && len(orig.Messages[cutoff-1].ToolCalls) > 0 {
+		if cutoff > 0 && cutoff < origCount && orig.Messages[cutoff-1].Role == "assistant" && len(orig.Messages[cutoff-1].ToolCalls) > 0 {
 			cutoff--
 		}
 		// Ensure tail starts with a user message (required by some providers).
