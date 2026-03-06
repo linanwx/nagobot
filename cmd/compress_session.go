@@ -7,7 +7,9 @@ import (
 	"strings"
 	"time"
 
+	"github.com/linanwx/nagobot/config"
 	"github.com/linanwx/nagobot/logger"
+	"github.com/linanwx/nagobot/monitor"
 	"github.com/linanwx/nagobot/provider"
 	"github.com/linanwx/nagobot/session"
 	"github.com/linanwx/nagobot/thread/msg"
@@ -51,6 +53,8 @@ func runCompressSession(_ *cobra.Command, args []string) error {
 	}
 	orig.Key = session.DeriveKeyFromPath(sessionFile)
 	origCount := len(orig.Messages)
+	origMessages := make([]provider.Message, origCount)
+	copy(origMessages, orig.Messages)
 
 	// 2. Backup original.
 	origData, err := os.ReadFile(sessionFile)
@@ -132,15 +136,79 @@ func runCompressSession(_ *cobra.Command, args []string) error {
 		return fmt.Errorf("failed to write session file: %w", err)
 	}
 
+	// 5. Record compression metrics.
+	record := buildCompressionRecord(now, orig.Key, origMessages, len(orig.Messages))
+	cfg, cfgErr := config.Load()
+	if cfgErr == nil {
+		if ws, wsErr := cfg.WorkspacePath(); wsErr == nil {
+			store := monitor.NewStore(filepath.Join(ws, "metrics"))
+			store.RecordCompression(record)
+		}
+	}
+
 	logger.Info("compress-session completed",
 		"sessionKey", orig.Key,
 		"messagesBefore", origCount,
 		"messagesAfter", len(orig.Messages),
+		"estimatedTokens", record.EstimatedTokens,
+		"totalChars", record.TotalChars,
+		"maxMsgChars", record.MaxMsgChars,
 		"backup", backupPath,
 		"session", sessionFile,
 	)
-	fmt.Printf("Session compressed: %d → %d messages\n", origCount, len(orig.Messages))
+	fmt.Printf("Session compressed: %d → %d messages (~%d tokens)\n", origCount, len(orig.Messages), record.EstimatedTokens)
 	fmt.Printf("Backup: %s\n", backupPath)
 	fmt.Printf("Session: %s\n", sessionFile)
 	return nil
+}
+
+func buildCompressionRecord(ts time.Time, sessionKey string, messages []provider.Message, messagesAfter int) monitor.CompressionRecord {
+	roleCounts := map[string]int{}
+	var totalChars, maxChars int
+	var maxRole, maxPreview string
+
+	for _, m := range messages {
+		roleCounts[m.Role]++
+		msgLen := len(m.Content)
+		for _, tc := range m.ToolCalls {
+			msgLen += len(tc.Function.Arguments)
+		}
+		totalChars += msgLen
+		if msgLen > maxChars {
+			maxChars = msgLen
+			maxRole = m.Role
+			preview := m.Content
+			if m.Role == "tool" && len(preview) > 200 {
+				// For tool results, try to show the tool call ID for identification.
+				preview = m.ToolCallID + ": " + preview[:150]
+			}
+			runes := []rune(preview)
+			if len(runes) > 120 {
+				preview = string(runes[:120]) + "..."
+			}
+			maxPreview = preview
+		}
+	}
+
+	avgChars := 0
+	if len(messages) > 0 {
+		avgChars = totalChars / len(messages)
+	}
+
+	// Estimate tokens: ~4 chars per token for mixed content, plus structural overhead.
+	estimatedTokens := totalChars/4 + len(messages)*6 + 3
+
+	return monitor.CompressionRecord{
+		Timestamp:       ts,
+		SessionKey:      sessionKey,
+		MessagesBefore:  len(messages),
+		MessagesAfter:   messagesAfter,
+		EstimatedTokens: estimatedTokens,
+		TotalChars:      totalChars,
+		RoleCounts:      roleCounts,
+		MaxMsgChars:     maxChars,
+		MaxMsgRole:      maxRole,
+		MaxMsgPreview:   maxPreview,
+		AvgMsgChars:     avgChars,
+	}
 }

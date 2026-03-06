@@ -25,28 +25,31 @@ Examples:
   nagobot monitor --balance --provider openrouter
   nagobot monitor --metrics                # show last 24h metrics (default)
   nagobot monitor --metrics --window 1h    # show last hour
-  nagobot monitor --metrics --window 7d    # show last 7 days`,
+  nagobot monitor --metrics --window 7d    # show last 7 days
+  nagobot monitor --compression            # show compression stats`,
 	RunE: runMonitor,
 }
 
 var (
-	monitorBalance  bool
-	monitorMetrics  bool
-	monitorWindow   string
-	monitorProvider string
+	monitorBalance     bool
+	monitorMetrics     bool
+	monitorCompression bool
+	monitorWindow      string
+	monitorProvider    string
 )
 
 func init() {
 	monitorCmd.Flags().BoolVar(&monitorBalance, "balance", false, "Check provider account balances")
 	monitorCmd.Flags().BoolVar(&monitorMetrics, "metrics", false, "Show performance metrics")
+	monitorCmd.Flags().BoolVar(&monitorCompression, "compression", false, "Show compression stats")
 	monitorCmd.Flags().StringVar(&monitorWindow, "window", "1d", "Time window for metrics: 1h, 1d, 7d")
 	monitorCmd.Flags().StringVar(&monitorProvider, "provider", "", "Filter by provider name")
 	rootCmd.AddCommand(monitorCmd)
 }
 
 func runMonitor(_ *cobra.Command, _ []string) error {
-	if !monitorBalance && !monitorMetrics {
-		return fmt.Errorf("specify --balance or --metrics (or both)")
+	if !monitorBalance && !monitorMetrics && !monitorCompression {
+		return fmt.Errorf("specify --balance, --metrics, or --compression")
 	}
 
 	cfg, err := config.Load()
@@ -62,6 +65,12 @@ func runMonitor(_ *cobra.Command, _ []string) error {
 
 	if monitorMetrics {
 		if err := showMetrics(cfg); err != nil {
+			return err
+		}
+	}
+
+	if monitorCompression {
+		if err := showCompression(cfg); err != nil {
 			return err
 		}
 	}
@@ -129,6 +138,20 @@ func showMetrics(cfg *config.Config) error {
 	}
 	fmt.Println("Performance Metrics:")
 	fmt.Print(string(data))
+	return nil
+}
+
+func showCompression(cfg *config.Config) error {
+	workspace, err := cfg.WorkspacePath()
+	if err != nil {
+		return fmt.Errorf("failed to get workspace: %w", err)
+	}
+
+	store := monitor.NewStore(filepath.Join(workspace, "metrics"))
+	window := monitor.Window(strings.TrimSpace(monitorWindow))
+	records := store.LoadCompressions(window.Cutoff())
+
+	fmt.Println(monitor.FormatCompressionStats(records))
 	return nil
 }
 

@@ -1,6 +1,6 @@
 ---
 name: monitoring
-description: Check LLM provider account balances and query performance metrics. Use when the user asks about provider credits/balance, response times, token usage, error rates, or wants to see how different models/agents/sessions are performing over time windows (1h, 1d, 7d).
+description: Check LLM provider account balances, query performance metrics, and view compression stats. Use when the user asks about provider credits/balance, response times, token usage, error rates, session compression history, or wants to see how different models/agents/sessions are performing over time windows (1h, 1d, 7d).
 ---
 # Monitoring
 
@@ -41,6 +41,20 @@ exec: {{WORKSPACE}}/bin/nagobot monitor --metrics --window 7d
 Both at once:
 ```
 exec: {{WORKSPACE}}/bin/nagobot monitor --balance --metrics --window 1d
+```
+
+## Compression Stats
+
+View session compression history — how often sessions get compressed, message counts, token estimates, and longest messages.
+
+Last 24 hours:
+```
+exec: {{WORKSPACE}}/bin/nagobot monitor --compression
+```
+
+Last 7 days:
+```
+exec: {{WORKSPACE}}/bin/nagobot monitor --compression --window 7d
 ```
 
 ### What metrics are tracked
