@@ -196,7 +196,7 @@ func trimWakeFields(messages []provider.Message, keepLast int) (bool, []provider
 }
 
 var (
-	wakeFieldRe = regexp.MustCompile(`(?m)^[ \t]*<(thread|session|delivery|action)>.*</\1>\n?`)
+	wakeFieldRe = regexp.MustCompile(`(?m)^[ \t]*<(thread|session|delivery|action)>.*</(thread|session|delivery|action)>\n?`)
 	blankLineRe = regexp.MustCompile(`\n{3,}`)
 )
 
