@@ -1,0 +1,91 @@
+package channel
+
+import (
+	"crypto/rand"
+	"encoding/hex"
+	"fmt"
+	"io"
+	"net/http"
+	"os"
+	"path/filepath"
+	"strings"
+	"time"
+
+	"github.com/linanwx/nagobot/logger"
+)
+
+// downloadMedia downloads a URL to mediaDir, returning the absolute local path.
+// Returns empty string on error (caller should fall back to URL).
+func downloadMedia(mediaDir, url string) string {
+	if mediaDir == "" || url == "" {
+		return ""
+	}
+
+	resp, err := http.Get(url)
+	if err != nil {
+		logger.Warn("failed to download media", "url", url, "err", err)
+		return ""
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		logger.Warn("media download returned non-200", "url", url, "status", resp.StatusCode)
+		return ""
+	}
+
+	// Detect extension: try URL path first, then Content-Type, then fallback.
+	ext := extensionFromURL(url)
+	if ext == "" {
+		ext = extensionFromContentType(resp.Header.Get("Content-Type"))
+	}
+	if ext == "" {
+		ext = ".dat"
+	}
+
+	buf := make([]byte, 4)
+	rand.Read(buf)
+	fileName := fmt.Sprintf("img-%s-%s%s", time.Now().Format("20060102-150405"), hex.EncodeToString(buf), ext)
+	filePath := filepath.Join(mediaDir, fileName)
+
+	f, err := os.Create(filePath)
+	if err != nil {
+		logger.Warn("failed to create media file", "path", filePath, "err", err)
+		return ""
+	}
+	defer f.Close()
+
+	if _, err := io.Copy(f, resp.Body); err != nil {
+		logger.Warn("failed to write media file", "path", filePath, "err", err)
+		os.Remove(filePath)
+		return ""
+	}
+
+	return filePath
+}
+
+func extensionFromURL(url string) string {
+	// Strip query string before checking extension.
+	if idx := strings.IndexByte(url, '?'); idx >= 0 {
+		url = url[:idx]
+	}
+	ext := filepath.Ext(url)
+	switch ext {
+	case ".jpg", ".jpeg", ".png", ".gif", ".webp", ".bmp":
+		return ext
+	}
+	return ""
+}
+
+func extensionFromContentType(ct string) string {
+	switch {
+	case strings.HasPrefix(ct, "image/jpeg"):
+		return ".jpg"
+	case strings.HasPrefix(ct, "image/png"):
+		return ".png"
+	case strings.HasPrefix(ct, "image/gif"):
+		return ".gif"
+	case strings.HasPrefix(ct, "image/webp"):
+		return ".webp"
+	}
+	return ""
+}

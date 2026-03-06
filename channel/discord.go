@@ -3,6 +3,8 @@ package channel
 import (
 	"context"
 	"fmt"
+	"os"
+	"path/filepath"
 	"strings"
 	"sync"
 
@@ -21,6 +23,7 @@ type DiscordChannel struct {
 	token         string
 	allowedGuilds map[string]bool // guild ID allowlist, empty = allow all
 	allowedUsers  map[string]bool // user ID allowlist, empty = allow all
+	mediaDir      string // local directory for downloaded media files
 	session       *discordgo.Session
 	messages      chan *Message
 	stopOnce      sync.Once
@@ -44,10 +47,20 @@ func NewDiscordChannel(cfg *config.Config) Channel {
 		allowedUsers[id] = true
 	}
 
+	var mediaDir string
+	if ws, err := cfg.WorkspacePath(); err == nil {
+		mediaDir = filepath.Join(ws, "media")
+		if err := os.MkdirAll(mediaDir, 0755); err != nil {
+			logger.Warn("failed to create media directory", "dir", mediaDir, "err", err)
+			mediaDir = ""
+		}
+	}
+
 	return &DiscordChannel{
 		token:         token,
 		allowedGuilds: allowedGuilds,
 		allowedUsers:  allowedUsers,
+		mediaDir:      mediaDir,
 		messages:      make(chan *Message, discordMessageBufferSize),
 	}
 }
@@ -299,6 +312,17 @@ func (d *DiscordChannel) handleMessageCreate(s *discordgo.Session, m *discordgo.
 				mediaType = "video"
 			} else if strings.HasPrefix(att.ContentType, "audio/") {
 				mediaType = "audio"
+			}
+			// Download images to local media directory so LLM can read them directly.
+			if mediaType == "image" {
+				if localPath := downloadMedia(d.mediaDir, att.URL); localPath != "" {
+					summaries = append(summaries, MediaSummary(mediaType,
+						"file_name", att.Filename,
+						"image_path", localPath,
+						"content_type", att.ContentType,
+					))
+					continue
+				}
 			}
 			summaries = append(summaries, MediaSummary(mediaType,
 				"file_name", att.Filename,

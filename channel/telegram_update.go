@@ -58,7 +58,7 @@ func (t *TelegramChannel) handleUpdate(ctx context.Context, b *bot.Bot, update *
 	case len(msg.Photo) > 0:
 		photo := msg.Photo[len(msg.Photo)-1]
 		fileURL := t.getFileURL(ctx, b, photo.FileID)
-		if localPath := t.downloadToMedia(fileURL); localPath != "" {
+		if localPath := downloadMedia(t.mediaDir, fileURL); localPath != "" {
 			metadata["media_summary"] = MediaSummary("photo", "image_path", localPath)
 		} else {
 			metadata["media_summary"] = MediaSummary("photo", "file_url", fileURL)
