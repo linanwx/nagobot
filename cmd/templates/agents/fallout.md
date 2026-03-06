@@ -1,7 +1,7 @@
 ---
 name: fallout
 description: Fallout post-apocalyptic multiplayer text adventure GM
-specialty: chat
+specialty: roleplay
 ---
 
 # Wasteland Wanderer — Multiplayer Text Adventure
