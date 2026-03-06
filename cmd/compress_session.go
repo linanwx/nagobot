@@ -10,6 +10,7 @@ import (
 	"github.com/linanwx/nagobot/logger"
 	"github.com/linanwx/nagobot/provider"
 	"github.com/linanwx/nagobot/session"
+	"github.com/linanwx/nagobot/thread/msg"
 	"github.com/spf13/cobra"
 )
 
@@ -98,7 +99,8 @@ func runCompressSession(_ *cobra.Command, args []string) error {
 		tail := orig.Messages[cutoff:]
 		newMessages := make([]provider.Message, 0, len(tail)+1)
 		newMessages = append(newMessages, tail...)
-		newMessages = append(newMessages, provider.Message{Role: "assistant", Content: content, Timestamp: now})
+		wrappedContent := msg.BuildSystemMessage("compression_summary", nil, content)
+		newMessages = append(newMessages, provider.Message{Role: "assistant", Content: wrappedContent, Timestamp: now})
 		orig.Messages = newMessages
 
 		// 4. Append summary to daily memory file.
