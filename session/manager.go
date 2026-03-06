@@ -19,7 +19,7 @@ func generateMessageID(sessionKey string, ts time.Time, seq int) string {
 }
 
 // EnsureMessageIDs assigns timestamps and IDs to messages that lack them.
-// Uses each message's index as the sequence number to guarantee uniqueness.
+// The sequence suffix is a content hash, so the same message always gets the same ID.
 func EnsureMessageIDs(key string, messages []provider.Message) {
 	now := time.Now()
 	for i := range messages {
@@ -27,9 +27,19 @@ func EnsureMessageIDs(key string, messages []provider.Message) {
 			messages[i].Timestamp = now
 		}
 		if messages[i].ID == "" {
-			messages[i].ID = generateMessageID(key, messages[i].Timestamp, i)
+			messages[i].ID = generateMessageID(key, messages[i].Timestamp, msgHash(messages[i]))
 		}
 	}
+}
+
+// msgHash returns a 0-999 hash from message content for stable ID generation.
+func msgHash(m provider.Message) int {
+	var h uint32 = 2166136261 // FNV-1a offset basis
+	for _, b := range []byte(m.Role + "\x00" + m.Content + "\x00" + m.ToolCallID) {
+		h ^= uint32(b)
+		h *= 16777619
+	}
+	return int(h % 1000)
 }
 
 // Session represents a conversation session.

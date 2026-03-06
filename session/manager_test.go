@@ -100,12 +100,13 @@ func TestSaveAutoAssignsIDsAndTimestamps(t *testing.T) {
 		}
 	}
 
-	// IDs should be ordered (same prefix, ascending sequence).
-	for i := 1; i < len(s.Messages); i++ {
-		if s.Messages[i].ID <= s.Messages[i-1].ID {
-			t.Fatalf("Messages[%d].ID (%q) should be > Messages[%d].ID (%q)",
-				i, s.Messages[i].ID, i-1, s.Messages[i-1].ID)
+	// IDs for different content should be distinct.
+	seen := make(map[string]bool)
+	for i, m := range s.Messages {
+		if seen[m.ID] {
+			t.Fatalf("Messages[%d].ID %q is a duplicate", i, m.ID)
 		}
+		seen[m.ID] = true
 	}
 }
 
