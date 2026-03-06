@@ -188,39 +188,6 @@ func openRouterInputChars(messages []Message) int {
 	return total
 }
 
-func formatToolCallSummary(toolCalls []ToolCall) string {
-	var b strings.Builder
-	for i, tc := range toolCalls {
-		if i > 0 {
-			b.WriteString(", ")
-		}
-		b.WriteString("Calling ")
-		b.WriteString(tc.Function.Name)
-	}
-	return b.String()
-}
-
-// truncateToSentence returns s truncated to at most maxRunes runes,
-// cutting at the last sentence boundary within the limit.
-// Recognizes full stops for the world's top 20 languages:
-//   . (Latin)  。(CJK)  । (Devanagari)  ۔ (Urdu)
-func truncateToSentence(s string, maxRunes int) string {
-	runes := []rune(s)
-	if len(runes) <= maxRunes {
-		return s
-	}
-	lastEnd := 0
-	for i, r := range runes[:maxRunes] {
-		if r == '.' || r == '。' || r == '।' || r == '۔' {
-			lastEnd = i + 1
-		}
-	}
-	if lastEnd > 0 {
-		return string(runes[:lastEnd])
-	}
-	return string(runes[:maxRunes]) + "…"
-}
-
 func toOpenAIChatMessages(messages []Message, visionCapable bool) ([]openai.ChatCompletionMessageParamUnion, error) {
 	result := make([]openai.ChatCompletionMessageParamUnion, 0, len(messages))
 
@@ -262,26 +229,11 @@ func toOpenAIChatMessages(messages []Message, visionCapable bool) ([]openai.Chat
 			}
 		case "assistant":
 			assistant := openai.ChatCompletionAssistantMessageParam{}
-			// Some upstream providers (e.g. Moonshot via OpenRouter) reject empty
-			// assistant messages even when tool_calls are present.
-			// Fallback priority: Content > ReasoningContent > tool call summary.
-			contentStr := strings.TrimSpace(m.Content)
-			if contentStr == "" {
-				contentStr = truncateToSentence(strings.TrimSpace(m.ReasoningContent), 50)
+			if contentStr := strings.TrimSpace(m.Content); contentStr != "" {
+				assistant.Content.OfString = openai.String(contentStr)
 			}
-			if contentStr == "" && len(m.ToolCalls) > 0 {
-				contentStr = formatToolCallSummary(m.ToolCalls)
-			}
-			if contentStr == "" {
-				contentStr = "(empty)"
-			}
-			assistant.Content.OfString = openai.String(contentStr)
 			extras := map[string]any{}
-			if len(m.ToolCalls) > 0 {
-				reasoningContent := strings.TrimSpace(m.ReasoningContent)
-				if reasoningContent == "" {
-					reasoningContent = contentStr
-				}
+			if reasoningContent := strings.TrimSpace(m.ReasoningContent); reasoningContent != "" {
 				extras["reasoning_content"] = reasoningContent
 			}
 			if len(m.ReasoningDetails) > 0 {
