@@ -161,10 +161,12 @@ func (t *Thread) executeRunner(ctx, runCtx context.Context, p provider.Provider,
 
 	// Set up streaming for idempotent sinks (Telegram, Discord, Feishu, CLI).
 	var streamer *MarkdownStreamer
+	var chatStreamed bool // whether current Chat() round produced streaming deltas
 	if !sink.IsZero() && sink.Idempotent {
 		streamer = NewMarkdownStreamer(sink, ctx, streamFlushThreshold)
 		runner.OnText(func(delta string) {
 			if !t.isSuppressSink() {
+				chatStreamed = true
 				streamer.OnDelta(delta)
 			}
 		})
@@ -178,9 +180,13 @@ func (t *Thread) executeRunner(ctx, runCtx context.Context, p provider.Provider,
 	runner.OnMessage(func(m provider.Message) {
 		intermediates = append(intermediates, m)
 		// Deliver intermediate assistant content to user in real time.
-		// Skip when streaming is active — streamer handles delivery via OnTextDelta.
-		if streamer == nil && m.Role == "assistant" && isUserFacingContent(m.Content) && !sink.IsZero() && sink.Idempotent {
+		// For streaming providers, the streamer already delivered it via OnText deltas.
+		// For non-streaming providers (e.g. OpenRouter), this is the only delivery path.
+		if m.Role == "assistant" && isUserFacingContent(m.Content) && !sink.IsZero() && sink.Idempotent && !chatStreamed {
 			_ = sink.Send(ctx, m.Content)
+		}
+		if m.Role == "assistant" {
+			chatStreamed = false
 		}
 	})
 	runner.OnIterationEnd(injectFn)
