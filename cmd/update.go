@@ -6,6 +6,7 @@ import (
 	"io"
 	"net/http"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"runtime"
 	"strings"
@@ -122,8 +123,12 @@ func runUpdate(cmd *cobra.Command, args []string) error {
 
 	fmt.Printf("Updated to %s at %s\n", latest, installPath)
 
-	// Sync template files (skills, agents, scripts) to workspace.
-	if err := runSync(); err != nil {
+	// Sync template files using the NEW binary (current process has old embedded templates).
+	fmt.Println("Syncing templates...")
+	syncCmd := exec.Command(installPath, "onboard", "--sync")
+	syncCmd.Stdout = os.Stdout
+	syncCmd.Stderr = os.Stderr
+	if err := syncCmd.Run(); err != nil {
 		fmt.Printf("Warning: failed to sync templates: %v\n", err)
 	}
 
