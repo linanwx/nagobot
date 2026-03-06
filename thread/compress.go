@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"time"
 
@@ -72,8 +73,9 @@ func (m *Manager) tryTier1Compress(sessionKey string) {
 		return
 	}
 
-	modified, newMessages := compressToolResults(sess.Messages, compressKeepAssistants)
-	if !modified {
+	toolModified, newMessages := compressToolResults(sess.Messages, compressKeepAssistants)
+	wakeModified, newMessages := trimWakeFields(newMessages, compressKeepAssistants)
+	if !toolModified && !wakeModified {
 		return
 	}
 
@@ -148,6 +150,55 @@ func (m *Manager) tryTier2Compress(sessionKey string) {
 		"threshold", threshold,
 	)
 }
+
+// trimWakeFields strips redundant XML fields from older wake messages.
+// Keeps the last keepLast wake messages intact; older ones lose
+// <thread>, <session>, <delivery>, and <action> elements.
+func trimWakeFields(messages []provider.Message, keepLast int) (bool, []provider.Message) {
+	// Walk backward, count wake user messages.
+	wakeCount := 0
+	trimTargets := map[int]bool{}
+	for i := len(messages) - 1; i >= 0; i-- {
+		if messages[i].Role == "user" && strings.Contains(messages[i].Content, "<wake>") {
+			wakeCount++
+			if wakeCount > keepLast {
+				trimTargets[i] = true
+			}
+		}
+	}
+	if len(trimTargets) == 0 {
+		return false, messages
+	}
+
+	modified := false
+	result := make([]provider.Message, len(messages))
+	copy(result, messages)
+	for i := range result {
+		if !trimTargets[i] {
+			continue
+		}
+		// Only strip fields in the header (before <message), not in user content.
+		content := result[i].Content
+		if idx := strings.Index(content, "<message"); idx >= 0 {
+			header := wakeFieldRe.ReplaceAllString(content[:idx], "")
+			header = blankLineRe.ReplaceAllString(header, "\n")
+			content = header + content[idx:]
+		} else {
+			content = wakeFieldRe.ReplaceAllString(content, "")
+			content = blankLineRe.ReplaceAllString(content, "\n")
+		}
+		if content != result[i].Content {
+			result[i].Content = content
+			modified = true
+		}
+	}
+	return modified, result
+}
+
+var (
+	wakeFieldRe = regexp.MustCompile(`(?m)^[ \t]*<(thread|session|delivery|action)>.*</\1>\n?`)
+	blankLineRe = regexp.MustCompile(`\n{3,}`)
+)
 
 // compressToolResults mechanically trims tool result messages.
 // Messages within the last keepLastAssistants assistant turns are protected.
