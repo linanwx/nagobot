@@ -8,7 +8,7 @@ description: Clear session context to start fresh.
 
 1. Determine `session_file`:
    - First choice: use the path from the Context Pressure Notice.
-   - Fallback: `{{WORKSPACE}}/sessions/cli/session.json`.
+   - Fallback: `{{WORKSPACE}}/sessions/cli/session.jsonl`.
 2. Run:
    ```
    exec: {{WORKSPACE}}/bin/nagobot compress-session --clear <session_file>

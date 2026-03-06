@@ -58,7 +58,7 @@ Tools implement `Def() ToolDef` + `Run(ctx, args) string`. Registered in a `Regi
 
 ### Sessions (`session/`)
 
-Conversation history persisted as `{sessionsDir}/{sessionKey}/session.json`. Auto-sanitized on save. Context pressure hooks trigger compression when token budget is exceeded.
+Conversation history persisted as `{sessionsDir}/{sessionKey}/session.jsonl`. Auto-sanitized on save. Context pressure hooks trigger compression when token budget is exceeded.
 
 ## Key Patterns
 

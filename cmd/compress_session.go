@@ -1,7 +1,6 @@
 package cmd
 
 import (
-	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -25,8 +24,8 @@ The original is backed up to <session_dir>/history/.
 Use --clear to discard all messages without an input file.
 
 Example:
-  nagobot compress-session /path/to/session.json /path/to/compressed.txt
-  nagobot compress-session --clear /path/to/session.json`,
+  nagobot compress-session /path/to/session.jsonl /path/to/compressed.txt
+  nagobot compress-session --clear /path/to/session.jsonl`,
 	Args:    cobra.RangeArgs(1, 2),
 	GroupID: "internal",
 	RunE:    runCompressSession,
@@ -45,17 +44,18 @@ func runCompressSession(_ *cobra.Command, args []string) error {
 	}
 
 	// 1. Read original session.
-	origData, err := os.ReadFile(sessionFile)
+	orig, err := session.ReadFile(sessionFile)
 	if err != nil {
 		return fmt.Errorf("failed to read session file: %w", err)
 	}
-	var orig session.Session
-	if err := json.Unmarshal(origData, &orig); err != nil {
-		return fmt.Errorf("failed to parse session file: %w", err)
-	}
+	orig.Key = session.DeriveKeyFromPath(sessionFile)
 	origCount := len(orig.Messages)
 
 	// 2. Backup original.
+	origData, err := os.ReadFile(sessionFile)
+	if err != nil {
+		return fmt.Errorf("failed to read session file for backup: %w", err)
+	}
 	sessionDir := filepath.Dir(sessionFile)
 	historyDir := filepath.Join(sessionDir, "history")
 	if err := os.MkdirAll(historyDir, 0755); err != nil {
@@ -63,7 +63,7 @@ func runCompressSession(_ *cobra.Command, args []string) error {
 	}
 	now := time.Now()
 	timestamp := fmt.Sprintf("%d_%s", now.Unix(), now.Format("20060102T150405-0700"))
-	backupPath := filepath.Join(historyDir, timestamp+".json")
+	backupPath := filepath.Join(historyDir, timestamp+".jsonl")
 	if err := os.WriteFile(backupPath, origData, 0644); err != nil {
 		return fmt.Errorf("failed to write backup: %w", err)
 	}
@@ -126,13 +126,7 @@ func runCompressSession(_ *cobra.Command, args []string) error {
 		_ = os.Remove(inputFile)
 	}
 
-	orig.UpdatedAt = now
-	session.EnsureMessageIDs(orig.Key, orig.Messages)
-	newData, err := json.MarshalIndent(&orig, "", "  ")
-	if err != nil {
-		return fmt.Errorf("failed to marshal new session: %w", err)
-	}
-	if err := os.WriteFile(sessionFile, newData, 0644); err != nil {
+	if err := session.WriteFile(sessionFile, orig); err != nil {
 		return fmt.Errorf("failed to write session file: %w", err)
 	}
 

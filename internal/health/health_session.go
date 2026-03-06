@@ -1,13 +1,13 @@
 package health
 
 import (
-	"encoding/json"
 	"errors"
 	"io/fs"
 	"os"
 	"path/filepath"
-	"strings"
 	"time"
+
+	"github.com/linanwx/nagobot/session"
 )
 
 func inspectSessionFile(path string) *SessionInfo {
@@ -27,21 +27,15 @@ func inspectSessionFile(path string) *SessionInfo {
 	info.FileSizeBytes = stat.Size()
 	info.UpdatedAt = stat.ModTime().Format(time.RFC3339)
 
-	data, err := os.ReadFile(path)
+	s, err := session.ReadFile(path)
 	if err != nil {
 		info.ParseError = err.Error()
 		return info
 	}
 
-	messagesCount, updatedAt, err := parseSessionPayload(data)
-	if err != nil {
-		info.ParseError = err.Error()
-		return info
-	}
-
-	info.MessagesCount = messagesCount
-	if updatedAt != "" {
-		info.UpdatedAt = updatedAt
+	info.MessagesCount = len(s.Messages)
+	if !s.UpdatedAt.IsZero() {
+		info.UpdatedAt = s.UpdatedAt.Format(time.RFC3339)
 	}
 	return info
 }
@@ -71,25 +65,16 @@ func inspectSessionsRoot(root string) *SessionsInfo {
 			}
 			return nil
 		}
-		if d.IsDir() || !strings.EqualFold(d.Name(), "session.json") {
+		if d.IsDir() || d.Name() != session.SessionFileName {
 			return nil
 		}
 
 		info.FilesCount++
-		data, readErr := os.ReadFile(path)
-		if readErr != nil {
+		if _, readErr := session.ReadFile(path); readErr != nil {
 			info.InvalidCount++
 			info.InvalidFiles = append(info.InvalidFiles, SessionFileError{
 				Path:       path,
 				ParseError: readErr.Error(),
-			})
-			return nil
-		}
-		if _, _, parseErr := parseSessionPayload(data); parseErr != nil {
-			info.InvalidCount++
-			info.InvalidFiles = append(info.InvalidFiles, SessionFileError{
-				Path:       path,
-				ParseError: parseErr.Error(),
 			})
 			return nil
 		}
@@ -104,13 +89,3 @@ func inspectSessionsRoot(root string) *SessionsInfo {
 	return info
 }
 
-func parseSessionPayload(data []byte) (messagesCount int, updatedAt string, err error) {
-	var payload struct {
-		Messages  []json.RawMessage `json:"messages"`
-		UpdatedAt string            `json:"updated_at"`
-	}
-	if err := json.Unmarshal(data, &payload); err != nil {
-		return 0, "", err
-	}
-	return len(payload.Messages), strings.TrimSpace(payload.UpdatedAt), nil
-}

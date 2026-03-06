@@ -2,7 +2,6 @@ package thread
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -189,9 +188,8 @@ func backupSession(sessionPath string) error {
 	if err != nil {
 		return err
 	}
-	// Verify it's valid JSON before backing up.
-	if !json.Valid(data) {
-		return fmt.Errorf("session file is not valid JSON")
+	if len(data) == 0 {
+		return fmt.Errorf("session file is empty")
 	}
 
 	historyDir := filepath.Join(filepath.Dir(sessionPath), "history")
@@ -200,6 +198,6 @@ func backupSession(sessionPath string) error {
 	}
 
 	now := time.Now()
-	filename := fmt.Sprintf("%d_%s.json", now.Unix(), now.Format("20060102T150405-0700"))
+	filename := fmt.Sprintf("%d_%s.jsonl", now.Unix(), now.Format("20060102T150405-0700"))
 	return os.WriteFile(filepath.Join(historyDir, filename), data, 0644)
 }

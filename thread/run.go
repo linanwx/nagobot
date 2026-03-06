@@ -31,11 +31,8 @@ func (t *Thread) run(ctx context.Context, userMessage string, sink Sink, injectF
 
 	// Write-ahead: persist user messages before LLM call so they survive a crash.
 	if sess != nil {
-		if waSess, waErr := t.reloadSessionForSave(); waErr == nil {
-			waSess.Messages = append(waSess.Messages, turnUserMessages...)
-			if saveErr := cfg.Sessions.Save(waSess); saveErr != nil {
-				logger.Warn("write-ahead save failed", "key", t.sessionKey, "err", saveErr)
-			}
+		if err := cfg.Sessions.Append(t.sessionKey, turnUserMessages...); err != nil {
+			logger.Warn("write-ahead save failed", "key", t.sessionKey, "err", err)
 		}
 	}
 
@@ -209,19 +206,11 @@ func (t *Thread) persistTurnMessages(cfg *ThreadConfig, sess *session.Session, i
 	if sess == nil {
 		return
 	}
-	latestSession, reloadErr := t.reloadSessionForSave()
-	if reloadErr != nil {
-		logger.Warn(
-			"failed to reload session before save; skipping save to avoid overwriting external changes",
-			"key", t.sessionKey,
-			"err", reloadErr,
-		)
-		return
-	}
-	latestSession.Messages = append(latestSession.Messages, intermediates...)
-	latestSession.Messages = append(latestSession.Messages, provider.AssistantMessage(response))
-	if saveErr := cfg.Sessions.Save(latestSession); saveErr != nil {
-		logger.Warn("failed to save session", "key", t.sessionKey, "err", saveErr)
+	toAppend := make([]provider.Message, 0, len(intermediates)+1)
+	toAppend = append(toAppend, intermediates...)
+	toAppend = append(toAppend, provider.AssistantMessage(response))
+	if err := cfg.Sessions.Append(t.sessionKey, toAppend...); err != nil {
+		logger.Warn("failed to save session", "key", t.sessionKey, "err", err)
 	}
 }
 
@@ -436,13 +425,6 @@ func (t *Thread) loadSession() *session.Session {
 	return loadedSession
 }
 
-func (t *Thread) reloadSessionForSave() (*session.Session, error) {
-	cfg := t.cfg()
-	if cfg.Sessions == nil || strings.TrimSpace(t.sessionKey) == "" {
-		return nil, fmt.Errorf("session manager unavailable")
-	}
-	return cfg.Sessions.Reload(t.sessionKey)
-}
 
 func (t *Thread) buildSkillsSection() string {
 	cfg := t.cfg()

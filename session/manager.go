@@ -1,7 +1,6 @@
 package session
 
 import (
-	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
@@ -98,24 +97,73 @@ func (m *Manager) Reload(key string) (*Session, error) {
 	return s, nil
 }
 
-// Save saves a session to disk.
-// Raw message data is persisted; sanitization happens at read time and before
-// sending to the provider so session files can be re-sanitized with improved
-// logic later.
+// Save atomically rewrites the full session file (temp + rename).
+// Used for compression and clear operations. For normal turns, use Append.
 func (m *Manager) Save(s *Session) error {
 	s.Key = normalizeSessionKey(s.Key)
-	s.UpdatedAt = time.Now()
-
 	EnsureMessageIDs(s.Key, s.Messages)
-	data, err := json.MarshalIndent(s, "", "  ")
+	deriveTimestamps(s)
+	if s.UpdatedAt.IsZero() {
+		s.UpdatedAt = time.Now()
+	}
+
+	path := m.sessionPath(s.Key)
+	dir := filepath.Dir(path)
+	if err := os.MkdirAll(dir, 0755); err != nil {
+		return err
+	}
+
+	tmp := path + ".tmp"
+	f, err := os.Create(tmp)
 	if err != nil {
 		return err
 	}
-	path := m.sessionPath(s.Key)
+	if err := writeJSONL(f, s.Messages); err != nil {
+		f.Close()
+		os.Remove(tmp)
+		return err
+	}
+	if err := f.Close(); err != nil {
+		os.Remove(tmp)
+		return err
+	}
+	return os.Rename(tmp, path)
+}
+
+// Append persists new messages by appending to the session file.
+// Creates the file if it doesn't exist. Updates the in-memory cache.
+func (m *Manager) Append(key string, msgs ...provider.Message) error {
+	if len(msgs) == 0 {
+		return nil
+	}
+	key = normalizeSessionKey(key)
+	EnsureMessageIDs(key, msgs)
+
+	path := m.sessionPath(key)
 	if err := os.MkdirAll(filepath.Dir(path), 0755); err != nil {
 		return err
 	}
-	return os.WriteFile(path, data, 0644)
+
+	f, err := os.OpenFile(path, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
+	if err != nil {
+		return err
+	}
+	defer f.Close()
+
+	if err := writeJSONL(f, msgs); err != nil {
+		return err
+	}
+
+	m.mu.Lock()
+	if s, ok := m.cache[key]; ok {
+		s.Messages = append(s.Messages, msgs...)
+		if last := msgs[len(msgs)-1].Timestamp; !last.IsZero() {
+			s.UpdatedAt = last
+		}
+	}
+	m.mu.Unlock()
+
+	return nil
 }
 
 func (m *Manager) sessionPath(key string) string {
@@ -132,7 +180,7 @@ func (m *Manager) sessionPath(key string) string {
 	if len(cleanParts) == 0 {
 		cleanParts = append(cleanParts, "cli")
 	}
-	cleanParts = append(cleanParts, "session.json")
+	cleanParts = append(cleanParts, SessionFileName)
 	return filepath.Join(append([]string{m.sessionsDir}, cleanParts...)...)
 }
 
@@ -145,7 +193,7 @@ func (m *Manager) loadFromDisk(key string) (*Session, error) {
 	key = normalizeSessionKey(key)
 
 	path := m.sessionPath(key)
-	data, err := os.ReadFile(path)
+	f, err := os.Open(path)
 	if err != nil {
 		if errors.Is(err, os.ErrNotExist) {
 			now := time.Now()
@@ -158,18 +206,22 @@ func (m *Manager) loadFromDisk(key string) (*Session, error) {
 		}
 		return nil, err
 	}
+	defer f.Close()
 
-	var s Session
-	if err := json.Unmarshal(data, &s); err != nil {
+	messages, err := readJSONL(f)
+	if err != nil {
 		return nil, err
 	}
-	if strings.TrimSpace(s.Key) == "" {
-		s.Key = key
+	if messages == nil {
+		messages = []provider.Message{}
 	}
-	if s.Messages == nil {
-		s.Messages = []provider.Message{}
+	messages = provider.SanitizeMessages(messages)
+
+	s := &Session{
+		Key:      key,
+		Messages: messages,
 	}
-	s.Messages = provider.SanitizeMessages(s.Messages)
+	deriveTimestamps(s)
 	if s.CreatedAt.IsZero() {
 		s.CreatedAt = time.Now()
 	}
@@ -177,10 +229,8 @@ func (m *Manager) loadFromDisk(key string) (*Session, error) {
 		s.UpdatedAt = s.CreatedAt
 	}
 
-	// Backfill IDs and timestamps for legacy messages loaded from disk.
 	EnsureMessageIDs(key, s.Messages)
-
-	return &s, nil
+	return s, nil
 }
 
 func normalizeSessionKey(key string) string {

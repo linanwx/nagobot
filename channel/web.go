@@ -20,6 +20,7 @@ import (
 	"github.com/coder/websocket/wsjson"
 	"github.com/linanwx/nagobot/config"
 	"github.com/linanwx/nagobot/logger"
+	"github.com/linanwx/nagobot/session"
 )
 
 const (
@@ -332,14 +333,6 @@ type webHistoryMessage struct {
 	Content string `json:"content"`
 }
 
-type sessionFileEnvelope struct {
-	Messages []sessionFileMessage `json:"messages"`
-}
-
-type sessionFileMessage struct {
-	Role    string `json:"role"`
-	Content string `json:"content"`
-}
 
 func (w *WebChannel) handleHistory(rw http.ResponseWriter, r *http.Request) {
 	history, err := w.loadHistory()
@@ -361,8 +354,8 @@ func (w *WebChannel) loadHistory() ([]webHistoryMessage, error) {
 		return nil, fmt.Errorf("workspace is not configured")
 	}
 
-	path := filepath.Join(w.workspace, sessionsDirName, "cli", "session.json")
-	data, err := os.ReadFile(path)
+	path := filepath.Join(w.workspace, sessionsDirName, "cli", session.SessionFileName)
+	s, err := session.ReadFile(path)
 	if err != nil {
 		if errors.Is(err, os.ErrNotExist) {
 			return []webHistoryMessage{}, nil
@@ -370,13 +363,8 @@ func (w *WebChannel) loadHistory() ([]webHistoryMessage, error) {
 		return nil, err
 	}
 
-	var src sessionFileEnvelope
-	if err := json.Unmarshal(data, &src); err != nil {
-		return nil, err
-	}
-
-	out := make([]webHistoryMessage, 0, len(src.Messages))
-	for _, m := range src.Messages {
+	out := make([]webHistoryMessage, 0, len(s.Messages))
+	for _, m := range s.Messages {
 		role := strings.TrimSpace(m.Role)
 		content := strings.TrimSpace(m.Content)
 		if role == "" || content == "" {

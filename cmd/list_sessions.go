@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/linanwx/nagobot/config"
+	"github.com/linanwx/nagobot/session"
 	"github.com/spf13/cobra"
 )
 
@@ -58,50 +59,43 @@ func runListSessions(_ *cobra.Command, _ []string) error {
 	summaries := loadSummariesFile(filepath.Join(workspace, "system", "sessions_summary.json"))
 	cutoff := time.Now().AddDate(0, 0, -listSessionsDays)
 
-	type rawSession struct {
-		Key       string `json:"key"`
-		UpdatedAt time.Time `json:"updated_at"`
-		Messages  []json.RawMessage `json:"messages"`
-	}
-
 	var all []sessionEntry
 	total := 0
 
 	_ = filepath.WalkDir(sessionsDir, func(path string, d fs.DirEntry, walkErr error) error {
-		if walkErr != nil || d.IsDir() || d.Name() != "session.json" {
+		if walkErr != nil || d.IsDir() || d.Name() != session.SessionFileName {
 			return nil
 		}
-		data, err := os.ReadFile(path)
+		s, err := session.ReadFile(path)
 		if err != nil {
 			return nil
 		}
-		var raw rawSession
-		if err := json.Unmarshal(data, &raw); err != nil {
-			return nil
-		}
-		// Derive key from path if not stored.
-		key := raw.Key
-		if key == "" {
-			key = deriveSessionKey(sessionsDir, path)
-		}
+		key := deriveSessionKey(sessionsDir, path)
 		total++
 
-		if raw.UpdatedAt.Before(cutoff) {
+		updatedAt := s.UpdatedAt
+		if updatedAt.IsZero() {
+			// Fallback to file mtime for empty sessions.
+			if fi, statErr := os.Stat(path); statErr == nil {
+				updatedAt = fi.ModTime()
+			}
+		}
+		if updatedAt.Before(cutoff) {
 			return nil
 		}
 
 		entry := sessionEntry{
 			Key:          key,
 			Timezone:     cfg.SessionTimezone(key),
-			UpdatedAt:    raw.UpdatedAt.Format(time.RFC3339),
-			MessageCount: len(raw.Messages),
+			UpdatedAt:    updatedAt.Format(time.RFC3339),
+			MessageCount: len(s.Messages),
 		}
 
 		if s, ok := summaries[key]; ok {
 			entry.Summary = s.Summary
 			if !s.SummaryAt.IsZero() {
 				entry.SummaryAt = s.SummaryAt.Format(time.RFC3339)
-				entry.ChangedSinceSummary = raw.UpdatedAt.After(s.SummaryAt)
+				entry.ChangedSinceSummary = updatedAt.After(s.SummaryAt)
 			} else {
 				entry.ChangedSinceSummary = true
 			}
@@ -129,13 +123,13 @@ func runListSessions(_ *cobra.Command, _ []string) error {
 }
 
 // deriveSessionKey reconstructs a session key from filesystem path.
-// sessions/telegram/12345/session.json → telegram:12345
+// sessions/telegram/12345/session.jsonl → telegram:12345
 func deriveSessionKey(root, path string) string {
 	rel, err := filepath.Rel(root, path)
 	if err != nil {
 		return ""
 	}
-	// Remove trailing /session.json
+	// Remove trailing /session.jsonl
 	rel = filepath.Dir(rel)
 	parts := strings.Split(filepath.ToSlash(rel), "/")
 	return strings.Join(parts, ":")

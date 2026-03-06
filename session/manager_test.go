@@ -55,16 +55,16 @@ func TestManagerPathForKeySanitizesAndDefaults(t *testing.T) {
 	}
 
 	defaultPath := mgr.PathForKey("   ")
-	if !strings.HasSuffix(defaultPath, filepath.Join("sessions", "cli", "session.json")) {
-		t.Fatalf("default path = %q, want suffix %q", defaultPath, filepath.Join("sessions", "cli", "session.json"))
+	if !strings.HasSuffix(defaultPath, filepath.Join("sessions", "cli", SessionFileName)) {
+		t.Fatalf("default path = %q, want suffix %q", defaultPath, filepath.Join("sessions", "cli", SessionFileName))
 	}
 
 	sanitizedPath := mgr.PathForKey(" parent : ../bad?? : child ")
 	if strings.Contains(sanitizedPath, "..") {
 		t.Fatalf("sanitized path should not contain '..': %q", sanitizedPath)
 	}
-	if !strings.HasSuffix(sanitizedPath, filepath.Join("sessions", "parent", "bad", "child", "session.json")) {
-		t.Fatalf("sanitized path = %q, want suffix %q", sanitizedPath, filepath.Join("sessions", "parent", "bad", "child", "session.json"))
+	if !strings.HasSuffix(sanitizedPath, filepath.Join("sessions", "parent", "bad", "child", SessionFileName)) {
+		t.Fatalf("sanitized path = %q, want suffix %q", sanitizedPath, filepath.Join("sessions", "parent", "bad", "child", SessionFileName))
 	}
 }
 
@@ -141,14 +141,14 @@ func TestSavePreservesExistingIDs(t *testing.T) {
 	}
 }
 
-func TestLoadFromDiskBackfillsLegacyIDs(t *testing.T) {
+func TestLoadFromDiskBackfillsIDs(t *testing.T) {
 	sessionsDir := filepath.Join(t.TempDir(), "sessions")
 	mgr, err := NewManager(sessionsDir)
 	if err != nil {
 		t.Fatalf("NewManager() error = %v", err)
 	}
 
-	// Save a session, then strip IDs/timestamps from the file to simulate legacy data.
+	// Save a session, then strip IDs/timestamps from the file to simulate bare JSONL.
 	s := &Session{
 		Key:       "legacy:user",
 		Messages:  []provider.Message{{Role: "user", Content: "old message"}},
@@ -158,18 +158,10 @@ func TestLoadFromDiskBackfillsLegacyIDs(t *testing.T) {
 		t.Fatalf("Save() error = %v", err)
 	}
 
-	// Re-write file without ID/Timestamp fields (simulate legacy format).
+	// Re-write file without ID/Timestamp fields.
 	path := mgr.PathForKey("legacy:user")
-	legacyJSON := `{
-		"key": "legacy:user",
-		"messages": [
-			{"role": "user", "content": "old message"},
-			{"role": "assistant", "content": "old reply"}
-		],
-		"created_at": "2025-01-01T00:00:00Z",
-		"updated_at": "2025-01-01T00:00:00Z"
-	}`
-	if err := os.WriteFile(path, []byte(legacyJSON), 0644); err != nil {
+	bareJSONL := "{\"role\":\"user\",\"content\":\"old message\"}\n{\"role\":\"assistant\",\"content\":\"old reply\"}\n"
+	if err := os.WriteFile(path, []byte(bareJSONL), 0644); err != nil {
 		t.Fatalf("WriteFile() error = %v", err)
 	}
 
@@ -208,5 +200,94 @@ func TestManagerGetUsesCache(t *testing.T) {
 	}
 	if first != second {
 		t.Fatalf("Get() should return cached pointer for same key")
+	}
+}
+
+func TestAppendCreatesFileAndUpdatesCache(t *testing.T) {
+	sessionsDir := filepath.Join(t.TempDir(), "sessions")
+	mgr, err := NewManager(sessionsDir)
+	if err != nil {
+		t.Fatalf("NewManager() error = %v", err)
+	}
+
+	// Pre-populate cache via Get.
+	sess, err := mgr.Get("append:test")
+	if err != nil {
+		t.Fatalf("Get() error = %v", err)
+	}
+	if len(sess.Messages) != 0 {
+		t.Fatalf("expected empty session, got %d messages", len(sess.Messages))
+	}
+
+	// Append messages.
+	msg1 := provider.UserMessage("first")
+	msg2 := provider.AssistantMessage("second")
+	if err := mgr.Append("append:test", msg1, msg2); err != nil {
+		t.Fatalf("Append() error = %v", err)
+	}
+
+	// Cache should be updated.
+	if len(sess.Messages) != 2 {
+		t.Fatalf("cache should have 2 messages, got %d", len(sess.Messages))
+	}
+
+	// Reload from disk should match.
+	reloaded, err := mgr.Reload("append:test")
+	if err != nil {
+		t.Fatalf("Reload() error = %v", err)
+	}
+	if len(reloaded.Messages) != 2 {
+		t.Fatalf("Reload() should have 2 messages, got %d", len(reloaded.Messages))
+	}
+	if reloaded.Messages[0].Content != "first" || reloaded.Messages[1].Content != "second" {
+		t.Fatalf("messages mismatch: %+v", reloaded.Messages)
+	}
+}
+
+func TestReadFileAndWriteFileRoundTrip(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "test.jsonl")
+
+	original := &Session{
+		Key: "rw:test",
+		Messages: []provider.Message{
+			{Role: "user", Content: "hello"},
+			{Role: "assistant", Content: "hi"},
+		},
+	}
+	if err := WriteFile(path, original); err != nil {
+		t.Fatalf("WriteFile() error = %v", err)
+	}
+
+	loaded, err := ReadFile(path)
+	if err != nil {
+		t.Fatalf("ReadFile() error = %v", err)
+	}
+	if len(loaded.Messages) != 2 {
+		t.Fatalf("ReadFile() got %d messages, want 2", len(loaded.Messages))
+	}
+	if loaded.Messages[0].Content != "hello" || loaded.Messages[1].Content != "hi" {
+		t.Fatalf("messages mismatch: %+v", loaded.Messages)
+	}
+}
+
+func TestReadFileToleratesTruncatedLastLine(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "crash.jsonl")
+
+	content := "{\"role\":\"user\",\"content\":\"good\"}\n{\"role\":\"assistant\",\"content\":\"al"
+	if err := os.WriteFile(path, []byte(content), 0644); err != nil {
+		t.Fatalf("WriteFile() error = %v", err)
+	}
+
+	loaded, err := ReadFile(path)
+	if err != nil {
+		t.Fatalf("ReadFile() should tolerate truncated last line, got error: %v", err)
+	}
+	if len(loaded.Messages) != 1 {
+		t.Fatalf("expected 1 message (skipping truncated), got %d", len(loaded.Messages))
+	}
+	if loaded.Messages[0].Content != "good" {
+		t.Fatalf("expected 'good', got %q", loaded.Messages[0].Content)
 	}
 }

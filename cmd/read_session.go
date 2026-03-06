@@ -1,14 +1,13 @@
 package cmd
 
 import (
-	"encoding/json"
 	"fmt"
-	"os"
 	"path/filepath"
 	"strings"
 
 	"github.com/linanwx/nagobot/config"
 	"github.com/linanwx/nagobot/provider"
+	"github.com/linanwx/nagobot/session"
 	"github.com/spf13/cobra"
 )
 
@@ -79,27 +78,19 @@ func runReadSession(_ *cobra.Command, args []string) error {
 	return nil
 }
 
-// loadSessionMessages reads a session.json and returns raw messages + total count.
+// loadSessionMessages reads a session JSONL file and returns raw messages + total count.
 func loadSessionMessages(workspace, key string) ([]provider.Message, int, error) {
 	sessionsDir := filepath.Join(workspace, "sessions")
-	// Reconstruct path from key: split by ":" → directory segments.
 	parts := strings.Split(key, ":")
 	pathParts := append([]string{sessionsDir}, parts...)
-	pathParts = append(pathParts, "session.json")
+	pathParts = append(pathParts, session.SessionFileName)
 	sessionPath := filepath.Join(pathParts...)
 
-	data, err := os.ReadFile(sessionPath)
+	s, err := session.ReadFile(sessionPath)
 	if err != nil {
 		return nil, 0, fmt.Errorf("session %q not found: %w", key, err)
 	}
-
-	var raw struct {
-		Messages []provider.Message `json:"messages"`
-	}
-	if err := json.Unmarshal(data, &raw); err != nil {
-		return nil, 0, fmt.Errorf("failed to parse session: %w", err)
-	}
-	return raw.Messages, len(raw.Messages), nil
+	return s.Messages, len(s.Messages), nil
 }
 
 // filterToolMessages removes tool-role messages and assistant messages that only contain tool calls.
