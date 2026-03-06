@@ -111,6 +111,53 @@ func anthropicInputChars(systemPrompt string, messages []Message) int {
 	return total
 }
 
+// anthropicThinkingDetail represents a single thinking or redacted_thinking block
+// for round-tripping Anthropic thinking content across multi-turn conversations.
+type anthropicThinkingDetail struct {
+	Type      string `json:"type"`                // "thinking" or "redacted_thinking"
+	Thinking  string `json:"thinking,omitempty"`   // thinking text (for type "thinking")
+	Signature string `json:"signature,omitempty"`  // opaque signature (for type "thinking")
+	Data      string `json:"data,omitempty"`       // opaque data (for type "redacted_thinking")
+}
+
+// anthropicThinkingBlocks reconstructs thinking content blocks from a Message's
+// ReasoningDetails for round-tripping back to the Anthropic API.
+func anthropicThinkingBlocks(m Message) []anthropic.ContentBlockParamUnion {
+	if len(m.ReasoningDetails) == 0 {
+		return nil
+	}
+	var details []anthropicThinkingDetail
+	if err := json.Unmarshal(m.ReasoningDetails, &details); err != nil || len(details) == 0 {
+		return nil
+	}
+	blocks := make([]anthropic.ContentBlockParamUnion, 0, len(details))
+	for _, d := range details {
+		switch d.Type {
+		case "thinking":
+			if d.Thinking != "" && d.Signature != "" {
+				blocks = append(blocks, anthropic.ContentBlockParamUnion{
+					OfThinking: &anthropic.ThinkingBlockParam{
+						Thinking:  d.Thinking,
+						Signature: d.Signature,
+					},
+				})
+			}
+		case "redacted_thinking":
+			if d.Data != "" {
+				blocks = append(blocks, anthropic.ContentBlockParamUnion{
+					OfRedactedThinking: &anthropic.RedactedThinkingBlockParam{
+						Data: d.Data,
+					},
+				})
+			}
+		}
+	}
+	if len(blocks) > 0 {
+		return blocks
+	}
+	return nil
+}
+
 func parseFunctionArguments(arguments string) any {
 	trimmed := strings.TrimSpace(arguments)
 	if trimmed == "" {
@@ -199,6 +246,8 @@ func toAnthropicMessages(messages []Message) (string, []anthropic.MessageParam, 
 			flushPendingToolResults()
 
 			blocks := make([]anthropic.ContentBlockParamUnion, 0, 1+len(m.ToolCalls))
+			// Thinking blocks must come before text (Anthropic requires this order).
+			blocks = append(blocks, anthropicThinkingBlocks(m)...)
 			if m.Content != "" {
 				blocks = append(blocks, anthropic.NewTextBlock(m.Content))
 			}
@@ -337,6 +386,7 @@ func (p *AnthropicProvider) Chat(ctx context.Context, req *Request) (*Response, 
 
 	var textParts []string
 	var reasoningParts []string
+	var thinkingDetails []anthropicThinkingDetail
 	toolCalls := make([]ToolCall, 0)
 	for _, block := range messageResp.Content {
 		switch block.Type {
@@ -348,8 +398,17 @@ func (p *AnthropicProvider) Chat(ctx context.Context, req *Request) (*Response, 
 			if strings.TrimSpace(block.Thinking) != "" {
 				reasoningParts = append(reasoningParts, strings.TrimSpace(block.Thinking))
 			}
+			thinkingDetails = append(thinkingDetails, anthropicThinkingDetail{
+				Type:      "thinking",
+				Thinking:  block.Thinking,
+				Signature: block.Signature,
+			})
 		case "redacted_thinking":
 			reasoningParts = append(reasoningParts, "[redacted_thinking]")
+			thinkingDetails = append(thinkingDetails, anthropicThinkingDetail{
+				Type: "redacted_thinking",
+				Data: block.Data,
+			})
 		case "tool_use":
 			toolCalls = append(toolCalls, ToolCall{
 				ID:   block.ID,
@@ -364,6 +423,14 @@ func (p *AnthropicProvider) Chat(ctx context.Context, req *Request) (*Response, 
 
 	content := strings.Join(textParts, "\n")
 	reasoningContent := strings.Join(reasoningParts, "\n")
+
+	var reasoningDetailsJSON json.RawMessage
+	if len(thinkingDetails) > 0 {
+		if data, err := json.Marshal(thinkingDetails); err == nil {
+			reasoningDetailsJSON = data
+		}
+	}
+
 	logger.Info(
 		"anthropic response",
 		"provider", "anthropic",
@@ -383,6 +450,7 @@ func (p *AnthropicProvider) Chat(ctx context.Context, req *Request) (*Response, 
 	return &Response{
 		Content:          content,
 		ReasoningContent: reasoningContent,
+		ReasoningDetails: reasoningDetailsJSON,
 		ToolCalls:        toolCalls,
 		Usage: Usage{
 			PromptTokens:     int(messageResp.Usage.InputTokens),
