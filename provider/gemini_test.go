@@ -230,6 +230,36 @@ func TestFilterSignatureParts(t *testing.T) {
 	}
 }
 
+func TestGeminiSignatureParts_NonGeminiReasoningDetails(t *testing.T) {
+	// Anthropic-style ReasoningDetails should not produce empty parts.
+	anthropicDetails := `[{"type":"thinking","thinking":"some reasoning","signature":"sig123"}]`
+	msg := Message{
+		Role:             "assistant",
+		Content:          "Hello",
+		ReasoningDetails: json.RawMessage(anthropicDetails),
+	}
+	parts := geminiSignatureParts(msg)
+	for _, p := range parts {
+		if p.Text == "" && p.FunctionCall == nil && p.FunctionResponse == nil && p.InlineData == nil {
+			t.Error("empty part produced from non-Gemini ReasoningDetails")
+		}
+	}
+
+	// OpenRouter-style reasoning_details.
+	orDetails := `[{"type":"text","text":"reasoning content"}]`
+	msg2 := Message{
+		Role:             "assistant",
+		Content:          "World",
+		ReasoningDetails: json.RawMessage(orDetails),
+	}
+	parts2 := geminiSignatureParts(msg2)
+	for _, p := range parts2 {
+		if p.Text == "" && p.FunctionCall == nil && p.FunctionResponse == nil && p.InlineData == nil {
+			t.Error("empty part produced from OpenRouter ReasoningDetails")
+		}
+	}
+}
+
 func TestGeminiSyncResponse(t *testing.T) {
 	// Mock Gemini API server.
 	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

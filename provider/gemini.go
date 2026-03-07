@@ -593,6 +593,10 @@ func geminiSignatureParts(m Message) []gmPart {
 		if sp.Thought != nil && *sp.Thought {
 			continue
 		}
+		// Skip parts with no data field (e.g. from non-Gemini ReasoningDetails).
+		if sp.Text == "" && sp.FunctionCall == nil && sp.FunctionResponse == nil && sp.InlineData == nil {
+			continue
+		}
 		parts = append(parts, sp)
 	}
 
