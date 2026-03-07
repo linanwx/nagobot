@@ -17,7 +17,7 @@ With custom API base URL:
 exec: {{WORKSPACE}}/bin/nagobot set-provider-key --provider <name> --api-key <api_key> --api-base <url>
 ```
 
-Supported providers: `openai`, `openrouter`, `anthropic`, `deepseek`, `moonshot-cn`, `moonshot-global`, `zhipu-cn`, `zhipu-global`, `minimax-cn`, `minimax-global`.
+Supported providers: `openai`, `openrouter`, `anthropic`, `deepseek`, `gemini`, `moonshot-cn`, `moonshot-global`, `zhipu-cn`, `zhipu-global`, `minimax-cn`, `minimax-global`.
 
 ### List All Provider Key Status
 

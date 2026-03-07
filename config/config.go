@@ -163,6 +163,7 @@ type ProvidersConfig struct {
 	MinimaxGlobal  *ProviderConfig   `json:"minimaxGlobal,omitempty" yaml:"minimaxGlobal,omitempty"`
 	OpenAI         *ProviderConfig   `json:"openai,omitempty" yaml:"openai,omitempty"`
 	OpenAIOAuth *OAuthTokenConfig `json:"openaiOAuth,omitempty" yaml:"openaiOAuth,omitempty"`
+	Gemini         *ProviderConfig   `json:"gemini,omitempty" yaml:"gemini,omitempty"`
 }
 
 // OAuthTokenConfig stores an OAuth token with optional refresh capability.
@@ -203,6 +204,8 @@ func (p *ProvidersConfig) GetProviderConfig(name string) *ProviderConfig {
 		return p.MinimaxCN
 	case "minimax-global":
 		return p.MinimaxGlobal
+	case "gemini":
+		return p.Gemini
 	}
 	return nil
 }
