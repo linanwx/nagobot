@@ -1,0 +1,19 @@
+version: "2"
+
+run:
+  timeout: 3m
+
+linters:
+  default: standard
+  exclusions:
+    presets:
+      - std-error-handling
+      - common-false-positives
+
+formatters:
+  enable:
+    - goimports
+  settings:
+    goimports:
+      local-prefixes:
+        - github.com/linanwx/nagobot
