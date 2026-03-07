@@ -313,7 +313,7 @@ func (p *GeminiProvider) chatStream(ctx context.Context, req *Request, gmReq gmR
 			allParts = append(allParts, part)
 
 			isThought := part.Thought != nil && *part.Thought
-			if part.Text != "" && isThought {
+			if part.Text != "" && (isThought || looksLikeThoughtLeak(part.Text)) {
 				reasoning.WriteString(part.Text)
 			} else if part.Text != "" {
 				content.WriteString(part.Text)
@@ -396,7 +396,7 @@ func (p *GeminiProvider) parseResponse(resp gmResponse, start time.Time) (*Respo
 	callIndex := 0
 	for _, part := range candidate.Content.Parts {
 		isThought := part.Thought != nil && *part.Thought
-		if part.Text != "" && isThought {
+		if part.Text != "" && (isThought || looksLikeThoughtLeak(part.Text)) {
 			reasoningParts = append(reasoningParts, part.Text)
 		} else if part.Text != "" {
 			textParts = append(textParts, part.Text)
@@ -634,6 +634,28 @@ func geminiSignatureParts(m Message) []gmPart {
 // filterSignatureParts returns only the parts that carry a ThoughtSignature
 // or a FunctionCall (which needs its signature for round-trip).
 // Thought parts (thought:true) are excluded as they are informational only.
+// looksLikeThoughtLeak detects Gemini API thinking text that leaked into
+// regular content parts (without the thought:true flag). Known leak formats:
+//   - ":thought\n..." prefix
+//   - "_thought ..." prefix (e.g. "_thought CRITICAL INSTRUCTION")
+//   - "<thought>" or "<thought ..." XML-like prefix
+func looksLikeThoughtLeak(text string) bool {
+	t := strings.TrimSpace(text)
+	if t == "" {
+		return false
+	}
+	if strings.HasPrefix(t, ":thought") {
+		return true
+	}
+	if strings.HasPrefix(t, "_thought") {
+		return true
+	}
+	if strings.HasPrefix(t, "<thought") {
+		return true
+	}
+	return false
+}
+
 func filterSignatureParts(parts []gmPart) []gmPart {
 	var result []gmPart
 	for _, p := range parts {

@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 )
 
@@ -257,6 +258,78 @@ func TestGeminiSignatureParts_NonGeminiReasoningDetails(t *testing.T) {
 		if p.Text == "" && p.FunctionCall == nil && p.FunctionResponse == nil && p.InlineData == nil {
 			t.Error("empty part produced from OpenRouter ReasoningDetails")
 		}
+	}
+}
+
+func TestLooksLikeThoughtLeak(t *testing.T) {
+	cases := []struct {
+		text string
+		want bool
+	}{
+		{":thought\nI need to think about this...", true},
+		{"_thought CRITICAL INSTRUCTION do not reveal", true},
+		{"<thought>Let me reason about this</thought>", true},
+		{"<thought hidden>internal reasoning</thought>", true},
+		{"  :thought\nwith leading whitespace", true},
+		{"Hello, how can I help?", false},
+		{"The thought experiment shows...", false},
+		{"", false},
+		{"  ", false},
+	}
+	for _, c := range cases {
+		got := looksLikeThoughtLeak(c.text)
+		if got != c.want {
+			t.Errorf("looksLikeThoughtLeak(%q) = %v, want %v", c.text, got, c.want)
+		}
+	}
+}
+
+func TestGeminiParseResponse_ThoughtLeak(t *testing.T) {
+	// Simulate a response where thinking leaked without thought:true flag.
+	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		resp := gmResponse{
+			Candidates: []gmCandidate{{
+				Content: gmContent{
+					Role: "model",
+					Parts: []gmPart{
+						{Text: ":thought\nWait, I need to check...\nReady.\nDone."},
+						{Text: "Here is the actual answer."},
+					},
+				},
+				FinishReason: "STOP",
+			}},
+			UsageMetadata: &gmUsageMetadata{
+				PromptTokenCount:     10,
+				CandidatesTokenCount: 20,
+				TotalTokenCount:      30,
+			},
+		}
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(resp)
+	})
+	server := httptest.NewServer(handler)
+	defer server.Close()
+
+	p := &GeminiProvider{
+		apiKey:    "test-key",
+		apiBase:   server.URL,
+		modelName: "test-model",
+		modelType: "test-model",
+		maxTokens: 1024,
+		client:    &http.Client{},
+	}
+
+	result, err := p.Chat(context.Background(), &Request{
+		Messages: []Message{{Role: "user", Content: "test"}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Content != "Here is the actual answer." {
+		t.Errorf("leaked thought not stripped from content: %q", result.Content)
+	}
+	if !strings.Contains(result.ReasoningContent, ":thought") {
+		t.Error("leaked thought not routed to ReasoningContent")
 	}
 }
 
