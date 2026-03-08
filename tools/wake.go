@@ -76,7 +76,7 @@ func (t *WakeThreadTool) Run(ctx context.Context, args json.RawMessage) string {
 	}
 
 	t.waker.Wake(sessionKey, &msg.WakeMessage{
-		Source:  msg.WakeUserActive,
+		Source:  msg.WakeExternal,
 		Message: message,
 	})
 	return fmt.Sprintf(
