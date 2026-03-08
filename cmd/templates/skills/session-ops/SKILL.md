@@ -33,12 +33,14 @@ Also includes `filter`, `total_sessions`, `shown_sessions` metadata.
 Read filtered chat history with pagination.
 
 ```
-exec: {{WORKSPACE}}/bin/nagobot read-session <key> [--offset N] [--limit N]
+exec: {{WORKSPACE}}/bin/nagobot read-session <key> [--offset N] [--limit N] [--tail N] [--full]
 ```
 
 - `<key>`: Session key (e.g. `cli`, `telegram:12345`)
 - `--offset N`: Start from Nth filtered message (default: 0)
 - `--limit N`: Number of messages to return (default: 20)
+- `--tail N`: Show last N messages (overrides offset)
+- `--full`: Show full message content without truncation (default: truncated to 500 chars)
 
 Tool messages (`role=tool`), system messages, and tool-call-only assistant messages are filtered out. Output includes pagination info and a `Next:` hint when more messages remain.
 

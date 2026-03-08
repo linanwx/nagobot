@@ -15,6 +15,7 @@ var (
 	readSessionOffset int
 	readSessionLimit  int
 	readSessionTail   int
+	readSessionFull   bool
 )
 
 var readSessionCmd = &cobra.Command{
@@ -29,6 +30,7 @@ func init() {
 	readSessionCmd.Flags().IntVar(&readSessionOffset, "offset", 0, "Start from the Nth filtered message")
 	readSessionCmd.Flags().IntVar(&readSessionLimit, "limit", 20, "Number of messages to return")
 	readSessionCmd.Flags().IntVar(&readSessionTail, "tail", 0, "Show last N messages (overrides offset)")
+	readSessionCmd.Flags().BoolVar(&readSessionFull, "full", false, "Show full message content without truncation")
 	rootCmd.AddCommand(readSessionCmd)
 }
 
@@ -71,7 +73,12 @@ func runReadSession(_ *cobra.Command, args []string) error {
 
 	for i, m := range page {
 		idx := readSessionOffset + i + 1
-		content := truncateContent(m.Content, 500)
+		var content string
+		if readSessionFull {
+			content = strings.TrimSpace(m.Content)
+		} else {
+			content = truncateContent(m.Content, 500)
+		}
 		fmt.Printf("[%d] %s: %s\n", idx, m.Role, content)
 	}
 
