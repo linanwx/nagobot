@@ -55,8 +55,9 @@ Proactively check recent user sessions for opportunities to follow up — unansw
 
 Steps:
 
-1. For each qualifying session, run `bin/nagobot read-session <key> --tail 10` to read the last 10 messages.
-2. Analyze the conversation tail for follow-up opportunities:
+1. For each qualifying session, check its `updated_at` from the list-sessions output. If the session was active less than 5 minutes ago, skip it — the thread may still be processing. Only analyze sessions that have been idle for at least 5 minutes.
+2. For each idle session, run `bin/nagobot read-session <key> --tail 10` to read the last 10 messages.
+3. Analyze the conversation tail for follow-up opportunities:
    - **Unanswered user message**: The last message is from the user and received no assistant response.
    - **Unfulfilled commitment**: The assistant promised a follow-up action ("I'll check", "稍后处理", "Let me get back to you") but never did.
    - **Proactive help**: A topic where the assistant could offer useful follow-up — e.g. a task the user mentioned wanting to do later, a question left partially answered, or information that has since become available.
