@@ -163,7 +163,7 @@ func (p *MinimaxProvider) Chat(ctx context.Context, req *Request) (*Response, er
 		chatReq.Temperature = openai.Float(requestTemp)
 	}
 	if forced {
-		logger.Warn(
+		logger.Info(
 			"minimax temperature adjusted for thinking constraints",
 			"provider", p.providerName,
 			"modelType", p.modelType,

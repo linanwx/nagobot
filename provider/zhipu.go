@@ -120,7 +120,7 @@ func (p *ZhipuProvider) Chat(ctx context.Context, req *Request) (*Response, erro
 		chatReq.Temperature = openai.Float(requestTemp)
 	}
 	if forced {
-		logger.Warn(
+		logger.Info(
 			"zhipu temperature adjusted for thinking constraints",
 			"provider", p.providerName,
 			"modelType", p.modelType,

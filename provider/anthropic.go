@@ -369,7 +369,7 @@ func (p *AnthropicProvider) Chat(ctx context.Context, req *Request) (*Response, 
 		params.Temperature = anthropic.Float(requestTemp)
 	}
 	if forcedTemp {
-		logger.Warn(
+		logger.Info(
 			"anthropic temperature adjusted for thinking constraints",
 			"provider", "anthropic",
 			"modelType", p.modelType,
