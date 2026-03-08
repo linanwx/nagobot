@@ -107,7 +107,7 @@ func (t *Thread) buildMessageHistory(systemPrompt, userMessage string, sess *ses
 
 	var sessionMessages []provider.Message
 	if sess != nil {
-		sessionMessages = applyCompressed(provider.SanitizeMessages(sess.Messages))
+		sessionMessages = ApplyCompressed(provider.SanitizeMessages(sess.Messages))
 		messages = append(messages, sessionMessages...)
 	}
 
@@ -116,8 +116,8 @@ func (t *Thread) buildMessageHistory(systemPrompt, userMessage string, sess *ses
 	messages = append(messages, userMsg)
 	turnUserMessages = append(turnUserMessages, userMsg)
 
-	sessionEstimatedTokens := estimateMessagesTokens(sessionMessages)
-	requestEstimatedTokens := estimateMessagesTokens(messages)
+	sessionEstimatedTokens := EstimateMessagesTokens(sessionMessages)
+	requestEstimatedTokens := EstimateMessagesTokens(messages)
 	contextWindowTokens, contextWarnRatio := t.contextBudget()
 	logger.Debug(
 		"context estimate",
@@ -254,10 +254,10 @@ func isUserFacingContent(s string) bool {
 	return true
 }
 
-// applyCompressed returns a copy of messages with Compressed content applied.
+// ApplyCompressed returns a copy of messages with Compressed content applied.
 // For messages that have a Compressed field, Content is replaced so the LLM
 // sees the compressed version. The original session data is not modified.
-func applyCompressed(msgs []provider.Message) []provider.Message {
+func ApplyCompressed(msgs []provider.Message) []provider.Message {
 	result := make([]provider.Message, len(msgs))
 	for i, m := range msgs {
 		if m.Compressed != "" {

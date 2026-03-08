@@ -89,7 +89,8 @@ func estimateMessageTokens(message provider.Message) int {
 	return tokens
 }
 
-func estimateMessagesTokens(messages []provider.Message) int {
+// EstimateMessagesTokens returns a tiktoken-based token estimate for a slice of messages.
+func EstimateMessagesTokens(messages []provider.Message) int {
 	total := 3 // Priming overhead.
 	for _, message := range messages {
 		total += estimateMessageTokens(message)

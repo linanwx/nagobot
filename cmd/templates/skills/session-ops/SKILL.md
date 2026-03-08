@@ -1,6 +1,6 @@
 ---
 name: session-ops
-description: List, read, sample, summarize, and search sessions.
+description: List, read, sample, summarize, search, and inspect sessions (including context usage stats).
 tags: [session, summary, search, internal]
 ---
 # Session Operations
@@ -67,6 +67,28 @@ exec: {{WORKSPACE}}/bin/nagobot set-summary <key> <summary>
 - `<summary>`: Summary text (≤200 characters recommended)
 
 Writes to `system/sessions_summary.json`. Automatically cleans up entries with `summary_at` older than 7 days and reports what was cleaned.
+
+## session-stats
+
+Show context usage stats for a session: token estimates, compression savings, and pressure status.
+
+```
+exec: {{WORKSPACE}}/bin/nagobot session-stats <key>
+```
+
+- `<key>`: Session key (e.g. `cli`, `telegram:12345`)
+
+Output: JSON with fields:
+- `message_count`: Total messages in session
+- `role_counts`: Breakdown by role (user, assistant, tool, system)
+- `compressed_messages`: Number of messages with Tier 1 compressed content
+- `raw_tokens`: Token estimate using original content
+- `compressed_tokens`: Token estimate using compressed content (what the LLM actually sees)
+- `tokens_saved`: Difference (raw - compressed)
+- `context_window_tokens`: Configured context window size
+- `usage_ratio`: `compressed_tokens / context_window_tokens`
+- `warn_ratio`: Configured pressure threshold (default 0.8)
+- `pressure_status`: `ok`, `warning` (≥64% of window), or `pressure` (≥80% of window)
 
 ## search-memory
 

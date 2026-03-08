@@ -106,7 +106,7 @@ func (m *Manager) tryTier2Compress(sessionKey string) {
 		return
 	}
 
-	tokens := estimateMessagesTokens(applyCompressed(sess.Messages))
+	tokens := EstimateMessagesTokens(ApplyCompressed(sess.Messages))
 	threshold := int(float64(cfg.ContextWindowTokens) * tier2TokenRatio)
 	if tokens < threshold {
 		return
