@@ -14,6 +14,7 @@ import (
 var (
 	readSessionOffset int
 	readSessionLimit  int
+	readSessionTail   int
 )
 
 var readSessionCmd = &cobra.Command{
@@ -27,6 +28,7 @@ var readSessionCmd = &cobra.Command{
 func init() {
 	readSessionCmd.Flags().IntVar(&readSessionOffset, "offset", 0, "Start from the Nth filtered message")
 	readSessionCmd.Flags().IntVar(&readSessionLimit, "limit", 20, "Number of messages to return")
+	readSessionCmd.Flags().IntVar(&readSessionTail, "tail", 0, "Show last N messages (overrides offset)")
 	rootCmd.AddCommand(readSessionCmd)
 }
 
@@ -49,6 +51,14 @@ func runReadSession(_ *cobra.Command, args []string) error {
 
 	filtered := filterToolMessages(messages)
 	filteredCount := len(filtered)
+
+	if readSessionTail > 0 {
+		readSessionOffset = filteredCount - readSessionTail
+		if readSessionOffset < 0 {
+			readSessionOffset = 0
+		}
+		readSessionLimit = filteredCount - readSessionOffset
+	}
 
 	if readSessionOffset >= filteredCount {
 		fmt.Printf("No messages at offset %d. Total filtered messages: %d (from %d total).\n",
