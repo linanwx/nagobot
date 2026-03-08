@@ -236,9 +236,10 @@ func toOpenAIChatMessages(messages []Message, visionCapable bool) ([]openai.Chat
 			if reasoningContent := strings.TrimSpace(m.ReasoningContent); reasoningContent != "" {
 				extras["reasoning_content"] = reasoningContent
 			}
-			if len(m.ReasoningDetails) > 0 {
-				extras["reasoning_details"] = m.ReasoningDetails
-			}
+			// NOTE: reasoning_details (containing provider-specific signatures) are
+			// intentionally NOT forwarded. OpenRouter may route to different upstream
+			// providers between requests (e.g. Anthropic direct → Amazon Bedrock),
+			// and thinking-block signatures are only valid for the originating provider.
 			if len(extras) > 0 {
 				assistant.SetExtraFields(extras)
 			}
