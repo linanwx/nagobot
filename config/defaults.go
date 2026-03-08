@@ -6,7 +6,7 @@ const (
 	defaultProvider            = "deepseek"
 	defaultModelType           = "deepseek-reasoner"
 	defaultMaxTokens           = 8192
-	defaultTemperature         = 0.95
+	defaultTemperature         = 1.0
 	defaultContextWindowTokens = 128000
 	defaultContextWarnRatio    = 0.8
 	defaultWebAddr             = "127.0.0.1:8080"
