@@ -40,6 +40,7 @@ chmod +x "${INSTALL_DIR}/nagobot"
 # macOS: remove quarantine attribute to bypass Gatekeeper.
 if [ "$OS" = "darwin" ]; then
   xattr -d com.apple.quarantine "${INSTALL_DIR}/nagobot" 2>/dev/null || true
+  codesign --sign - --force "${INSTALL_DIR}/nagobot" 2>/dev/null || true
 fi
 
 # Add to PATH persistently if not already present.

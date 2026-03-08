@@ -4,7 +4,10 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"os/exec"
 	"path/filepath"
+	"runtime"
+	"strings"
 
 	"github.com/linanwx/nagobot/cmd/service"
 	"github.com/linanwx/nagobot/config"
@@ -77,12 +80,8 @@ func runInstall(cmd *cobra.Command, args []string) error {
 	fmt.Printf("    Logs:    %s/\n", logDir)
 	fmt.Println()
 
-	// Check if install dir is in PATH.
-	if !isInPath(installDir) {
-		fmt.Printf("    NOTE: Add %s to your PATH:\n", installDir)
-		fmt.Printf("      export PATH=\"%s:$PATH\"\n", installDir)
-		fmt.Println()
-	}
+	// Ensure install dir is in PATH (platform-specific).
+	ensurePath(installDir)
 
 	fmt.Println("==> Next steps:")
 	fmt.Println("    1. nagobot onboard")
@@ -97,6 +96,86 @@ func isInPath(dir string) bool {
 		}
 	}
 	return false
+}
+
+func ensurePath(dir string) {
+	if isInPath(dir) {
+		return
+	}
+	switch runtime.GOOS {
+	case "windows":
+		ensurePathWindows(dir)
+	default:
+		ensurePathUnix(dir)
+	}
+}
+
+func ensurePathWindows(dir string) {
+	// Read current user PATH from registry.
+	out, err := exec.Command("powershell", "-NoProfile", "-NonInteractive", "-Command",
+		`[Environment]::GetEnvironmentVariable("Path", "User")`).Output()
+	if err != nil {
+		fmt.Printf("    NOTE: Add %s to your PATH, then restart the terminal.\n", dir)
+		return
+	}
+	userPath := strings.TrimSpace(string(out))
+	if strings.Contains(strings.ToLower(userPath), strings.ToLower(dir)) {
+		fmt.Printf("    PATH: %s is already in PATH. Restart your terminal to take effect.\n", dir)
+		return
+	}
+	// Add to user PATH.
+	newPath := dir + ";" + userPath
+	psSet := fmt.Sprintf(`[Environment]::SetEnvironmentVariable("Path", '%s', "User")`, newPath)
+	if err := exec.Command("powershell", "-NoProfile", "-NonInteractive", "-Command", psSet).Run(); err != nil {
+		fmt.Printf("    NOTE: Add %s to your PATH, then restart the terminal.\n", dir)
+		return
+	}
+	fmt.Printf("    PATH: added %s (restart your terminal to take effect)\n", dir)
+}
+
+func ensurePathUnix(dir string) {
+	rc := detectRCFile()
+	if rc == "" {
+		fmt.Printf("    NOTE: Add to your PATH:\n")
+		fmt.Printf("      export PATH=\"%s:$PATH\"\n", dir)
+		return
+	}
+	line := fmt.Sprintf(`export PATH="%s:$PATH"`, dir)
+	// Check if already written to RC file.
+	content, err := os.ReadFile(rc)
+	if err == nil && strings.Contains(string(content), dir) {
+		fmt.Printf("    PATH: already in %s. Run to take effect:\n", rc)
+		fmt.Printf("      source %s\n", rc)
+		return
+	}
+	// Write to RC file.
+	f, err := os.OpenFile(rc, os.O_APPEND|os.O_WRONLY|os.O_CREATE, 0644)
+	if err != nil {
+		fmt.Printf("    NOTE: Add to your PATH:\n")
+		fmt.Printf("      %s\n", line)
+		return
+	}
+	fmt.Fprintf(f, "\n# nagobot\n%s\n", line)
+	f.Close()
+	fmt.Printf("    PATH: added to %s. Run to take effect:\n", rc)
+	fmt.Printf("      source %s\n", rc)
+}
+
+func detectRCFile() string {
+	home, _ := os.UserHomeDir()
+	shell := os.Getenv("SHELL")
+	if strings.HasSuffix(shell, "/zsh") {
+		return filepath.Join(home, ".zshrc")
+	}
+	bashrc := filepath.Join(home, ".bashrc")
+	if _, err := os.Stat(bashrc); err == nil {
+		return bashrc
+	}
+	profile := filepath.Join(home, ".profile")
+	if _, err := os.Stat(profile); err == nil {
+		return profile
+	}
+	return ""
 }
 
 func installBinaryTo(src, dir, dst string) error {
