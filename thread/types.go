@@ -98,6 +98,7 @@ type Thread struct {
 	*agent.Agent
 
 	sessionKey string
+	parent     *Thread // nil for root threads; set by SpawnChild
 	provider   provider.Provider
 	tools      *tools.Registry
 

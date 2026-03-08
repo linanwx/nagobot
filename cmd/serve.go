@@ -162,9 +162,9 @@ func buildDefaultAgentFor(cfg *config.Config) func(string) string {
 // buildDefaultSinkFor returns a factory that resolves the fallback sink for a given session key.
 func buildDefaultSinkFor(chMgr *channel.Manager, cfg *config.Config) func(string) thread.Sink {
 	return func(sessionKey string) thread.Sink {
-		// telegram:{chatID}[:{userID}[:threads:...]] → send to that chat.
+		// telegram:{chatID} or telegram:{userID} → send to that chat.
 		if strings.HasPrefix(sessionKey, "telegram:") {
-			userID := extractFirstSegment(strings.TrimPrefix(sessionKey, "telegram:"))
+			userID := strings.TrimPrefix(sessionKey, "telegram:")
 			if userID != "" {
 				return thread.Sink{
 					Label:      "your response will be sent to telegram user " + userID,
@@ -180,11 +180,8 @@ func buildDefaultSinkFor(chMgr *channel.Manager, cfg *config.Config) func(string
 		}
 
 		// feishu:{openID} → send to that user via feishu P2P.
-		// Design: all feishu sessions (including group messages) are per-user.
-		// The per-wake sink from buildSink uses the original chat_id for reply routing,
-		// while this fallback sink (for cron/spawn) always replies via P2P.
 		if strings.HasPrefix(sessionKey, "feishu:") {
-			openID := extractFirstSegment(strings.TrimPrefix(sessionKey, "feishu:"))
+			openID := strings.TrimPrefix(sessionKey, "feishu:")
 			if openID != "" {
 				return thread.Sink{
 					Label:      "your response will be sent to feishu user " + openID,
@@ -236,13 +233,6 @@ func buildDefaultSinkFor(chMgr *channel.Manager, cfg *config.Config) func(string
 	}
 }
 
-// extractFirstSegment returns the part before the first ':' in s, or all of s if no ':' exists.
-func extractFirstSegment(s string) string {
-	if idx := strings.Index(s, ":"); idx >= 0 {
-		return s[:idx]
-	}
-	return s
-}
 
 func resolveServeTargets(cmd *cobra.Command) (finalServeTelegram, finalServeFeishu, finalServeDiscord, finalServeWeb bool, err error) {
 	if cmd == nil {

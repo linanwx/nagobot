@@ -30,31 +30,36 @@ func (t *Thread) SpawnChild(ctx context.Context, agentName string, task string) 
 		return "", fmt.Errorf("spawn child: %w", err)
 	}
 	child.Set("TASK", task)
+	child.parent = t
 
+	// Sink-to-parent: shared by per-wake sink and defaultSink.
 	parentThread := t
+	sinkToParent := Sink{
+		Label: "your response will be forwarded to parent thread",
+		Send: func(_ context.Context, response string) error {
+			var message string
+			if strings.TrimSpace(response) != "" {
+				message = msg.BuildSystemMessage("child_completed", map[string]string{
+					"child_id": child.id,
+				}, strings.TrimSpace(response))
+			} else {
+				message = msg.BuildSystemMessage("child_completed", map[string]string{
+					"child_id": child.id,
+				}, "no output")
+			}
+			parentThread.Enqueue(&WakeMessage{
+				Source:  WakeChildCompleted,
+				Message: message,
+			})
+			return nil
+		},
+	}
+	child.defaultSink = sinkToParent
+
 	child.Enqueue(&WakeMessage{
 		Source:  WakeChildTask,
 		Message: task,
-		Sink: Sink{
-			Label: "your response will be forwarded to parent thread",
-			Send: func(_ context.Context, response string) error {
-				var message string
-				if strings.TrimSpace(response) != "" {
-					message = msg.BuildSystemMessage("child_completed", map[string]string{
-						"child_id": child.id,
-					}, strings.TrimSpace(response))
-				} else {
-					message = msg.BuildSystemMessage("child_completed", map[string]string{
-						"child_id": child.id,
-					}, "no output")
-				}
-				parentThread.Enqueue(&WakeMessage{
-					Source:  WakeChildCompleted,
-					Message: message,
-				})
-				return nil
-			},
-		},
+		Sink:    sinkToParent,
 	})
 
 	logger.Debug("child thread spawned", "parentID", t.id, "childID", child.id)
