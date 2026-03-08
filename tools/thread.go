@@ -10,9 +10,18 @@ import (
 	"github.com/linanwx/nagobot/thread/msg"
 )
 
+// SpawnResult contains metadata about a newly spawned child thread.
+type SpawnResult struct {
+	ID        string // Child thread ID.
+	Agent     string // Agent template name used.
+	Provider  string // Provider name (e.g. "gemini", "openrouter").
+	Model     string // Model name (e.g. "gemini-2.0-flash").
+	Specialty string // Agent specialty (e.g. "toolcall", "chat").
+}
+
 // ThreadSpawner is implemented by thread.Thread to spawn child threads.
 type ThreadSpawner interface {
-	SpawnChild(ctx context.Context, agentName string, task string) (string, error)
+	SpawnChild(ctx context.Context, agentName string, task string) (*SpawnResult, error)
 }
 
 // ThreadInfo is an alias for msg.ThreadInfo.
@@ -75,12 +84,12 @@ func (t *SpawnThreadTool) Run(ctx context.Context, args json.RawMessage) string 
 		return "Error: thread spawner not configured"
 	}
 
-	childID, err := t.spawner.SpawnChild(ctx, strings.TrimSpace(a.Agent), a.Task)
+	result, err := t.spawner.SpawnChild(ctx, strings.TrimSpace(a.Agent), a.Task)
 	if err != nil {
 		return fmt.Sprintf("Error spawning thread: %v", err)
 	}
 
-	agentLabel := strings.TrimSpace(a.Agent)
+	agentLabel := result.Agent
 	if agentLabel == "" {
 		agentLabel = "(session default)"
 	}
@@ -91,18 +100,23 @@ func (t *SpawnThreadTool) Run(ctx context.Context, args json.RawMessage) string 
 		taskPreview = taskPreview[:200] + "..."
 	}
 
-	return fmt.Sprintf(
-		"Child thread spawned.\n"+
-			"  ID:    %s\n"+
-			"  Agent: %s\n"+
-			"  Task:  %s\n\n"+
-			"The child is running asynchronously. When it finishes, this thread will "+
-			"receive a 'child_completed' wake message containing the child's output.\n"+
-			"You do not need to wait or poll — just finish your current response. "+
-			"You will be woken up automatically when the child is done.\n"+
-			"Use check_thread with the ID above to inspect progress if needed.",
-		childID, agentLabel, taskPreview,
-	)
+	var sb strings.Builder
+	fmt.Fprintf(&sb, "Child thread spawned.\n")
+	fmt.Fprintf(&sb, "  ID:        %s\n", result.ID)
+	fmt.Fprintf(&sb, "  Agent:     %s\n", agentLabel)
+	if result.Specialty != "" {
+		fmt.Fprintf(&sb, "  Specialty: %s\n", result.Specialty)
+	}
+	if result.Provider != "" || result.Model != "" {
+		fmt.Fprintf(&sb, "  Provider:  %s / %s\n", result.Provider, result.Model)
+	}
+	fmt.Fprintf(&sb, "  Task:      %s\n", taskPreview)
+	fmt.Fprintf(&sb, "\nThe child is running asynchronously. When it finishes, this thread will ")
+	fmt.Fprintf(&sb, "receive a 'child_completed' wake message containing the child's output.\n")
+	fmt.Fprintf(&sb, "You do not need to wait or poll — just finish your current response. ")
+	fmt.Fprintf(&sb, "You will be woken up automatically when the child is done.\n")
+	fmt.Fprintf(&sb, "Use check_thread with the ID above to inspect progress if needed.")
+	return sb.String()
 }
 
 // CheckThreadTool checks the status of a spawned thread.

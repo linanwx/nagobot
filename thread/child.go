@@ -10,24 +10,25 @@ import (
 
 	"github.com/linanwx/nagobot/logger"
 	"github.com/linanwx/nagobot/thread/msg"
+	"github.com/linanwx/nagobot/tools"
 )
 
 // SpawnChild spawns a child thread for delegated work. Always asynchronous:
 // returns child ID immediately, and the child wakes the parent via
 // "child_completed" when done.
-func (t *Thread) SpawnChild(ctx context.Context, agentName string, task string) (string, error) {
+func (t *Thread) SpawnChild(ctx context.Context, agentName string, task string) (*tools.SpawnResult, error) {
 	task = strings.TrimSpace(task)
 	if task == "" {
-		return "", fmt.Errorf("task is required")
+		return nil, fmt.Errorf("task is required")
 	}
 	if t.mgr == nil {
-		return "", fmt.Errorf("thread has no manager, cannot spawn child")
+		return nil, fmt.Errorf("thread has no manager, cannot spawn child")
 	}
 
 	childSessionKey := t.generateChildSessionKey()
 	child, err := t.mgr.NewThread(childSessionKey, agentName)
 	if err != nil {
-		return "", fmt.Errorf("spawn child: %w", err)
+		return nil, fmt.Errorf("spawn child: %w", err)
 	}
 	child.Set("TASK", task)
 	child.parent = t
@@ -37,16 +38,12 @@ func (t *Thread) SpawnChild(ctx context.Context, agentName string, task string) 
 	sinkToParent := Sink{
 		Label: "your response will be forwarded to parent thread",
 		Send: func(_ context.Context, response string) error {
-			var message string
-			if strings.TrimSpace(response) != "" {
-				message = msg.BuildSystemMessage("child_completed", map[string]string{
-					"child_id": child.id,
-				}, strings.TrimSpace(response))
-			} else {
-				message = msg.BuildSystemMessage("child_completed", map[string]string{
-					"child_id": child.id,
-				}, "no output")
+			fields := child.completionFields()
+			content := strings.TrimSpace(response)
+			if content == "" {
+				content = "no output"
 			}
+			message := msg.BuildSystemMessage("child_completed", fields, content)
 			parentThread.Enqueue(&WakeMessage{
 				Source:  WakeChildCompleted,
 				Message: message,
@@ -63,9 +60,43 @@ func (t *Thread) SpawnChild(ctx context.Context, agentName string, task string) 
 	})
 
 	logger.Debug("child thread spawned", "parentID", t.id, "childID", child.id)
-	return child.id, nil
+
+	result := &tools.SpawnResult{ID: child.id}
+	if child.Agent != nil {
+		result.Agent = child.Agent.Name
+	}
+	result.Provider, result.Model = child.resolvedProviderModel()
+	cfg := child.cfg()
+	if cfg.Agents != nil && child.Agent != nil {
+		if def := cfg.Agents.Def(child.Agent.Name); def != nil {
+			result.Specialty = def.Specialty
+		}
+	}
+	return result, nil
 }
 
+
+// completionFields returns metadata fields for the child_completed message.
+func (t *Thread) completionFields() map[string]string {
+	fields := map[string]string{"child_id": t.id}
+	if t.Agent != nil {
+		fields["agent"] = t.Agent.Name
+	}
+	providerName, modelName := t.resolvedProviderModel()
+	if providerName != "" {
+		fields["provider"] = providerName
+	}
+	if modelName != "" {
+		fields["model"] = modelName
+	}
+	cfg := t.cfg()
+	if cfg.Agents != nil && t.Agent != nil {
+		if def := cfg.Agents.Def(t.Agent.Name); def != nil && def.Specialty != "" {
+			fields["specialty"] = def.Specialty
+		}
+	}
+	return fields
+}
 
 func (t *Thread) generateChildSessionKey() string {
 	if t.cfg().Sessions == nil {
