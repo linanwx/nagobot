@@ -2,6 +2,7 @@
 package config
 
 import (
+	"fmt"
 	"os"
 	"strings"
 	"sync"
@@ -90,9 +91,10 @@ func (c *Config) reloadSessionAgents(path string, modTime time.Time) {
 
 // SessionTimezone returns the IANA timezone for the given session key.
 // It lazily reloads sessionTimezones from config.yaml when the file changes on disk.
+// Falls back to the machine's local timezone if no per-session timezone is configured.
 func (c *Config) SessionTimezone(key string) string {
 	if c == nil {
-		return ""
+		return localTimezone()
 	}
 	c.sessionTimezonesMu.Lock()
 	defer c.sessionTimezonesMu.Unlock()
@@ -100,18 +102,52 @@ func (c *Config) SessionTimezone(key string) string {
 	path, err := ConfigPath()
 	if err != nil {
 		if c.Channels == nil {
-			return ""
+			return localTimezone()
 		}
-		return c.Channels.SessionTimezones[key]
+		if tz := c.Channels.SessionTimezones[key]; tz != "" {
+			return tz
+		}
+		return localTimezone()
 	}
 
 	info, err := os.Stat(path)
 	if err != nil || info.ModTime().Equal(c.sessionTimezonesFileTime) {
-		return c.sessionTimezonesCache[key]
+		if tz := c.sessionTimezonesCache[key]; tz != "" {
+			return tz
+		}
+		return localTimezone()
 	}
 
 	c.reloadSessionTimezones(path, info.ModTime())
-	return c.sessionTimezonesCache[key]
+	if tz := c.sessionTimezonesCache[key]; tz != "" {
+		return tz
+	}
+	return localTimezone()
+}
+
+// localTimezone returns the machine's local IANA timezone name.
+// Falls back to a UTC offset string if the IANA name is not available.
+func localTimezone() string {
+	zone := time.Now().Location().String()
+	if zone != "Local" {
+		return zone
+	}
+	// "Local" means Go couldn't determine the IANA name.
+	// Read from /etc/localtime symlink (macOS/Linux) or fall back to UTC offset.
+	if target, err := os.Readlink("/etc/localtime"); err == nil {
+		// e.g. /usr/share/zoneinfo/Europe/Dublin → Europe/Dublin
+		const prefix = "zoneinfo/"
+		if i := strings.LastIndex(target, prefix); i >= 0 {
+			return target[i+len(prefix):]
+		}
+	}
+	_, offset := time.Now().Zone()
+	h := offset / 3600
+	m := (offset % 3600) / 60
+	if m < 0 {
+		m = -m
+	}
+	return fmt.Sprintf("UTC%+03d:%02d", h, m)
 }
 
 // reloadSessionTimezones reads only the channels.sessionTimezones section from config.yaml.

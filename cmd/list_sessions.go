@@ -31,6 +31,7 @@ func init() {
 type sessionEntry struct {
 	Key                 string `json:"key"`
 	Timezone            string `json:"timezone,omitempty"`
+	TimezoneSource      string `json:"timezone_source,omitempty"` // "configured" or "machine_default"
 	UpdatedAt           string `json:"updated_at"`
 	MessageCount        int    `json:"message_count"`
 	Summary             string `json:"summary"`
@@ -84,11 +85,17 @@ func runListSessions(_ *cobra.Command, _ []string) error {
 			return nil
 		}
 
+		tz := cfg.SessionTimezone(key)
+		tzSource := "machine_default"
+		if cfg.Channels != nil && cfg.Channels.SessionTimezones[key] != "" {
+			tzSource = "configured"
+		}
 		entry := sessionEntry{
-			Key:          key,
-			Timezone:     cfg.SessionTimezone(key),
-			UpdatedAt:    updatedAt.Format(time.RFC3339),
-			MessageCount: len(s.Messages),
+			Key:            key,
+			Timezone:       tz,
+			TimezoneSource: tzSource,
+			UpdatedAt:      updatedAt.Format(time.RFC3339),
+			MessageCount:   len(s.Messages),
 		}
 
 		if s, ok := summaries[key]; ok {
