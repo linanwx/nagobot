@@ -255,6 +255,38 @@ nav{
   position:relative;z-index:1;
 }
 
+/* ═══ USAGE GUIDE ═══ */
+.guide{border-top:1px solid var(--border)}
+.guide-grid{
+  display:grid;grid-template-columns:repeat(2,1fr);gap:18px;
+  max-width:860px;margin:0 auto;
+}
+.gc{
+  background:var(--surface);border:1px solid var(--border);
+  border-radius:12px;overflow:hidden;transition:all .25s;
+}
+.gc:hover{border-color:var(--border-hi);box-shadow:0 4px 16px rgba(0,0,0,0.3)}
+.gc-head{
+  padding:14px 18px 10px;display:flex;align-items:center;gap:10px;
+  border-bottom:1px solid var(--border);
+}
+.gc-icon{
+  width:28px;height:28px;border-radius:8px;
+  display:flex;align-items:center;justify-content:center;
+  font-size:0.85rem;flex-shrink:0;
+}
+.gc-title{font-size:0.88rem;font-weight:700;letter-spacing:-0.01em}
+.gc-desc{font-size:0.75rem;color:var(--text-3);margin-top:2px}
+.gc-body{padding:12px 16px;font-family:'Fira Code',monospace;font-size:0.72rem;line-height:1.8}
+.gc-body .u{color:var(--cyan)}
+.gc-body .b{color:var(--text-2)}
+.gc-body .sep{
+  border:none;border-top:1px solid rgba(255,255,255,0.04);margin:6px 0;
+}
+@media(max-width:680px){
+  .guide-grid{grid-template-columns:1fr}
+}
+
 /* ═══ SHOWCASE ═══ */
 .showcase{border-top:1px solid var(--border)}
 .showcase .term{max-width:700px;margin:0 auto}
@@ -273,25 +305,6 @@ nav{
 .lr-a{color:var(--text-3);text-align:right;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .lr-d{color:var(--green);text-align:right}
 
-/* Prompts */
-.prompts{max-width:540px;margin:36px auto 0}
-.prompts h3{
-  text-transform:uppercase;letter-spacing:0.08em;font-size:0.72rem;
-  font-weight:700;color:var(--text-2);text-align:center;
-  margin-bottom:14px;
-}
-.pi{
-  background:var(--surface);border:1px solid var(--border);
-  border-radius:8px;padding:11px 16px 11px 28px;
-  margin-bottom:8px;font-size:0.84rem;color:var(--text-2);
-  line-height:1.5;position:relative;transition:all .2s;
-}
-.pi:hover{border-color:var(--border-hi);background:var(--surface-up)}
-.pi::before{
-  content:'\203A';position:absolute;left:11px;
-  color:var(--amber);font-weight:700;
-  font-family:'Fira Code',monospace;font-size:1rem;
-}
 
 /* ═══ FOOTER ═══ */
 footer{
@@ -314,7 +327,7 @@ footer{
 .skip-link{position:absolute;top:-40px;left:0;background:var(--amber);color:#000;padding:8px;z-index:200;font-size:.85rem}
 .skip-link:focus{top:0}
 /* ═══ FOCUS ═══ */
-.nav-links a:focus-visible,.gh-link:focus-visible,.cpb:focus-visible,.pi:focus-visible,.flinks a:focus-visible{outline:2px solid var(--amber);outline-offset:2px}
+.nav-links a:focus-visible,.gh-link:focus-visible,.cpb:focus-visible,.flinks a:focus-visible{outline:2px solid var(--amber);outline-offset:2px}
 
 /* ═══ RESPONSIVE ═══ */
 @media(max-width:900px){
@@ -355,7 +368,7 @@ footer{
     <a class="nav-brand" href="/"><img src="img/head.png" alt="nagobot" width="26" height="39"> nagobot</a>
     <div class="nav-links">
       <a href="#features" class="desk">Features</a>
-      <a href="#showcase" class="desk">Showcase</a>
+      <a href="#guide" class="desk">Guide</a>
       <a href="#install">Install</a>
       <a class="gh-link" href="https://github.com/linanwx/nagobot">
         <svg width="15" height="15" viewBox="0 0 16 16" fill="currentColor"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"/></svg>
@@ -474,6 +487,92 @@ footer{
   </div>
 </section>
 
+<!-- ═══ USAGE GUIDE ═══ -->
+<section class="sec guide rv" id="guide">
+  <div class="sec-inner">
+    <div class="sec-label sec-center">Usage</div>
+    <h2 class="sec-title sec-center">Talk to it. It configures itself.</h2>
+    <div class="guide-grid">
+      <div class="gc">
+        <div class="gc-head">
+          <div class="gc-icon" style="background:var(--amber-glow);color:var(--amber)">&#9881;</div>
+          <div><div class="gc-title">Switch Models</div><div class="gc-desc">Change provider or model mid-conversation</div></div>
+        </div>
+        <div class="gc-body">
+          <div><span class="u">you:</span> switch to claude sonnet 4.6</div>
+          <div><span class="b">bot:</span> &#10003; Default model set to claude-sonnet-4-6</div>
+          <hr class="sep">
+          <div><span class="u">you:</span> use deepseek-reasoner for reasoning tasks</div>
+          <div><span class="b">bot:</span> &#10003; Routing &ldquo;chat&rdquo; to deepseek-reasoner</div>
+        </div>
+      </div>
+      <div class="gc">
+        <div class="gc-head">
+          <div class="gc-icon" style="background:var(--cyan-glow);color:var(--cyan)">&#128269;</div>
+          <div><div class="gc-title">Search History</div><div class="gc-desc">Find anything across all conversations</div></div>
+        </div>
+        <div class="gc-body">
+          <div><span class="u">you:</span> search conversations about Docker setup</div>
+          <div><span class="b">bot:</span> Found 8 matches across 3 sessions&hellip;</div>
+          <hr class="sep">
+          <div><span class="u">you:</span> what did we discuss last Tuesday?</div>
+          <div><span class="b">bot:</span> On Mar 4 you discussed&hellip;</div>
+        </div>
+      </div>
+      <div class="gc">
+        <div class="gc-head">
+          <div class="gc-icon" style="background:rgba(61,220,132,0.12);color:var(--green)">&#9200;</div>
+          <div><div class="gc-title">Schedule Tasks</div><div class="gc-desc">Create recurring cron jobs in natural language</div></div>
+        </div>
+        <div class="gc-body">
+          <div><span class="u">you:</span> every morning at 9am, search news and send me a report</div>
+          <div><span class="b">bot:</span> &#10003; Cron &ldquo;daily-news&rdquo; created: 0 9 * * *</div>
+          <hr class="sep">
+          <div><span class="u">you:</span> remind me at 9, 12, 18, 22 to take medicine</div>
+          <div><span class="b">bot:</span> &#10003; 4 reminders set via Apple Reminders</div>
+        </div>
+      </div>
+      <div class="gc">
+        <div class="gc-head">
+          <div class="gc-icon" style="background:rgba(167,139,250,0.12);color:var(--violet)">&#128279;</div>
+          <div><div class="gc-title">Add Channels</div><div class="gc-desc">Connect Telegram, Discord, or Feishu live</div></div>
+        </div>
+        <div class="gc-body">
+          <div><span class="u">you:</span> connect my Telegram bot, token is 123:ABC</div>
+          <div><span class="b">bot:</span> &#10003; Telegram connected. Allowed: all users</div>
+          <hr class="sep">
+          <div><span class="u">you:</span> only allow user ID 5358956630</div>
+          <div><span class="b">bot:</span> &#10003; Telegram restricted to 1 user</div>
+        </div>
+      </div>
+      <div class="gc">
+        <div class="gc-head">
+          <div class="gc-icon" style="background:rgba(251,113,133,0.12);color:var(--rose)">&#128101;</div>
+          <div><div class="gc-title">Spawn Threads</div><div class="gc-desc">Delegate research to parallel child agents</div></div>
+        </div>
+        <div class="gc-body">
+          <div><span class="u">you:</span> create 3 threads to research AI chip stocks</div>
+          <div><span class="b">bot:</span> Spawning search:1, search:2, search:3&hellip;</div>
+          <div><span class="b">bot:</span> All 3 threads complete. Summary:&hellip;</div>
+        </div>
+      </div>
+      <div class="gc">
+        <div class="gc-head">
+          <div class="gc-icon" style="background:rgba(251,191,36,0.12);color:var(--gold)">&#128200;</div>
+          <div><div class="gc-title">Monitor &amp; Manage</div><div class="gc-desc">Check balances, metrics, and system health</div></div>
+        </div>
+        <div class="gc-body">
+          <div><span class="u">you:</span> check my provider balances</div>
+          <div><span class="b">bot:</span> OpenRouter: $12.40 &middot; DeepSeek: &yen;88.2</div>
+          <hr class="sep">
+          <div><span class="u">you:</span> how many tokens did I use today?</div>
+          <div><span class="b">bot:</span> Today: 127K tokens, 23 tool calls</div>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
 <!-- ═══ SHOWCASE ═══ -->
 <section class="sec showcase rv" id="showcase">
   <div class="sec-inner" style="max-width:760px">
@@ -493,12 +592,6 @@ footer{
         <div class="lr"><span class="lr-t">18:00</span><span class="lr-s">cron:news</span><span class="lr-a">web_search x3</span><span class="lr-d">22.7s</span></div>
         <div class="lr"><span class="lr-t">23:45</span><span class="lr-s">memory</span><span class="lr-a">tier2 compress</span><span class="lr-d">auto</span></div>
       </div>
-    </div>
-    <div class="prompts">
-      <h3>Try something</h3>
-      <div class="pi">Create a job that runs at 9am, 12pm, and 6pm every day. Search news based on my history.</div>
-      <div class="pi">Search for recent stock market topics, create 3 threads to search.</div>
-      <div class="pi">What's the weather like today? Also check my calendar for tomorrow.</div>
     </div>
   </div>
 </section>
