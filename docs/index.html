@@ -3,150 +3,522 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>nagobot — AI Bot Framework</title>
-<meta name="description" content="An autonomous AI bot framework for Telegram, Discord, and Feishu. Multi-agent, cron scheduling, persistent memory — one install, all channels.">
+<title>nagobot — Your AI, Always On</title>
+<meta name="description" content="An autonomous AI bot framework for Telegram, Discord, Feishu, and more. Multi-agent, multi-provider, 38+ skills, cron scheduling, persistent memory — one install, all channels.">
 <link rel="canonical" href="https://nagobot.com/">
-<meta property="og:title" content="nagobot — AI Bot Framework">
-<meta property="og:description" content="Your AI, always on. An autonomous AI bot framework that connects to Telegram, Discord, Feishu, and more.">
+<meta property="og:title" content="nagobot — Your AI, Always On">
+<meta property="og:description" content="An autonomous AI bot framework. Multi-channel, multi-provider, multi-agent. One install, all channels.">
 <meta property="og:url" content="https://nagobot.com/">
 <meta property="og:type" content="website">
 <meta name="twitter:card" content="summary">
-<meta name="twitter:title" content="nagobot — AI Bot Framework">
-<meta name="twitter:description" content="Your AI, always on. An autonomous AI bot framework for Telegram, Discord, and Feishu.">
+<meta name="twitter:title" content="nagobot — Your AI, Always On">
+<meta name="twitter:description" content="An autonomous AI bot framework. Multi-channel, multi-provider, multi-agent.">
+<meta property="og:image" content="https://nagobot.com/img/head.png">
+<meta name="twitter:image" content="https://nagobot.com/img/head.png">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700;800;900&family=Fira+Code:wght@400;500&display=swap" rel="stylesheet">
 <style>
-  * { margin: 0; padding: 0; box-sizing: border-box; }
-  body {
-    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-    background: #0d1117;
-    color: #e6edf3;
-    min-height: 100vh;
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    justify-content: center;
-    padding: 2rem;
-    background-image: radial-gradient(ellipse at 50% 0%, rgba(88,166,255,0.08) 0%, transparent 60%);
-  }
-  .container { max-width: 640px; text-align: center; }
+/* ═══ RESET & TOKENS ═══ */
+:root {
+  --bg: #08090d;
+  --surface: #11131b;
+  --surface-up: #191c27;
+  --border: #222639;
+  --border-hi: #363b54;
+  --text: #e4e6eb;
+  --text-2: #8d92a6;
+  --text-3: #6e7389;
+  --amber: #ff6b35;
+  --amber-glow: rgba(255,107,53,0.15);
+  --cyan: #00ccff;
+  --cyan-glow: rgba(0,204,255,0.10);
+  --green: #3ddc84;
+  --violet: #a78bfa;
+  --rose: #fb7185;
+  --gold: #fbbf24;
+}
+*,*::before,*::after{margin:0;padding:0;box-sizing:border-box}
+html{scroll-behavior:smooth}
+body{
+  font-family:'Outfit',system-ui,sans-serif;
+  background:var(--bg);color:var(--text);
+  line-height:1.6;-webkit-font-smoothing:antialiased;
+  overflow-x:hidden;
+}
 
-  h1 { font-size: 3.2rem; margin-bottom: 0.4rem; letter-spacing: -0.02em; }
-  .tagline { font-size: 1.25rem; color: #8b949e; margin-bottom: 1rem; }
-  .description { font-size: 1rem; color: #8b949e; margin-bottom: 2rem; line-height: 1.6; }
+/* ═══ ATMOSPHERE ═══ */
+.atmo{
+  position:fixed;inset:0;pointer-events:none;z-index:0;
+  background:
+    radial-gradient(ellipse at 15% -5%, rgba(255,107,53,0.07) 0%, transparent 55%),
+    radial-gradient(ellipse at 85% 105%, rgba(0,204,255,0.04) 0%, transparent 55%);
+}
+.grid-overlay{
+  position:fixed;inset:0;pointer-events:none;z-index:0;
+  background-image:
+    linear-gradient(rgba(255,255,255,0.018) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(255,255,255,0.018) 1px, transparent 1px);
+  background-size:64px 64px;
+}
 
-  .features {
-    display: flex;
-    flex-wrap: wrap;
-    justify-content: center;
-    gap: 0.5rem;
-    margin-bottom: 2.5rem;
-  }
-  .features span {
-    background: rgba(88,166,255,0.1);
-    border: 1px solid rgba(88,166,255,0.2);
-    color: #79c0ff;
-    font-size: 0.8rem;
-    padding: 0.35rem 0.75rem;
-    border-radius: 20px;
-  }
+/* Content above atmosphere */
+nav,main,footer{position:relative;z-index:1}
 
-  .install-block {
-    background: #161b22;
-    border: 1px solid #30363d;
-    border-radius: 8px;
-    padding: 1.2rem 1.5rem;
-    margin-bottom: 1rem;
-    text-align: left;
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    gap: 1rem;
-  }
-  .install-block .left { flex: 1; min-width: 0; }
-  .install-block .label { font-size: 0.8rem; color: #8b949e; margin-bottom: 0.3rem; }
-  .install-block code {
-    font-family: 'SF Mono', 'Fira Code', 'Consolas', monospace;
-    font-size: 0.9rem;
-    color: #7ee787;
-    word-break: break-all;
-  }
-  .copy-btn {
-    background: none;
-    border: 1px solid #30363d;
-    color: #8b949e;
-    border-radius: 6px;
-    padding: 0.4rem 0.6rem;
-    cursor: pointer;
-    font-size: 0.8rem;
-    flex-shrink: 0;
-    transition: color 0.2s, border-color 0.2s;
-  }
-  .copy-btn:hover { color: #e6edf3; border-color: #58a6ff; }
+/* ═══ NAV ═══ */
+nav{
+  position:sticky;top:0;z-index:100;
+  padding:14px 0;
+  background:rgba(8,9,13,0.82);
+  backdrop-filter:blur(16px);-webkit-backdrop-filter:blur(16px);
+  border-bottom:1px solid var(--border);
+}
+.nav-inner{
+  max-width:1060px;margin:0 auto;padding:0 28px;
+  display:flex;align-items:center;justify-content:space-between;
+}
+.nav-brand{
+  display:flex;align-items:center;gap:10px;
+  text-decoration:none;color:var(--text);
+  font-weight:700;font-size:1.05rem;letter-spacing:-0.02em;
+}
+.nav-brand img{height:26px;width:auto;border-radius:4px}
+.nav-links{display:flex;gap:20px;align-items:center}
+.nav-links a{
+  color:var(--text-2);text-decoration:none;
+  font-size:0.85rem;font-weight:500;transition:color .2s;
+}
+.nav-links a:hover{color:var(--text)}
+.gh-link{
+  display:inline-flex;align-items:center;gap:6px;
+  padding:6px 14px;
+  background:var(--surface);border:1px solid var(--border);
+  border-radius:8px;font-weight:600;font-size:0.82rem;
+  transition:all .2s;
+}
+.gh-link:hover{border-color:var(--border-hi);background:var(--surface-up)}
+.gh-link svg{flex-shrink:0}
 
-  .links {
-    margin-top: 2rem;
-    display: flex;
-    justify-content: center;
-    gap: 1rem;
-  }
-  .links a {
-    color: #e6edf3;
-    text-decoration: none;
-    padding: 0.6rem 1.4rem;
-    border: 1px solid #30363d;
-    border-radius: 6px;
-    font-size: 0.9rem;
-    transition: border-color 0.2s, background 0.2s;
-  }
-  .links a:hover { border-color: #58a6ff; background: rgba(88,166,255,0.08); }
-  .links a.primary { background: #238636; border-color: #238636; }
-  .links a.primary:hover { background: #2ea043; border-color: #2ea043; }
+/* ═══ HERO ═══ */
+.hero{padding:56px 28px 32px;text-align:center}
+.hero-inner{max-width:600px;margin:0 auto}
+.hero h1{
+  font-size:clamp(2.6rem,5.5vw,3.8rem);
+  font-weight:900;letter-spacing:-0.045em;line-height:1.05;
+  margin-bottom:10px;
+}
+.hero h1 .gr{
+  background:linear-gradient(135deg,var(--amber),#ff9a6c,var(--cyan));
+  -webkit-background-clip:text;background-clip:text;
+  -webkit-text-fill-color:transparent;
+}
+.hero .tagline{
+  font-size:1.15rem;color:var(--text-2);font-weight:400;margin-bottom:6px;
+}
+.hero .sub{
+  font-size:0.92rem;color:var(--text-3);max-width:480px;margin:0 auto;
+}
+
+/* ═══ TERMINAL (shared) ═══ */
+.term{
+  background:#0b0d14;
+  border:1px solid var(--border);border-radius:12px;
+  overflow:hidden;
+  box-shadow:0 8px 32px rgba(0,0,0,0.5),inset 0 0 0 1px rgba(255,255,255,0.02);
+}
+.term-bar{
+  display:flex;align-items:center;gap:7px;
+  padding:11px 16px;
+  background:rgba(255,255,255,0.025);
+  border-bottom:1px solid var(--border);
+}
+.dot{width:11px;height:11px;border-radius:50%}
+.dot:nth-child(1){background:#ff5f57}
+.dot:nth-child(2){background:#febc2e}
+.dot:nth-child(3){background:#28c840}
+.term-title{
+  flex:1;text-align:center;
+  font-family:'Fira Code',monospace;font-size:0.7rem;
+  color:var(--text-3);margin-right:47px;
+}
+.term-body{
+  padding:18px 20px;
+  font-family:'Fira Code',monospace;font-size:0.82rem;line-height:1.9;
+}
+
+/* ═══ INSTALL ═══ */
+.install{padding:24px 28px 44px}
+.install .term{max-width:680px;margin:0 auto}
+.tl{
+  position:relative;padding-right:52px;margin-bottom:2px;
+}
+.tl .pr{color:var(--green);user-select:none}
+.tl .cm{color:var(--text);flex:1}
+.tl .fl{color:var(--cyan)}
+.tl .ur{color:var(--amber)}
+.tout{color:var(--text-3);padding-left:1.6em;margin-bottom:2px}
+.tout .ok{color:var(--green)}
+.cpb{
+  position:absolute;right:0;top:2px;
+  background:none;border:1px solid var(--border);color:var(--text-3);
+  border-radius:4px;padding:2px 8px;cursor:pointer;
+  font-family:'Fira Code',monospace;font-size:0.65rem;
+  transition:all .2s;
+}
+.cpb:hover{color:var(--text);border-color:var(--amber)}
+.install-note{
+  max-width:680px;margin:10px auto 0;text-align:center;
+  font-size:0.82rem;color:var(--text-3);
+}
+.install-note code{
+  font-family:'Fira Code',monospace;font-size:0.78rem;
+  color:var(--text-2);background:var(--surface);
+  padding:2px 8px;border-radius:4px;
+}
+
+/* ═══ SECTIONS ═══ */
+.sec{padding:60px 28px}
+.sec-inner{max-width:1060px;margin:0 auto}
+.sec-label{
+  font-size:0.72rem;text-transform:uppercase;
+  letter-spacing:0.1em;color:var(--amber);
+  font-weight:700;margin-bottom:6px;
+}
+.sec-title{
+  font-size:1.7rem;font-weight:800;
+  letter-spacing:-0.03em;margin-bottom:36px;
+}
+.sec-center{text-align:center}
+
+/* ═══ FEATURES ═══ */
+.feat-grid{
+  display:grid;grid-template-columns:repeat(3,1fr);gap:18px;
+}
+.fc{
+  background:var(--surface);border:1px solid var(--border);
+  border-radius:12px;padding:22px 20px;
+  display:flex;flex-direction:column;
+  transition:all .25s;position:relative;overflow:hidden;
+}
+.fc::after{
+  content:'';position:absolute;top:0;left:20px;right:20px;height:2px;
+}
+.fc:nth-child(1)::after{background:linear-gradient(90deg,var(--amber),transparent)}
+.fc:nth-child(2)::after{background:linear-gradient(90deg,var(--cyan),transparent)}
+.fc:nth-child(3)::after{background:linear-gradient(90deg,var(--green),transparent)}
+.fc:nth-child(4)::after{background:linear-gradient(90deg,var(--violet),transparent)}
+.fc:nth-child(5)::after{background:linear-gradient(90deg,var(--rose),transparent)}
+.fc:nth-child(6)::after{background:linear-gradient(90deg,var(--gold),transparent)}
+.fc:hover{
+  border-color:var(--border-hi);transform:translateY(-2px);
+  box-shadow:0 6px 20px rgba(0,0,0,0.35);
+}
+.fc h3{font-size:0.95rem;font-weight:700;margin-bottom:6px;letter-spacing:-0.01em}
+.fc p{font-size:0.82rem;color:var(--text-2);line-height:1.55;margin-bottom:10px}
+.tags{display:flex;flex-wrap:wrap;gap:4px;margin-top:auto}
+.tag{
+  font-size:0.65rem;padding:2px 7px;border-radius:4px;
+  background:rgba(255,255,255,0.035);color:var(--text-3);
+  border:1px solid rgba(255,255,255,0.05);font-weight:500;
+}
+
+/* ═══ ARCHITECTURE ═══ */
+.arch{border-top:1px solid var(--border)}
+.pipeline{
+  display:flex;align-items:stretch;position:relative;
+  max-width:860px;margin:0 auto;
+}
+.pipeline::before{
+  content:'';position:absolute;top:50%;left:5%;right:5%;
+  height:1px;
+  background:linear-gradient(90deg,var(--amber),var(--violet),var(--cyan),var(--green));
+  opacity:.4;
+}
+.pn{flex:1;text-align:center;position:relative;z-index:1;padding:16px 8px}
+.pd{
+  width:14px;height:14px;border-radius:50%;
+  margin:0 auto 10px;
+}
+.pn:nth-child(1) .pd{background:var(--amber);box-shadow:0 0 14px var(--amber)}
+.pn:nth-child(3) .pd{background:var(--violet);box-shadow:0 0 14px var(--violet)}
+.pn:nth-child(5) .pd{background:var(--cyan);box-shadow:0 0 14px var(--cyan)}
+.pn:nth-child(7) .pd{background:var(--green);box-shadow:0 0 14px var(--green)}
+.pn-name{font-size:0.88rem;font-weight:700;margin-bottom:2px}
+.pn-type{
+  font-size:0.68rem;color:var(--text-3);
+  text-transform:uppercase;letter-spacing:.07em;margin-bottom:8px;
+}
+.pn-list{font-size:0.78rem;color:var(--text-2);line-height:1.7}
+.pa{
+  display:flex;align-items:center;justify-content:center;
+  width:28px;flex-shrink:0;color:var(--text-2);font-size:1.1rem;
+  position:relative;z-index:1;
+}
+
+/* ═══ SHOWCASE ═══ */
+.showcase{border-top:1px solid var(--border)}
+.showcase .term{max-width:700px;margin:0 auto}
+.showcase .term-body{padding:14px 18px}
+.lr{
+  font-family:'Fira Code',monospace;font-size:0.73rem;
+  display:grid;grid-template-columns:46px 1fr 112px 50px;
+  gap:8px;padding:5px 0;align-items:center;
+  border-bottom:1px solid rgba(255,255,255,0.05);
+  transition:background .2s;
+}
+.lr:last-child{border-bottom:none}
+.lr:hover{background:rgba(255,255,255,0.02)}
+.lr-t{color:var(--text-3)}
+.lr-s{color:var(--cyan);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.lr-a{color:var(--text-3);text-align:right;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.lr-d{color:var(--green);text-align:right}
+
+/* Prompts */
+.prompts{max-width:540px;margin:36px auto 0}
+.prompts h3{
+  text-transform:uppercase;letter-spacing:0.08em;font-size:0.72rem;
+  font-weight:700;color:var(--text-2);text-align:center;
+  margin-bottom:14px;
+}
+.pi{
+  background:var(--surface);border:1px solid var(--border);
+  border-radius:8px;padding:11px 16px 11px 28px;
+  margin-bottom:8px;font-size:0.84rem;color:var(--text-2);
+  line-height:1.5;position:relative;transition:all .2s;
+}
+.pi:hover{border-color:var(--border-hi);background:var(--surface-up)}
+.pi::before{
+  content:'\203A';position:absolute;left:11px;
+  color:var(--amber);font-weight:700;
+  font-family:'Fira Code',monospace;font-size:1rem;
+}
+
+/* ═══ FOOTER ═══ */
+footer{
+  padding:48px 28px 40px;border-top:1px solid var(--border);text-align:center;
+}
+.flinks{display:flex;gap:24px;justify-content:center;margin-bottom:10px}
+.flinks a{
+  color:var(--text-2);text-decoration:none;
+  font-size:0.85rem;font-weight:500;transition:color .2s;
+}
+.flinks a:hover{color:var(--text)}
+.footer-copy{font-size:0.72rem;color:var(--text-3)}
+
+/* ═══ REVEAL ═══ */
+.rv{opacity:0;transform:translateY(18px);transition:opacity .6s ease,transform .6s ease}
+.rv.vis{opacity:1;transform:translateY(0)}
+
+
+/* ═══ SKIP LINK ═══ */
+.skip-link{position:absolute;top:-40px;left:0;background:var(--amber);color:#000;padding:8px;z-index:200;font-size:.85rem}
+.skip-link:focus{top:0}
+/* ═══ FOCUS ═══ */
+.nav-links a:focus-visible,.gh-link:focus-visible,.cpb:focus-visible,.pi:focus-visible,.flinks a:focus-visible{outline:2px solid var(--amber);outline-offset:2px}
+
+/* ═══ RESPONSIVE ═══ */
+@media(max-width:900px){
+  .feat-grid{grid-template-columns:repeat(2,1fr)}
+}
+@media(max-width:680px){
+  .feat-grid{grid-template-columns:1fr}
+  .pipeline{flex-direction:column;align-items:center}
+  .pipeline::before{display:none}
+  .pa{transform:rotate(90deg);height:20px;width:auto}
+  .hero h1{font-size:2.2rem}
+  .lr{grid-template-columns:40px 1fr 90px 44px;font-size:.66rem}
+  .nav-links .desk{display:none}
+  .sec{padding:44px 20px}
+  .hero{padding:44px 20px 24px}
+}
+@media(prefers-reduced-motion:reduce){.rv{opacity:1;transform:none;transition:none}}
+@media(max-width:420px){
+  .term-body{padding:14px 12px;font-size:.75rem}
+}
 </style>
 </head>
 <body>
-<div class="container">
-  <h1>nagobot</h1>
-  <p class="tagline">Your AI, always on.</p>
-  <p class="description">An autonomous AI bot framework that connects to Telegram, Discord, Feishu, and more. Multi-agent, cron scheduling, persistent memory — one install, all channels.</p>
 
-  <div class="features">
-    <span>Telegram</span>
-    <span>Discord</span>
-    <span>Feishu</span>
-    <span>Multi-Agent</span>
-    <span>Cron Jobs</span>
-    <span>Web Search</span>
-  </div>
+<a href="#main" class="skip-link">Skip to content</a>
 
-  <div class="install-block">
-    <div class="left">
-      <div class="label">macOS / Linux</div>
-      <code id="cmd-unix">curl -fsSL https://nagobot.com/install.sh | bash</code>
+<!-- Atmosphere layers -->
+<div class="atmo" aria-hidden="true"></div>
+<div class="grid-overlay" aria-hidden="true"></div>
+
+<!-- Film grain via SVG noise -->
+<svg width="0" height="0" style="position:absolute" aria-hidden="true"><filter id="ng"><feTurbulence baseFrequency=".65" numOctaves="3" stitchTiles="stitch"/></filter></svg>
+<div aria-hidden="true" style="position:fixed;inset:0;filter:url(#ng);opacity:.012;pointer-events:none;z-index:9999;mix-blend-mode:overlay"></div>
+
+<!-- ═══ NAV ═══ -->
+<nav aria-label="Main navigation">
+  <div class="nav-inner">
+    <a class="nav-brand" href="/"><img src="img/head.png" alt="nagobot" width="26" height="39"> nagobot</a>
+    <div class="nav-links">
+      <a href="#features" class="desk">Features</a>
+      <a href="#showcase" class="desk">Showcase</a>
+      <a href="#install">Install</a>
+      <a class="gh-link" href="https://github.com/linanwx/nagobot">
+        <svg width="15" height="15" viewBox="0 0 16 16" fill="currentColor"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"/></svg>
+        GitHub
+      </a>
     </div>
-    <button class="copy-btn" onclick="copy('cmd-unix',this)">Copy</button>
   </div>
+</nav>
 
-  <div class="install-block">
-    <div class="left">
-      <div class="label">Windows (PowerShell)</div>
-      <code id="cmd-win">irm https://nagobot.com/install.ps1 | iex</code>
+<main id="main">
+
+<!-- ═══ HERO ═══ -->
+<section class="hero">
+  <div class="hero-inner">
+    <h1><span class="gr">nagobot</span></h1>
+    <p class="tagline">Your AI, always on.</p>
+    <p class="sub">Autonomous AI bot framework built with Go. Multi-channel, multi-provider, multi-agent.</p>
+  </div>
+</section>
+
+<!-- ═══ INSTALL ═══ -->
+<section class="install" id="install">
+  <div class="term">
+    <div class="term-bar">
+      <span class="dot"></span><span class="dot"></span><span class="dot"></span>
+      <span class="term-title">terminal</span>
     </div>
-    <button class="copy-btn" onclick="copy('cmd-win',this)">Copy</button>
+    <div class="term-body">
+      <div class="tl">
+        <span><span class="pr">$</span> <span class="cm">curl <span class="fl">-fsSL</span> <span class="ur">https://nagobot.com/install.sh</span> | bash</span></span>
+        <button type="button" class="cpb" aria-label="Copy install command" onclick="cc('curl -fsSL https://nagobot.com/install.sh | bash',this)">copy</button>
+      </div>
+      <div class="tl">
+        <span><span class="pr">$</span> <span class="cm">nagobot onboard</span></span>
+        <button type="button" class="cpb" aria-label="Copy onboard command" onclick="cc('nagobot onboard',this)">copy</button>
+      </div>
+      <div class="tout"><span class="ok">&#10003;</span> Provider configured &ensp;<span class="ok">&#10003;</span> Channel connected &ensp;<span class="ok">&#10003;</span> Service installed</div>
+    </div>
   </div>
+  <p class="install-note">Windows: <code>irm https://nagobot.com/install.ps1 | iex</code></p>
+</section>
 
-  <div class="links">
-    <a class="primary" href="https://github.com/linanwx/nagobot">GitHub</a>
+<!-- ═══ ARCHITECTURE ═══ -->
+<section class="sec arch rv">
+  <div class="sec-inner">
+    <div class="sec-label sec-center">Architecture</div>
+    <h2 class="sec-title sec-center">Four layers. Fully swappable.</h2>
+    <div class="pipeline">
+      <div class="pn"><div class="pd"></div><div class="pn-name">Channel</div><div class="pn-type">Pure I/O</div><div class="pn-list">Telegram<br>Discord<br>Feishu<br>Web &middot; CLI &middot; Cron</div></div>
+      <div class="pa">&rarr;</div>
+      <div class="pn"><div class="pd"></div><div class="pn-name">Dispatcher</div><div class="pn-type">Routing</div><div class="pn-list">Session keys<br>Agent selection<br>Variable injection</div></div>
+      <div class="pa">&rarr;</div>
+      <div class="pn"><div class="pd"></div><div class="pn-name">Thread</div><div class="pn-type">Execution</div><div class="pn-list">Agentic loop<br>Tool calling<br>Memory mgmt<br>Child spawning</div></div>
+      <div class="pa">&rarr;</div>
+      <div class="pn"><div class="pd"></div><div class="pn-name">Provider</div><div class="pn-type">LLM API</div><div class="pn-list">DeepSeek<br>Gemini<br>Anthropic<br>OpenRouter &middot; +3</div></div>
+    </div>
+  </div>
+</section>
+
+<!-- ═══ FEATURES ═══ -->
+<section class="sec rv" id="features">
+  <div class="sec-inner">
+    <div class="sec-label">Features</div>
+    <h2 class="sec-title">Everything you need to run autonomous AI.</h2>
+    <div class="feat-grid">
+      <div class="fc">
+        <h3>Multi-Provider</h3>
+        <p>Each provider handles its own quirks &mdash; reasoning tokens, tool calls, signatures. No lossy translation.</p>
+        <div class="tags">
+          <span class="tag">DeepSeek</span><span class="tag">Gemini</span><span class="tag">Anthropic</span>
+          <span class="tag">OpenRouter</span><span class="tag">Moonshot</span><span class="tag">Minimax</span>
+        </div>
+      </div>
+      <div class="fc">
+        <h3>Multi-Agent</h3>
+        <p>Specialized agents for different tasks. Spawn child threads for parallel work. Markdown templates, fully customizable.</p>
+        <div class="tags">
+          <span class="tag">soul</span><span class="tag">heartbeat</span><span class="tag">search</span>
+          <span class="tag">imagereader</span><span class="tag">minibot</span>
+        </div>
+      </div>
+      <div class="fc">
+        <h3>38+ Skills</h3>
+        <p>Weather, calendar, Docker, network diagnostics, translation &mdash; dynamically loaded and always extensible.</p>
+        <div class="tags">
+          <span class="tag">Calendar</span><span class="tag">Weather</span><span class="tag">Docker</span>
+          <span class="tag">Git</span><span class="tag">Translate</span><span class="tag">+32 more</span>
+        </div>
+      </div>
+      <div class="fc">
+        <h3>Always Running</h3>
+        <p>Cron scheduling, service-managed with auto-restart, hot-reload config. Your bot never sleeps.</p>
+        <div class="tags">
+          <span class="tag">Cron Jobs</span><span class="tag">Auto-restart</span>
+          <span class="tag">Hot-reload</span><span class="tag">launchd / systemd</span>
+        </div>
+      </div>
+      <div class="fc">
+        <h3>Smart Memory</h3>
+        <p>Three-tier compression keeps conversations alive indefinitely. Persistent sessions survive restarts.</p>
+        <div class="tags">
+          <span class="tag">3-Tier Compress</span><span class="tag">Persistent</span>
+          <span class="tag">Context Pressure</span>
+        </div>
+      </div>
+      <div class="fc">
+        <h3>Multi-Channel</h3>
+        <p>One bot serves all platforms. Add a token, the channel starts. Hot-reloaded every 10 seconds.</p>
+        <div class="tags">
+          <span class="tag">Telegram</span><span class="tag">Discord</span><span class="tag">Feishu</span>
+          <span class="tag">Web</span><span class="tag">CLI</span><span class="tag">Cron</span>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ═══ SHOWCASE ═══ -->
+<section class="sec showcase rv" id="showcase">
+  <div class="sec-inner" style="max-width:760px">
+    <div class="sec-label sec-center">In Action</div>
+    <h2 class="sec-title sec-center">Deploy once, runs forever.</h2>
+    <div class="term">
+      <div class="term-bar">
+        <span class="dot"></span><span class="dot"></span><span class="dot"></span>
+        <span class="term-title">nagobot serve</span>
+      </div>
+      <div class="term-body" style="padding:14px 18px">
+        <div class="lr"><span class="lr-t">09:00</span><span class="lr-s">cron:heartbeat</span><span class="lr-a">web_search</span><span class="lr-d">12.3s</span></div>
+        <div class="lr"><span class="lr-t">09:01</span><span class="lr-s">deepseek-reasoner</span><span class="lr-a">report done</span><span class="lr-d">8.5s</span></div>
+        <div class="lr"><span class="lr-t">10:15</span><span class="lr-s">telegram</span><span class="lr-a">tool:weather</span><span class="lr-d">3.2s</span></div>
+        <div class="lr"><span class="lr-t">10:15</span><span class="lr-s">gemini-3-flash</span><span class="lr-a">response</span><span class="lr-d">2.1s</span></div>
+        <div class="lr"><span class="lr-t">14:30</span><span class="lr-s">discord</span><span class="lr-a">spawn_thread</span><span class="lr-d">6.8s</span></div>
+        <div class="lr"><span class="lr-t">18:00</span><span class="lr-s">cron:news</span><span class="lr-a">web_search x3</span><span class="lr-d">22.7s</span></div>
+        <div class="lr"><span class="lr-t">23:45</span><span class="lr-s">memory</span><span class="lr-a">tier2 compress</span><span class="lr-d">auto</span></div>
+      </div>
+    </div>
+    <div class="prompts">
+      <h3>Try something</h3>
+      <div class="pi">Create a job that runs at 9am, 12pm, and 6pm every day. Search news based on my history.</div>
+      <div class="pi">Search for recent stock market topics, create 3 threads to search.</div>
+      <div class="pi">What's the weather like today? Also check my calendar for tomorrow.</div>
+    </div>
+  </div>
+</section>
+
+</main>
+
+<!-- ═══ FOOTER ═══ -->
+<footer>
+  <div class="flinks">
+    <a href="https://github.com/linanwx/nagobot">GitHub</a>
     <a href="https://github.com/linanwx/nagobot/releases">Releases</a>
+    <a href="https://github.com/linanwx/nagobot/blob/main/docs/channels.md">Channels</a>
+    <a href="https://github.com/linanwx/nagobot/blob/main/docs/provider.md">Providers</a>
   </div>
-</div>
+  <p class="footer-copy">Built with Go. Powered by your favorite LLM.</p>
+</footer>
 
 <script>
-function copy(id, btn) {
-  const text = document.getElementById(id).textContent;
-  navigator.clipboard.writeText(text).then(() => {
-    btn.textContent = 'Copied!';
-    setTimeout(() => btn.textContent = 'Copy', 1500);
-  });
-}
+function cc(t,b){navigator.clipboard.writeText(t).then(function(){b.textContent='copied!';setTimeout(function(){b.textContent='copy'},1500)}).catch(function(){b.textContent='failed';setTimeout(function(){b.textContent='copy'},1500)})}
+var o=new IntersectionObserver(function(e){e.forEach(function(x){if(x.isIntersecting){x.target.classList.add('vis');o.unobserve(x.target)}})},{threshold:.08});
+document.querySelectorAll('.rv').forEach(function(el){o.observe(el)});
 </script>
 </body>
 </html>
