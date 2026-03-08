@@ -34,6 +34,10 @@ type unitData struct {
 
 type linuxManager struct{}
 
+func (m *linuxManager) InstallElevated(binPath, logDir string) error {
+	return m.Install(binPath, logDir)
+}
+
 func (m *linuxManager) Install(binPath, logDir string) error {
 	home, err := os.UserHomeDir()
 	if err != nil {

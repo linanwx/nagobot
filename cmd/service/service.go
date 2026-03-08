@@ -1,4 +1,3 @@
-// Package service provides cross-platform system service management.
 package service
 
 import (
@@ -11,6 +10,8 @@ import (
 type Manager interface {
 	// Install registers nagobot as a system service.
 	Install(binPath, logDir string) error
+	// InstallElevated registers nagobot as a system service with elevation if needed.
+	InstallElevated(binPath, logDir string) error
 	// Uninstall stops and removes the system service.
 	Uninstall() error
 	// Restart restarts the running service.

@@ -67,7 +67,7 @@ func runInstall(cmd *cobra.Command, args []string) error {
 	// Register as system service.
 	fmt.Println("==> Registering system service...")
 	mgr := service.New()
-	if err := mgr.Install(installPath, logDir); err != nil {
+	if err := mgr.InstallElevated(installPath, logDir); err != nil {
 		return err
 	}
 

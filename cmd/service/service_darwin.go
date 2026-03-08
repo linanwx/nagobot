@@ -61,6 +61,10 @@ type plistData struct {
 
 type darwinManager struct{}
 
+func (m *darwinManager) InstallElevated(binPath, logDir string) error {
+	return m.Install(binPath, logDir)
+}
+
 func (m *darwinManager) Install(binPath, logDir string) error {
 	home, err := os.UserHomeDir()
 	if err != nil {
