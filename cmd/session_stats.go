@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 
+	"github.com/linanwx/nagobot/agent"
 	"github.com/linanwx/nagobot/config"
 	"github.com/linanwx/nagobot/provider"
 	"github.com/linanwx/nagobot/thread"
@@ -28,6 +29,8 @@ type sessionStatsOutput struct {
 	MessageCount        int            `json:"message_count"`
 	RoleCounts          map[string]int `json:"role_counts"`
 	CompressedMessages  int            `json:"compressed_messages"`
+	RoleTokens          map[string]int `json:"role_tokens"`
+	SystemPromptTokens  int            `json:"system_prompt_tokens"`
 	RawTokens           int            `json:"raw_tokens"`
 	CompressedTokens    int            `json:"compressed_tokens"`
 	TokensSaved         int            `json:"tokens_saved"`
@@ -67,6 +70,13 @@ func runSessionStats(_ *cobra.Command, args []string) error {
 	compressed := thread.ApplyCompressed(provider.SanitizeMessages(messages))
 	compressedTokens := thread.EstimateMessagesTokens(compressed)
 
+	roleTokens := map[string]int{}
+	for _, m := range compressed {
+		roleTokens[m.Role] += thread.EstimateMessageTokens(m)
+	}
+
+	systemPromptTokens := estimateSystemPrompt(cfg, workspace, key)
+
 	contextWindow := cfg.GetContextWindowTokens()
 	warnRatio := cfg.GetContextWarnRatio()
 	usageRatio := float64(compressedTokens) / float64(contextWindow)
@@ -83,6 +93,8 @@ func runSessionStats(_ *cobra.Command, args []string) error {
 		MessageCount:        len(messages),
 		RoleCounts:          roleCounts,
 		CompressedMessages:  compressedCount,
+		RoleTokens:          roleTokens,
+		SystemPromptTokens:  systemPromptTokens,
 		RawTokens:           rawTokens,
 		CompressedTokens:    compressedTokens,
 		TokensSaved:         rawTokens - compressedTokens,
@@ -95,4 +107,17 @@ func runSessionStats(_ *cobra.Command, args []string) error {
 	enc := json.NewEncoder(os.Stdout)
 	enc.SetIndent("", "  ")
 	return enc.Encode(output)
+}
+
+// estimateSystemPrompt rebuilds the agent's system prompt and estimates its token count.
+// This is approximate because runtime vars (TIME, TOOLS, SKILLS, USER) are not available.
+func estimateSystemPrompt(cfg *config.Config, workspace, sessionKey string) int {
+	agentName := cfg.SessionAgent(sessionKey) // empty → Registry.New defaults to "soul"
+	registry := agent.NewRegistry(workspace)
+	a, err := registry.New(agentName)
+	if err != nil {
+		return 0
+	}
+	prompt := a.Build()
+	return thread.EstimateTextTokens(prompt)
 }

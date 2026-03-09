@@ -84,6 +84,8 @@ Output: JSON with fields:
 - `message_count`: Total messages in session
 - `role_counts`: Breakdown by role (user, assistant, tool, system)
 - `compressed_messages`: Number of messages with Tier 1 compressed content
+- `role_tokens`: Per-role token breakdown (user, assistant, tool) using compressed content
+- `system_prompt_tokens`: Estimated token count of the system prompt (rebuilt from agent template; approximate because runtime vars like TIME/TOOLS are not injected)
 - `raw_tokens`: Token estimate using original content
 - `compressed_tokens`: Token estimate using compressed content (what the LLM actually sees)
 - `tokens_saved`: Difference (raw - compressed)

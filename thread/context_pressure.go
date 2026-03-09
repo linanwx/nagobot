@@ -55,7 +55,8 @@ func (t *Thread) buildCompressionNotice(requestTokens, contextWindowTokens int, 
 	}, `You MUST load and execute skill "compress-context" NOW, before responding to the user. Then you can respond to the user request. Follow the skill instructions to compact the session file safely. Keep critical facts, decisions, IDs, and unresolved tasks.`)
 }
 
-func estimateTextTokens(text string) int {
+// EstimateTextTokens returns a tiktoken-based token estimate for a string.
+func EstimateTextTokens(text string) int {
 	if text == "" {
 		return 0
 	}
@@ -67,23 +68,24 @@ func estimateTextTokens(text string) int {
 	return len(ids)
 }
 
-func estimateMessageTokens(message provider.Message) int {
+// EstimateMessageTokens returns a tiktoken-based token estimate for a single message.
+func EstimateMessageTokens(message provider.Message) int {
 	tokens := 6 // Base per-message structure overhead.
-	tokens += estimateTextTokens(message.Role)
-	tokens += estimateTextTokens(message.Content)
-	tokens += estimateTextTokens(message.ReasoningContent)
+	tokens += EstimateTextTokens(message.Role)
+	tokens += EstimateTextTokens(message.Content)
+	tokens += EstimateTextTokens(message.ReasoningContent)
 	if len(message.ReasoningDetails) > 0 {
 		tokens += len(message.ReasoningDetails) / 3
 	}
-	tokens += estimateTextTokens(message.ToolCallID)
-	tokens += estimateTextTokens(message.Name)
+	tokens += EstimateTextTokens(message.ToolCallID)
+	tokens += EstimateTextTokens(message.Name)
 
 	for _, call := range message.ToolCalls {
 		tokens += 8 // Tool call structure overhead.
-		tokens += estimateTextTokens(call.ID)
-		tokens += estimateTextTokens(call.Type)
-		tokens += estimateTextTokens(call.Function.Name)
-		tokens += estimateTextTokens(call.Function.Arguments)
+		tokens += EstimateTextTokens(call.ID)
+		tokens += EstimateTextTokens(call.Type)
+		tokens += EstimateTextTokens(call.Function.Name)
+		tokens += EstimateTextTokens(call.Function.Arguments)
 	}
 
 	return tokens
@@ -93,7 +95,7 @@ func estimateMessageTokens(message provider.Message) int {
 func EstimateMessagesTokens(messages []provider.Message) int {
 	total := 3 // Priming overhead.
 	for _, message := range messages {
-		total += estimateMessageTokens(message)
+		total += EstimateMessageTokens(message)
 	}
 	return total
 }
