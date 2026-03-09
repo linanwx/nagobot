@@ -69,6 +69,21 @@ func runSetAgent(_ *cobra.Command, _ []string) error {
 		fmt.Printf("Cleared agent for session %q\n", session)
 	} else {
 		fmt.Printf("Set agent %q for session %q\n", agent, session)
+		printAgentModelRouting(cfg, agent)
 	}
 	return nil
+}
+
+func printAgentModelRouting(cfg *config.Config, agentName string) {
+	for _, slot := range scanAgentModelSlots() {
+		if !strings.EqualFold(slot.AgentName, agentName) {
+			continue
+		}
+		prov, model := cfg.GetProvider(), cfg.GetModelType()
+		if mc, ok := cfg.Thread.Models[slot.ModelType]; ok && mc != nil {
+			prov, model = mc.Provider, mc.ModelType
+		}
+		fmt.Printf("Specialty: %s -> %s / %s\n", slot.ModelType, prov, model)
+		return
+	}
 }
