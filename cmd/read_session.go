@@ -11,6 +11,8 @@ import (
 	"github.com/spf13/cobra"
 )
 
+const defaultTruncateLen = 500
+
 var (
 	readSessionOffset int
 	readSessionLimit  int
@@ -71,13 +73,18 @@ func runReadSession(_ *cobra.Command, args []string) error {
 	end := min(readSessionOffset+readSessionLimit, filteredCount)
 	page := filtered[readSessionOffset:end]
 
+	truncatedCount := 0
 	for i, m := range page {
 		idx := readSessionOffset + i + 1
 		var content string
 		if readSessionFull {
 			content = strings.TrimSpace(m.Content)
 		} else {
-			content = truncateContent(m.Content, 500)
+			var truncated int
+			content, truncated = truncateContent(m.Content, defaultTruncateLen)
+			if truncated > 0 {
+				truncatedCount++
+			}
 		}
 		fmt.Printf("[%d] %s: %s\n", idx, m.Role, content)
 	}
@@ -86,11 +93,15 @@ func runReadSession(_ *cobra.Command, args []string) error {
 	fmt.Printf("---\nShowing messages %d-%d of %d (filtered from %d total).",
 		readSessionOffset+1, end, filteredCount, totalCount)
 	if remaining > 0 {
-		fmt.Printf(" %d remaining.\nNext: nagobot read-session %q --offset %d --limit %d\n",
+		fmt.Printf(" %d remaining.\nNext: nagobot read-session %q --offset %d --limit %d",
 			remaining, key, end, readSessionLimit)
 	} else {
-		fmt.Println(" End of session.")
+		fmt.Print(" End of session.")
 	}
+	if truncatedCount > 0 {
+		fmt.Printf("\n%d message(s) truncated to %d chars. Use --full to show complete content.", truncatedCount, defaultTruncateLen)
+	}
+	fmt.Println()
 
 	return nil
 }
@@ -131,12 +142,13 @@ func filterToolMessages(messages []provider.Message) []provider.Message {
 	return result
 }
 
-func truncateContent(s string, maxLen int) string {
+// truncateContent returns the (possibly truncated) string and the number of characters truncated.
+func truncateContent(s string, maxLen int) (string, int) {
 	s = strings.TrimSpace(s)
 	// Collapse newlines for compact display.
 	s = strings.ReplaceAll(s, "\n", " ")
 	if len(s) > maxLen {
-		return s[:maxLen] + "..."
+		return s[:maxLen] + "...", len(s) - maxLen
 	}
-	return s
+	return s, 0
 }

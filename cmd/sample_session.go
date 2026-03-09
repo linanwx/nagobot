@@ -61,7 +61,7 @@ func runSampleSession(_ *cobra.Command, args []string) error {
 
 	for _, idx := range indices {
 		m := filtered[idx]
-		content := truncateContent(m.Content, 500)
+		content, _ := truncateContent(m.Content, defaultTruncateLen)
 		fmt.Printf("[%d] %s: %s\n", idx+1, m.Role, content)
 	}
 
