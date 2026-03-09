@@ -60,10 +60,10 @@ const (
 	tier1IdleMin = 5 * time.Minute
 	tier1IdleMax = 30 * time.Minute
 
-	// Tier 2: AI-driven silent compression (idle ≥30 min, >50% tokens)
+	// Tier 2: AI-driven silent compression (idle ≥30 min, >65% tokens)
 	tier2IdleMin    = 30 * time.Minute
 	tier2IdleMax    = 24 * time.Hour
-	tier2TokenRatio = 0.5
+	tier2TokenRatio = 0.65
 )
 
 // ThreadConfig contains shared dependencies for creating threads.
