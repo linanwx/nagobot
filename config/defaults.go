@@ -10,6 +10,7 @@ const (
 	defaultContextWindowTokens = 128000
 	defaultContextWarnRatio    = 0.8
 	defaultWebAddr             = "127.0.0.1:8080"
+	defaultSkillHubURL         = "https://clawhub.ai"
 )
 
 // DefaultConfig returns a config with sensible defaults.
@@ -111,6 +112,10 @@ func (c *Config) applyDefaults() {
 	}
 	if c.Channels.Web.Addr == "" {
 		c.Channels.Web.Addr = defaultWebAddr
+	}
+
+	if c.SkillHub.URL == "" {
+		c.SkillHub.URL = defaultSkillHubURL
 	}
 
 	// Merge default cron seeds by ID.

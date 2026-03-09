@@ -32,6 +32,7 @@ type Config struct {
 	Channels  *ChannelsConfig `json:"channels" yaml:"channels"`
 	Logging   LoggingConfig   `json:"logging,omitempty" yaml:"logging,omitempty"`
 	Cron      []cronpkg.Job   `json:"cron,omitempty" yaml:"cron,omitempty"`
+	SkillHub SkillHubConfig `json:"skillHub,omitempty" yaml:"skillHub,omitempty"`
 
 	// Hot-reload support for sessionAgents.
 	sessionAgentsMu       sync.Mutex        `yaml:"-" json:"-"`
@@ -165,6 +166,11 @@ func (c *Config) reloadSessionTimezones(path string, modTime time.Time) {
 		c.sessionTimezonesCache = raw.Channels.SessionTimezones
 	}
 	c.sessionTimezonesFileTime = modTime
+}
+
+// SkillHubConfig contains skill hub configuration.
+type SkillHubConfig struct {
+	URL string `json:"url,omitempty" yaml:"url,omitempty"` // defaults to https://clawhub.ai
 }
 
 // ThreadConfig contains thread runtime defaults.

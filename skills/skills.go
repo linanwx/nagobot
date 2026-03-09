@@ -101,10 +101,10 @@ func loadSkillsFromDirectory(dir string) (map[string]*Skill, error) {
 
 	loaded := make(map[string]*Skill)
 	for _, entry := range entries {
-		// Directory-based skill: look for SKILL.md inside.
+		// Directory-based skill: look for SKILL.md or SKILLS.md inside.
 		if entry.IsDir() {
-			skillFile := filepath.Join(dir, entry.Name(), "SKILL.md")
-			if _, statErr := os.Stat(skillFile); statErr != nil {
+			skillFile := FindSkillFile(filepath.Join(dir, entry.Name()))
+			if skillFile == "" {
 				continue
 			}
 			skill, loadErr := loadMarkdownSkill(skillFile)
@@ -147,6 +147,18 @@ func loadSkillsFromDirectory(dir string) (map[string]*Skill, error) {
 	}
 
 	return loaded, nil
+}
+
+// FindSkillFile returns the path to SKILL.md or SKILLS.md in the given
+// directory, preferring SKILL.md. Returns "" if neither exists.
+func FindSkillFile(dir string) string {
+	for _, name := range []string{"SKILL.md", "SKILLS.md"} {
+		path := filepath.Join(dir, name)
+		if _, err := os.Stat(path); err == nil {
+			return path
+		}
+	}
+	return ""
 }
 
 // loadYAMLSkill loads a skill from a YAML file.
