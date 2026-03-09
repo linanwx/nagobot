@@ -1,44 +1,16 @@
 # nagobot
 
-Tired of endless configuration and unstable runtime? Try [nagobot](https://nagobot.com).
-
 <p align="center">
-  <img src="img/head.png" alt="nagobot head" width="120" />
+  <img src="img/head.png" alt="nagobot" width="120" />
 </p>
 
-`nagobot` is an ultra-light AI assistant built with Go. One install, all channels.
+<p align="center">
+  Autonomous AI bot framework built with Go. Multi-channel, multi-provider, multi-agent.
+</p>
 
-**[Website](https://nagobot.com)** · **[Releases](https://github.com/linanwx/nagobot/releases)** · **[Documentation](https://nagobot.com)**
-
-Inspired by nanobot (`github.com/HKUDS/nanobot`) and openclaw (`github.com/openclaw`).
-
-This project is evolving rapidly.
-
-## Features
-
-Multi-provider AI assistant with tool calling, async multi-threading, cron scheduling, web search, and context compression — deployable via Telegram, Web, or CLI.
-
-## Supported Providers and Models
-
-Run `nagobot set-model --list` to see all supported provider/model pairs.
-
-## Channels
-
-- Telegram
-- Discord
-- Web
-- CLI
-
-
-## Requirements
-
-- Go `1.23.3+`
-
-## Build
-
-```bash
-go build -o nagobot .
-```
+<p align="center">
+  <a href="https://nagobot.com">Website</a> · <a href="https://github.com/linanwx/nagobot/releases">Releases</a> · <a href="https://nagobot.com">Docs</a>
+</p>
 
 ## Install
 
@@ -51,29 +23,33 @@ Windows (PowerShell):
 irm https://nagobot.com/install.ps1 | iex
 ```
 
-## Quick Start
-
-1. Run the interactive setup wizard:
-
+Then run the setup wizard:
 ```bash
 nagobot onboard
 ```
 
-The wizard will guide you through provider selection, API key setup, and optional Telegram configuration.
+This handles provider selection, API keys, channel configuration, and service installation. Re-run after updating.
 
-The wizard will also install the service, which starts automatically on boot.
+Start chatting:
+```bash
+nagobot cli
+```
 
-The project may change drastically between versions. Please re-run `onboard` after updating.
+## What it does
 
-## Documentation
+- **Multi-provider** — DeepSeek, Gemini, Anthropic, OpenAI, OpenRouter, Moonshot, Minimax, Zhipu
+- **Multi-channel** — Telegram, Discord, Feishu, Web, CLI
+- **Multi-agent** — Custom agent templates with async thread spawning
+- **Always on** — Cron scheduling, auto-restart, three-tier context compression
+- **38+ skills** — Web search, code execution, file management, and more
 
-- [Provider config examples](docs/provider.md)
-- [Channels (Telegram, Discord, Web, CLI)](docs/channels.md)
+## Build from source
 
-## Play
+```bash
+go build -o nagobot .
+```
 
-Don't know how to use it? Try these example prompts:
+## Docs
 
-> Create a job that runs at 9am, 12pm, and 6pm every day. Based on my conversation history, search news for me.
-
-> I want you to search for recent stock market topics, please create 3 threads to search.
+- [Providers](docs/provider.md)
+- [Channels](docs/channels.md)
