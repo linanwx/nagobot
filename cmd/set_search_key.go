@@ -64,7 +64,7 @@ func runSetSearchKey(_ *cobra.Command, _ []string) error {
 
 	provider := strings.TrimSpace(searchKeyProvider)
 	if provider == "" {
-		return fmt.Errorf("--provider is required.\nFix: nagobot set-search-key --provider <name> --key <api_key>\nSupported: brave, zhipu")
+		return fmt.Errorf("--provider is required.\nFix: nagobot set-search-key --provider <name> --key <api_key>\nSupported: brave, opensearch, zhipu")
 	}
 
 	// --clear: remove key

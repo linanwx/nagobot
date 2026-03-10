@@ -8,9 +8,11 @@ import (
 
 // SearchResult represents a single search result.
 type SearchResult struct {
-	Title   string
-	URL     string
-	Snippet string
+	Title       string
+	URL         string
+	Snippet     string
+	PublishDate string // optional: publication date
+	Source      string // optional: source website name
 }
 
 // SearchProvider is the interface for pluggable search backends.
@@ -33,9 +35,16 @@ func FormatSearchResults(query string, results []SearchResult) string {
 	var sb strings.Builder
 	sb.WriteString(fmt.Sprintf("Search results for: %s\n\n", query))
 	for i, r := range results {
-		sb.WriteString(fmt.Sprintf("%d. %s\n   %s\n", i+1, r.Title, r.URL))
+		title := r.Title
+		if r.Source != "" {
+			title += fmt.Sprintf(" [%s]", r.Source)
+		}
+		sb.WriteString(fmt.Sprintf("%d. %s\n   %s\n", i+1, title, r.URL))
 		if r.Snippet != "" {
 			sb.WriteString(fmt.Sprintf("   %s\n", r.Snippet))
+		}
+		if r.PublishDate != "" {
+			sb.WriteString(fmt.Sprintf("   Published: %s\n", r.PublishDate))
 		}
 		sb.WriteByte('\n')
 	}
