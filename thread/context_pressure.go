@@ -52,7 +52,7 @@ func (t *Thread) buildCompressionNotice(requestTokens, contextWindowTokens int, 
 		"estimated_usage_ratio":           fmt.Sprintf("%.2f", usageRatio),
 		"session_key":                     t.sessionKey,
 		"session_file":                    sessionPath,
-	}, `You MUST load and execute skill "compress-context" NOW, before responding to the user. Then you can respond to the user request. Follow the skill instructions to compact the session file safely. Keep critical facts, decisions, IDs, and unresolved tasks.`)
+	}, `You MUST load and execute skill "context-ops" NOW, before responding to the user. Then you can respond to the user request. Follow the skill instructions to compact the session file safely. Keep critical facts, decisions, IDs, and unresolved tasks.`)
 }
 
 // EstimateTextTokens returns a tiktoken-based token estimate for a string.

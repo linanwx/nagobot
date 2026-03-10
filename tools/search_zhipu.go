@@ -24,7 +24,7 @@ func (p *ZhipuSearchProvider) Available() bool {
 func (p *ZhipuSearchProvider) Search(ctx context.Context, query string, maxResults int) ([]SearchResult, error) {
 	key := p.KeyFn()
 	if key == "" {
-		return nil, fmt.Errorf("Zhipu API key not configured. Use the manage-search skill to set it up")
+		return nil, fmt.Errorf("Zhipu API key not configured. Use the manage-config skill to set it up")
 	}
 
 	if maxResults > 50 {

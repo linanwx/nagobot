@@ -29,11 +29,11 @@ func (p *OpenSearchProvider) Available() bool {
 func (p *OpenSearchProvider) Search(ctx context.Context, query string, maxResults int) ([]SearchResult, error) {
 	key := p.KeyFn()
 	if key == "" {
-		return nil, fmt.Errorf("OpenSearch API key not configured. Use the manage-search skill to set it up")
+		return nil, fmt.Errorf("OpenSearch API key not configured. Use the manage-config skill to set it up")
 	}
 	host := p.HostFn()
 	if host == "" {
-		return nil, fmt.Errorf("OpenSearch API host not configured. Use the manage-search skill to set it up")
+		return nil, fmt.Errorf("OpenSearch API host not configured. Use the manage-config skill to set it up")
 	}
 
 	if maxResults > 50 {

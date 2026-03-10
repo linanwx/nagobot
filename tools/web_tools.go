@@ -104,7 +104,7 @@ func (t *WebSearchTool) Run(ctx context.Context, args json.RawMessage) string {
 		}
 		sort.Strings(available)
 		if ok && !p.Available() {
-			return fmt.Sprintf("Error: search source %q is not available (API key not configured). Use the manage-search skill to set it up. Available: %s", source, strings.Join(available, ", "))
+			return fmt.Sprintf("Error: search source %q is not available (API key not configured). Use the manage-config skill to set it up. Available: %s", source, strings.Join(available, ", "))
 		}
 		return fmt.Sprintf("Error: unknown search source %q. Available: %s", source, strings.Join(available, ", "))
 	}

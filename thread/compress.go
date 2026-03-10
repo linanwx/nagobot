@@ -23,7 +23,7 @@ const (
 
 // runCompressionScan scans idle threads and applies the appropriate compression tier:
 //   - Tier 1 (idle 5-30min, >50% tokens): mechanical tool-result compression
-//   - Tier 2 (idle ≥30min, >60% tokens): AI-driven silent compression via compress-context skill
+//   - Tier 2 (idle ≥30min, >60% tokens): AI-driven silent compression via context-ops skill
 func (m *Manager) runCompressionScan() {
 	cfg := m.cfg
 	if cfg.Sessions == nil || cfg.ContextWindowTokens <= 0 {
@@ -133,7 +133,7 @@ func (m *Manager) tryTier2Compress(sessionKey string) {
 		"estimated_tokens": fmt.Sprintf("%d", tokens),
 		"context_window":   fmt.Sprintf("%d", cfg.ContextWindowTokens),
 		"usage_ratio":      fmt.Sprintf("%.2f", float64(tokens)/float64(cfg.ContextWindowTokens)),
-	}, `This is an automated background maintenance task. You MUST load and execute skill "compress-context" NOW. Use the session_file path provided above. Do NOT produce any user-facing output. Just compress and finish.`)
+	}, `This is an automated background maintenance task. You MUST load and execute skill "context-ops" NOW. Use the session_file path provided above. Do NOT produce any user-facing output. Just compress and finish.`)
 
 	t.Enqueue(&WakeMessage{
 		Source:  WakeCompression,

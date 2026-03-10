@@ -21,7 +21,7 @@ func (p *BraveSearchProvider) Available() bool { return p.KeyFn != nil && p.KeyF
 func (p *BraveSearchProvider) Search(ctx context.Context, query string, maxResults int) ([]SearchResult, error) {
 	key := p.KeyFn()
 	if key == "" {
-		return nil, fmt.Errorf("Brave Search API key not configured. Use the manage-search skill to set it up")
+		return nil, fmt.Errorf("Brave Search API key not configured. Use the manage-config skill to set it up")
 	}
 
 	endpoint := fmt.Sprintf("https://api.search.brave.com/res/v1/web/search?q=%s&count=%d",

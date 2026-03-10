@@ -1,61 +1,11 @@
 ---
 name: system-info
-description: Query macOS system info (disk, memory, CPU, network, battery).
-tags: [macos, system, diagnostics, utility]
+description: System diagnostics and process management — disk, memory, CPU, network, battery, processes, services.
+tags: [macos, linux, system, diagnostics, process]
 ---
-# System Info
+# System Info & Process Management
 
-Query macOS system information using built-in commands.
-
-## Disk Usage
-
-Overview of all volumes:
-```
-exec: df -h
-```
-
-Directory size breakdown:
-```
-exec: du -sh ~/* 2>/dev/null | sort -hr | head -20
-```
-
-Specific directory:
-```
-exec: du -sh /path/to/directory
-```
-
-## Memory Usage
-
-```
-exec: vm_stat | perl -ne '/page size of (\d+)/ and $size=$1; /Pages\s+(\w+):\s+(\d+)/ and printf("%-16s %6.1f MB\n", "$1:", $2 * $size / 1048576)'
-```
-
-Quick memory summary:
-```
-exec: sysctl hw.memsize | awk '{printf "Total RAM: %.1f GB\n", $2/1073741824}'
-```
-
-Top memory consumers:
-```
-exec: ps aux --sort=-%mem | head -11
-```
-
-## CPU Info
-
-CPU model and core count:
-```
-exec: sysctl -n machdep.cpu.brand_string && echo "Cores: $(sysctl -n hw.ncpu) ($(sysctl -n hw.physicalcpu) physical)"
-```
-
-Current CPU load:
-```
-exec: top -l 1 -n 0 | grep "CPU usage"
-```
-
-Top CPU consumers:
-```
-exec: ps aux --sort=-%cpu | head -11
-```
+Query system information and manage processes. Cross-platform where noted.
 
 ## System Overview
 
@@ -69,14 +19,65 @@ Uptime:
 exec: uptime
 ```
 
-Hostname and user:
+## Disk Usage
+
+Overview:
 ```
-exec: echo "Hostname: $(hostname)" && echo "User: $(whoami)"
+exec: df -h
+```
+
+Directory size breakdown:
+```
+exec: du -sh ~/* 2>/dev/null | sort -hr | head -20
+```
+
+Storage devices (macOS):
+```
+exec: diskutil list
+```
+
+## Memory Usage
+
+macOS:
+```
+exec: vm_stat | perl -ne '/page size of (\d+)/ and $size=$1; /Pages\s+(\w+):\s+(\d+)/ and printf("%-16s %6.1f MB\n", "$1:", $2 * $size / 1048576)'
+```
+
+Total RAM:
+```
+exec: sysctl hw.memsize | awk '{printf "Total RAM: %.1f GB\n", $2/1073741824}'
+```
+
+Linux:
+```
+exec: free -h
+```
+
+Top memory consumers:
+```
+exec: ps aux --sort=-%mem | head -11
+```
+
+## CPU Info
+
+CPU model and cores (macOS):
+```
+exec: sysctl -n machdep.cpu.brand_string && echo "Cores: $(sysctl -n hw.ncpu) ($(sysctl -n hw.physicalcpu) physical)"
+```
+
+Current load:
+```
+exec: top -l 1 -n 0 | head -10 2>/dev/null || top -bn1 | head -10
+```
+
+Top CPU consumers:
+```
+exec: ps aux --sort=-%cpu | head -11
 ```
 
 ## Network Info
 
-Active network interfaces:
+Active interfaces:
 ```
 exec: ifconfig | grep -E "^[a-z]|inet " | grep -B1 "inet "
 ```
@@ -86,75 +87,68 @@ Public IP:
 exec: curl -s ifconfig.me
 ```
 
-Wi-Fi info:
-```
-exec: /System/Library/PrivateFrameworks/Apple80211.framework/Versions/Current/Resources/airport -I | grep -E "SSID|BSSID|channel|RSSI"
-```
-
-Network speed test (simple):
-```
-exec: curl -s -o /dev/null -w "Download speed: %{speed_download} bytes/sec\nTime: %{time_total}s\n" https://speed.cloudflare.com/__down?bytes=10000000
-```
-
 DNS servers:
 ```
 exec: scutil --dns | grep nameserver | head -5
 ```
 
-Active connections:
-```
-exec: netstat -an | grep ESTABLISHED | wc -l
-```
-
-## Battery Status (Laptops)
+## Battery (macOS Laptops)
 
 ```
 exec: pmset -g batt
 ```
 
-Detailed battery info:
+## Process Management
+
+List processes:
 ```
-exec: system_profiler SPPowerDataType 2>/dev/null | grep -E "Charge|Capacity|Cycle|Condition"
+exec: ps aux | head -30
 ```
 
-## Storage Devices
-
-```
-exec: diskutil list
-```
-
-Volume info:
-```
-exec: diskutil info /
-```
-
-## Running Processes
-
-Total processes:
-```
-exec: ps aux | wc -l
-```
-
-Find process by name:
+Find by name:
 ```
 exec: pgrep -l "PROCESS_NAME"
 ```
 
-Kill process by name:
+Find by port:
+```
+exec: lsof -i :PORT_NUMBER
+```
+
+Kill by PID:
+```
+exec: kill PID
+```
+
+Kill by name:
 ```
 exec: pkill "PROCESS_NAME"
 ```
 
-## Thermal & Fan (Intel Macs)
+Kill by port:
+```
+exec: lsof -ti :PORT_NUMBER | xargs kill -9 2>/dev/null && echo "Killed" || echo "No process on port PORT_NUMBER"
+```
+
+Open files by process:
+```
+exec: lsof -p PID | head -30
+```
+
+## Service Management (Linux systemd)
 
 ```
-exec: sudo powermetrics --samplers smc -i 1 -n 1 2>/dev/null | grep -E "Temperature|Fan"
+exec: systemctl status SERVICE_NAME
+```
+
+```
+exec: systemctl list-units --type=service --state=running
 ```
 
 ## Notes
 
-- Most commands work without elevated permissions.
-- `sudo` required for some detailed hardware queries.
-- `system_profiler` provides extensive hardware info but can be slow; use specific data types (e.g., `SPHardwareDataType`).
-- For continuous monitoring, use `top -l 0` or `vm_stat 1` (they run indefinitely, use with timeout).
-- Battery commands only work on MacBooks.
+- `ps aux` works on both macOS and Linux.
+- `top` flags differ: Linux uses `-b -n 1`, macOS uses `-l 1`.
+- `free` is Linux-only; use `vm_stat` on macOS.
+- `systemctl` is Linux-only; macOS uses `launchctl`.
+- Some operations (kill, systemctl) may require `sudo`.

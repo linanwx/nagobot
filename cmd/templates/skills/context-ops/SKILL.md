@@ -1,10 +1,14 @@
 ---
-name: compress-context
-description: Compress session context to free up token budget.
+name: context-ops
+description: Manage session context — compress to free token budget, or clear to start fresh. Use when context pressure is high, the session is too long, or the user wants a fresh start.
 ---
-# Context Compression Skill
+# Context Operations
 
-## Workflow
+## Compress Context
+
+Compress the current session to free up token budget while preserving continuity.
+
+### Workflow
 
 1. Determine `session_file`:
    - First choice: use the path from the Context Pressure Notice.
@@ -16,7 +20,7 @@ description: Compress session context to free up token budget.
    ```
 4. Continue the original task.
 
-## Compression Guidance
+### Compression Guidance
 
 Write a summary whose purpose is to provide continuity so you can continue making progress in a future context, where the raw conversation history will be replaced with this summary.
 
@@ -35,3 +39,20 @@ Discard:
 - Repetitive or redundant exchanges that don't affect future work.
 
 The longer and more detailed, the better. If the current conversation is long, aim for at least 1,000 words. If the conversation is relatively short, you may target roughly 10% of the current conversation length.
+
+---
+
+## Clear Context
+
+Reset the session to start completely fresh.
+
+### Workflow
+
+1. Determine `session_file`:
+   - First choice: use the path from the Context Pressure Notice.
+   - Fallback: `{{WORKSPACE}}/sessions/cli/session.jsonl`.
+2. Run:
+   ```
+   exec: {{WORKSPACE}}/bin/nagobot compress-session --clear <session_file>
+   ```
+3. Confirm to the user that the session has been reset.
