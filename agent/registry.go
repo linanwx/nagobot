@@ -19,39 +19,53 @@ type AgentDef struct {
 	Path        string // Full path to the template file
 }
 
-// AgentRegistry loads agent templates from workspace/agents.
+const agentsBuiltinDir = "agents-builtin"
+
+// AgentRegistry loads agent templates from workspace/agents and workspace/agents-builtin.
 type AgentRegistry struct {
-	workspace string
-	agentsDir string
-	agents    map[string]*AgentDef
-	mu        sync.RWMutex
+	workspace  string
+	agentsDirs []string // scanned in order; later dirs override earlier on name conflict
+	agents     map[string]*AgentDef
+	mu         sync.RWMutex
 }
 
-// NewRegistry creates a registry from workspace/agents and loads all templates.
+// NewRegistry creates a registry and loads all templates.
+// Scans agents/ (user) first, then agents-builtin/ (overrides stale user copies).
 func NewRegistry(workspace string) *AgentRegistry {
 	r := &AgentRegistry{
 		workspace: workspace,
-		agentsDir: filepath.Join(workspace, "agents"),
-		agents:    make(map[string]*AgentDef),
+		agentsDirs: []string{
+			filepath.Join(workspace, "agents"),         // user
+			filepath.Join(workspace, agentsBuiltinDir), // builtin (overrides)
+		},
+		agents: make(map[string]*AgentDef),
 	}
 	r.load()
 	return r
 }
 
 func (r *AgentRegistry) load() {
-	entries, err := os.ReadDir(r.agentsDir)
+	next := make(map[string]*AgentDef)
+	for _, dir := range r.agentsDirs {
+		loadAgentsFromDir(dir, next)
+	}
+	r.mu.Lock()
+	r.agents = next
+	r.mu.Unlock()
+}
+
+func loadAgentsFromDir(dir string, dest map[string]*AgentDef) {
+	entries, err := os.ReadDir(dir)
 	if err != nil {
-		logger.Debug("agents directory not found", "dir", r.agentsDir)
+		logger.Debug("agents directory not found", "dir", dir)
 		return
 	}
-
-	next := make(map[string]*AgentDef)
 	for _, entry := range entries {
 		if entry.IsDir() || !strings.HasSuffix(entry.Name(), ".md") {
 			continue
 		}
 
-		path := filepath.Join(r.agentsDir, entry.Name())
+		path := filepath.Join(dir, entry.Name())
 		fileName := strings.TrimSuffix(entry.Name(), ".md")
 
 		raw, readErr := os.ReadFile(path)
@@ -70,23 +84,13 @@ func (r *AgentRegistry) load() {
 			name = fileName
 		}
 
-		key := normalizeAgentName(name)
-		if _, exists := next[key]; exists {
-			logger.Warn("duplicate agent name, keeping first", "name", name, "path", path)
-			continue
-		}
-
-		next[key] = &AgentDef{
+		dest[normalizeAgentName(name)] = &AgentDef{
 			Name:        name,
 			Description: strings.TrimSpace(meta.Description),
 			Specialty:   strings.TrimSpace(meta.Specialty),
 			Path:        path,
 		}
 	}
-
-	r.mu.Lock()
-	r.agents = next
-	r.mu.Unlock()
 }
 
 // New creates an agent by name. Defaults to "soul" if name is empty.

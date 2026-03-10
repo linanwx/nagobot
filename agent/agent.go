@@ -96,16 +96,22 @@ func (a *Agent) templatePath() string {
 	if a.workspace == "" {
 		return ""
 	}
-	// Try exact name first, then lowercase fallback.
-	path := filepath.Join(a.workspace, "agents", a.Name+".md")
-	if _, err := os.Stat(path); err == nil {
-		return path
+	// Search builtin first (higher priority), then user agents.
+	dirs := []string{
+		filepath.Join(a.workspace, agentsBuiltinDir),
+		filepath.Join(a.workspace, "agents"),
 	}
-	lower := filepath.Join(a.workspace, "agents", strings.ToLower(a.Name)+".md")
-	if _, err := os.Stat(lower); err == nil {
-		return lower
+	for _, dir := range dirs {
+		path := filepath.Join(dir, a.Name+".md")
+		if _, err := os.Stat(path); err == nil {
+			return path
+		}
+		lower := filepath.Join(dir, strings.ToLower(a.Name)+".md")
+		if _, err := os.Stat(lower); err == nil {
+			return lower
+		}
 	}
-	return path // return original for error reporting
+	return filepath.Join(a.workspace, "agents", a.Name+".md") // fallback for error reporting
 }
 
 func (a *Agent) readTemplate() string {

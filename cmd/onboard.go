@@ -469,14 +469,16 @@ func writeTemplate(workspace, templateName, destName string, overwrite bool) err
 
 func createBootstrapFiles(workspace string) error {
 	const (
-		skillsDir        = "skills"
-		builtinSkillsDir = "skills-builtin"
-		sessionsDir      = "sessions"
+		skillsDir         = "skills"
+		builtinSkillsDir  = "skills-builtin"
+		builtinAgentsDir  = "agents-builtin"
+		sessionsDir       = "sessions"
 	)
 
 	for _, dir := range []string{
 		".tmp",
 		"agents",
+		builtinAgentsDir,
 		"bin",
 		"docs",
 		"system",
@@ -496,8 +498,9 @@ func createBootstrapFiles(workspace string) error {
 		return err
 	}
 
-	// Copy embedded agent directories into workspace.
-	if err := copyEmbeddedDir("templates/agents", filepath.Join(workspace, "agents")); err != nil {
+	// Built-in agents: clean and re-copy to ensure deleted agents are removed.
+	builtinAgentsDest := filepath.Join(workspace, builtinAgentsDir)
+	if err := cleanAndCopyEmbeddedDir("templates/agents", builtinAgentsDest); err != nil {
 		return err
 	}
 
