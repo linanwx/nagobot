@@ -76,12 +76,12 @@ func buildThreadManager(cfg *config.Config, enableSessions bool) (*thread.Manage
 				}
 				return c.GetSearchKey("opensearch")
 			},
-			WorkspaceFn: func() string {
+			HostFn: func() string {
 				c, err := config.Load()
 				if err != nil {
 					return ""
 				}
-				return c.GetSearchKey("opensearch-workspace")
+				return c.GetSearchKey("opensearch-host")
 			},
 		},
 	}

@@ -7,19 +7,23 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"strings"
 )
 
-// OpenSearchProvider searches via the Alibaba Cloud OpenSearch Web Search API.
+// OpenSearchProvider searches via the Alibaba Cloud OpenSearch AI Search Platform API.
+// Host is account-specific, obtained from the console at:
+// https://opensearch.console.aliyun.com/cn-shanghai/rag/api-key
+// Format: {workspace}-{id}.platform-cn-shanghai.opensearch.aliyuncs.com
 type OpenSearchProvider struct {
 	// KeyFn returns the API key at call time (supports runtime config changes).
 	KeyFn func() string
-	// WorkspaceFn returns the workspace ID at call time.
-	WorkspaceFn func() string
+	// HostFn returns the API host at call time (account-specific, from console).
+	HostFn func() string
 }
 
 func (p *OpenSearchProvider) Name() string { return "opensearch" }
 func (p *OpenSearchProvider) Available() bool {
-	return p.KeyFn != nil && p.KeyFn() != "" && p.WorkspaceFn != nil && p.WorkspaceFn() != ""
+	return p.KeyFn != nil && p.KeyFn() != "" && p.HostFn != nil && p.HostFn() != ""
 }
 
 func (p *OpenSearchProvider) Search(ctx context.Context, query string, maxResults int) ([]SearchResult, error) {
@@ -27,19 +31,23 @@ func (p *OpenSearchProvider) Search(ctx context.Context, query string, maxResult
 	if key == "" {
 		return nil, fmt.Errorf("OpenSearch API key not configured. Use the manage-search skill to set it up")
 	}
-	workspace := p.WorkspaceFn()
-	if workspace == "" {
-		return nil, fmt.Errorf("OpenSearch workspace ID not configured. Use the manage-search skill to set it up")
+	host := p.HostFn()
+	if host == "" {
+		return nil, fmt.Errorf("OpenSearch API host not configured. Use the manage-search skill to set it up")
 	}
 
 	if maxResults > 50 {
 		maxResults = 50
 	}
 
-	endpoint := fmt.Sprintf(
-		"https://opensearch.cn-shanghai.aliyuncs.com/v3/openapi/workspaces/%s/web-search/ops-web-search-001",
-		workspace,
-	)
+	// Extract workspace from host (format: {workspace}-{id}.platform-...)
+	// Default to "default" if parsing fails.
+	workspace := "default"
+	if dashIdx := strings.Index(host, "-"); dashIdx > 0 {
+		workspace = host[:dashIdx]
+	}
+
+	endpoint := fmt.Sprintf("https://%s/v3/openapi/workspaces/%s/web-search/ops-web-search-001", host, workspace)
 
 	reqBody := openSearchRequest{
 		Query:        query,
@@ -93,11 +101,13 @@ type openSearchResponse struct {
 }
 
 type openSearchResult struct {
-	Title       string `json:"title"`
-	Link        string `json:"link"`
-	Snippet     string `json:"snippet"`
-	PublishDate string `json:"publish_date"`
-	Source      string `json:"source"`
+	Title    string `json:"title"`
+	Link     string `json:"link"`
+	Snippet  string `json:"snippet"`
+	Content  string `json:"content"`
+	MetaInfo struct {
+		PublishedTime string `json:"publishedTime"`
+	} `json:"meta_info"`
 }
 
 func parseOpenSearchResults(data []byte, maxResults int) ([]SearchResult, error) {
@@ -115,8 +125,7 @@ func parseOpenSearchResults(data []byte, maxResults int) ([]SearchResult, error)
 			Title:       r.Title,
 			URL:         r.Link,
 			Snippet:     r.Snippet,
-			PublishDate: r.PublishDate,
-			Source:      r.Source,
+			PublishDate: r.MetaInfo.PublishedTime,
 		})
 	}
 	return results, nil

@@ -13,20 +13,20 @@ func TestOpenSearchProviderName(t *testing.T) {
 
 func TestOpenSearchProviderAvailable(t *testing.T) {
 	tests := []struct {
-		name        string
-		keyFn       func() string
-		workspaceFn func() string
-		want        bool
+		name   string
+		keyFn  func() string
+		hostFn func() string
+		want   bool
 	}{
-		{"nil KeyFn and nil WorkspaceFn", nil, nil, false},
-		{"empty key", func() string { return "" }, func() string { return "ws-123" }, false},
-		{"nil WorkspaceFn", func() string { return "key-123" }, nil, false},
-		{"empty workspace", func() string { return "key-123" }, func() string { return "" }, false},
-		{"both valid", func() string { return "key-123" }, func() string { return "ws-123" }, true},
+		{"nil KeyFn and nil HostFn", nil, nil, false},
+		{"empty key", func() string { return "" }, func() string { return "default-j01.platform-cn-shanghai.opensearch.aliyuncs.com" }, false},
+		{"nil HostFn", func() string { return "key-123" }, nil, false},
+		{"empty host", func() string { return "key-123" }, func() string { return "" }, false},
+		{"both valid", func() string { return "key-123" }, func() string { return "default-j01.platform-cn-shanghai.opensearch.aliyuncs.com" }, true},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			p := &OpenSearchProvider{KeyFn: tt.keyFn, WorkspaceFn: tt.workspaceFn}
+			p := &OpenSearchProvider{KeyFn: tt.keyFn, HostFn: tt.hostFn}
 			if got := p.Available(); got != tt.want {
 				t.Errorf("Available() = %v, want %v", got, tt.want)
 			}
@@ -48,8 +48,8 @@ func TestParseOpenSearchResults(t *testing.T) {
 			data: `{
 				"result": {
 					"search_result": [
-						{"title": "Go Programming", "link": "https://go.dev", "snippet": "The Go programming language", "publish_date": "2024-01-15", "source": "go.dev"},
-						{"title": "Go Tutorial", "link": "https://go.dev/tour", "snippet": "A Tour of Go", "publish_date": "2024-02-01", "source": "go.dev"}
+						{"title": "Go Programming", "link": "https://go.dev", "snippet": "The Go programming language", "meta_info": {"publishedTime": "2024-01-15"}},
+						{"title": "Go Tutorial", "link": "https://go.dev/tour", "snippet": "A Tour of Go", "meta_info": {"publishedTime": "2024-02-01"}}
 					]
 				}
 			}`,
@@ -60,7 +60,6 @@ func TestParseOpenSearchResults(t *testing.T) {
 				URL:         "https://go.dev",
 				Snippet:     "The Go programming language",
 				PublishDate: "2024-01-15",
-				Source:      "go.dev",
 			},
 		},
 		{
@@ -123,7 +122,7 @@ func TestParseOpenSearchResults(t *testing.T) {
 					t.Errorf("PublishDate = %q, want %q", got.PublishDate, tt.wantFirst.PublishDate)
 				}
 				if got.Source != tt.wantFirst.Source {
-					t.Errorf("Source = %q, want %q", got.Source, tt.wantFirst.Source)
+					t.Errorf("Source = %q, want %q", got.Source, tt.wantFirst.Source) // Source is always empty for OpenSearch
 				}
 			}
 		})

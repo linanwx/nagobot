@@ -37,12 +37,15 @@ exec: {{WORKSPACE}}/bin/nagobot set-search-key --provider <name> --clear
 - Set key: `nagobot set-search-key --provider brave --key <api_key>`
 
 ### OpenSearch (Alibaba Cloud)
-OpenSearch provides web search powered by Chinese search engines, good for Chinese content. It requires TWO config values (API key and workspace ID):
+OpenSearch AI Search Platform provides web search powered by Chinese search engines, good for Chinese content. It requires TWO config values (API key and API host):
 ```
 exec: {{WORKSPACE}}/bin/nagobot set-search-key --provider opensearch --key <api_key>
-exec: {{WORKSPACE}}/bin/nagobot set-search-key --provider opensearch-workspace --key <workspace_id>
 ```
-- Get API key and workspace ID at https://opensearch.console.aliyun.com/
+```
+exec: {{WORKSPACE}}/bin/nagobot set-search-key --provider opensearch-host --key <api_host>
+```
+- User needs to sign up and get API key + API host at: https://opensearch.console.aliyun.com/cn-shanghai/rag/api-key
+- The API host is account-specific, shown as "公网API域名" on the console (format: `default-xxx.platform-cn-shanghai.opensearch.aliyuncs.com`, omit the `http://` prefix)
 
 ## Notes
 
