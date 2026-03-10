@@ -85,6 +85,22 @@ func buildThreadManager(cfg *config.Config, enableSessions bool) (*thread.Manage
 			},
 		},
 	}
+	searchProviders["zhipu"] = &tools.ZhipuSearchProvider{
+		KeyFn: func() string {
+			c, err := config.Load()
+			if err != nil {
+				return ""
+			}
+			// Prefer dedicated search key; fall back to LLM provider key.
+			if k := c.GetSearchKey("zhipu"); k != "" {
+				return k
+			}
+			if pc := c.Providers.GetProviderConfig("zhipu-cn"); pc != nil {
+				return pc.APIKey
+			}
+			return ""
+		},
+	}
 
 	fetchProviders := map[string]tools.FetchProvider{
 		"direct": &tools.DirectFetchProvider{},

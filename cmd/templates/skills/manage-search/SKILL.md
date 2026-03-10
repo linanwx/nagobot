@@ -1,6 +1,6 @@
 ---
 name: manage-search
-description: Configure web search API keys. Use when setting up Brave, OpenSearch, or other search providers to improve search quality. Also use when the user asks to change search settings, check which search providers are available, or troubleshoot search issues.
+description: Configure web search API keys. Use when setting up Brave, OpenSearch, Zhipu, or other search providers to improve search quality. Also use when the user asks to change search settings, check which search providers are available, or troubleshoot search issues.
 ---
 # Manage Search Configuration
 
@@ -10,7 +10,7 @@ description: Configure web search API keys. Use when setting up Brave, OpenSearc
 exec: {{WORKSPACE}}/bin/nagobot set-search-key --provider <name> --key <api_key>
 ```
 
-Supported providers: `brave`, `opensearch` (more may be added).
+Supported providers: `brave`, `opensearch`, `zhipu` (more may be added).
 
 ## List Configured Providers
 
@@ -46,6 +46,14 @@ exec: {{WORKSPACE}}/bin/nagobot set-search-key --provider opensearch-host --key 
 ```
 - User needs to sign up and get API key + API host at: https://opensearch.console.aliyun.com/cn-shanghai/rag/api-key
 - The API host is account-specific, shown as "公网API域名" on the console (format: `default-xxx.platform-cn-shanghai.opensearch.aliyuncs.com`, omit the `http://` prefix)
+
+### Zhipu (智谱)
+Zhipu web search provides high-quality Chinese and general web search results. Only requires an API key:
+```
+exec: {{WORKSPACE}}/bin/nagobot set-search-key --provider zhipu --key <api_key>
+```
+- User needs to sign up and get API key at: https://open.bigmodel.cn/usercenter/apikeys
+- If `zhipu-cn` LLM provider is already configured, its API key is automatically reused for search (no extra setup needed)
 
 ## Notes
 
