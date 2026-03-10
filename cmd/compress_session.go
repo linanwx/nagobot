@@ -169,7 +169,12 @@ func buildCompressionRecord(ts time.Time, sessionKey string, messages []provider
 
 	for _, m := range messages {
 		roleCounts[m.Role]++
-		msgLen := len(m.Content)
+		// Use Compressed content if available (reflects Tier 1 compression).
+		content := m.Content
+		if m.Compressed != "" {
+			content = m.Compressed
+		}
+		msgLen := len(content)
 		for _, tc := range m.ToolCalls {
 			msgLen += len(tc.Function.Arguments)
 		}
@@ -177,7 +182,7 @@ func buildCompressionRecord(ts time.Time, sessionKey string, messages []provider
 		if msgLen > maxChars {
 			maxChars = msgLen
 			maxRole = m.Role
-			preview := m.Content
+			preview := content
 			if m.Role == "tool" && len(preview) > 200 {
 				// For tool results, try to show the tool call ID for identification.
 				preview = m.ToolCallID + ": " + preview[:150]
