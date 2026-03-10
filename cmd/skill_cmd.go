@@ -195,27 +195,14 @@ func runSkillList(cmd *cobra.Command, args []string) error {
 	userSkillsDir := filepath.Join(workspace, "skills")
 	installed, _ := skills.LoadInstalled(workspace)
 
-	// Collect skills from both directories. User skills override built-in.
+	// Collect skills from both directories. Built-in overrides stale user copies.
 	type skillEntry struct {
 		name   string
 		source string
 	}
 	seen := make(map[string]skillEntry)
 
-	// Built-in skills first.
-	if entries, err := os.ReadDir(builtinSkillsDir); err == nil {
-		for _, entry := range entries {
-			if !entry.IsDir() || strings.HasPrefix(entry.Name(), ".") {
-				continue
-			}
-			if skills.FindSkillFile(filepath.Join(builtinSkillsDir, entry.Name())) == "" {
-				continue
-			}
-			seen[entry.Name()] = skillEntry{name: entry.Name(), source: "builtin"}
-		}
-	}
-
-	// User-installed skills (override built-in).
+	// User-installed skills first.
 	if entries, err := os.ReadDir(userSkillsDir); err == nil {
 		for _, entry := range entries {
 			if !entry.IsDir() || strings.HasPrefix(entry.Name(), ".") {
@@ -231,6 +218,19 @@ func runSkillList(cmd *cobra.Command, args []string) error {
 				}
 			}
 			seen[entry.Name()] = skillEntry{name: entry.Name(), source: source}
+		}
+	}
+
+	// Built-in skills (override stale user copies on name conflict).
+	if entries, err := os.ReadDir(builtinSkillsDir); err == nil {
+		for _, entry := range entries {
+			if !entry.IsDir() || strings.HasPrefix(entry.Name(), ".") {
+				continue
+			}
+			if skills.FindSkillFile(filepath.Join(builtinSkillsDir, entry.Name())) == "" {
+				continue
+			}
+			seen[entry.Name()] = skillEntry{name: entry.Name(), source: "builtin"}
 		}
 	}
 

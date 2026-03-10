@@ -52,8 +52,8 @@ func buildThreadManager(cfg *config.Config, enableSessions bool) (*thread.Manage
 	}
 
 	skillRegistry := skills.NewRegistry()
-	// Load built-in first, then user skills (user overrides built-in on name conflict).
-	if err := skillRegistry.LoadFromDirectories(builtinSkillsDir, skillsDir); err != nil {
+	// Load user first, then built-in (built-in overrides stale user copies on name conflict).
+	if err := skillRegistry.LoadFromDirectories(skillsDir, builtinSkillsDir); err != nil {
 		logger.Warn("failed to load skills", "err", err)
 	}
 
