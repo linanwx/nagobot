@@ -10,8 +10,9 @@ import (
 )
 
 const (
-	sessionsDirName = "sessions"
-	skillsDirName   = "skills"
+	sessionsDirName      = "sessions"
+	skillsDirName        = "skills"
+	builtinSkillsDirName = "skills-builtin"
 )
 
 // SessionsDir returns the full path to the sessions directory.
@@ -23,13 +24,23 @@ func (c *Config) SessionsDir() (string, error) {
 	return filepath.Join(ws, sessionsDirName), nil
 }
 
-// SkillsDir returns the full path to the skills directory.
+// SkillsDir returns the full path to the user-installed skills directory.
 func (c *Config) SkillsDir() (string, error) {
 	ws, err := c.WorkspacePath()
 	if err != nil {
 		return "", err
 	}
 	return filepath.Join(ws, skillsDirName), nil
+}
+
+// BuiltinSkillsDir returns the full path to the built-in skills directory.
+// Built-in skills are synced from embedded templates on update.
+func (c *Config) BuiltinSkillsDir() (string, error) {
+	ws, err := c.WorkspacePath()
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(ws, builtinSkillsDirName), nil
 }
 
 // GetProvider returns the configured default thread provider.

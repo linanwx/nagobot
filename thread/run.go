@@ -438,8 +438,14 @@ func (t *Thread) buildSkillsSection() string {
 		return ""
 	}
 
-	if err := cfg.Skills.ReloadFromDirectory(cfg.SkillsDir); err != nil {
-		logger.Warn("failed to reload skills", "dir", cfg.SkillsDir, "err", err)
+	// Load built-in first, then user skills (user overrides built-in on name conflict).
+	dirs := []string{}
+	if cfg.BuiltinSkillsDir != "" {
+		dirs = append(dirs, cfg.BuiltinSkillsDir)
+	}
+	dirs = append(dirs, cfg.SkillsDir)
+	if err := cfg.Skills.ReloadFromDirectories(dirs...); err != nil {
+		logger.Warn("failed to reload skills", "dirs", dirs, "err", err)
 	}
 	return cfg.Skills.BuildPromptSection()
 }

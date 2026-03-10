@@ -76,6 +76,7 @@ type ThreadConfig struct {
 	Agents              *agent.AgentRegistry
 	Workspace           string
 	SkillsDir           string
+	BuiltinSkillsDir    string
 	SessionsDir         string
 	ContextWindowTokens int
 	ContextWarnRatio    float64

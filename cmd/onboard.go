@@ -469,8 +469,9 @@ func writeTemplate(workspace, templateName, destName string, overwrite bool) err
 
 func createBootstrapFiles(workspace string) error {
 	const (
-		skillsDir   = "skills"
-		sessionsDir = "sessions"
+		skillsDir        = "skills"
+		builtinSkillsDir = "skills-builtin"
+		sessionsDir      = "sessions"
 	)
 
 	for _, dir := range []string{
@@ -481,6 +482,7 @@ func createBootstrapFiles(workspace string) error {
 		"system",
 		"save",
 		skillsDir,
+		builtinSkillsDir,
 		filepath.Join(sessionsDir, "cli"),
 		filepath.Join(sessionsDir, "cron"),
 	} {
@@ -494,11 +496,14 @@ func createBootstrapFiles(workspace string) error {
 		return err
 	}
 
-	// Copy embedded agent and skill directories into workspace.
+	// Copy embedded agent directories into workspace.
 	if err := copyEmbeddedDir("templates/agents", filepath.Join(workspace, "agents")); err != nil {
 		return err
 	}
-	if err := copyEmbeddedDir("templates/skills", filepath.Join(workspace, skillsDir)); err != nil {
+
+	// Built-in skills: clean and re-copy to ensure deleted skills are removed.
+	builtinDest := filepath.Join(workspace, builtinSkillsDir)
+	if err := cleanAndCopyEmbeddedDir("templates/skills", builtinDest); err != nil {
 		return err
 	}
 
@@ -666,6 +671,22 @@ func runSync() error {
 	}
 	fmt.Println("Synced template files to", workspace)
 	return nil
+}
+
+// cleanAndCopyEmbeddedDir removes all contents of dest, then copies the
+// embedded directory tree into it. This ensures deleted templates are removed.
+func cleanAndCopyEmbeddedDir(embeddedRoot, dest string) error {
+	// Remove existing contents but keep the directory itself.
+	entries, err := os.ReadDir(dest)
+	if err == nil {
+		for _, entry := range entries {
+			os.RemoveAll(filepath.Join(dest, entry.Name()))
+		}
+	}
+	if err := os.MkdirAll(dest, 0755); err != nil {
+		return err
+	}
+	return copyEmbeddedDir(embeddedRoot, dest)
 }
 
 // copyEmbeddedDir recursively copies an embedded directory tree to dest,

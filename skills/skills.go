@@ -90,6 +90,42 @@ func (r *Registry) ReloadFromDirectory(dir string) error {
 	return nil
 }
 
+// LoadFromDirectories loads skills from multiple directories.
+// Later directories override earlier ones (user skills override built-in).
+func (r *Registry) LoadFromDirectories(dirs ...string) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	for _, dir := range dirs {
+		loaded, err := loadSkillsFromDirectory(dir)
+		if err != nil {
+			return err
+		}
+		for name, skill := range loaded {
+			r.skills[name] = skill
+		}
+	}
+	return nil
+}
+
+// ReloadFromDirectories replaces current skills with files from multiple directories.
+// Later directories override earlier ones (user skills override built-in).
+func (r *Registry) ReloadFromDirectories(dirs ...string) error {
+	merged := make(map[string]*Skill)
+	for _, dir := range dirs {
+		loaded, err := loadSkillsFromDirectory(dir)
+		if err != nil {
+			return err
+		}
+		for name, skill := range loaded {
+			merged[name] = skill
+		}
+	}
+	r.mu.Lock()
+	r.skills = merged
+	r.mu.Unlock()
+	return nil
+}
+
 func loadSkillsFromDirectory(dir string) (map[string]*Skill, error) {
 	entries, err := os.ReadDir(dir)
 	if err != nil {

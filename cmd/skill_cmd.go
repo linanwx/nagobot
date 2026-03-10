@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 
 	"github.com/linanwx/nagobot/config"
@@ -190,45 +191,64 @@ func runSkillList(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
-	skillsDir := filepath.Join(workspace, "skills")
-	entries, err := os.ReadDir(skillsDir)
-	if err != nil {
-		if os.IsNotExist(err) {
-			fmt.Println("No skills installed.")
-			return nil
-		}
-		return err
-	}
-
+	builtinSkillsDir := filepath.Join(workspace, "skills-builtin")
+	userSkillsDir := filepath.Join(workspace, "skills")
 	installed, _ := skills.LoadInstalled(workspace)
 
-	var count int
-	for _, entry := range entries {
-		if !entry.IsDir() || strings.HasPrefix(entry.Name(), ".") {
-			continue
-		}
-		name := entry.Name()
+	// Collect skills from both directories. User skills override built-in.
+	type skillEntry struct {
+		name   string
+		source string
+	}
+	seen := make(map[string]skillEntry)
 
-		if skills.FindSkillFile(filepath.Join(skillsDir, name)) == "" {
-			continue
-		}
-
-		source := "bundled"
-		if installed != nil {
-			if meta, tracked := installed.IsTracked(name); tracked {
-				source = "hub:" + meta.Hub
+	// Built-in skills first.
+	if entries, err := os.ReadDir(builtinSkillsDir); err == nil {
+		for _, entry := range entries {
+			if !entry.IsDir() || strings.HasPrefix(entry.Name(), ".") {
+				continue
 			}
+			if skills.FindSkillFile(filepath.Join(builtinSkillsDir, entry.Name())) == "" {
+				continue
+			}
+			seen[entry.Name()] = skillEntry{name: entry.Name(), source: "builtin"}
 		}
-
-		fmt.Printf("  %-30s [%s]\n", name, source)
-		count++
 	}
 
-	if count == 0 {
+	// User-installed skills (override built-in).
+	if entries, err := os.ReadDir(userSkillsDir); err == nil {
+		for _, entry := range entries {
+			if !entry.IsDir() || strings.HasPrefix(entry.Name(), ".") {
+				continue
+			}
+			if skills.FindSkillFile(filepath.Join(userSkillsDir, entry.Name())) == "" {
+				continue
+			}
+			source := "user"
+			if installed != nil {
+				if meta, tracked := installed.IsTracked(entry.Name()); tracked {
+					source = "hub:" + meta.Hub
+				}
+			}
+			seen[entry.Name()] = skillEntry{name: entry.Name(), source: source}
+		}
+	}
+
+	if len(seen) == 0 {
 		fmt.Println("No skills installed.")
-	} else {
-		fmt.Printf("\n%d skill(s) installed.\n", count)
+		return nil
 	}
+
+	// Sort and print.
+	names := make([]string, 0, len(seen))
+	for name := range seen {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	for _, name := range names {
+		fmt.Printf("  %-30s [%s]\n", name, seen[name].source)
+	}
+	fmt.Printf("\n%d skill(s) total.\n", len(seen))
 	return nil
 }
 

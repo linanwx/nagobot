@@ -42,14 +42,19 @@ func buildThreadManager(cfg *config.Config, enableSessions bool) (*thread.Manage
 	if err != nil {
 		return nil, fmt.Errorf("failed to get skills directory: %w", err)
 	}
+	builtinSkillsDir, err := cfg.BuiltinSkillsDir()
+	if err != nil {
+		return nil, fmt.Errorf("failed to get builtin skills directory: %w", err)
+	}
 	sessionsDir, err := cfg.SessionsDir()
 	if err != nil {
 		return nil, fmt.Errorf("failed to get sessions directory: %w", err)
 	}
 
 	skillRegistry := skills.NewRegistry()
-	if err := skillRegistry.LoadFromDirectory(skillsDir); err != nil {
-		logger.Warn("failed to load skills", "dir", skillsDir, "err", err)
+	// Load built-in first, then user skills (user overrides built-in on name conflict).
+	if err := skillRegistry.LoadFromDirectories(builtinSkillsDir, skillsDir); err != nil {
+		logger.Warn("failed to load skills", "err", err)
 	}
 
 	toolRegistry := tools.NewRegistry()
@@ -177,6 +182,7 @@ func buildThreadManager(cfg *config.Config, enableSessions bool) (*thread.Manage
 		Agents:              agentRegistry,
 		Workspace:           workspace,
 		SkillsDir:           skillsDir,
+		BuiltinSkillsDir:    builtinSkillsDir,
 		SessionsDir:         sessionsDir,
 		ContextWindowTokens: cfg.GetContextWindowTokens(),
 		ContextWarnRatio:    cfg.GetContextWarnRatio(),
