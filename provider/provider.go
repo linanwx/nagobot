@@ -46,6 +46,7 @@ type Message struct {
 	ID               string     `json:"id,omitempty"`                // unique message identifier
 	Timestamp        time.Time  `json:"timestamp,omitempty"`         // when message was created
 	Compressed       string     `json:"compressed,omitempty"`        // compressed version of content
+	Source           string     `json:"source,omitempty"`            // wake source that triggered this message
 }
 
 // GetContent returns the compressed content if available, otherwise the original content.

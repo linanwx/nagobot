@@ -123,11 +123,11 @@ func collectSessions(cfg *config.Config, days int) (*listSessionsOutput, error) 
 			tzSource = "configured"
 		}
 
-		// Check for heartbeat file in the session directory.
+		// Check for non-empty heartbeat file in the session directory.
 		sessionDir := filepath.Dir(path)
 		hasHeartbeat := false
-		if _, statErr := os.Stat(filepath.Join(sessionDir, "heartbeat.md")); statErr == nil {
-			hasHeartbeat = true
+		if data, readErr := os.ReadFile(filepath.Join(sessionDir, "heartbeat.md")); readErr == nil {
+			hasHeartbeat = len(strings.TrimSpace(string(data))) > 0
 		}
 
 		entry := sessionEntry{

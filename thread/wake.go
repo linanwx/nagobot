@@ -97,6 +97,11 @@ func (t *Thread) RunOnce(ctx context.Context) {
 			t.Set(k, v)
 		}
 
+		// Heartbeat reflection is always silent — suppress sink delivery.
+		if msg.Source == WakeHeartbeatReflect {
+			t.SetSuppressSink()
+		}
+
 		// Use per-wake sink; fall back to thread's default sink.
 		sink := msg.Sink
 		if sink.IsZero() {
@@ -141,7 +146,7 @@ func (t *Thread) RunOnce(ctx context.Context) {
 			}
 		}
 
-		response, err := t.run(ctx, userMessage, sink, injectFn)
+		response, err := t.run(ctx, userMessage, sink, injectFn, string(msg.Source))
 		if err != nil {
 			logger.Error("thread run error", "threadID", t.id, "sessionKey", t.sessionKey, "source", msg.Source, "err", err)
 			response = sysmsg.BuildSystemMessage("error", nil, fmt.Sprintf("%v", err))
@@ -229,6 +234,10 @@ func wakeActionHint(source WakeSource) string {
 		return "Process this external wake message. The <message> content is only visible to you."
 	case WakeCompression:
 		return "Automated background maintenance. Execute the compression skill immediately. Do not produce user-facing content."
+	case WakeHeartbeatReflect:
+		return "Heartbeat reflection triggered. Load the specified skill and follow its instructions to review this session and update heartbeat.md."
+	case WakeHeartbeatWake:
+		return "Heartbeat wake triggered. Load the specified skill and follow its instructions to check heartbeat.md and act on relevant items."
 	default:
 		return "Process this wake message and continue."
 	}

@@ -103,6 +103,30 @@ func runServe(cmd *cobra.Command, args []string) error {
 			}
 			enrichWithThreads(output, threadMgr.ListThreads())
 			return output, nil
+		case "heartbeat.reflect":
+			var p struct {
+				Key string `json:"key"`
+			}
+			if err := json.Unmarshal(params, &p); err != nil || p.Key == "" {
+				return nil, fmt.Errorf("heartbeat.reflect requires {key}")
+			}
+			threadMgr.Wake(p.Key, &thread.WakeMessage{
+				Source:  thread.WakeHeartbeatReflect,
+				Message: reflectInstruction(threadMgr.SessionDir(p.Key)),
+			})
+			return "ok", nil
+		case "heartbeat.wake":
+			var p struct {
+				Key string `json:"key"`
+			}
+			if err := json.Unmarshal(params, &p); err != nil || p.Key == "" {
+				return nil, fmt.Errorf("heartbeat.wake requires {key}")
+			}
+			threadMgr.Wake(p.Key, &thread.WakeMessage{
+				Source:  thread.WakeHeartbeatWake,
+				Message: wakeInstruction(threadMgr.SessionDir(p.Key)),
+			})
+			return "ok", nil
 		default:
 			return nil, fmt.Errorf("unknown method: %s", method)
 		}

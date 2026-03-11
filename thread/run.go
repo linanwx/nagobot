@@ -18,7 +18,7 @@ import (
 
 // run executes one thread turn. Called by RunOnce; callers must not invoke
 // this directly.
-func (t *Thread) run(ctx context.Context, userMessage string, sink Sink, injectFn func() []provider.Message) (string, error) {
+func (t *Thread) run(ctx context.Context, userMessage string, sink Sink, injectFn func() []provider.Message, wakeSource string) (string, error) {
 	userMessage = strings.TrimSpace(userMessage)
 	if userMessage == "" {
 		return "", nil
@@ -31,6 +31,11 @@ func (t *Thread) run(ctx context.Context, userMessage string, sink Sink, injectF
 
 	// Write-ahead: persist user messages before LLM call so they survive a crash.
 	if sess != nil {
+		if wakeSource != "" {
+			for i := range turnUserMessages {
+				turnUserMessages[i].Source = wakeSource
+			}
+		}
 		if err := cfg.Sessions.Append(t.sessionKey, turnUserMessages...); err != nil {
 			logger.Warn("write-ahead save failed", "key", t.sessionKey, "err", err)
 		}
@@ -64,7 +69,7 @@ func (t *Thread) run(ctx context.Context, userMessage string, sink Sink, injectF
 		return "", err
 	}
 
-	t.persistTurnMessages(cfg, sess, intermediates, response)
+	t.persistTurnMessages(cfg, sess, intermediates, response, wakeSource)
 	providerName, modelName := t.resolvedProviderModel()
 	agentName := ""
 	t.mu.Lock()
@@ -208,13 +213,19 @@ func (t *Thread) executeRunner(ctx, runCtx context.Context, p provider.Provider,
 }
 
 // persistTurnMessages saves intermediate tool messages and final response to the session.
-func (t *Thread) persistTurnMessages(cfg *ThreadConfig, sess *session.Session, intermediates []provider.Message, response string) {
+// When wakeSource is non-empty, all messages are tagged with it.
+func (t *Thread) persistTurnMessages(cfg *ThreadConfig, sess *session.Session, intermediates []provider.Message, response string, wakeSource string) {
 	if sess == nil {
 		return
 	}
 	toAppend := make([]provider.Message, 0, len(intermediates)+1)
 	toAppend = append(toAppend, intermediates...)
 	toAppend = append(toAppend, provider.AssistantMessage(response))
+	if wakeSource != "" {
+		for i := range toAppend {
+			toAppend[i].Source = wakeSource
+		}
+	}
 	if err := cfg.Sessions.Append(t.sessionKey, toAppend...); err != nil {
 		logger.Warn("failed to save session", "key", t.sessionKey, "err", err)
 	}

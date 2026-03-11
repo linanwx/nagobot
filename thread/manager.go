@@ -2,6 +2,7 @@ package thread
 
 import (
 	"context"
+	"path/filepath"
 	"strings"
 	"sync"
 	"time"
@@ -192,6 +193,14 @@ func (m *Manager) RegisterTool(t tools.Tool) {
 	if m.cfg.Tools != nil {
 		m.cfg.Tools.Register(t)
 	}
+}
+
+// SessionDir returns the on-disk directory for a session key, or "" if unavailable.
+func (m *Manager) SessionDir(key string) string {
+	if m.cfg.Sessions == nil {
+		return ""
+	}
+	return filepath.Dir(m.cfg.Sessions.PathForKey(key))
 }
 
 // ThreadStatus returns the status of a thread by ID.
