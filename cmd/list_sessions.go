@@ -11,6 +11,7 @@ import (
 
 	"github.com/linanwx/nagobot/config"
 	"github.com/linanwx/nagobot/session"
+	"github.com/linanwx/nagobot/thread/msg"
 	"github.com/spf13/cobra"
 )
 
@@ -37,13 +38,15 @@ type sessionEntry struct {
 	Summary             string `json:"summary"`
 	SummaryAt           string `json:"summary_at,omitempty"`
 	ChangedSinceSummary bool   `json:"changed_since_summary"`
+	IsRunning           bool   `json:"is_running"`
+	HasHeartbeat        bool   `json:"has_heartbeat"`
 }
 
 type listSessionsOutput struct {
-	Sessions     []sessionEntry `json:"sessions"`
-	Filter       string         `json:"filter"`
-	TotalSessions int           `json:"total_sessions"`
-	ShownSessions int           `json:"shown_sessions"`
+	Sessions      []sessionEntry `json:"sessions"`
+	Filter        string         `json:"filter"`
+	TotalSessions int            `json:"total_sessions"`
+	ShownSessions int            `json:"shown_sessions"`
 }
 
 func runListSessions(_ *cobra.Command, _ []string) error {
@@ -51,17 +54,43 @@ func runListSessions(_ *cobra.Command, _ []string) error {
 	if err != nil {
 		return fmt.Errorf("failed to load config: %w", err)
 	}
+
+	// Try RPC to running serve process first.
+	result, err := rpcCall("sessions.list", map[string]int{"days": listSessionsDays})
+	if err == nil {
+		var output listSessionsOutput
+		if jsonErr := json.Unmarshal(result, &output); jsonErr == nil {
+			enc := json.NewEncoder(os.Stdout)
+			enc.SetIndent("", "  ")
+			return enc.Encode(output)
+		}
+	}
+
+	// Fallback to file scanning.
+	output, err := collectSessions(cfg, listSessionsDays)
+	if err != nil {
+		return err
+	}
+
+	enc := json.NewEncoder(os.Stdout)
+	enc.SetIndent("", "  ")
+	return enc.Encode(output)
+}
+
+// collectSessions scans session files on disk and returns a summary.
+// IsRunning defaults to false (only populated via RPC from a running serve).
+func collectSessions(cfg *config.Config, days int) (*listSessionsOutput, error) {
 	workspace, err := cfg.WorkspacePath()
 	if err != nil {
-		return fmt.Errorf("failed to get workspace: %w", err)
+		return nil, fmt.Errorf("failed to get workspace: %w", err)
 	}
 
 	sessionsDir, err := cfg.SessionsDir()
 	if err != nil {
-		return fmt.Errorf("failed to get sessions dir: %w", err)
+		return nil, fmt.Errorf("failed to get sessions dir: %w", err)
 	}
 	summaries := loadSummariesFile(filepath.Join(workspace, "system", "sessions_summary.json"))
-	cutoff := time.Now().AddDate(0, 0, -listSessionsDays)
+	cutoff := time.Now().AddDate(0, 0, -days)
 
 	var all []sessionEntry
 	total := 0
@@ -93,12 +122,21 @@ func runListSessions(_ *cobra.Command, _ []string) error {
 		if cfg.Channels != nil && cfg.Channels.SessionTimezones[key] != "" {
 			tzSource = "configured"
 		}
+
+		// Check for heartbeat file in the session directory.
+		sessionDir := filepath.Dir(path)
+		hasHeartbeat := false
+		if _, statErr := os.Stat(filepath.Join(sessionDir, "heartbeat.md")); statErr == nil {
+			hasHeartbeat = true
+		}
+
 		entry := sessionEntry{
 			Key:            key,
 			Timezone:       tz,
 			TimezoneSource: tzSource,
 			UpdatedAt:      updatedAt.Format(time.RFC3339),
 			MessageCount:   len(s.Messages),
+			HasHeartbeat:   hasHeartbeat,
 		}
 
 		if s, ok := summaries[key]; ok {
@@ -117,9 +155,9 @@ func runListSessions(_ *cobra.Command, _ []string) error {
 		return nil
 	})
 
-	output := listSessionsOutput{
+	output := &listSessionsOutput{
 		Sessions:      all,
-		Filter:        fmt.Sprintf("showing sessions active in last %d days (use --days N to adjust)", listSessionsDays),
+		Filter:        fmt.Sprintf("showing sessions active in last %d days (use --days N to adjust)", days),
 		TotalSessions: total,
 		ShownSessions: len(all),
 	}
@@ -127,13 +165,26 @@ func runListSessions(_ *cobra.Command, _ []string) error {
 		output.Sessions = []sessionEntry{}
 	}
 
-	enc := json.NewEncoder(os.Stdout)
-	enc.SetIndent("", "  ")
-	return enc.Encode(output)
+	return output, nil
+}
+
+// enrichWithThreads fills IsRunning from live thread state.
+func enrichWithThreads(output *listSessionsOutput, threads []msg.ThreadInfo) {
+	running := make(map[string]bool, len(threads))
+	for _, t := range threads {
+		if t.State == "running" || t.State == "pending" {
+			running[t.SessionKey] = true
+		}
+	}
+	for i := range output.Sessions {
+		if running[output.Sessions[i].Key] {
+			output.Sessions[i].IsRunning = true
+		}
+	}
 }
 
 // deriveSessionKey reconstructs a session key from filesystem path.
-// sessions/telegram/12345/session.jsonl → telegram:12345
+// sessions/telegram/12345/session.jsonl -> telegram:12345
 func deriveSessionKey(root, path string) string {
 	rel, err := filepath.Rel(root, path)
 	if err != nil {

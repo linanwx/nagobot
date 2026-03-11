@@ -15,10 +15,25 @@ import (
 const socketMessageBufferSize = 100
 
 // socketInbound is the JSON message sent by a CLI client.
+// When Method is non-empty, the message is treated as a JSON RPC request.
 type socketInbound struct {
 	Type string `json:"type"`
 	Text string `json:"text"`
+	// RPC fields
+	ID     string          `json:"id,omitempty"`
+	Method string          `json:"method,omitempty"`
+	Params json.RawMessage `json:"params,omitempty"`
 }
+
+// rpcResponse is the JSON response for an RPC request.
+type rpcResponse struct {
+	ID     string `json:"id"`
+	Result any    `json:"result,omitempty"`
+	Error  string `json:"error,omitempty"`
+}
+
+// RPCHandler handles an RPC method call and returns a result or error.
+type RPCHandler func(method string, params json.RawMessage) (any, error)
 
 // SocketOutbound is the JSON message sent to a CLI client.
 type SocketOutbound struct {
@@ -41,6 +56,8 @@ type SocketChannel struct {
 	peers   map[*socketClient]struct{}
 	msgID   atomic.Int64
 	stopOnce sync.Once
+
+	rpcHandler RPCHandler
 }
 
 type socketClient struct {
@@ -58,6 +75,11 @@ func NewSocketChannel(socketPath string) *SocketChannel {
 		clients:    make(map[string]*socketClient),
 		peers:      make(map[*socketClient]struct{}),
 	}
+}
+
+// SetRPCHandler registers a handler for JSON RPC requests.
+func (s *SocketChannel) SetRPCHandler(h RPCHandler) {
+	s.rpcHandler = h
 }
 
 func (s *SocketChannel) Name() string { return "socket" }
@@ -189,6 +211,13 @@ func (s *SocketChannel) handleConn(client *socketClient) {
 			return
 		}
 
+		// RPC path: Method non-empty means this is an RPC request.
+		if req.Method != "" {
+			s.handleRPC(client, &req)
+			continue
+		}
+
+		// Chat path (existing protocol).
 		msgType := req.Type
 		if msgType == "" {
 			msgType = "message"
@@ -220,6 +249,25 @@ func (s *SocketChannel) handleConn(client *socketClient) {
 		case <-s.done:
 			return
 		}
+	}
+}
+
+func (s *SocketChannel) handleRPC(client *socketClient, req *socketInbound) {
+	resp := rpcResponse{ID: req.ID}
+	if s.rpcHandler == nil {
+		resp.Error = "rpc not available"
+	} else {
+		result, err := s.rpcHandler(req.Method, req.Params)
+		if err != nil {
+			resp.Error = err.Error()
+		} else {
+			resp.Result = result
+		}
+	}
+	client.mu.Lock()
+	defer client.mu.Unlock()
+	if err := client.encoder.Encode(resp); err != nil {
+		logger.Warn("socket rpc encode error", "err", err)
 	}
 }
 

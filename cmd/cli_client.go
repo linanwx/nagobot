@@ -7,7 +7,6 @@ import (
 	"net"
 	"os"
 	"os/signal"
-	"path/filepath"
 	"strings"
 	"sync"
 	"syscall"
@@ -35,11 +34,10 @@ type socketInbound struct {
 }
 
 func runCLIClient(cmd *cobra.Command, args []string) error {
-	configDir, err := config.ConfigDir()
+	socketPath, err := config.SocketPath()
 	if err != nil {
-		return fmt.Errorf("failed to get config directory: %w", err)
+		return fmt.Errorf("failed to get socket path: %w", err)
 	}
-	socketPath := filepath.Join(configDir, "nagobot.sock")
 
 	conn, err := net.Dial("unix", socketPath)
 	if err != nil {

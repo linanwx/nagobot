@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"io"
 	"os"
@@ -73,12 +74,39 @@ func runServe(cmd *cobra.Command, args []string) error {
 	chManager := channel.NewManager()
 
 	// Socket channel is always started for CLI client connections.
-	configDir, err := config.ConfigDir()
+	socketPath, err := config.SocketPath()
 	if err != nil {
-		return fmt.Errorf("failed to get config directory: %w", err)
+		return fmt.Errorf("failed to get socket path: %w", err)
 	}
-	socketPath := filepath.Join(configDir, "nagobot.sock")
-	chManager.Register(channel.NewSocketChannel(socketPath))
+	socketCh := channel.NewSocketChannel(socketPath)
+	chManager.Register(socketCh)
+
+	// Wire RPC handler so CLI commands can query the running serve process.
+	socketCh.SetRPCHandler(func(method string, params json.RawMessage) (any, error) {
+		switch method {
+		case "sessions.list":
+			var p struct {
+				Days int `json:"days"`
+			}
+			_ = json.Unmarshal(params, &p)
+			if p.Days == 0 {
+				p.Days = 2
+			}
+			// Reload config to respect hot-reload changes.
+			latestCfg, err := config.Load()
+			if err != nil {
+				return nil, fmt.Errorf("load config: %w", err)
+			}
+			output, err := collectSessions(latestCfg, p.Days)
+			if err != nil {
+				return nil, err
+			}
+			enrichWithThreads(output, threadMgr.ListThreads())
+			return output, nil
+		default:
+			return nil, fmt.Errorf("unknown method: %s", method)
+		}
+	})
 
 	finalServeTelegram, finalServeFeishu, finalServeDiscord, finalServeWeb, err := resolveServeTargets(cmd)
 	if err != nil {

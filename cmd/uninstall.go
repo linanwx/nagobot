@@ -40,15 +40,15 @@ func runUninstall(cmd *cobra.Command, args []string) error {
 	}
 
 	// Remove socket file.
-	configDir, err := config.ConfigDir()
+	socketPath, err := config.SocketPath()
 	if err == nil {
-		socketPath := filepath.Join(configDir, "nagobot.sock")
 		fmt.Println("==> Removing socket...")
 		os.Remove(socketPath)
 	}
 
 	fmt.Println()
 	fmt.Println("==> Uninstall complete.")
+	configDir, _ := config.ConfigDir()
 	if configDir != "" {
 		fmt.Printf("    Data directory preserved: %s\n", configDir)
 	}

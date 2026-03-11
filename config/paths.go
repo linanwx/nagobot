@@ -37,6 +37,15 @@ func ConfigDir() (string, error) {
 	return filepath.Join(home, ".nagobot"), nil
 }
 
+// SocketPath returns the path to the daemon unix socket.
+func SocketPath() (string, error) {
+	dir, err := ConfigDir()
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(dir, "nagobot.sock"), nil
+}
+
 // ConfigPath returns the default YAML config path.
 func ConfigPath() (string, error) {
 	dir, err := ConfigDir()
