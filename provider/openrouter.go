@@ -179,14 +179,6 @@ func newOpenRouterProvider(apiKey, apiBase, modelType, modelName string, maxToke
 	}
 }
 
-func openRouterInputChars(messages []Message) int {
-	total := 0
-	for _, m := range messages {
-		total += len(m.Role)
-		total += len(m.Content)
-	}
-	return total
-}
 
 func toOpenAIChatMessages(messages []Message, visionCapable bool) ([]openai.ChatCompletionMessageParamUnion, error) {
 	result := make([]openai.ChatCompletionMessageParamUnion, 0, len(messages))
@@ -310,7 +302,7 @@ func fromOpenAIChatToolCalls(calls []openai.ChatCompletionMessageToolCallUnion) 
 // Chat sends a chat completion request to OpenRouter.
 func (p *OpenRouterProvider) Chat(ctx context.Context, req *Request) (*Response, error) {
 	start := time.Now()
-	inputChars := openRouterInputChars(req.Messages)
+	inputChars := inputChars(req.Messages)
 
 	messages, err := toOpenAIChatMessages(req.Messages, SupportsVision("openrouter", p.modelType))
 	if err != nil {
@@ -368,10 +360,7 @@ func (p *OpenRouterProvider) Chat(ctx context.Context, req *Request) (*Response,
 	reasoningText := extractReasoningText(rawMessage)
 	reasoningDetails := extractReasoningDetails(rawMessage)
 	finalContent := choice.Message.Content
-	if strings.TrimSpace(finalContent) == "" && len(toolCalls) == 0 && strings.TrimSpace(reasoningText) != "" {
-		logger.Warn("openrouter response content empty, using reasoning text fallback")
-		finalContent = reasoningText
-	}
+	finalContent = resolveContentWithReasoningFallback(finalContent, reasoningText, "openrouter", toolCalls)
 
 	logger.Info(
 		"openrouter response",

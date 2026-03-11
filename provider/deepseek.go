@@ -170,7 +170,7 @@ func (p *DeepSeekProvider) endpoint() string {
 // Chat sends a chat completion request to DeepSeek.
 func (p *DeepSeekProvider) Chat(ctx context.Context, req *Request) (*Response, error) {
 	start := time.Now()
-	inputChars := openRouterInputChars(req.Messages)
+	inputChars := inputChars(req.Messages)
 	thinkingEnabled := strings.TrimSpace(p.modelType) == "deepseek-reasoner"
 	streaming := req.OnTextDelta != nil
 
@@ -265,10 +265,7 @@ func (p *DeepSeekProvider) chatSync(ctx context.Context, dsReq dsRequest, start 
 	choice := resp.Choices[0]
 	finalContent := choice.Message.Content
 	reasoningText := choice.Message.ReasoningContent
-	if strings.TrimSpace(finalContent) == "" && len(choice.Message.ToolCalls) == 0 && strings.TrimSpace(reasoningText) != "" {
-		logger.Warn("deepseek response content empty, using reasoning text fallback")
-		finalContent = reasoningText
-	}
+	finalContent = resolveContentWithReasoningFallback(finalContent, reasoningText, "deepseek", choice.Message.ToolCalls)
 
 	u := resp.Usage
 	logger.Info(
@@ -417,10 +414,7 @@ func (p *DeepSeekProvider) chatStream(ctx context.Context, req *Request, dsReq d
 
 	finalContent := content.String()
 	reasoningText := reasoning.String()
-	if strings.TrimSpace(finalContent) == "" && len(toolCalls) == 0 && strings.TrimSpace(reasoningText) != "" {
-		logger.Warn("deepseek streaming response content empty, using reasoning text fallback")
-		finalContent = reasoningText
-	}
+	finalContent = resolveContentWithReasoningFallback(finalContent, reasoningText, "deepseek", toolCalls)
 
 	logger.Info(
 		"deepseek streaming response",

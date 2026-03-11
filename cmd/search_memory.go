@@ -87,12 +87,10 @@ func runKeywordSearch(args []string) error {
 	if err != nil {
 		return fmt.Errorf("failed to load config: %w", err)
 	}
-	workspace, err := cfg.WorkspacePath()
+	sessionsDir, err := cfg.SessionsDir()
 	if err != nil {
-		return fmt.Errorf("failed to get workspace: %w", err)
+		return fmt.Errorf("failed to get sessions dir: %w", err)
 	}
-
-	sessionsDir := filepath.Join(workspace, "sessions")
 	cutoff := time.Now().AddDate(0, 0, -searchMemoryDays)
 
 	// Parse --after / --before time filters.
@@ -229,12 +227,10 @@ func runContextBrowse(_ []string) error {
 	if err != nil {
 		return fmt.Errorf("failed to load config: %w", err)
 	}
-	workspace, err := cfg.WorkspacePath()
+	sessionsDir, err := cfg.SessionsDir()
 	if err != nil {
-		return fmt.Errorf("failed to get workspace: %w", err)
+		return fmt.Errorf("failed to get sessions dir: %w", err)
 	}
-
-	sessionsDir := filepath.Join(workspace, "sessions")
 
 	// Derive session key from message ID.
 	// Message ID format: sessionKey:unixMillis:seq (e.g. "telegram:5358956630:1772795279732:197")

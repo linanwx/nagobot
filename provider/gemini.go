@@ -155,7 +155,7 @@ func (p *GeminiProvider) streamEndpoint() string {
 // Chat sends a chat completion request to Google AI Studio.
 func (p *GeminiProvider) Chat(ctx context.Context, req *Request) (*Response, error) {
 	start := time.Now()
-	inputChars := geminiInputChars(req.Messages)
+	inputChars := inputChars(req.Messages)
 	streaming := req.OnTextDelta != nil
 
 	logger.Info(
@@ -463,14 +463,6 @@ func (p *GeminiProvider) parseResponse(resp gmResponse, start time.Time) (*Respo
 
 // ---------- message conversion ----------
 
-func geminiInputChars(messages []Message) int {
-	total := 0
-	for _, m := range messages {
-		total += len(m.Role)
-		total += len(m.Content)
-	}
-	return total
-}
 
 // toGeminiContents converts canonical Messages to Gemini API format.
 // Returns (systemInstruction, contents, error).

@@ -88,7 +88,7 @@ func newZhipuProvider(providerName, apiKey, apiBase, defaultBase, modelType, mod
 // Chat sends a chat completion request to Zhipu.
 func (p *ZhipuProvider) Chat(ctx context.Context, req *Request) (*Response, error) {
 	start := time.Now()
-	inputChars := openRouterInputChars(req.Messages)
+	inputChars := inputChars(req.Messages)
 
 	messages, err := toOpenAIChatMessages(req.Messages, false)
 	if err != nil {
@@ -154,10 +154,7 @@ func (p *ZhipuProvider) Chat(ctx context.Context, req *Request) (*Response, erro
 	rawMessage := choice.Message.RawJSON()
 	reasoningText := extractReasoningText(rawMessage)
 	finalContent := choice.Message.Content
-	if strings.TrimSpace(finalContent) == "" && len(toolCalls) == 0 && strings.TrimSpace(reasoningText) != "" {
-		logger.Warn("zhipu response content empty, using reasoning text fallback", "provider", p.providerName)
-		finalContent = reasoningText
-	}
+	finalContent = resolveContentWithReasoningFallback(finalContent, reasoningText, "zhipu", toolCalls)
 
 	logger.Info(
 		"zhipu response",

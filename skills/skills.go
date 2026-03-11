@@ -24,8 +24,9 @@ type Skill struct {
 
 // Registry holds loaded skills.
 type Registry struct {
-	skills map[string]*Skill
-	mu     sync.RWMutex
+	skills       map[string]*Skill
+	mu           sync.RWMutex
+	lastSnapshot dirSnapshot // cached file modtimes for change detection
 }
 
 // NewRegistry creates a new skill registry.
@@ -109,7 +110,16 @@ func (r *Registry) LoadFromDirectories(dirs ...string) error {
 
 // ReloadFromDirectories replaces current skills with files from multiple directories.
 // Later directories override earlier ones (user skills override built-in).
+// Skips the full reload if no file modtimes have changed since the last call.
 func (r *Registry) ReloadFromDirectories(dirs ...string) error {
+	snap := takeDirSnapshot(dirs)
+	r.mu.RLock()
+	same := snap.equals(r.lastSnapshot)
+	r.mu.RUnlock()
+	if same {
+		return nil
+	}
+
 	merged := make(map[string]*Skill)
 	for _, dir := range dirs {
 		loaded, err := loadSkillsFromDirectory(dir)
@@ -122,8 +132,52 @@ func (r *Registry) ReloadFromDirectories(dirs ...string) error {
 	}
 	r.mu.Lock()
 	r.skills = merged
+	r.lastSnapshot = snap
 	r.mu.Unlock()
 	return nil
+}
+
+// dirSnapshot records file modtimes for change detection.
+type dirSnapshot struct {
+	files map[string]int64 // path → modtime (UnixNano)
+}
+
+func takeDirSnapshot(dirs []string) dirSnapshot {
+	snap := dirSnapshot{files: make(map[string]int64)}
+	for _, dir := range dirs {
+		entries, err := os.ReadDir(dir)
+		if err != nil {
+			continue
+		}
+		for _, e := range entries {
+			path := filepath.Join(dir, e.Name())
+			if e.IsDir() {
+				// For directory-based skills, stat the SKILL.md inside.
+				if sf := FindSkillFile(path); sf != "" {
+					if info, err := os.Stat(sf); err == nil {
+						snap.files[sf] = info.ModTime().UnixNano()
+					}
+				}
+			} else {
+				if info, err := e.Info(); err == nil {
+					snap.files[path] = info.ModTime().UnixNano()
+				}
+			}
+		}
+	}
+	return snap
+}
+
+func (s dirSnapshot) equals(other dirSnapshot) bool {
+	if len(s.files) != len(other.files) {
+		return false
+	}
+	for k, v := range s.files {
+		if ov, ok := other.files[k]; !ok || v != ov {
+			return false
+		}
+	}
+	return true
 }
 
 func loadSkillsFromDirectory(dir string) (map[string]*Skill, error) {

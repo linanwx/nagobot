@@ -56,7 +56,10 @@ func runListSessions(_ *cobra.Command, _ []string) error {
 		return fmt.Errorf("failed to get workspace: %w", err)
 	}
 
-	sessionsDir := filepath.Join(workspace, "sessions")
+	sessionsDir, err := cfg.SessionsDir()
+	if err != nil {
+		return fmt.Errorf("failed to get sessions dir: %w", err)
+	}
 	summaries := loadSummariesFile(filepath.Join(workspace, "system", "sessions_summary.json"))
 	cutoff := time.Now().AddDate(0, 0, -listSessionsDays)
 

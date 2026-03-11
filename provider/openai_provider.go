@@ -6,6 +6,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 	"strings"
 	"time"
@@ -71,7 +72,7 @@ func newOpenAIProvider(apiKey, apiBase, modelType, modelName string, maxTokens i
 // Chat sends a request to the OpenAI Responses API (streaming).
 func (p *OpenAIProvider) Chat(ctx context.Context, req *Request) (*Response, error) {
 	start := time.Now()
-	inputChars := openRouterInputChars(req.Messages)
+	inputChars := inputChars(req.Messages)
 
 	logger.Info(
 		"openai request",
@@ -112,11 +113,9 @@ func (p *OpenAIProvider) Chat(ctx context.Context, req *Request) (*Response, err
 	defer httpResp.Body.Close()
 
 	if httpResp.StatusCode != http.StatusOK {
-		var buf bytes.Buffer
-		buf.ReadFrom(httpResp.Body)
-		errBody := buf.String()
-		logger.Error("openai request error", "provider", "openai", "status", httpResp.StatusCode, "body", errBody)
-		return nil, fmt.Errorf("request failed: %d %s", httpResp.StatusCode, errBody)
+		errBody, _ := io.ReadAll(httpResp.Body)
+		logger.Error("openai request error", "provider", "openai", "status", httpResp.StatusCode, "body", string(errBody))
+		return nil, fmt.Errorf("request failed: %d %s", httpResp.StatusCode, string(errBody))
 	}
 
 	resp, err := p.parseSSEStream(httpResp)

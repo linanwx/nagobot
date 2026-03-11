@@ -87,7 +87,7 @@ func newMoonshotProvider(providerName, apiKey, apiBase, defaultBase, modelType, 
 // Chat sends a chat completion request to Moonshot.
 func (p *MoonshotProvider) Chat(ctx context.Context, req *Request) (*Response, error) {
 	start := time.Now()
-	inputChars := openRouterInputChars(req.Messages)
+	inputChars := inputChars(req.Messages)
 
 	messages, err := toOpenAIChatMessages(req.Messages, SupportsVision(p.providerName, p.modelType))
 	if err != nil {
@@ -143,10 +143,7 @@ func (p *MoonshotProvider) Chat(ctx context.Context, req *Request) (*Response, e
 	rawResponse := chatResp.RawJSON()
 	reasoningText := extractReasoningText(rawMessage)
 	finalContent := choice.Message.Content
-	if strings.TrimSpace(finalContent) == "" && len(toolCalls) == 0 && strings.TrimSpace(reasoningText) != "" {
-		logger.Warn("moonshot response content empty, using reasoning text fallback")
-		finalContent = reasoningText
-	}
+	finalContent = resolveContentWithReasoningFallback(finalContent, reasoningText, "moonshot", toolCalls)
 
 	logger.Info(
 		"moonshot response",

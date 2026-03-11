@@ -11,6 +11,8 @@ import (
 	"sort"
 	"strings"
 	"time"
+
+	"github.com/linanwx/nagobot/logger"
 )
 
 // Provider is the interface for LLM providers.
@@ -315,6 +317,28 @@ func ParseMediaMarkers(text string) (string, []MediaMarker) {
 	}
 	cleaned = strings.TrimSpace(cleaned)
 	return cleaned, markers
+}
+
+// inputChars estimates the total character count of a message slice
+// for logging purposes. Used by all providers.
+func inputChars(messages []Message) int {
+	total := 0
+	for _, m := range messages {
+		total += len(m.Role)
+		total += len(m.Content)
+	}
+	return total
+}
+
+// resolveContentWithReasoningFallback returns reasoningText as content
+// when finalContent is empty and there are no tool calls.
+// This handles LLMs that put useful output in reasoning but leave content empty.
+func resolveContentWithReasoningFallback(finalContent, reasoningText, providerName string, toolCalls []ToolCall) string {
+	if strings.TrimSpace(finalContent) == "" && len(toolCalls) == 0 && strings.TrimSpace(reasoningText) != "" {
+		logger.Warn(providerName+" response content empty, using reasoning text fallback")
+		return reasoningText
+	}
+	return finalContent
 }
 
 // ReadFileAsBase64 reads a file and returns its contents as a base64-encoded string.

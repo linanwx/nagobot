@@ -131,7 +131,7 @@ func newMinimaxProvider(providerName, apiKey, apiBase, defaultBase, modelType, m
 // Chat sends a chat completion request to Minimax.
 func (p *MinimaxProvider) Chat(ctx context.Context, req *Request) (*Response, error) {
 	start := time.Now()
-	inputChars := openRouterInputChars(req.Messages)
+	inputChars := inputChars(req.Messages)
 
 	messages, err := toOpenAIChatMessages(req.Messages, false)
 	if err != nil {
@@ -198,10 +198,7 @@ func (p *MinimaxProvider) Chat(ctx context.Context, req *Request) (*Response, er
 	rawResponse := chatResp.RawJSON()
 	reasoningText := extractMinimaxReasoning(rawMessage)
 	finalContent := choice.Message.Content
-	if strings.TrimSpace(finalContent) == "" && len(toolCalls) == 0 && strings.TrimSpace(reasoningText) != "" {
-		logger.Warn("minimax response content empty, using reasoning text fallback", "provider", p.providerName)
-		finalContent = reasoningText
-	}
+	finalContent = resolveContentWithReasoningFallback(finalContent, reasoningText, "minimax", toolCalls)
 
 	logger.Info(
 		"minimax response",

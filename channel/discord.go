@@ -3,8 +3,6 @@ package channel
 import (
 	"context"
 	"fmt"
-	"os"
-	"path/filepath"
 	"strings"
 	"sync"
 
@@ -47,14 +45,7 @@ func NewDiscordChannel(cfg *config.Config) Channel {
 		allowedUsers[id] = true
 	}
 
-	var mediaDir string
-	if ws, err := cfg.WorkspacePath(); err == nil {
-		mediaDir = filepath.Join(ws, "media")
-		if err := os.MkdirAll(mediaDir, 0755); err != nil {
-			logger.Warn("failed to create media directory", "dir", mediaDir, "err", err)
-			mediaDir = ""
-		}
-	}
+	mediaDir := initMediaDir(cfg)
 
 	return &DiscordChannel{
 		token:         token,

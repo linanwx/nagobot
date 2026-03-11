@@ -14,6 +14,21 @@ import (
 	"github.com/linanwx/nagobot/logger"
 )
 
+// initMediaDir creates and returns the media directory path for a config.
+// Returns empty string if workspace is unavailable or mkdir fails.
+func initMediaDir(cfg interface{ WorkspacePath() (string, error) }) string {
+	ws, err := cfg.WorkspacePath()
+	if err != nil {
+		return ""
+	}
+	dir := filepath.Join(ws, "media")
+	if err := os.MkdirAll(dir, 0755); err != nil {
+		logger.Warn("failed to create media directory", "dir", dir, "err", err)
+		return ""
+	}
+	return dir
+}
+
 // downloadMedia downloads a URL to mediaDir, returning the absolute local path.
 // Returns empty string on error (caller should fall back to URL).
 func downloadMedia(mediaDir, url string) string {
