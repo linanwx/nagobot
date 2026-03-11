@@ -23,10 +23,47 @@ const agentsBuiltinDir = "agents-builtin"
 
 // AgentRegistry loads agent templates from workspace/agents and workspace/agents-builtin.
 type AgentRegistry struct {
-	workspace  string
-	agentsDirs []string // scanned in order; later dirs override earlier on name conflict
-	agents     map[string]*AgentDef
-	mu         sync.RWMutex
+	workspace    string
+	agentsDirs   []string // scanned in order; later dirs override earlier on name conflict
+	agents       map[string]*AgentDef
+	lastSnapshot dirSnapshot // cached file modtimes for change detection
+	mu           sync.RWMutex
+}
+
+// dirSnapshot records file modtimes for change detection.
+type dirSnapshot struct {
+	files map[string]int64 // path → modtime (UnixNano)
+}
+
+func takeDirSnapshot(dirs []string) dirSnapshot {
+	snap := dirSnapshot{files: make(map[string]int64)}
+	for _, dir := range dirs {
+		entries, err := os.ReadDir(dir)
+		if err != nil {
+			continue
+		}
+		for _, e := range entries {
+			if e.IsDir() || !strings.HasSuffix(e.Name(), ".md") {
+				continue
+			}
+			if info, err := e.Info(); err == nil {
+				snap.files[filepath.Join(dir, e.Name())] = info.ModTime().UnixNano()
+			}
+		}
+	}
+	return snap
+}
+
+func (s dirSnapshot) equals(other dirSnapshot) bool {
+	if len(s.files) != len(other.files) {
+		return false
+	}
+	for k, v := range s.files {
+		if ov, ok := other.files[k]; !ok || v != ov {
+			return false
+		}
+	}
+	return true
 }
 
 // NewRegistry creates a registry and loads all templates.
@@ -45,12 +82,21 @@ func NewRegistry(workspace string) *AgentRegistry {
 }
 
 func (r *AgentRegistry) load() {
+	snap := takeDirSnapshot(r.agentsDirs)
+	r.mu.RLock()
+	same := snap.equals(r.lastSnapshot)
+	r.mu.RUnlock()
+	if same {
+		return
+	}
+
 	next := make(map[string]*AgentDef)
 	for _, dir := range r.agentsDirs {
 		loadAgentsFromDir(dir, next)
 	}
 	r.mu.Lock()
 	r.agents = next
+	r.lastSnapshot = snap
 	r.mu.Unlock()
 }
 
