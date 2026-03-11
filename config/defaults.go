@@ -13,6 +13,33 @@ const (
 	defaultSkillHubURL         = "https://clawhub.ai"
 )
 
+// defaultCronSeeds returns the built-in cron jobs that are always force-merged into config.
+func defaultCronSeeds() []cronpkg.Job {
+	return []cronpkg.Job{
+		{
+			ID:     "heartbeat",
+			Expr:   "*/30 * * * *",
+			Task:   "Run all scheduled routines: daily greeting check, stale task detection.",
+			Agent:  "heartbeat",
+			Silent: true,
+		},
+		{
+			ID:     "tidyup",
+			Expr:   "0 4 * * *",
+			Task:   "tidyup",
+			Agent:  "tidyup",
+			Silent: true,
+		},
+		{
+			ID:     "session-summary",
+			Expr:   "0 */6 * * *",
+			Task:   "session-summary",
+			Agent:  "session-summary",
+			Silent: true,
+		},
+	}
+}
+
 // DefaultConfig returns a config with sensible defaults.
 func DefaultConfig() *Config {
 	logDefaults := defaultLoggingConfig()
@@ -40,29 +67,7 @@ func DefaultConfig() *Config {
 			},
 		},
 		Logging: logDefaults,
-		Cron: []cronpkg.Job{
-			{
-				ID:          "heartbeat",
-				Expr:        "*/30 * * * *",
-				Task:        "Run all scheduled routines: daily greeting check, stale task detection.",
-				Agent:       "heartbeat",
-				Silent:      true,
-			},
-			{
-				ID:     "tidyup",
-				Expr:   "0 4 * * *",
-				Task:   "tidyup",
-				Agent:  "tidyup",
-				Silent: true,
-			},
-			{
-				ID:     "session-summary",
-				Expr:   "0 */6 * * *",
-				Task:   "session-summary",
-				Agent:  "session-summary",
-				Silent: true,
-			},
-		},
+		Cron:    defaultCronSeeds(),
 	}
 }
 
@@ -136,7 +141,7 @@ func (c *Config) applyDefaults() bool {
 
 	// Merge default cron seeds by ID.
 	// Default seeds always override user config (forced), and missing ones are appended.
-	for _, seed := range DefaultConfig().Cron {
+	for _, seed := range defaultCronSeeds() {
 		found := false
 		for i, j := range c.Cron {
 			if j.ID == seed.ID {
@@ -189,8 +194,11 @@ func (c *Config) applyDefaults() bool {
 // cronJobEqual compares the config-relevant fields of two cron jobs.
 func cronJobEqual(a, b cronpkg.Job) bool {
 	return a.ID == b.ID &&
+		a.Kind == b.Kind &&
 		a.Expr == b.Expr &&
 		a.Task == b.Task &&
 		a.Agent == b.Agent &&
-		a.Silent == b.Silent
+		a.WakeSession == b.WakeSession &&
+		a.Silent == b.Silent &&
+		a.DirectWake == b.DirectWake
 }
