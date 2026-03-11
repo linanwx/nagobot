@@ -77,7 +77,11 @@ func (s *Store) Record(r TurnRecord) {
 func (s *Store) Load(cutoff time.Time) []TurnRecord {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	return s.loadLocked(cutoff)
+}
 
+// loadLocked reads records without acquiring the mutex. Caller must hold s.mu.
+func (s *Store) loadLocked(cutoff time.Time) []TurnRecord {
 	f, err := os.Open(s.filePath())
 	if err != nil {
 		return nil
@@ -103,10 +107,11 @@ func (s *Store) Load(cutoff time.Time) []TurnRecord {
 // Rotate removes records older than retention period.
 func (s *Store) Rotate() {
 	cutoff := time.Now().AddDate(0, 0, -retentionDays)
-	records := s.Load(cutoff)
 
 	s.mu.Lock()
 	defer s.mu.Unlock()
+
+	records := s.loadLocked(cutoff)
 
 	if err := os.MkdirAll(s.dir, 0755); err != nil {
 		return
