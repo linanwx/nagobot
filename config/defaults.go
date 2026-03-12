@@ -19,7 +19,7 @@ func defaultCronSeeds() []cronpkg.Job {
 		{
 			ID:     "heartbeat",
 			Expr:   "*/30 * * * *",
-			Task:   "Scan user sessions, trigger per-session heartbeat reflection and wake.",
+			Task:   `Load skill "heartbeat-dispatcher" and follow its instructions.`,
 			Agent:  "heartbeat",
 			Silent: true,
 		},
