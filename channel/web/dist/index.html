@@ -1176,26 +1176,88 @@
         if (!content || !content.trimStart().startsWith("<wake>")) return null;
         try {
           const fields = {};
-          // Regex-based parser: tolerant of unescaped XML inside tags
+
+          // Simple fields: indexOf pair extraction
           const simpleFields = ["source", "thread", "session", "time", "delivery"];
           for (const name of simpleFields) {
-            const re = new RegExp("<" + name + ">([\\s\\S]*?)</" + name + ">");
-            const m = content.match(re);
-            if (m) fields[name] = m[1].trim();
+            const open = "<" + name + ">";
+            const close = "</" + name + ">";
+            const i = content.indexOf(open);
+            const j = content.indexOf(close);
+            if (i >= 0 && j > i) fields[name] = content.substring(i + open.length, j).trim();
           }
-          // Action: content between <action> and <message (or </wake> if no message)
-          const actionMatch = content.match(/<action>([\s\S]*?)(?=<message[\s>]|<\/wake>)/);
-          if (actionMatch) fields.action = actionMatch[1].trim();
-          // Message: from <message ...> to </message>
-          const msgMatch = content.match(/<message\s+visibility="([^"]*)">\s*([\s\S]*?)\s*<\/message>/);
-          if (msgMatch) {
-            fields._visibility = msgMatch[1];
-            fields._message = msgMatch[2].trim();
+
+          // Action: indexOf <action> to </action> — safe even if content has <message>
+          const ai = content.indexOf("<action>");
+          const aj = content.indexOf("</action>");
+          if (ai >= 0 && aj > ai) fields.action = content.substring(ai + 8, aj).trim();
+
+          // Message: find the LAST <message visibility="..."> (after </action> or headers)
+          // and the LAST </message> before </wake>
+          const wakeEnd = content.lastIndexOf("</wake>");
+          const msgClose = content.lastIndexOf("</message>", wakeEnd > 0 ? wakeEnd : undefined);
+          // Search for <message visibility=" after </action> if present, else after headers
+          const searchFrom = aj > 0 ? aj : 0;
+          const msgOpen = content.indexOf('<message visibility="', searchFrom);
+          if (msgOpen >= 0 && msgClose > msgOpen) {
+            // Extract visibility attribute
+            const vStart = msgOpen + 22; // length of '<message visibility="'
+            const vEnd = content.indexOf('"', vStart);
+            if (vEnd > vStart) fields._visibility = content.substring(vStart, vEnd);
+            // Message body: after the closing > of <message ...> to before </message>
+            const bodyStart = content.indexOf(">", vEnd);
+            if (bodyStart >= 0) fields._message = content.substring(bodyStart + 1, msgClose).trim();
           }
+
           return Object.keys(fields).length > 0 ? fields : null;
         } catch {
           return null;
         }
+      }
+
+      // Parse <system type="..."> blocks inside wake message body.
+      // Returns { type, fields: {key:val}, content } or null.
+      function parseSystemBlock(text) {
+        if (!text) return null;
+        const sysOpen = text.indexOf("<system ");
+        if (sysOpen < 0) return null;
+        const sysClose = text.lastIndexOf("</system>");
+        if (sysClose < 0) return null;
+
+        const result = { type: "", fields: {}, content: "", before: text.substring(0, sysOpen).trim() };
+
+        // Extract type attribute
+        const tq = text.indexOf('type="', sysOpen);
+        if (tq >= 0 && tq < text.indexOf(">", sysOpen)) {
+          const tStart = tq + 6;
+          const tEnd = text.indexOf('"', tStart);
+          if (tEnd > tStart) result.type = text.substring(tStart, tEnd);
+        }
+
+        // Inner content between first > after <system and </system>
+        const innerStart = text.indexOf(">", sysOpen) + 1;
+        const inner = text.substring(innerStart, sysClose).trim();
+
+        // Extract inner <message visibility="...">content</message>
+        const mi = inner.indexOf('<message visibility="');
+        const mc = inner.lastIndexOf("</message>");
+        if (mi >= 0 && mc > mi) {
+          const bodyGt = inner.indexOf(">", mi);
+          if (bodyGt >= 0) result.content = inner.substring(bodyGt + 1, mc).trim();
+
+          // Fields are everything before the inner <message>
+          const fieldsPart = inner.substring(0, mi);
+          const fieldRe = /<(\w+)>([^<]*)<\/\1>/g;
+          let fm;
+          while ((fm = fieldRe.exec(fieldsPart)) !== null) {
+            result.fields[fm[1]] = fm[2].trim();
+          }
+        } else {
+          // No inner message — entire inner is content
+          result.content = inner;
+        }
+
+        return result;
       }
 
       function truncateId(id) {
@@ -1686,10 +1748,36 @@
           body.appendChild(fields);
 
           if (wakeData._message) {
-            const wakeMsg = document.createElement("div");
-            wakeMsg.className = "wake-message";
-            wakeMsg.textContent = wakeData._message;
-            body.appendChild(wakeMsg);
+            const sys = parseSystemBlock(wakeData._message);
+            if (sys) {
+              // Render parsed system block fields as wake-fields
+              if (sys.type || Object.keys(sys.fields).length > 0) {
+                const sysFields = document.createElement("div");
+                sysFields.className = "wake-fields";
+                if (sys.type) {
+                  const l = document.createElement("span"); l.className = "wake-label"; l.textContent = "type";
+                  const v = document.createElement("span"); v.className = "wake-value"; v.textContent = sys.type;
+                  sysFields.appendChild(l); sysFields.appendChild(v);
+                }
+                for (const [k, val] of Object.entries(sys.fields)) {
+                  const l = document.createElement("span"); l.className = "wake-label"; l.textContent = k;
+                  const v = document.createElement("span"); v.className = "wake-value"; v.textContent = val;
+                  sysFields.appendChild(l); sysFields.appendChild(v);
+                }
+                body.appendChild(sysFields);
+              }
+              if (sys.content) {
+                const wakeMsg = document.createElement("div");
+                wakeMsg.className = "wake-message";
+                wakeMsg.textContent = sys.content;
+                body.appendChild(wakeMsg);
+              }
+            } else {
+              const wakeMsg = document.createElement("div");
+              wakeMsg.className = "wake-message";
+              wakeMsg.textContent = wakeData._message;
+              body.appendChild(wakeMsg);
+            }
           }
 
           card.appendChild(body);
