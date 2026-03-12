@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"github.com/linanwx/nagobot/provider"
+	"gopkg.in/yaml.v3"
 )
 
 // SkillProvider retrieves skill prompts.
@@ -69,8 +70,15 @@ func (t *UseSkillTool) Run(ctx context.Context, args json.RawMessage) string {
 		prompt = strings.ReplaceAll(prompt, "{{WORKSPACE}}", rt.Workspace)
 	}
 
+	header := skillHeader{Skill: a.Name}
 	if dir != "" {
-		return fmt.Sprintf("<skill name=%q dir=%q/>\n%s", a.Name, dir, prompt)
+		header.Dir = dir
 	}
-	return fmt.Sprintf("<skill name=%q/>\n%s", a.Name, prompt)
+	yamlBytes, _ := yaml.Marshal(header)
+	return fmt.Sprintf("---\n%s---\n\n%s", yamlBytes, prompt)
+}
+
+type skillHeader struct {
+	Skill string `yaml:"skill"`
+	Dir   string `yaml:"dir,omitempty"`
 }

@@ -12,6 +12,7 @@ import (
 	"github.com/linanwx/nagobot/logger"
 	"github.com/linanwx/nagobot/provider"
 	"github.com/linanwx/nagobot/thread/msg"
+	"gopkg.in/yaml.v3"
 )
 
 const (
@@ -264,9 +265,10 @@ func compressToolResults(messages []provider.Message, keepLastAssistants int) (b
 		// use_skill: compress if a newer load of the same skill exists.
 		if msg.Name == "use_skill" {
 			if skillName := extractSkillName(msg.Content); skillName != "" && lastSkillLoad[skillName] > i {
-				msg.Compressed = fmt.Sprintf(
-					`<compressed tool="use_skill" skill="%s" original="%d" outdated="true"/>`,
-					skillName, len(msg.Content))
+				msg.Compressed = marshalCompressed(compressedHeader{
+					Compressed: "use_skill", Skill: skillName,
+					Original: len(msg.Content), Outdated: true,
+				}, "")
 				modified = true
 			}
 			continue
@@ -282,11 +284,13 @@ func compressToolResults(messages []provider.Message, keepLastAssistants int) (b
 			head := msg.Content[:softTrimHeadChars]
 			tail := msg.Content[n-softTrimTailChars:]
 			trimmed := n - softTrimHeadChars - softTrimTailChars
-			msg.Compressed = fmt.Sprintf(
-				"<compressed tool=\"%s\" original=\"%d\" trimmed=\"true\">\n%s\n<trimmed chars=\"%d\"/>\n%s\n</compressed>",
-				msg.Name, n, head, trimmed, tail)
+			msg.Compressed = marshalCompressed(compressedHeader{
+				Compressed: msg.Name, Original: n, Trimmed: trimmed,
+			}, head+"\n\n[trimmed]\n\n"+tail)
 		} else {
-			msg.Compressed = fmt.Sprintf(`<compressed tool="%s" original="%d"/>`, msg.Name, n)
+			msg.Compressed = marshalCompressed(compressedHeader{
+				Compressed: msg.Name, Original: n,
+			}, "")
 		}
 		modified = true
 	}
@@ -294,13 +298,41 @@ func compressToolResults(messages []provider.Message, keepLastAssistants int) (b
 	return modified, result
 }
 
-// extractSkillName parses the <skill name="xxx" .../> header from a use_skill result.
+// compressedHeader is the YAML frontmatter for compressed tool results.
+type compressedHeader struct {
+	Compressed string `yaml:"compressed"`
+	Skill      string `yaml:"skill,omitempty"`
+	Original   int    `yaml:"original"`
+	Trimmed    int    `yaml:"trimmed,omitempty"`
+	Outdated   bool   `yaml:"outdated,omitempty"`
+}
+
+// marshalCompressed builds a YAML-frontmatter compressed marker with optional body.
+func marshalCompressed(h compressedHeader, body string) string {
+	yamlBytes, _ := yaml.Marshal(h)
+	var sb strings.Builder
+	sb.WriteString("---\n")
+	sb.Write(yamlBytes)
+	sb.WriteString("---")
+	if body != "" {
+		sb.WriteString("\n\n")
+		sb.WriteString(body)
+	}
+	return sb.String()
+}
+
+// extractSkillName parses the skill name from a use_skill result's YAML frontmatter.
 func extractSkillName(content string) string {
-	const prefix = `<skill name="`
-	if strings.HasPrefix(content, prefix) {
-		rest := content[len(prefix):]
-		if end := strings.IndexByte(rest, '"'); end > 0 {
-			return rest[:end]
+	if !strings.HasPrefix(content, "---\n") {
+		return ""
+	}
+	endIdx := strings.Index(content[4:], "\n---\n")
+	if endIdx < 0 {
+		return ""
+	}
+	for _, line := range strings.Split(content[4:4+endIdx], "\n") {
+		if strings.HasPrefix(line, "skill: ") {
+			return strings.TrimSpace(line[7:])
 		}
 	}
 	return ""
