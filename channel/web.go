@@ -20,6 +20,7 @@ import (
 
 	"github.com/coder/websocket"
 	"github.com/coder/websocket/wsjson"
+	cronpkg "github.com/linanwx/nagobot/cron"
 	"github.com/linanwx/nagobot/config"
 	"github.com/linanwx/nagobot/logger"
 	"github.com/linanwx/nagobot/provider"
@@ -448,6 +449,7 @@ type sessionListEntry struct {
 	CreatedAt    time.Time `json:"created_at"`
 	UpdatedAt    time.Time `json:"updated_at"`
 	MessageCount int       `json:"message_count"`
+	HasHeartbeat bool      `json:"has_heartbeat,omitempty"`
 }
 
 func (w *WebChannel) handleSessions(rw http.ResponseWriter, r *http.Request) {
@@ -477,10 +479,18 @@ func (w *WebChannel) handleSessions(rw http.ResponseWriter, r *http.Request) {
 		}
 		lineCount := countLines(path)
 
+		// Check for heartbeat.md in the same directory.
+		hbPath := filepath.Join(filepath.Dir(path), "heartbeat.md")
+		hasHB := false
+		if fi, err := os.Stat(hbPath); err == nil && fi.Size() > 0 {
+			hasHB = true
+		}
+
 		entries = append(entries, sessionListEntry{
 			Key:          key,
 			UpdatedAt:    info.ModTime(),
 			MessageCount: lineCount,
+			HasHeartbeat: hasHB,
 		})
 		return nil
 	})
@@ -568,6 +578,22 @@ func (w *WebChannel) handleConfig(rw http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		http.Error(rw, fmt.Sprintf("failed to load config: %v", err), http.StatusInternalServerError)
 		return
+	}
+
+	// Merge user-created cron jobs from cron.jsonl into cfg.Cron.
+	if w.workspace != "" {
+		storePath := filepath.Join(w.workspace, "system", "cron.jsonl")
+		if storeJobs, err := cronpkg.ReadJobs(storePath); err == nil {
+			seedIDs := make(map[string]struct{}, len(cfg.Cron))
+			for _, j := range cfg.Cron {
+				seedIDs[j.ID] = struct{}{}
+			}
+			for _, j := range storeJobs {
+				if _, dup := seedIDs[j.ID]; !dup {
+					cfg.Cron = append(cfg.Cron, j)
+				}
+			}
+		}
 	}
 
 	redactConfig(cfg)

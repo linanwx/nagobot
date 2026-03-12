@@ -333,6 +333,13 @@
         background: var(--bg-elevated);
         border-left-color: var(--accent-green);
       }
+      .session-hb {
+        color: var(--accent-red);
+        font-size: 9px;
+        margin-right: 3px;
+        flex-shrink: 0;
+        opacity: 0.8;
+      }
 
       .session-key {
         font-size: 11px;
@@ -797,42 +804,132 @@
 
       /* Config modal */
       .config-section {
-        margin-bottom: 16px;
+        margin-bottom: 20px;
       }
-
       .config-section:last-child {
         margin-bottom: 0;
       }
-
       .config-section-title {
         font-family: var(--font-sans);
         font-weight: 600;
         font-size: 11px;
         text-transform: uppercase;
         letter-spacing: 0.8px;
-        color: var(--text-tertiary);
+        color: var(--accent-green);
         margin-bottom: 8px;
-        padding-bottom: 4px;
+        padding-bottom: 6px;
         border-bottom: 1px solid var(--border);
       }
-
       .config-row {
         display: flex;
         justify-content: space-between;
-        padding: 3px 0;
+        align-items: baseline;
+        padding: 4px 0;
+        gap: 16px;
       }
-
       .config-key {
         color: var(--text-secondary);
+        flex-shrink: 0;
       }
-
       .config-value {
         color: var(--text-primary);
         text-align: right;
-        max-width: 300px;
+        word-break: break-all;
+        min-width: 0;
+      }
+
+      /* Cron job cards */
+      .cron-card {
+        background: var(--bg-elevated);
+        border: 1px solid var(--border);
+        border-radius: 4px;
+        padding: 10px 12px;
+        margin-bottom: 8px;
+      }
+      .cron-card:last-child { margin-bottom: 0; }
+      .cron-card-header {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        margin-bottom: 6px;
+      }
+      .cron-card-id {
+        font-weight: 600;
+        color: var(--text-primary);
+      }
+      .cron-card-badge {
+        font-size: 10px;
+        padding: 1px 6px;
+        border-radius: 3px;
+        background: var(--bg-surface);
+        border: 1px solid var(--border);
+        color: var(--accent-cyan);
+        font-family: var(--font-mono);
+      }
+      .cron-card-badge.agent {
+        color: var(--accent-purple);
+      }
+      .cron-card-badge.silent {
+        color: var(--text-tertiary);
+      }
+      .cron-card-task {
+        color: var(--text-secondary);
+        font-size: 11px;
+        line-height: 1.5;
+        margin-top: 4px;
+        display: -webkit-box;
+        -webkit-line-clamp: 2;
+        -webkit-box-orient: vertical;
         overflow: hidden;
-        text-overflow: ellipsis;
-        white-space: nowrap;
+      }
+      .cron-card-meta {
+        display: flex;
+        gap: 12px;
+        margin-top: 6px;
+        font-size: 10px;
+        color: var(--text-tertiary);
+      }
+
+      /* Expandable nested config */
+      .config-nested {
+        background: var(--bg-elevated);
+        border: 1px solid var(--border);
+        border-radius: 4px;
+        padding: 8px 10px;
+        margin-top: 4px;
+        margin-bottom: 6px;
+      }
+      .config-nested .config-row {
+        padding: 2px 0;
+        font-size: 11px;
+      }
+      .config-nested-key {
+        color: var(--text-tertiary);
+        flex-shrink: 0;
+      }
+      .config-nested-val {
+        color: var(--text-secondary);
+        word-break: break-all;
+        text-align: right;
+        min-width: 0;
+      }
+      .config-group-label {
+        color: var(--text-primary);
+        font-weight: 500;
+        cursor: pointer;
+        display: flex;
+        align-items: center;
+        gap: 4px;
+        padding: 4px 0;
+      }
+      .config-group-label::before {
+        content: "▸";
+        font-size: 10px;
+        color: var(--text-tertiary);
+        transition: transform 0.15s;
+      }
+      .config-group-label.open::before {
+        transform: rotate(90deg);
       }
 
       /* Heartbeat modal */
@@ -841,12 +938,51 @@
         word-break: break-word;
         color: var(--text-primary);
       }
-
       .heartbeat-empty {
         color: var(--text-tertiary);
         text-align: center;
         padding: 24px;
       }
+      .hb-card {
+        background: var(--bg-elevated);
+        border: 1px solid var(--border);
+        border-radius: 4px;
+        margin-bottom: 10px;
+        overflow: hidden;
+      }
+      .hb-card:last-child { margin-bottom: 0; }
+      .hb-card-header {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        padding: 8px 12px;
+        cursor: pointer;
+        transition: background 0.12s;
+      }
+      .hb-card-header:hover { background: var(--bg-surface); }
+      .hb-card-heart { color: var(--accent-red); font-size: 12px; }
+      .hb-card-key {
+        font-weight: 600;
+        color: var(--text-primary);
+        font-size: 12px;
+        flex: 1;
+        min-width: 0;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+      .hb-card-arrow {
+        color: var(--text-tertiary);
+        font-size: 10px;
+        transition: transform 0.15s;
+      }
+      .hb-card-arrow.open { transform: rotate(90deg); }
+      .hb-card-body {
+        display: none;
+        padding: 0 12px 10px;
+        border-top: 1px solid var(--border);
+      }
+      .hb-card-body.open { display: block; padding-top: 10px; }
 
       /* Responsive */
       @media (max-width: 768px) {
@@ -1255,6 +1391,13 @@
         nameEl.textContent = name;
 
         header.appendChild(arrow);
+        if (hasSession && node.session.has_heartbeat) {
+          const hb = document.createElement("span");
+          hb.className = "session-hb";
+          hb.textContent = "♥";
+          hb.title = "Has heartbeat";
+          header.appendChild(hb);
+        }
         header.appendChild(nameEl);
 
         // Meta: show session stats if this node is also a session, else show child count
@@ -1343,6 +1486,13 @@
         timeEl.textContent = timeAgo(s.updated_at);
         metaEl.appendChild(timeEl);
 
+        if (s.has_heartbeat) {
+          const hb = document.createElement("span");
+          hb.className = "session-hb";
+          hb.textContent = "♥";
+          hb.title = "Has heartbeat";
+          item.appendChild(hb);
+        }
         item.appendChild(keyEl);
         item.appendChild(metaEl);
 
@@ -1700,106 +1850,171 @@
       function renderConfig(cfg) {
         configBody.innerHTML = "";
 
-        // Thread section
+        // Helper: render a flat key-value row
+        function kvRow(key, val) {
+          const row = document.createElement("div");
+          row.className = "config-row";
+          const k = document.createElement("span");
+          k.className = "config-key";
+          k.textContent = key;
+          const v = document.createElement("span");
+          v.className = "config-value";
+          if (val === null || val === undefined) { v.textContent = "—"; }
+          else if (typeof val === "object") { v.textContent = JSON.stringify(val); }
+          else { v.textContent = String(val); }
+          row.appendChild(k);
+          row.appendChild(v);
+          return row;
+        }
+
+        // Helper: render an expandable group with nested key-values
+        function nestedGroup(label, obj) {
+          const wrap = document.createElement("div");
+          const lbl = document.createElement("div");
+          lbl.className = "config-group-label";
+          lbl.textContent = label;
+          const nested = document.createElement("div");
+          nested.className = "config-nested";
+          nested.style.display = "none";
+          lbl.addEventListener("click", () => {
+            const open = nested.style.display !== "none";
+            nested.style.display = open ? "none" : "block";
+            lbl.classList.toggle("open", !open);
+          });
+          if (typeof obj === "object" && obj !== null) {
+            for (const [k, v] of Object.entries(obj)) {
+              const row = document.createElement("div");
+              row.className = "config-row";
+              const kEl = document.createElement("span");
+              kEl.className = "config-nested-key";
+              kEl.textContent = k;
+              const vEl = document.createElement("span");
+              vEl.className = "config-nested-val";
+              vEl.textContent = typeof v === "object" ? JSON.stringify(v) : String(v);
+              row.appendChild(kEl);
+              row.appendChild(vEl);
+              nested.appendChild(row);
+            }
+          } else {
+            nested.textContent = String(obj);
+          }
+          wrap.appendChild(lbl);
+          wrap.appendChild(nested);
+          return wrap;
+        }
+
+        // Helper: create section with title
+        function makeSection(titleText) {
+          const section = document.createElement("div");
+          section.className = "config-section";
+          const t = document.createElement("div");
+          t.className = "config-section-title";
+          t.textContent = titleText;
+          section.appendChild(t);
+          return section;
+        }
+
+        // ── Thread section ──
         if (cfg.thread) {
-          const section = document.createElement("div");
-          section.className = "config-section";
-          const title = document.createElement("div");
-          title.className = "config-section-title";
-          title.textContent = "Thread";
-          section.appendChild(title);
-
-          const keys = Object.keys(cfg.thread);
-          for (const k of keys) {
-            const row = document.createElement("div");
-            row.className = "config-row";
-            const keyEl = document.createElement("span");
-            keyEl.className = "config-key";
-            keyEl.textContent = k;
-            const valEl = document.createElement("span");
-            valEl.className = "config-value";
-            valEl.textContent = String(cfg.thread[k]);
-            valEl.title = String(cfg.thread[k]);
-            row.appendChild(keyEl);
-            row.appendChild(valEl);
-            section.appendChild(row);
+          const section = makeSection("Thread");
+          for (const [k, v] of Object.entries(cfg.thread)) {
+            if (typeof v === "object" && v !== null) {
+              section.appendChild(nestedGroup(k, v));
+            } else {
+              section.appendChild(kvRow(k, v));
+            }
           }
           configBody.appendChild(section);
         }
 
-        // Channels section
+        // ── Channels section ──
         if (cfg.channels) {
-          const section = document.createElement("div");
-          section.className = "config-section";
-          const title = document.createElement("div");
-          title.className = "config-section-title";
-          title.textContent = "Channels";
-          section.appendChild(title);
-
-          const keys = Object.keys(cfg.channels);
-          for (const k of keys) {
-            const row = document.createElement("div");
-            row.className = "config-row";
-            const keyEl = document.createElement("span");
-            keyEl.className = "config-key";
-            keyEl.textContent = k;
-            const valEl = document.createElement("span");
-            valEl.className = "config-value";
-            const val = cfg.channels[k];
-            valEl.textContent = typeof val === "object" ? JSON.stringify(val) : String(val);
-            row.appendChild(keyEl);
-            row.appendChild(valEl);
-            section.appendChild(row);
+          const section = makeSection("Channels");
+          for (const [k, v] of Object.entries(cfg.channels)) {
+            if (typeof v === "object" && v !== null) {
+              section.appendChild(nestedGroup(k, v));
+            } else {
+              section.appendChild(kvRow(k, v));
+            }
           }
           configBody.appendChild(section);
         }
 
-        // Cron section
-        if (cfg.cron && Array.isArray(cfg.cron)) {
-          const section = document.createElement("div");
-          section.className = "config-section";
-          const title = document.createElement("div");
-          title.className = "config-section-title";
-          title.textContent = "Cron Jobs";
-          section.appendChild(title);
-
+        // ── Cron Jobs section ──
+        if (cfg.cron && Array.isArray(cfg.cron) && cfg.cron.length > 0) {
+          const section = makeSection("Cron Jobs (" + cfg.cron.length + ")");
           for (const job of cfg.cron) {
-            const row = document.createElement("div");
-            row.className = "config-row";
-            const keyEl = document.createElement("span");
-            keyEl.className = "config-key";
-            keyEl.textContent = typeof job === "object" ? (job.name || JSON.stringify(job)) : String(job);
-            row.appendChild(keyEl);
-            section.appendChild(row);
+            const card = document.createElement("div");
+            card.className = "cron-card";
+
+            // Header: ID + badges
+            const hdr = document.createElement("div");
+            hdr.className = "cron-card-header";
+            const idEl = document.createElement("span");
+            idEl.className = "cron-card-id";
+            idEl.textContent = job.id || "unknown";
+            hdr.appendChild(idEl);
+            if (job.expr) {
+              const b = document.createElement("span");
+              b.className = "cron-card-badge";
+              b.textContent = job.expr;
+              hdr.appendChild(b);
+            }
+            if (job.agent) {
+              const b = document.createElement("span");
+              b.className = "cron-card-badge agent";
+              b.textContent = job.agent;
+              hdr.appendChild(b);
+            }
+            if (job.silent) {
+              const b = document.createElement("span");
+              b.className = "cron-card-badge silent";
+              b.textContent = "silent";
+              hdr.appendChild(b);
+            }
+            card.appendChild(hdr);
+
+            // Task description
+            if (job.task) {
+              const task = document.createElement("div");
+              task.className = "cron-card-task";
+              task.textContent = job.task;
+              task.title = job.task;
+              card.appendChild(task);
+            }
+
+            // Meta: wake_session, created_at
+            const meta = document.createElement("div");
+            meta.className = "cron-card-meta";
+            if (job.wake_session) {
+              const s = document.createElement("span");
+              s.textContent = "→ " + job.wake_session;
+              meta.appendChild(s);
+            }
+            if (job.created_at && job.created_at !== "0001-01-01T00:00:00Z") {
+              const s = document.createElement("span");
+              s.textContent = "created " + new Date(job.created_at).toLocaleDateString();
+              meta.appendChild(s);
+            }
+            if (meta.children.length > 0) card.appendChild(meta);
+
+            section.appendChild(card);
           }
           configBody.appendChild(section);
         }
 
-        // Other top-level keys
+        // ── Other top-level keys ──
         const handled = new Set(["thread", "channels", "cron"]);
         const otherKeys = Object.keys(cfg).filter(k => !handled.has(k));
         if (otherKeys.length > 0) {
-          const section = document.createElement("div");
-          section.className = "config-section";
-          const title = document.createElement("div");
-          title.className = "config-section-title";
-          title.textContent = "Other";
-          section.appendChild(title);
-
+          const section = makeSection("Other");
           for (const k of otherKeys) {
-            const row = document.createElement("div");
-            row.className = "config-row";
-            const keyEl = document.createElement("span");
-            keyEl.className = "config-key";
-            keyEl.textContent = k;
-            const valEl = document.createElement("span");
-            valEl.className = "config-value";
-            const val = cfg[k];
-            valEl.textContent = typeof val === "object" ? JSON.stringify(val) : String(val);
-            valEl.title = typeof val === "object" ? JSON.stringify(val, null, 2) : String(val);
-            row.appendChild(keyEl);
-            row.appendChild(valEl);
-            section.appendChild(row);
+            const v = cfg[k];
+            if (typeof v === "object" && v !== null) {
+              section.appendChild(nestedGroup(k, v));
+            } else {
+              section.appendChild(kvRow(k, v));
+            }
           }
           configBody.appendChild(section);
         }
@@ -1811,29 +2026,85 @@
         heartbeatModal.classList.add("open");
         heartbeatBody.textContent = "Loading...";
 
-        if (!currentSession) {
-          heartbeatBody.innerHTML = '<div class="heartbeat-empty">No session selected</div>';
+        // Find all sessions with heartbeat
+        const hbSessions = sessions.filter(s => s.has_heartbeat);
+        if (hbSessions.length === 0) {
+          heartbeatBody.innerHTML = '<div class="heartbeat-empty">No sessions with heartbeat</div>';
           return;
         }
 
-        try {
-          const res = await fetch("/api/heartbeat/" + currentSession.split(":").map(encodeURIComponent).join("/"));
-          if (!res.ok) {
-            heartbeatBody.innerHTML = '<div class="heartbeat-empty">Failed to load heartbeat: HTTP ' + res.status + '</div>';
-            return;
-          }
-          const data = await res.json();
-          if (!data.content) {
-            heartbeatBody.innerHTML = '<div class="heartbeat-empty">No heartbeat items</div>';
-            return;
-          }
-          heartbeatBody.innerHTML = "";
+        heartbeatBody.innerHTML = "";
+
+        // Fetch all heartbeats in parallel
+        const results = await Promise.allSettled(
+          hbSessions.map(s =>
+            fetch("/api/heartbeat/" + s.key.split(":").map(encodeURIComponent).join("/"))
+              .then(r => r.ok ? r.json() : null)
+              .then(d => ({ key: s.key, content: d && d.content ? d.content : "" }))
+              .catch(() => ({ key: s.key, content: "" }))
+          )
+        );
+
+        heartbeatBody.innerHTML = "";
+        let hasAny = false;
+        for (const r of results) {
+          const { key, content } = r.value || r.reason || {};
+          if (!content) continue;
+          hasAny = true;
+
+          const card = document.createElement("div");
+          card.className = "hb-card";
+
+          const hdr = document.createElement("div");
+          hdr.className = "hb-card-header";
+          const heart = document.createElement("span");
+          heart.className = "hb-card-heart";
+          heart.textContent = "♥";
+          const keyEl = document.createElement("span");
+          keyEl.className = "hb-card-key";
+          keyEl.textContent = key;
+          const arrow = document.createElement("span");
+          arrow.className = "hb-card-arrow";
+          arrow.textContent = "▸";
+          hdr.appendChild(heart);
+          hdr.appendChild(keyEl);
+          hdr.appendChild(arrow);
+
+          const body = document.createElement("div");
+          body.className = "hb-card-body";
           const pre = document.createElement("div");
           pre.className = "heartbeat-content";
-          pre.textContent = data.content;
-          heartbeatBody.appendChild(pre);
-        } catch (err) {
-          heartbeatBody.innerHTML = '<div class="heartbeat-empty">Error: ' + escapeHTML(err.message) + '</div>';
+          pre.textContent = content;
+          body.appendChild(pre);
+
+          hdr.addEventListener("click", () => {
+            const open = body.classList.contains("open");
+            body.classList.toggle("open", !open);
+            arrow.classList.toggle("open", !open);
+          });
+
+          card.appendChild(hdr);
+          card.appendChild(body);
+          heartbeatBody.appendChild(card);
+        }
+
+        // Auto-expand if only one result, or if current session matches
+        const cards = heartbeatBody.querySelectorAll(".hb-card");
+        if (cards.length === 1) {
+          cards[0].querySelector(".hb-card-body").classList.add("open");
+          cards[0].querySelector(".hb-card-arrow").classList.add("open");
+        } else if (currentSession) {
+          for (const c of cards) {
+            if (c.querySelector(".hb-card-key").textContent === currentSession) {
+              c.querySelector(".hb-card-body").classList.add("open");
+              c.querySelector(".hb-card-arrow").classList.add("open");
+              break;
+            }
+          }
+        }
+
+        if (!hasAny) {
+          heartbeatBody.innerHTML = '<div class="heartbeat-empty">No heartbeat items</div>';
         }
       });
 
