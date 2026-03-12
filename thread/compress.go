@@ -259,9 +259,10 @@ func compressToolResults(messages []provider.Message, keepLastAssistants int) (b
 		if n > softTrimHeadChars+softTrimTailChars {
 			head := msg.Content[:softTrimHeadChars]
 			tail := msg.Content[n-softTrimTailChars:]
+			trimmed := n - softTrimHeadChars - softTrimTailChars
 			msg.Compressed = fmt.Sprintf(
-				"<compressed tool=\"%s\" original=\"%d\" trimmed=\"true\">\n%s\n...\n%s\n</compressed>",
-				msg.Name, n, head, tail)
+				"<compressed tool=\"%s\" original=\"%d\" trimmed=\"true\">\n%s\n<trimmed chars=\"%d\"/>\n%s\n</compressed>",
+				msg.Name, n, head, trimmed, tail)
 		} else {
 			msg.Compressed = fmt.Sprintf(`<compressed tool="%s" original="%d"/>`, msg.Name, n)
 		}

@@ -523,6 +523,13 @@
       .compressed-badge:hover {
         background: rgba(245, 158, 11, 0.2);
       }
+      .token-badge {
+        font-size: 9px;
+        color: var(--text-tertiary);
+        margin-left: auto;
+        white-space: nowrap;
+        padding-left: 6px;
+      }
 
       .msg-body {
         padding: 8px 10px;
@@ -1168,26 +1175,24 @@
       function parseWakeXML(content) {
         if (!content || !content.trimStart().startsWith("<wake>")) return null;
         try {
-          const parser = new DOMParser();
-          const doc = parser.parseFromString(content, "text/xml");
-          if (doc.querySelector("parsererror")) return null;
-          const wake = doc.querySelector("wake");
-          if (!wake) return null;
-
           const fields = {};
-          const fieldNames = ["source", "thread", "session", "time", "delivery", "action"];
-          for (const name of fieldNames) {
-            const el = wake.querySelector(name);
-            if (el) fields[name] = el.textContent.trim();
+          // Regex-based parser: tolerant of unescaped XML inside tags
+          const simpleFields = ["source", "thread", "session", "time", "delivery"];
+          for (const name of simpleFields) {
+            const re = new RegExp("<" + name + ">([\\s\\S]*?)</" + name + ">");
+            const m = content.match(re);
+            if (m) fields[name] = m[1].trim();
           }
-
-          const msgEl = wake.querySelector("message");
-          if (msgEl) {
-            fields._message = msgEl.textContent.trim();
-            fields._visibility = msgEl.getAttribute("visibility") || "";
+          // Action: content between <action> and <message (or </wake> if no message)
+          const actionMatch = content.match(/<action>([\s\S]*?)(?=<message[\s>]|<\/wake>)/);
+          if (actionMatch) fields.action = actionMatch[1].trim();
+          // Message: from <message ...> to </message>
+          const msgMatch = content.match(/<message\s+visibility="([^"]*)">\s*([\s\S]*?)\s*<\/message>/);
+          if (msgMatch) {
+            fields._visibility = msgMatch[1];
+            fields._message = msgMatch[2].trim();
           }
-
-          return fields;
+          return Object.keys(fields).length > 0 ? fields : null;
         } catch {
           return null;
         }
@@ -1612,21 +1617,21 @@
           header.appendChild(tn);
         }
 
-        // Compressed badge
+        // Compressed badge — default to showing compressed (what the bot sees)
         if (msg.compressed) {
           const cb = document.createElement("span");
           cb.className = "compressed-badge";
-          cb.textContent = "compressed";
+          cb.textContent = "original";
           cb.title = "Click to toggle original/compressed view";
           header.appendChild(cb);
 
-          let showingCompressed = false;
+          let showingOriginal = false;
           cb.addEventListener("click", () => {
-            showingCompressed = !showingCompressed;
+            showingOriginal = !showingOriginal;
             const bodyEl = card.querySelector(".msg-body");
             if (bodyEl) {
-              bodyEl.textContent = showingCompressed ? msg.compressed : (msg.content || "");
-              cb.textContent = showingCompressed ? "original" : "compressed";
+              bodyEl.textContent = showingOriginal ? (msg.content || "") : msg.compressed;
+              cb.textContent = showingOriginal ? "compressed" : "original";
             }
           });
         }
@@ -1640,11 +1645,21 @@
           header.appendChild(idEl);
         }
 
+        // Token estimate (from backend tiktoken)
+        if (msg.tokens > 0) {
+          const toks = msg.tokens;
+          const tokEl = document.createElement("span");
+          tokEl.className = "token-badge";
+          tokEl.textContent = (toks >= 1000 ? (toks / 1000).toFixed(1) + "k" : toks) + " tok";
+          header.appendChild(tokEl);
+        }
+
         card.appendChild(header);
 
-        // Body
-        const content = msg.content || "";
-        const wakeData = (msg.role === "user") ? parseWakeXML(content) : null;
+        // Body — show compressed content by default (what the bot sees)
+        const displayContent = msg.compressed || msg.content || "";
+        const content = displayContent;
+        const wakeData = (msg.role === "user") ? parseWakeXML(msg.content || "") : null;
 
         if (wakeData) {
           const body = document.createElement("div");

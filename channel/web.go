@@ -25,6 +25,7 @@ import (
 	"github.com/linanwx/nagobot/logger"
 	"github.com/linanwx/nagobot/provider"
 	"github.com/linanwx/nagobot/session"
+	"github.com/linanwx/nagobot/thread"
 )
 
 const (
@@ -528,10 +529,15 @@ func countLines(path string) int {
 // --- GET /api/sessions/{key...} ---
 
 type sessionDetail struct {
-	Key       string             `json:"key"`
-	Messages  []provider.Message `json:"messages"`
-	CreatedAt time.Time          `json:"created_at"`
-	UpdatedAt time.Time          `json:"updated_at"`
+	Key       string           `json:"key"`
+	Messages  []messageWithTok `json:"messages"`
+	CreatedAt time.Time        `json:"created_at"`
+	UpdatedAt time.Time        `json:"updated_at"`
+}
+
+type messageWithTok struct {
+	provider.Message
+	Tokens int `json:"tokens"`
 }
 
 func (w *WebChannel) handleSessionMessages(rw http.ResponseWriter, r *http.Request) {
@@ -562,10 +568,18 @@ func (w *WebChannel) handleSessionMessages(rw http.ResponseWriter, r *http.Reque
 		return
 	}
 
+	msgs := make([]messageWithTok, len(s.Messages))
+	for i, m := range s.Messages {
+		msgs[i] = messageWithTok{
+			Message: m,
+			Tokens:  thread.EstimateMessageTokens(m),
+		}
+	}
+
 	rw.Header().Set("Content-Type", "application/json")
 	_ = json.NewEncoder(rw).Encode(sessionDetail{
 		Key:       key,
-		Messages:  s.Messages,
+		Messages:  msgs,
 		CreatedAt: s.CreatedAt,
 		UpdatedAt: s.UpdatedAt,
 	})
