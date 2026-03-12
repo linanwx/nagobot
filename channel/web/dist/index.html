@@ -991,6 +991,53 @@
       }
       .hb-card-body.open { display: block; padding-top: 10px; }
 
+      /* System Prompt banner */
+      .system-prompt-banner {
+        border: 1px solid var(--border);
+        border-radius: 4px;
+        margin: 8px;
+        background: var(--bg-surface);
+      }
+      .system-prompt-header {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        padding: 6px 12px;
+        cursor: pointer;
+        transition: background 0.12s;
+        user-select: none;
+      }
+      .system-prompt-header:hover { background: var(--bg-elevated); }
+      .system-prompt-label {
+        font-size: 10px;
+        font-weight: 700;
+        text-transform: uppercase;
+        letter-spacing: 0.05em;
+        color: var(--accent-blue, #58a6ff);
+      }
+      .system-prompt-arrow {
+        font-size: 10px;
+        color: var(--text-tertiary);
+        transition: transform 0.15s;
+      }
+      .system-prompt-arrow.open { transform: rotate(90deg); }
+      .system-prompt-body {
+        display: none;
+        padding: 8px 12px;
+        border-top: 1px solid var(--border);
+        max-height: 60vh;
+        overflow-y: auto;
+      }
+      .system-prompt-body.open { display: block; }
+      .system-prompt-body pre {
+        white-space: pre-wrap;
+        word-break: break-word;
+        color: var(--text-secondary);
+        font-size: 11px;
+        line-height: 1.5;
+        margin: 0;
+      }
+
       /* Responsive */
       @media (max-width: 768px) {
         .main {
@@ -1558,6 +1605,42 @@
           }
 
           messagesEmpty.style.display = "none";
+
+          // Fetch system prompt (non-blocking, best-effort)
+          fetch("/api/sessions/" + key.split(":").map(encodeURIComponent).join("/") + "/system-prompt")
+            .then(r => r.ok ? r.json() : null)
+            .then(sp => {
+              if (sp && sp.available && sp.prompt && currentSession === key) {
+                const existing = messagesContainer.querySelector(".system-prompt-banner");
+                if (existing) existing.remove();
+                const banner = document.createElement("div");
+                banner.className = "system-prompt-banner";
+                const hdr = document.createElement("div");
+                hdr.className = "system-prompt-header";
+                const arrow = document.createElement("span");
+                arrow.className = "system-prompt-arrow";
+                arrow.textContent = "\u25B8";
+                const label = document.createElement("span");
+                label.className = "system-prompt-label";
+                label.textContent = "System Prompt (live)";
+                hdr.appendChild(arrow);
+                hdr.appendChild(label);
+                const body = document.createElement("div");
+                body.className = "system-prompt-body";
+                const pre = document.createElement("pre");
+                pre.textContent = sp.prompt;
+                body.appendChild(pre);
+                hdr.addEventListener("click", () => {
+                  const open = body.classList.contains("open");
+                  body.classList.toggle("open", !open);
+                  arrow.classList.toggle("open", !open);
+                });
+                banner.appendChild(hdr);
+                banner.appendChild(body);
+                messagesContainer.insertBefore(banner, messagesContainer.firstChild);
+              }
+            })
+            .catch(() => {});
 
           // Simple virtualization: if > 500 messages, only render last 500
           const renderMsgs = msgs.length > 500 ? msgs.slice(msgs.length - 500) : msgs;

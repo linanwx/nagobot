@@ -216,6 +216,18 @@ func (m *Manager) ThreadStatus(id string) (tools.ThreadInfo, bool) {
 	return tools.ThreadInfo{}, false
 }
 
+// SystemPrompt builds the current system prompt for the thread identified by
+// sessionKey. Returns ("", false) if no thread is loaded for that key.
+func (m *Manager) SystemPrompt(sessionKey string) (string, bool) {
+	m.mu.Lock()
+	t, ok := m.threads[sessionKey]
+	m.mu.Unlock()
+	if !ok {
+		return "", false
+	}
+	return t.buildSystemPrompt(), true
+}
+
 // ListThreads returns a summary of all active threads.
 func (m *Manager) ListThreads() []tools.ThreadInfo {
 	m.mu.Lock()

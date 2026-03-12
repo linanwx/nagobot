@@ -53,6 +53,8 @@ type WebChannel struct {
 	peers    map[*wsClient]struct{}
 	msgID    int64
 	stopOnce sync.Once
+
+	systemPromptFn func(string) (string, bool)
 }
 
 type wsClient struct {
@@ -93,6 +95,12 @@ func NewWebChannel(cfg *config.Config) Channel {
 		clients:   make(map[string]*wsClient),
 		peers:     make(map[*wsClient]struct{}),
 	}
+}
+
+// SetSystemPromptFn sets a callback that builds the current system prompt
+// for a given session key. Returns ("", false) if the thread is not in memory.
+func (w *WebChannel) SetSystemPromptFn(fn func(string) (string, bool)) {
+	w.systemPromptFn = fn
 }
 
 // Name returns the channel name.
@@ -546,11 +554,19 @@ func (w *WebChannel) handleSessionMessages(rw http.ResponseWriter, r *http.Reque
 		return
 	}
 
-	key := parseKeyFromPath(r.URL.Path, "/api/sessions/")
-	if key == "" {
+	raw := parseKeyFromPath(r.URL.Path, "/api/sessions/")
+	if raw == "" {
 		http.Error(rw, "missing session key", http.StatusBadRequest)
 		return
 	}
+
+	// Route: /api/sessions/{key...}/system-prompt
+	// parseKeyFromPath converts "/" to ":", so the suffix becomes ":system-prompt".
+	if key, ok := strings.CutSuffix(raw, ":system-prompt"); ok {
+		w.handleSystemPrompt(rw, key)
+		return
+	}
+	key := raw
 
 	path := w.resolveSessionFile(key, session.SessionFileName)
 	if path == "" {
@@ -583,6 +599,23 @@ func (w *WebChannel) handleSessionMessages(rw http.ResponseWriter, r *http.Reque
 		CreatedAt: s.CreatedAt,
 		UpdatedAt: s.UpdatedAt,
 	})
+}
+
+// --- GET /api/sessions/{key...}/system-prompt ---
+
+type systemPromptResponse struct {
+	Key       string `json:"key"`
+	Prompt    string `json:"prompt,omitempty"`
+	Available bool   `json:"available"`
+}
+
+func (w *WebChannel) handleSystemPrompt(rw http.ResponseWriter, key string) {
+	resp := systemPromptResponse{Key: key}
+	if w.systemPromptFn != nil {
+		resp.Prompt, resp.Available = w.systemPromptFn(key)
+	}
+	rw.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(rw).Encode(resp)
 }
 
 // --- GET /api/config ---

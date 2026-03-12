@@ -159,6 +159,13 @@ func runServe(cmd *cobra.Command, args []string) error {
 	threadMgr.SetDefaultAgentFor(buildDefaultAgentFor(cfg))
 	threadMgr.SetDefaultSinkFor(buildDefaultSinkFor(chManager, cfg))
 
+	// Wire system prompt lookup for the web dashboard.
+	if ch, ok := chManager.Get("web"); ok {
+		if webCh, ok := ch.(*channel.WebChannel); ok {
+			webCh.SetSystemPromptFn(threadMgr.SystemPrompt)
+		}
+	}
+
 	// Wire sleep_thread: CronChannel handles DirectWake jobs by waking threads directly.
 	cronCh.SetDirectWake(func(sessionKey string, source thread.WakeSource, message string) {
 		threadMgr.Wake(sessionKey, &thread.WakeMessage{Source: source, Message: message})
