@@ -133,7 +133,7 @@ func (m *Manager) tryTier2Compress(sessionKey string) {
 		"estimated_tokens": fmt.Sprintf("%d", tokens),
 		"context_window":   fmt.Sprintf("%d", cfg.ContextWindowTokens),
 		"usage_ratio":      fmt.Sprintf("%.2f", float64(tokens)/float64(cfg.ContextWindowTokens)),
-	}, `This is an automated background maintenance task. You MUST load and execute skill "context-ops" NOW. Use the session_file path provided above. Do NOT produce any user-facing output. Just compress and finish.`)
+	}, `This is an automated background maintenance task. You MUST load and execute skill "context-ops" NOW. Use the session_file path provided above. Do NOT produce any user-facing output. Reply with COMPRESS_OK when done.`)
 
 	t.Enqueue(&WakeMessage{
 		Source:  WakeCompression,

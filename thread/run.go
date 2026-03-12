@@ -187,7 +187,7 @@ func (t *Thread) executeRunner(ctx, runCtx context.Context, p provider.Provider,
 		// Deliver intermediate assistant content to user in real time.
 		// For streaming providers, the streamer already delivered it via OnText deltas.
 		// For non-streaming providers (e.g. OpenRouter), this is the only delivery path.
-		if m.Role == "assistant" && isUserFacingContent(m.Content) && !sink.IsZero() && sink.Idempotent && !chatStreamed {
+		if m.Role == "assistant" && isUserFacingContent(m.Content) && !sink.IsZero() && sink.Idempotent && !chatStreamed && !t.isSuppressSink() {
 			_ = sink.Send(ctx, m.Content)
 		}
 		if m.Role == "assistant" {
