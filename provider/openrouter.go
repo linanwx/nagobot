@@ -128,12 +128,18 @@ var openRouterModels = map[string]openRouterModelMeta{
 		},
 		ProviderOrder: []string{"google-ai-studio"},
 	},
+	"openrouter/hunter-alpha": {
+		ProviderOrder: []string{"Stealth"},
+	},
+	"openrouter/healer-alpha": {
+		ProviderOrder: []string{"Stealth"},
+	},
 }
 
 func init() {
 	RegisterProvider("openrouter", ProviderRegistration{
-		Models:       []string{"moonshotai/kimi-k2.5", "anthropic/claude-sonnet-4.6", "anthropic/claude-opus-4.6", "z-ai/glm-5", "minimax/minimax-m2.5", "qwen/qwen3.5-35b-a3b", "google/gemini-3-flash-preview"},
-		VisionModels: []string{"moonshotai/kimi-k2.5", "anthropic/claude-sonnet-4.6", "anthropic/claude-opus-4.6", "qwen/qwen3.5-35b-a3b", "google/gemini-3-flash-preview"},
+		Models:       []string{"moonshotai/kimi-k2.5", "anthropic/claude-sonnet-4.6", "anthropic/claude-opus-4.6", "z-ai/glm-5", "minimax/minimax-m2.5", "qwen/qwen3.5-35b-a3b", "google/gemini-3-flash-preview", "openrouter/hunter-alpha", "openrouter/healer-alpha"},
+		VisionModels: []string{"moonshotai/kimi-k2.5", "anthropic/claude-sonnet-4.6", "anthropic/claude-opus-4.6", "qwen/qwen3.5-35b-a3b", "google/gemini-3-flash-preview", "openrouter/healer-alpha"},
 		EnvKey:       "OPENROUTER_API_KEY",
 		EnvBase:      "OPENROUTER_API_BASE",
 		Constructor: func(apiKey, apiBase, modelType, modelName string, maxTokens int, temperature float64) Provider {
