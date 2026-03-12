@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"regexp"
+
 	"strings"
 	"time"
 
@@ -151,15 +151,15 @@ func (m *Manager) tryTier2Compress(sessionKey string) {
 	)
 }
 
-// trimWakeFields strips redundant XML fields from older wake messages.
+// trimWakeFields strips redundant fields from older wake messages.
 // Keeps the last keepLast wake messages intact; older ones lose
-// <thread>, <session>, <delivery>, and <action> elements.
+// thread, session, delivery, and action fields from YAML frontmatter.
 func trimWakeFields(messages []provider.Message, keepLast int) (bool, []provider.Message) {
-	// Walk backward, count wake user messages.
+	// Walk backward, count wake user messages (detected by YAML frontmatter).
 	wakeCount := 0
 	trimTargets := map[int]bool{}
 	for i := len(messages) - 1; i >= 0; i-- {
-		if messages[i].Role == "user" && strings.Contains(messages[i].Content, "<wake>") {
+		if messages[i].Role == "user" && strings.HasPrefix(messages[i].Content, "---\n") {
 			wakeCount++
 			if wakeCount > keepLast {
 				trimTargets[i] = true
@@ -177,16 +177,7 @@ func trimWakeFields(messages []provider.Message, keepLast int) (bool, []provider
 		if !trimTargets[i] {
 			continue
 		}
-		// Only strip fields in the header (before <message), not in user content.
-		content := result[i].Content
-		if idx := strings.Index(content, "<message"); idx >= 0 {
-			header := wakeFieldRe.ReplaceAllString(content[:idx], "")
-			header = blankLineRe.ReplaceAllString(header, "\n")
-			content = header + content[idx:]
-		} else {
-			content = wakeFieldRe.ReplaceAllString(content, "")
-			content = blankLineRe.ReplaceAllString(content, "\n")
-		}
+		content := trimFrontmatterFields(result[i].Content, wakeTrimFields)
 		if content != result[i].Content {
 			result[i].Content = content
 			modified = true
@@ -195,10 +186,41 @@ func trimWakeFields(messages []provider.Message, keepLast int) (bool, []provider
 	return modified, result
 }
 
-var (
-	wakeFieldRe = regexp.MustCompile(`(?m)^[ \t]*<(thread|session|delivery|action)>.*</(thread|session|delivery|action)>\n?`)
-	blankLineRe = regexp.MustCompile(`\n{3,}`)
-)
+// wakeTrimFields are the frontmatter keys to strip during compression.
+var wakeTrimFields = map[string]bool{
+	"thread": true, "session": true, "delivery": true, "action": true,
+}
+
+// trimFrontmatterFields removes specified keys from a YAML frontmatter block.
+func trimFrontmatterFields(content string, removeKeys map[string]bool) string {
+	if !strings.HasPrefix(content, "---\n") {
+		return content
+	}
+	endIdx := strings.Index(content[4:], "\n---\n")
+	if endIdx < 0 {
+		return content
+	}
+	endIdx += 4 // offset from the initial "---\n"
+
+	yamlBlock := content[4:endIdx]
+	body := content[endIdx+5:] // skip "\n---\n"
+
+	var kept []string
+	for _, line := range strings.Split(yamlBlock, "\n") {
+		key := strings.SplitN(line, ":", 2)[0]
+		if removeKeys[strings.TrimSpace(key)] {
+			continue
+		}
+		kept = append(kept, line)
+	}
+
+	var sb strings.Builder
+	sb.WriteString("---\n")
+	sb.WriteString(strings.Join(kept, "\n"))
+	sb.WriteString("\n---\n")
+	sb.WriteString(body)
+	return sb.String()
+}
 
 // compressToolResults mechanically trims tool result messages.
 // Messages within the last keepLastAssistants assistant turns are protected.

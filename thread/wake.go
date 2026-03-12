@@ -9,6 +9,7 @@ import (
 	"github.com/linanwx/nagobot/logger"
 	"github.com/linanwx/nagobot/provider"
 	sysmsg "github.com/linanwx/nagobot/thread/msg"
+	"gopkg.in/yaml.v3"
 )
 
 // Enqueue adds a wake message to the thread's inbox and notifies the manager.
@@ -164,8 +165,8 @@ func (t *Thread) RunOnce(ctx context.Context) {
 }
 
 // buildWakePayload constructs the user message from a wake source and message.
-// Uses XML format with per-source visibility annotations so the AI knows
-// which content the user can see and which is assistant-only.
+// Uses YAML frontmatter + markdown body so the AI knows the wake context
+// and which content the user can see vs assistant-only.
 func buildWakePayload(source WakeSource, message, threadID, sessionKey, deliveryLabel string, loc *time.Location) string {
 	message = strings.TrimSpace(message)
 	if message == "" {
@@ -177,30 +178,43 @@ func buildWakePayload(source WakeSource, message, threadID, sessionKey, delivery
 
 	now := time.Now().In(loc)
 
-	var delivery string
-	if deliveryLabel != "" {
-		delivery = deliveryLabel
-	} else {
+	delivery := deliveryLabel
+	if delivery == "" {
 		delivery = "no auto-delivery, use tools to send messages if needed"
 	}
 
+	header := wakeHeader{
+		Source:     string(source),
+		Thread:     threadID,
+		Session:    sessionKey,
+		Time:       fmt.Sprintf("%s (%s, %s, UTC%s)", now.Format(time.RFC3339), now.Weekday(), now.Location(), now.Format("-07:00")),
+		Delivery:   delivery,
+		Visibility: messageVisibility(source),
+	}
+	if hint := wakeActionHint(source); hint != "" {
+		header.Action = hint
+	}
+
+	yamlBytes, _ := yaml.Marshal(header)
+
 	var sb strings.Builder
-	sb.WriteString("<wake>\n")
-	fmt.Fprintf(&sb, "  <source>%s</source>\n", source)
-	fmt.Fprintf(&sb, "  <thread>%s</thread>\n", threadID)
-	fmt.Fprintf(&sb, "  <session>%s</session>\n", sessionKey)
-	fmt.Fprintf(&sb, "  <time>%s (%s, %s, UTC%s)</time>\n",
-		now.Format(time.RFC3339),
-		now.Weekday().String(),
-		now.Location().String(),
-		now.Format("-07:00"),
-	)
-	fmt.Fprintf(&sb, "  <delivery>%s</delivery>\n", delivery)
-	fmt.Fprintf(&sb, "  <action>%s</action>\n", wakeActionHint(source))
-	fmt.Fprintf(&sb, "  <message visibility=%q>\n%s\n  </message>\n", messageVisibility(source), message)
-	sb.WriteString("</wake>")
+	sb.WriteString("---\n")
+	sb.Write(yamlBytes)
+	sb.WriteString("---\n\n")
+	sb.WriteString(message)
 
 	return sb.String()
+}
+
+// wakeHeader is the YAML frontmatter for wake messages.
+type wakeHeader struct {
+	Source     string `yaml:"source"`
+	Thread     string `yaml:"thread"`
+	Session    string `yaml:"session"`
+	Time       string `yaml:"time"`
+	Delivery   string `yaml:"delivery"`
+	Visibility string `yaml:"visibility"`
+	Action     string `yaml:"action,omitempty"`
 }
 
 // messageVisibility returns the visibility label for a wake source.
@@ -219,19 +233,19 @@ func wakeActionHint(source WakeSource) string {
 	case WakeTelegram, WakeCLI, WakeWeb, WakeDiscord, WakeFeishu:
 		return "A user sent a message. React accordingly."
 	case WakeUserActive:
-		return "Resume the target session and respond to this wake message. The <message> content is only visible to you."
+		return "Resume the target session and respond to this wake message. The content is only visible to you."
 	case WakeChildTask:
 		return "A parent thread delegated a task to you. Execute this task and output the result."
 	case WakeChildCompleted:
-		return "A child thread completed. The <message> content is ONLY visible to you. The user cannot see it. Include the complete result in your response."
+		return "A child thread completed. The content is ONLY visible to you. The user cannot see it. Include the complete result in your response."
 	case WakeSleepCompleted:
-		return "Your sleep timer expired. The <message> is system context only. Resume your session."
+		return "Your sleep timer expired. The message is system context only. Resume your session."
 	case WakeCron:
 		return "A scheduled cron task has started. Execute it based on the provided job context."
 	case WakeCronFinished:
-		return "A cron task finished. The <message> content is ONLY visible to you. Summarize and deliver the result to the user."
+		return "A cron task finished. The content is ONLY visible to you. Summarize and deliver the result to the user."
 	case WakeExternal:
-		return "Process this external wake message. The <message> content is only visible to you."
+		return "Process this external wake message. The content is only visible to you."
 	case WakeCompression:
 		return "Automated background maintenance. Execute the compression skill immediately. Do not produce user-facing content."
 	case WakeHeartbeatReflect:

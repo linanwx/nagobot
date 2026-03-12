@@ -38,9 +38,9 @@ Key: `resolveProvider()` calls `ProviderFactory.Create()` each time (not cached)
 
 ### WakeMessage Format (`thread/wake.go`)
 
-Wake payloads use XML with per-source visibility:
-- User messages (telegram/discord/cli/etc): `<message visibility="user-visible">`
-- System messages (child_completed/cron/sleep/etc): `<message visibility="assistant-only">`
+Wake payloads use YAML frontmatter + markdown body with per-source visibility:
+- User messages (telegram/discord/cli/etc): `visibility: user-visible`
+- System messages (child_completed/cron/sleep/etc): `visibility: assistant-only`
 
 Action hints for assistant-only sources explicitly tell the AI to include content in its response.
 

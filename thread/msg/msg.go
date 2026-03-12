@@ -3,17 +3,19 @@ package msg
 
 import (
 	"context"
-	"fmt"
 	"sort"
 	"strings"
+
+	"gopkg.in/yaml.v3"
 )
 
-// BuildSystemMessage constructs a standardized XML system message.
-// Fields are rendered as child elements in sorted order; content goes into
-// a <message visibility="assistant-only"> element.
+// BuildSystemMessage constructs a standardized system message using YAML frontmatter.
+// Fields are rendered in sorted order; content goes into the markdown body.
 func BuildSystemMessage(msgType string, fields map[string]string, content string) string {
-	var sb strings.Builder
-	fmt.Fprintf(&sb, "<system type=%q>\n", msgType)
+	// Build ordered map: type, visibility, then sorted fields.
+	header := yaml.Node{Kind: yaml.MappingNode}
+	addYAMLPair(&header, "type", msgType)
+	addYAMLPair(&header, "visibility", "assistant-only")
 
 	if len(fields) > 0 {
 		keys := make([]string, 0, len(fields))
@@ -22,17 +24,31 @@ func BuildSystemMessage(msgType string, fields map[string]string, content string
 		}
 		sort.Strings(keys)
 		for _, k := range keys {
-			fmt.Fprintf(&sb, "  <%s>%s</%s>\n", k, fields[k], k)
+			addYAMLPair(&header, k, fields[k])
 		}
 	}
 
+	yamlBytes, _ := yaml.Marshal(&yaml.Node{Kind: yaml.DocumentNode, Content: []*yaml.Node{&header}})
+
+	var sb strings.Builder
+	sb.WriteString("---\n")
+	sb.Write(yamlBytes)
+	sb.WriteString("---\n")
+
 	content = strings.TrimSpace(content)
 	if content != "" {
-		fmt.Fprintf(&sb, "  <message visibility=\"assistant-only\">%s</message>\n", content)
+		sb.WriteString("\n")
+		sb.WriteString(content)
 	}
 
-	sb.WriteString("</system>")
 	return sb.String()
+}
+
+func addYAMLPair(node *yaml.Node, key, value string) {
+	node.Content = append(node.Content,
+		&yaml.Node{Kind: yaml.ScalarNode, Value: key},
+		&yaml.Node{Kind: yaml.ScalarNode, Value: value},
+	)
 }
 
 // Sink defines how thread output is delivered.
