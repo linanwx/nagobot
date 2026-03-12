@@ -38,8 +38,9 @@ type sessionEntry struct {
 	Summary             string `json:"summary"`
 	SummaryAt           string `json:"summary_at,omitempty"`
 	ChangedSinceSummary bool   `json:"changed_since_summary"`
-	IsRunning           bool   `json:"is_running"`
-	HasHeartbeat        bool   `json:"has_heartbeat"`
+	IsRunning           bool    `json:"is_running"`
+	HasHeartbeat        bool    `json:"has_heartbeat"`
+	LastUserActiveAt    *string `json:"last_user_active_at"`
 }
 
 type listSessionsOutput struct {
@@ -130,13 +131,24 @@ func collectSessions(cfg *config.Config, days int) (*listSessionsOutput, error) 
 			hasHeartbeat = len(strings.TrimSpace(string(data))) > 0
 		}
 
+		// Scan backwards for the last real-user message.
+		var lastUserActiveAt *string
+		for i := len(s.Messages) - 1; i >= 0; i-- {
+			if isRealUserSource(s.Messages[i].Source) && !s.Messages[i].Timestamp.IsZero() {
+				t := s.Messages[i].Timestamp.Format(time.RFC3339)
+				lastUserActiveAt = &t
+				break
+			}
+		}
+
 		entry := sessionEntry{
-			Key:            key,
-			Timezone:       tz,
-			TimezoneSource: tzSource,
-			UpdatedAt:      updatedAt.Format(time.RFC3339),
-			MessageCount:   len(s.Messages),
-			HasHeartbeat:   hasHeartbeat,
+			Key:              key,
+			Timezone:         tz,
+			TimezoneSource:   tzSource,
+			UpdatedAt:        updatedAt.Format(time.RFC3339),
+			MessageCount:     len(s.Messages),
+			HasHeartbeat:     hasHeartbeat,
+			LastUserActiveAt: lastUserActiveAt,
 		}
 
 		if s, ok := summaries[key]; ok {
@@ -194,6 +206,15 @@ func deriveSessionKey(root, path string) string {
 	rel = filepath.Dir(rel)
 	parts := strings.Split(filepath.ToSlash(rel), "/")
 	return strings.Join(parts, ":")
+}
+
+// isRealUserSource returns true if the source is a real user channel.
+func isRealUserSource(source string) bool {
+	switch source {
+	case "telegram", "discord", "cli", "web", "feishu":
+		return true
+	}
+	return false
 }
 
 // summaryEntry is a single entry in sessions_summary.json.
