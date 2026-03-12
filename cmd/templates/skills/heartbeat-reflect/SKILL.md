@@ -36,18 +36,25 @@ Each item is a brief description of what to monitor, with an optional condition 
 ```markdown
 - Check Beijing weather for user (they mentioned going out tomorrow)
   when: 2026-03-12 morning
+  reason: user mentioned going out tomorrow, might be helpful to proactively check weather
 
 - Periodically check unread emails and summarize
   when: anytime
+  reason: user mentioned wanting to stay on top of emails, could be helpful to provide regular summaries
 
 - Remind about quarterly report deadline
-  when: 2026-03-14
+  if: talk about work or deadlines
+  reason: user mentioned a quarterly report due on March 20, a reminder when discussing work could be helpful
+
+- Greet user in the evening
+  when: every night at 9 PM
+  reason: user seems to activate in the evenings, a friendly greeting could be a nice touch
 ```
 
 Rules:
 - Items are **ongoing attention/monitoring items**, not one-time tasks
 - No `[ ]` / `[x]` checkboxes — items are either present (active) or deleted (resolved)
-- Condition fields are free-form: `when`, `where`, `if`, or any other condition the LLM can interpret
+- Condition fields are free-form: `when`, `where`, `if`, `reason`, or any other condition the LLM can interpret
 - Keep descriptions concise but informative
 
 ## Important
