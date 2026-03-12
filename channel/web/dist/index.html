@@ -3,99 +3,1122 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Nagobot Web Chat</title>
+    <title>Nagobot Dashboard</title>
     <style>
-      :root { color-scheme: light dark; }
-      body { margin: 0; font-family: ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; background: #0b1020; color: #e5e7eb; }
-      .wrap { max-width: 900px; margin: 0 auto; padding: 16px; height: 100vh; display: grid; grid-template-rows: auto 1fr auto; gap: 12px; }
-      .title { font-size: 18px; font-weight: 700; }
-      .status { font-size: 12px; color: #93c5fd; }
-      .chat { border: 1px solid #1f2937; border-radius: 10px; padding: 12px; overflow: auto; background: #111827; }
-      .msg { margin: 10px 0; white-space: pre-wrap; word-break: break-word; }
-      .msg.user { color: #93c5fd; }
-      .msg.bot { color: #f9fafb; }
-      .msg.system { color: #9ca3af; }
-      .bar { display: grid; grid-template-columns: 1fr auto; gap: 10px; }
-      textarea { width: 100%; min-height: 60px; max-height: 180px; resize: vertical; border-radius: 10px; border: 1px solid #374151; background: #0f172a; color: #e5e7eb; padding: 10px; }
-      button { border: 0; border-radius: 10px; padding: 10px 16px; background: #2563eb; color: white; font-weight: 600; cursor: pointer; }
-      button:disabled { opacity: 0.5; cursor: default; }
-      .meta { font-size: 11px; color: #9ca3af; }
+      :root {
+        --bg-deep: #080c14;
+        --bg-base: #0c1221;
+        --bg-surface: #111827;
+        --bg-elevated: #1a2332;
+        --border: #1e293b;
+        --border-active: #334155;
+
+        --text-primary: #e2e8f0;
+        --text-secondary: #94a3b8;
+        --text-tertiary: #64748b;
+
+        --accent-green: #10b981;
+        --accent-amber: #f59e0b;
+        --accent-blue: #3b82f6;
+        --accent-red: #ef4444;
+        --accent-purple: #8b5cf6;
+        --accent-cyan: #06b6d4;
+
+        --role-user: #60a5fa;
+        --role-assistant: #34d399;
+        --role-system: #fbbf24;
+        --role-tool: #a78bfa;
+
+        --font-mono: "IBM Plex Mono", "JetBrains Mono", "SF Mono", "Cascadia Code", monospace;
+        --font-sans: "IBM Plex Sans", "Inter", system-ui, sans-serif;
+      }
+
+      *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+      html, body { height: 100%; overflow: hidden; }
+
+      body {
+        font-family: var(--font-mono);
+        background: var(--bg-deep);
+        color: var(--text-primary);
+        font-size: 13px;
+        line-height: 1.5;
+        position: relative;
+      }
+
+      /* Scan-line overlay */
+      body::after {
+        content: "";
+        position: fixed;
+        top: 0; left: 0; right: 0; bottom: 0;
+        pointer-events: none;
+        z-index: 9999;
+        background: repeating-linear-gradient(
+          0deg,
+          transparent,
+          transparent 2px,
+          rgba(0, 0, 0, 0.03) 2px,
+          rgba(0, 0, 0, 0.03) 4px
+        );
+      }
+
+      /* Custom scrollbar */
+      ::-webkit-scrollbar { width: 6px; }
+      ::-webkit-scrollbar-track { background: transparent; }
+      ::-webkit-scrollbar-thumb { background: var(--border-active); border-radius: 3px; }
+      ::-webkit-scrollbar-thumb:hover { background: var(--text-tertiary); }
+
+      /* Layout */
+      .app {
+        display: grid;
+        grid-template-rows: 44px 1fr;
+        height: 100vh;
+      }
+
+      /* Header */
+      .header {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        padding: 0 16px;
+        background: var(--bg-base);
+        border-bottom: 1px solid var(--border);
+        z-index: 10;
+      }
+
+      .header-left {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+      }
+
+      .logo {
+        font-family: var(--font-sans);
+        font-weight: 700;
+        font-size: 15px;
+        color: var(--text-primary);
+        letter-spacing: 0.5px;
+        display: flex;
+        align-items: center;
+        gap: 6px;
+      }
+
+      .logo-bar {
+        width: 3px;
+        height: 18px;
+        background: var(--accent-green);
+        border-radius: 1px;
+      }
+
+      .conn-status {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        font-size: 11px;
+        color: var(--text-tertiary);
+        font-family: var(--font-sans);
+      }
+
+      .conn-dot {
+        width: 7px;
+        height: 7px;
+        border-radius: 50%;
+        background: var(--accent-red);
+      }
+
+      .conn-dot.connected {
+        background: var(--accent-green);
+        box-shadow: 0 0 6px var(--accent-green);
+        animation: pulse-glow 2s ease-in-out infinite;
+      }
+
+      .conn-dot.reconnecting {
+        background: var(--accent-amber);
+        animation: pulse-glow 1s ease-in-out infinite;
+      }
+
+      @keyframes pulse-glow {
+        0%, 100% { opacity: 1; }
+        50% { opacity: 0.5; }
+      }
+
+      .header-right {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+      }
+
+      .header-btn {
+        background: transparent;
+        border: 1px solid var(--border);
+        color: var(--text-secondary);
+        padding: 4px 12px;
+        border-radius: 4px;
+        cursor: pointer;
+        font-family: var(--font-sans);
+        font-size: 12px;
+        font-weight: 400;
+        transition: all 0.15s;
+      }
+
+      .header-btn:hover {
+        background: var(--bg-elevated);
+        border-color: var(--border-active);
+        color: var(--text-primary);
+      }
+
+      /* Main area */
+      .main {
+        display: grid;
+        grid-template-columns: var(--sidebar-width, 260px) auto 1fr;
+        overflow: hidden;
+      }
+
+      .resize-handle {
+        width: 4px;
+        cursor: col-resize;
+        background: transparent;
+        transition: background 0.15s;
+        position: relative;
+        z-index: 5;
+      }
+      .resize-handle:hover,
+      .resize-handle.active {
+        background: var(--accent-green);
+      }
+      .resize-handle::before {
+        content: "";
+        position: absolute;
+        top: 0; bottom: 0;
+        left: -3px; right: -3px;
+      }
+
+      /* Sidebar */
+      .sidebar {
+        background: var(--bg-base);
+        border-right: 1px solid var(--border);
+        display: flex;
+        flex-direction: column;
+        overflow: hidden;
+      }
+
+      .sidebar-header {
+        padding: 12px 14px 8px;
+        font-family: var(--font-sans);
+        font-size: 10px;
+        font-weight: 600;
+        text-transform: uppercase;
+        letter-spacing: 1.2px;
+        color: var(--text-tertiary);
+      }
+
+      .session-list {
+        flex: 1;
+        overflow-y: auto;
+        padding: 0 6px 6px;
+      }
+
+      .session-group {
+        margin-bottom: 1px;
+      }
+
+      .session-group-header {
+        display: flex;
+        align-items: center;
+        gap: 4px;
+        padding: 4px 6px;
+        cursor: pointer;
+        border-radius: 4px;
+        transition: background 0.12s;
+        user-select: none;
+      }
+
+      .session-group-header:hover {
+        background: var(--bg-elevated);
+      }
+
+      .session-group-header.has-session:hover {
+        background: rgba(52, 211, 153, 0.08);
+      }
+
+      .session-group-arrow {
+        font-size: 7px;
+        color: var(--text-tertiary);
+        transition: transform 0.15s;
+        flex-shrink: 0;
+        width: 10px;
+        text-align: center;
+      }
+
+      .session-group.collapsed .session-group-arrow {
+        transform: rotate(-90deg);
+      }
+
+      .session-group-name {
+        font-size: 11px;
+        font-weight: 600;
+        color: var(--text-secondary);
+        font-family: var(--font-sans);
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+        flex: 1;
+        min-width: 0;
+      }
+
+      /* Top-level group names uppercase */
+      .session-group-header[data-depth="0"] .session-group-name {
+        text-transform: uppercase;
+        letter-spacing: 0.5px;
+      }
+
+      .session-group-meta {
+        display: flex;
+        align-items: center;
+        gap: 5px;
+        flex-shrink: 0;
+      }
+
+      .session-group-count {
+        font-size: 9px;
+        color: var(--text-tertiary);
+      }
+
+      .session-group-msg-count {
+        font-size: 9px;
+        color: var(--text-tertiary);
+        background: var(--bg-surface);
+        padding: 1px 5px;
+        border-radius: 8px;
+      }
+
+      .session-group-time {
+        font-size: 9px;
+        color: var(--text-tertiary);
+      }
+
+      .session-group-children {
+        padding-left: 8px;
+      }
+
+      .session-group.collapsed .session-group-children {
+        display: none;
+      }
+
+      .session-group-header.active {
+        background: var(--bg-elevated);
+      }
+
+      .session-group-header.active .session-group-name {
+        color: var(--accent-green);
+      }
+
+      .session-item {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        padding: 4px 6px 4px 12px;
+        margin: 1px 0;
+        border-radius: 4px;
+        cursor: pointer;
+        transition: background 0.12s;
+        border-left: 2px solid transparent;
+      }
+
+      .session-item:hover {
+        background: var(--bg-elevated);
+      }
+
+      .session-item.active {
+        background: var(--bg-elevated);
+        border-left-color: var(--accent-green);
+      }
+
+      .session-key {
+        font-size: 11px;
+        color: var(--text-primary);
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+        flex: 1;
+        min-width: 0;
+      }
+
+      .session-meta {
+        display: flex;
+        align-items: center;
+        gap: 5px;
+        flex-shrink: 0;
+        margin-left: 6px;
+      }
+
+      .session-count {
+        font-size: 9px;
+        color: var(--text-tertiary);
+        background: var(--bg-surface);
+        padding: 1px 5px;
+        border-radius: 8px;
+      }
+
+      .session-time {
+        font-size: 9px;
+        color: var(--text-tertiary);
+      }
+
+      .session-skeleton {
+        height: 36px;
+        margin: 2px 0;
+        border-radius: 4px;
+        background: linear-gradient(90deg, var(--bg-surface) 25%, var(--bg-elevated) 50%, var(--bg-surface) 75%);
+        background-size: 200% 100%;
+        animation: skeleton-shimmer 1.5s ease-in-out infinite;
+      }
+
+      @keyframes skeleton-shimmer {
+        0% { background-position: 200% 0; }
+        100% { background-position: -200% 0; }
+      }
+
+      /* Inspector area */
+      .inspector {
+        display: grid;
+        grid-template-rows: 36px 1fr auto;
+        overflow: hidden;
+        background: var(--bg-deep);
+      }
+
+      .inspector-header {
+        display: flex;
+        align-items: center;
+        padding: 0 16px;
+        background: var(--bg-base);
+        border-bottom: 1px solid var(--border);
+        font-size: 11px;
+        color: var(--text-tertiary);
+        gap: 8px;
+      }
+
+      .inspector-header-label {
+        font-family: var(--font-sans);
+        font-weight: 600;
+        text-transform: uppercase;
+        letter-spacing: 0.8px;
+        font-size: 10px;
+      }
+
+      .inspector-header-session {
+        color: var(--text-secondary);
+        font-family: var(--font-mono);
+      }
+
+      /* Messages */
+      .messages {
+        overflow-y: auto;
+        padding: 12px 16px;
+        display: flex;
+        flex-direction: column;
+        gap: 6px;
+      }
+
+      .messages-empty {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        height: 100%;
+        color: var(--text-tertiary);
+        font-size: 13px;
+      }
+
+      .msg-card {
+        background: var(--bg-surface);
+        border: 1px solid var(--border);
+        border-radius: 4px;
+        border-left: 3px solid var(--border);
+        overflow: hidden;
+        flex-shrink: 0;
+      }
+
+      .msg-card[data-role="user"] { border-left-color: var(--role-user); }
+      .msg-card[data-role="assistant"] { border-left-color: var(--role-assistant); }
+      .msg-card[data-role="system"] { border-left-color: var(--role-system); }
+      .msg-card[data-role="tool"] { border-left-color: var(--role-tool); }
+
+      .msg-header {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        padding: 6px 10px;
+        background: var(--bg-elevated);
+        border-bottom: 1px solid var(--border);
+        flex-wrap: wrap;
+      }
+
+      .role-badge {
+        font-family: var(--font-sans);
+        font-size: 10px;
+        font-weight: 600;
+        text-transform: uppercase;
+        letter-spacing: 0.5px;
+        padding: 1px 7px;
+        border-radius: 3px;
+        color: #fff;
+      }
+
+      .role-badge.user { background: var(--role-user); color: #0c1221; }
+      .role-badge.assistant { background: var(--role-assistant); color: #0c1221; }
+      .role-badge.system { background: var(--role-system); color: #0c1221; }
+      .role-badge.tool { background: var(--role-tool); color: #0c1221; }
+
+      .msg-timestamp {
+        font-size: 11px;
+        color: var(--text-tertiary);
+      }
+
+      .source-badge {
+        font-size: 10px;
+        color: var(--accent-cyan);
+        background: rgba(6, 182, 212, 0.1);
+        padding: 1px 6px;
+        border-radius: 3px;
+        border: 1px solid rgba(6, 182, 212, 0.2);
+      }
+
+      .tool-name-badge {
+        font-size: 10px;
+        color: var(--accent-purple);
+        background: rgba(139, 92, 246, 0.1);
+        padding: 1px 6px;
+        border-radius: 3px;
+        border: 1px solid rgba(139, 92, 246, 0.2);
+      }
+
+      .msg-id {
+        font-size: 10px;
+        color: var(--text-tertiary);
+        margin-left: auto;
+        cursor: default;
+        max-width: 120px;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+
+      .compressed-badge {
+        font-size: 9px;
+        color: var(--accent-amber);
+        background: rgba(245, 158, 11, 0.1);
+        padding: 1px 5px;
+        border-radius: 3px;
+        border: 1px solid rgba(245, 158, 11, 0.2);
+        cursor: pointer;
+      }
+
+      .compressed-badge:hover {
+        background: rgba(245, 158, 11, 0.2);
+      }
+
+      .msg-body {
+        padding: 8px 10px;
+        white-space: pre-wrap;
+        word-break: break-word;
+        font-size: 13px;
+        line-height: 1.55;
+        color: var(--text-primary);
+      }
+
+      .msg-body-truncated {
+        max-height: 300px;
+        overflow: hidden;
+        position: relative;
+      }
+
+      .msg-body-truncated::after {
+        content: "";
+        position: absolute;
+        bottom: 0; left: 0; right: 0;
+        height: 40px;
+        background: linear-gradient(transparent, var(--bg-surface));
+        pointer-events: none;
+      }
+
+      .show-more-btn {
+        display: block;
+        width: 100%;
+        padding: 4px;
+        background: var(--bg-elevated);
+        border: none;
+        border-top: 1px solid var(--border);
+        color: var(--text-secondary);
+        font-size: 11px;
+        font-family: var(--font-sans);
+        cursor: pointer;
+        transition: color 0.12s;
+      }
+
+      .show-more-btn:hover {
+        color: var(--text-primary);
+      }
+
+      /* Wake XML display */
+      .wake-view {
+        font-size: 12px;
+      }
+
+      .wake-fields {
+        display: grid;
+        grid-template-columns: auto 1fr;
+        gap: 2px 12px;
+        padding: 6px 0;
+        border-bottom: 1px solid var(--border);
+        margin-bottom: 6px;
+      }
+
+      .wake-label {
+        color: var(--text-tertiary);
+        font-family: var(--font-sans);
+        font-size: 10px;
+        font-weight: 600;
+        text-transform: uppercase;
+        letter-spacing: 0.5px;
+        padding-top: 1px;
+      }
+
+      .wake-value {
+        color: var(--text-secondary);
+        font-size: 12px;
+      }
+
+      .wake-message {
+        color: var(--text-primary);
+        white-space: pre-wrap;
+        word-break: break-word;
+      }
+
+      /* Collapsible sections */
+      .collapsible {
+        border-top: 1px solid var(--border);
+      }
+
+      .collapsible-toggle {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        padding: 5px 10px;
+        width: 100%;
+        background: none;
+        border: none;
+        color: var(--text-secondary);
+        font-size: 11px;
+        font-family: var(--font-sans);
+        cursor: pointer;
+        transition: color 0.12s;
+      }
+
+      .collapsible-toggle:hover {
+        color: var(--text-primary);
+      }
+
+      .collapsible-arrow {
+        font-size: 9px;
+        transition: transform 0.2s;
+        display: inline-block;
+      }
+
+      .collapsible.open .collapsible-arrow {
+        transform: rotate(90deg);
+      }
+
+      .collapsible-body {
+        max-height: 0;
+        overflow: hidden;
+        opacity: 0;
+        transition: max-height 0.25s ease, opacity 0.2s ease;
+      }
+
+      .collapsible.open .collapsible-body {
+        max-height: 2000px;
+        opacity: 1;
+      }
+
+      .collapsible-content {
+        padding: 6px 10px 8px;
+        font-size: 12px;
+        color: var(--text-secondary);
+        white-space: pre-wrap;
+        word-break: break-word;
+      }
+
+      /* Tool calls */
+      .tool-call-item {
+        padding: 6px 10px;
+        border-bottom: 1px solid var(--border);
+      }
+
+      .tool-call-item:last-child {
+        border-bottom: none;
+      }
+
+      .tool-call-name {
+        font-size: 11px;
+        font-weight: 600;
+        color: var(--accent-amber);
+        margin-bottom: 4px;
+      }
+
+      .tool-call-args {
+        font-size: 11px;
+        color: var(--text-secondary);
+        white-space: pre-wrap;
+        word-break: break-word;
+        background: var(--bg-deep);
+        padding: 6px 8px;
+        border-radius: 3px;
+        max-height: 200px;
+        overflow-y: auto;
+      }
+
+      /* Input bar */
+      .input-bar {
+        padding: 8px 16px 12px;
+        background: var(--bg-base);
+        border-top: 1px solid var(--border);
+        display: flex;
+        gap: 8px;
+        align-items: flex-end;
+      }
+
+      .input-bar textarea {
+        flex: 1;
+        min-height: 38px;
+        max-height: 140px;
+        resize: none;
+        border: 1px solid var(--border);
+        border-radius: 4px;
+        background: var(--bg-surface);
+        color: var(--text-primary);
+        padding: 8px 10px;
+        font-family: var(--font-mono);
+        font-size: 13px;
+        line-height: 1.4;
+        outline: none;
+        transition: border-color 0.15s;
+      }
+
+      .input-bar textarea:focus {
+        border-color: var(--border-active);
+      }
+
+      .input-bar textarea::placeholder {
+        color: var(--text-tertiary);
+      }
+
+      .input-bar textarea:disabled {
+        opacity: 0.4;
+        cursor: not-allowed;
+      }
+
+      .send-btn {
+        height: 38px;
+        padding: 0 16px;
+        background: var(--accent-blue);
+        border: none;
+        border-radius: 4px;
+        color: #fff;
+        font-family: var(--font-sans);
+        font-weight: 600;
+        font-size: 12px;
+        cursor: pointer;
+        transition: opacity 0.12s;
+        flex-shrink: 0;
+      }
+
+      .send-btn:hover { opacity: 0.9; }
+      .send-btn:disabled { opacity: 0.3; cursor: not-allowed; }
+
+      /* Modal overlay */
+      .modal-overlay {
+        display: none;
+        position: fixed;
+        top: 0; left: 0; right: 0; bottom: 0;
+        background: rgba(0, 0, 0, 0.6);
+        z-index: 100;
+        align-items: center;
+        justify-content: center;
+      }
+
+      .modal-overlay.open {
+        display: flex;
+      }
+
+      .modal {
+        background: var(--bg-surface);
+        border: 1px solid var(--border);
+        border-radius: 6px;
+        width: 90%;
+        max-width: 640px;
+        max-height: 80vh;
+        display: flex;
+        flex-direction: column;
+        box-shadow: 0 8px 32px rgba(0, 0, 0, 0.5);
+      }
+
+      .modal-header {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        padding: 12px 16px;
+        border-bottom: 1px solid var(--border);
+        font-family: var(--font-sans);
+        font-weight: 600;
+        font-size: 14px;
+      }
+
+      .modal-close {
+        background: none;
+        border: none;
+        color: var(--text-tertiary);
+        cursor: pointer;
+        font-size: 18px;
+        padding: 0 4px;
+        line-height: 1;
+        transition: color 0.12s;
+      }
+
+      .modal-close:hover {
+        color: var(--text-primary);
+      }
+
+      .modal-body {
+        padding: 16px;
+        overflow-y: auto;
+        font-size: 12px;
+        line-height: 1.6;
+      }
+
+      /* Config modal */
+      .config-section {
+        margin-bottom: 16px;
+      }
+
+      .config-section:last-child {
+        margin-bottom: 0;
+      }
+
+      .config-section-title {
+        font-family: var(--font-sans);
+        font-weight: 600;
+        font-size: 11px;
+        text-transform: uppercase;
+        letter-spacing: 0.8px;
+        color: var(--text-tertiary);
+        margin-bottom: 8px;
+        padding-bottom: 4px;
+        border-bottom: 1px solid var(--border);
+      }
+
+      .config-row {
+        display: flex;
+        justify-content: space-between;
+        padding: 3px 0;
+      }
+
+      .config-key {
+        color: var(--text-secondary);
+      }
+
+      .config-value {
+        color: var(--text-primary);
+        text-align: right;
+        max-width: 300px;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+
+      /* Heartbeat modal */
+      .heartbeat-content {
+        white-space: pre-wrap;
+        word-break: break-word;
+        color: var(--text-primary);
+      }
+
+      .heartbeat-empty {
+        color: var(--text-tertiary);
+        text-align: center;
+        padding: 24px;
+      }
+
+      /* Responsive */
+      @media (max-width: 768px) {
+        .main {
+          grid-template-columns: 1fr;
+        }
+        .sidebar, .resize-handle {
+          display: none;
+        }
+      }
     </style>
   </head>
   <body>
-    <div class="wrap">
-      <div>
-        <div class="title">Nagobot Web Chat</div>
-        <div class="status" id="status">Connecting...</div>
-        <div class="meta" id="meta">session: main</div>
+    <div class="app">
+      <!-- Header -->
+      <div class="header">
+        <div class="header-left">
+          <div class="logo"><span class="logo-bar"></span>NAGOBOT</div>
+          <div class="conn-status">
+            <span class="conn-dot" id="connDot"></span>
+            <span id="connText">Connecting</span>
+          </div>
+        </div>
+        <div class="header-right">
+          <button class="header-btn" id="configBtn" aria-label="Open config">Config</button>
+          <button class="header-btn" id="heartbeatBtn" aria-label="Open heartbeat">&#9829; HB</button>
+        </div>
       </div>
-      <div class="chat" id="chat"></div>
-      <div class="bar">
-        <textarea id="input" placeholder="Type your message..."></textarea>
-        <button id="send">Send</button>
+
+      <!-- Main -->
+      <div class="main">
+        <!-- Sidebar -->
+        <div class="sidebar">
+          <div class="sidebar-header">Sessions</div>
+          <div class="session-list" id="sessionList">
+            <div class="session-skeleton"></div>
+            <div class="session-skeleton"></div>
+            <div class="session-skeleton"></div>
+          </div>
+        </div>
+
+        <!-- Resize Handle -->
+        <div class="resize-handle" id="resizeHandle"></div>
+
+        <!-- Inspector -->
+        <div class="inspector">
+          <div class="inspector-header">
+            <span class="inspector-header-label">Message Inspector</span>
+            <span class="inspector-header-session" id="inspectorSession">No session selected</span>
+          </div>
+          <div class="messages" id="messagesContainer">
+            <div class="messages-empty" id="messagesEmpty">Select a session to inspect messages</div>
+          </div>
+          <div class="input-bar">
+            <textarea id="chatInput" placeholder="Select a session first..." disabled rows="1" aria-label="Message input"></textarea>
+            <button class="send-btn" id="sendBtn" disabled>Send</button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Config Modal -->
+    <div class="modal-overlay" id="configModal" role="dialog" aria-modal="true" aria-label="Configuration">
+      <div class="modal">
+        <div class="modal-header">
+          Configuration
+          <button class="modal-close" id="configClose" aria-label="Close">&times;</button>
+        </div>
+        <div class="modal-body" id="configBody">Loading...</div>
+      </div>
+    </div>
+
+    <!-- Heartbeat Modal -->
+    <div class="modal-overlay" id="heartbeatModal" role="dialog" aria-modal="true" aria-label="Heartbeat">
+      <div class="modal">
+        <div class="modal-header">
+          Heartbeat
+          <button class="modal-close" id="heartbeatClose" aria-label="Close">&times;</button>
+        </div>
+        <div class="modal-body" id="heartbeatBody">Loading...</div>
       </div>
     </div>
 
     <script>
-      const chatEl = document.getElementById("chat");
-      const inputEl = document.getElementById("input");
-      const sendBtn = document.getElementById("send");
-      const statusEl = document.getElementById("status");
-      const sessionId = "main";
-
+      // ── State ──────────────────────────────────────────────
       let ws = null;
-      let retry = 0;
+      let retryCount = 0;
+      let currentSession = null;
+      let sessions = [];
+      let sessionRefreshTimer = null;
+      let userAtBottom = true;
 
-      function addMsg(role, text) {
-        const el = document.createElement("div");
-        el.className = `msg ${role}`;
-        if (role === "user") {
-          el.textContent = `You: ${text}`;
-        } else if (role === "system") {
-          el.textContent = `[system] ${text}`;
-        } else {
-          el.textContent = `Bot: ${text}`;
+      // ── DOM refs ───────────────────────────────────────────
+      const $ = (id) => document.getElementById(id);
+      const connDot = $("connDot");
+      const connText = $("connText");
+      const sessionList = $("sessionList");
+      const inspectorSession = $("inspectorSession");
+      const messagesContainer = $("messagesContainer");
+      const messagesEmpty = $("messagesEmpty");
+      const chatInput = $("chatInput");
+      const sendBtn = $("sendBtn");
+      const configBtn = $("configBtn");
+      const configModal = $("configModal");
+      const configClose = $("configClose");
+      const configBody = $("configBody");
+      const heartbeatBtn = $("heartbeatBtn");
+      const heartbeatModal = $("heartbeatModal");
+      const heartbeatClose = $("heartbeatClose");
+      const heartbeatBody = $("heartbeatBody");
+      const resizeHandle = $("resizeHandle");
+      const mainEl = document.querySelector(".main");
+
+      // ── Sidebar resize ───────────────────────────────────
+      {
+        const MIN_W = 160, MAX_W = 500;
+        const saved = localStorage.getItem("sidebar-width");
+        if (saved) mainEl.style.setProperty("--sidebar-width", saved + "px");
+
+        let dragging = false;
+        resizeHandle.addEventListener("mousedown", (e) => {
+          e.preventDefault();
+          dragging = true;
+          resizeHandle.classList.add("active");
+          document.body.style.cursor = "col-resize";
+          document.body.style.userSelect = "none";
+        });
+        document.addEventListener("mousemove", (e) => {
+          if (!dragging) return;
+          const w = Math.min(MAX_W, Math.max(MIN_W, e.clientX));
+          mainEl.style.setProperty("--sidebar-width", w + "px");
+        });
+        document.addEventListener("mouseup", () => {
+          if (!dragging) return;
+          dragging = false;
+          resizeHandle.classList.remove("active");
+          document.body.style.cursor = "";
+          document.body.style.userSelect = "";
+          const w = getComputedStyle(mainEl).getPropertyValue("--sidebar-width").trim();
+          localStorage.setItem("sidebar-width", parseInt(w));
+        });
+      }
+
+      // ── Utility functions ──────────────────────────────────
+
+      function escapeHTML(str) {
+        if (!str) return "";
+        const el = document.createElement("span");
+        el.textContent = str;
+        return el.innerHTML;
+      }
+
+      function timeAgo(dateStr) {
+        if (!dateStr) return "";
+        const diff = Date.now() - new Date(dateStr).getTime();
+        if (diff < 0) return "just now";
+        const s = Math.floor(diff / 1000);
+        if (s < 60) return s + "s ago";
+        const m = Math.floor(s / 60);
+        if (m < 60) return m + "m ago";
+        const h = Math.floor(m / 60);
+        if (h < 24) return h + "h ago";
+        const d = Math.floor(h / 24);
+        return d + "d ago";
+      }
+
+      function formatTime(timestamp) {
+        if (!timestamp) return "";
+        const d = new Date(timestamp);
+        if (isNaN(d.getTime())) return "";
+        return d.toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit", second: "2-digit" });
+      }
+
+      function formatJSON(str) {
+        if (!str) return "";
+        try {
+          return JSON.stringify(JSON.parse(str), null, 2);
+        } catch {
+          return str;
         }
-        chatEl.appendChild(el);
-        chatEl.scrollTop = chatEl.scrollHeight;
       }
 
-      function clearChat() {
-        chatEl.innerHTML = "";
+      function parseWakeXML(content) {
+        if (!content || !content.trimStart().startsWith("<wake>")) return null;
+        try {
+          const parser = new DOMParser();
+          const doc = parser.parseFromString(content, "text/xml");
+          if (doc.querySelector("parsererror")) return null;
+          const wake = doc.querySelector("wake");
+          if (!wake) return null;
+
+          const fields = {};
+          const fieldNames = ["source", "thread", "session", "time", "delivery", "action"];
+          for (const name of fieldNames) {
+            const el = wake.querySelector(name);
+            if (el) fields[name] = el.textContent.trim();
+          }
+
+          const msgEl = wake.querySelector("message");
+          if (msgEl) {
+            fields._message = msgEl.textContent.trim();
+            fields._visibility = msgEl.getAttribute("visibility") || "";
+          }
+
+          return fields;
+        } catch {
+          return null;
+        }
       }
 
-      function setStatus(text) {
-        statusEl.textContent = text;
+      function truncateId(id) {
+        if (!id) return "";
+        if (id.length <= 20) return id;
+        return id.slice(0, 8) + "..." + id.slice(-8);
       }
 
-      function connect() {
+      // ── Auto-resize textarea ───────────────────────────────
+      chatInput.addEventListener("input", () => {
+        chatInput.style.height = "auto";
+        chatInput.style.height = Math.min(chatInput.scrollHeight, 140) + "px";
+      });
+
+      // ── Scroll tracking ────────────────────────────────────
+      messagesContainer.addEventListener("scroll", () => {
+        const el = messagesContainer;
+        userAtBottom = el.scrollTop + el.clientHeight >= el.scrollHeight - 30;
+      });
+
+      function scrollToBottom() {
+        messagesContainer.scrollTop = messagesContainer.scrollHeight;
+      }
+
+      // ── WebSocket ──────────────────────────────────────────
+
+      function setConnStatus(state) {
+        connDot.className = "conn-dot " + state;
+        if (state === "connected") {
+          connText.textContent = "Connected";
+        } else if (state === "reconnecting") {
+          connText.textContent = "Reconnecting";
+        } else {
+          connText.textContent = "Disconnected";
+        }
+      }
+
+      function connectWS() {
         const proto = location.protocol === "https:" ? "wss" : "ws";
-        ws = new WebSocket(`${proto}://${location.host}/ws`);
+        ws = new WebSocket(proto + "://" + location.host + "/ws");
 
         ws.onopen = () => {
-          retry = 0;
-          setStatus("Connected");
-          sendBtn.disabled = false;
+          retryCount = 0;
+          setConnStatus("connected");
+          updateInputState();
+          if (currentSession) {
+            ws.send(JSON.stringify({ type: "bind", session_id: currentSession }));
+          }
         };
 
         ws.onmessage = (event) => {
           try {
             const msg = JSON.parse(event.data);
-            if (msg.type === "response" && msg.text) {
-              addMsg("bot", msg.text);
-            } else if (msg.type === "error" && msg.error) {
-              addMsg("bot", `[error] ${msg.error}`);
+            if (msg.type === "response" && msg.text && currentSession) {
+              appendLiveMessage(msg.text);
             }
-          } catch {
-            addMsg("bot", event.data || "(empty)");
-          }
+          } catch { /* ignore non-JSON */ }
         };
 
         ws.onclose = () => {
-          setStatus("Disconnected, reconnecting...");
-          sendBtn.disabled = true;
-          const delay = Math.min(1000 * Math.pow(2, retry++), 10000);
-          setTimeout(connect, delay);
+          setConnStatus("reconnecting");
+          updateInputState();
+          const delay = Math.min(1000 * Math.pow(2, retryCount++), 10000);
+          setTimeout(connectWS, delay);
         };
 
         ws.onerror = () => {
@@ -103,61 +1126,748 @@
         };
       }
 
-      async function loadHistory() {
+      function appendLiveMessage(text) {
+        const msg = {
+          role: "assistant",
+          content: text,
+          timestamp: new Date().toISOString()
+        };
+        const card = renderMessageCard(msg);
+        messagesEmpty.style.display = "none";
+        messagesContainer.appendChild(card);
+        if (userAtBottom) scrollToBottom();
+      }
+
+      // ── Sessions ───────────────────────────────────────────
+
+      async function loadSessions() {
         try {
-          const res = await fetch("/api/history");
-          if (!res.ok) {
-            addMsg("system", `history load failed: HTTP ${res.status}`);
-            return;
+          const res = await fetch("/api/sessions");
+          if (!res.ok) return;
+          sessions = await res.json();
+          renderSessionList();
+        } catch { /* silent */ }
+      }
+
+      // Track collapsed state by tree path (persisted across re-renders)
+      const collapsedPaths = new Set();
+      let treeInitialized = false;
+
+      // Build a tree from flat session keys split on ":"
+      function buildSessionTree(sessions) {
+        const root = { children: new Map(), session: null };
+        for (const s of sessions) {
+          const segments = s.key.split(":");
+          let node = root;
+          for (const seg of segments) {
+            if (!node.children.has(seg)) {
+              node.children.set(seg, { children: new Map(), session: null });
+            }
+            node = node.children.get(seg);
           }
-          const payload = await res.json();
-          clearChat();
-          if (!payload.messages || payload.messages.length === 0) {
-            addMsg("system", `No history in session key: ${payload.session_key}`);
-            return;
+          node.session = s;
+        }
+        return root;
+      }
+
+      // Count total session leaves under a node
+      function countLeaves(node) {
+        let n = node.session ? 1 : 0;
+        for (const child of node.children.values()) {
+          n += countLeaves(child);
+        }
+        return n;
+      }
+
+      function renderSessionList() {
+        sessionList.innerHTML = "";
+        if (!sessions || sessions.length === 0) {
+          sessionList.innerHTML = '<div style="padding:12px;color:var(--text-tertiary);font-size:12px;">No sessions</div>';
+          return;
+        }
+
+        const tree = buildSessionTree(sessions);
+
+        // On first render, collapse everything at depth >= 2
+        if (!treeInitialized) {
+          (function initCollapse(node, path, depth) {
+            for (const [name, child] of node.children) {
+              const childPath = path ? path + ":" + name : name;
+              if (child.children.size > 0 && depth >= 1) {
+                collapsedPaths.add(childPath);
+              }
+              initCollapse(child, childPath, depth + 1);
+            }
+          })(tree, "", 0);
+          treeInitialized = true;
+        }
+
+        // Auto-expand path to currentSession
+        if (currentSession) {
+          const segs = currentSession.split(":");
+          let p = "";
+          for (const seg of segs) {
+            p = p ? p + ":" + seg : seg;
+            collapsedPaths.delete(p);
           }
-          addMsg("system", `Loaded ${payload.messages.length} history messages from ${payload.session_key}`);
-          for (const m of payload.messages) {
-            const role = (m.role || "").toLowerCase();
-            if (role === "user") {
-              addMsg("user", m.content || "");
-            } else if (role === "assistant") {
-              addMsg("bot", m.content || "");
+        }
+
+        renderTreeNode(tree, "", 0, sessionList);
+      }
+
+      function renderTreeNode(node, parentPath, depth, container) {
+        for (const [name, child] of node.children) {
+          const path = parentPath ? parentPath + ":" + name : name;
+          const hasChildren = child.children.size > 0;
+
+          if (hasChildren) {
+            // Render as collapsible group (may also be a session itself)
+            container.appendChild(makeGroup(name, path, child, depth));
+          } else if (child.session) {
+            // Pure leaf — render as item
+            container.appendChild(makeSessionItem(child.session, name));
+          }
+        }
+      }
+
+      function makeGroup(name, path, node, depth) {
+        const isCollapsed = collapsedPaths.has(path);
+        const hasSession = !!node.session;
+
+        const group = document.createElement("div");
+        group.className = "session-group" + (isCollapsed ? " collapsed" : "");
+
+        // Header
+        const header = document.createElement("div");
+        header.className = "session-group-header" + (hasSession ? " has-session" : "");
+        if (hasSession && currentSession === node.session.key) {
+          header.classList.add("active");
+        }
+        header.setAttribute("data-depth", depth);
+        header.title = path;
+
+        const arrow = document.createElement("span");
+        arrow.className = "session-group-arrow";
+        arrow.textContent = "\u25BC";
+
+        const nameEl = document.createElement("span");
+        nameEl.className = "session-group-name";
+        nameEl.textContent = name;
+
+        header.appendChild(arrow);
+        header.appendChild(nameEl);
+
+        // Meta: show session stats if this node is also a session, else show child count
+        const metaEl = document.createElement("span");
+        metaEl.className = "session-group-meta";
+
+        if (hasSession && node.session.message_count != null) {
+          const mc = document.createElement("span");
+          mc.className = "session-group-msg-count";
+          mc.textContent = node.session.message_count;
+          metaEl.appendChild(mc);
+        }
+
+        const countEl = document.createElement("span");
+        countEl.className = "session-group-count";
+        const leaves = countLeaves(node) - (hasSession ? 1 : 0);
+        if (leaves > 0) countEl.textContent = "+" + leaves;
+        metaEl.appendChild(countEl);
+
+        if (hasSession) {
+          const timeEl = document.createElement("span");
+          timeEl.className = "session-group-time";
+          timeEl.textContent = timeAgo(node.session.updated_at);
+          metaEl.appendChild(timeEl);
+        }
+
+        header.appendChild(metaEl);
+
+        // Click: toggle collapse, or select session if clicking on a session-group
+        header.addEventListener("click", (e) => {
+          // If this group is also a session, clicking the name selects it;
+          // clicking the arrow toggles collapse.
+          const clickedArrow = e.target === arrow;
+          if (hasSession && !clickedArrow) {
+            selectSession(node.session.key);
+            // Also expand if collapsed
+            if (collapsedPaths.has(path)) {
+              collapsedPaths.delete(path);
+              group.classList.remove("collapsed");
+            }
+          } else {
+            if (collapsedPaths.has(path)) {
+              collapsedPaths.delete(path);
             } else {
-              addMsg("system", `${m.role || "unknown"}: ${m.content || ""}`);
+              collapsedPaths.add(path);
+            }
+            group.classList.toggle("collapsed");
+          }
+        });
+
+        group.appendChild(header);
+
+        // Children
+        const childrenEl = document.createElement("div");
+        childrenEl.className = "session-group-children";
+        renderTreeNode(node, path, depth + 1, childrenEl);
+        group.appendChild(childrenEl);
+
+        return group;
+      }
+
+      function makeSessionItem(s, displayName) {
+        const item = document.createElement("div");
+        item.className = "session-item" + (currentSession === s.key ? " active" : "");
+        item.setAttribute("role", "button");
+        item.setAttribute("tabindex", "0");
+        item.setAttribute("aria-label", "Session " + s.key);
+
+        const keyEl = document.createElement("span");
+        keyEl.className = "session-key";
+        keyEl.textContent = displayName || s.key;
+        keyEl.title = s.key;
+
+        const metaEl = document.createElement("span");
+        metaEl.className = "session-meta";
+
+        if (s.message_count != null) {
+          const countEl = document.createElement("span");
+          countEl.className = "session-count";
+          countEl.textContent = s.message_count;
+          metaEl.appendChild(countEl);
+        }
+
+        const timeEl = document.createElement("span");
+        timeEl.className = "session-time";
+        timeEl.textContent = timeAgo(s.updated_at);
+        metaEl.appendChild(timeEl);
+
+        item.appendChild(keyEl);
+        item.appendChild(metaEl);
+
+        item.addEventListener("click", () => selectSession(s.key));
+        item.addEventListener("keydown", (e) => {
+          if (e.key === "Enter" || e.key === " ") {
+            e.preventDefault();
+            selectSession(s.key);
+          }
+        });
+
+        return item;
+      }
+
+      async function selectSession(key) {
+        if (currentSession === key) return;
+        currentSession = key;
+        inspectorSession.textContent = "session: " + key;
+        chatInput.placeholder = "Send a message to " + key + "...";
+        updateInputState();
+        renderSessionList();
+
+        // Bind WebSocket
+        if (ws && ws.readyState === WebSocket.OPEN) {
+          ws.send(JSON.stringify({ type: "bind", session_id: key }));
+        }
+
+        // Load messages
+        await loadMessages(key);
+      }
+
+      async function loadMessages(key) {
+        messagesContainer.innerHTML = "";
+        messagesEmpty.style.display = "flex";
+        messagesEmpty.textContent = "Loading...";
+
+        try {
+          const res = await fetch("/api/sessions/" + key.split(":").map(encodeURIComponent).join("/"));
+          if (!res.ok) {
+            messagesEmpty.textContent = "Failed to load session: HTTP " + res.status;
+            return;
+          }
+          const data = await res.json();
+          const msgs = data.messages || [];
+
+          messagesContainer.innerHTML = "";
+          if (msgs.length === 0) {
+            messagesEmpty.style.display = "flex";
+            messagesEmpty.textContent = "No messages in this session";
+            messagesContainer.appendChild(messagesEmpty);
+            return;
+          }
+
+          messagesEmpty.style.display = "none";
+
+          // Simple virtualization: if > 500 messages, only render last 500
+          const renderMsgs = msgs.length > 500 ? msgs.slice(msgs.length - 500) : msgs;
+          if (msgs.length > 500) {
+            const notice = document.createElement("div");
+            notice.style.cssText = "padding:8px;text-align:center;color:var(--text-tertiary);font-size:11px;";
+            notice.textContent = "Showing last 500 of " + msgs.length + " messages";
+            messagesContainer.appendChild(notice);
+          }
+
+          const fragment = document.createDocumentFragment();
+          for (const msg of renderMsgs) {
+            fragment.appendChild(renderMessageCard(msg));
+          }
+          messagesContainer.appendChild(fragment);
+
+          userAtBottom = true;
+          scrollToBottom();
+        } catch (err) {
+          messagesEmpty.textContent = "Error loading session: " + err.message;
+        }
+      }
+
+      // ── Message rendering ──────────────────────────────────
+
+      function renderMessageCard(msg) {
+        const card = document.createElement("div");
+        card.className = "msg-card";
+        card.setAttribute("data-role", msg.role || "system");
+
+        // Header
+        const header = document.createElement("div");
+        header.className = "msg-header";
+
+        // Role badge
+        const roleBadge = document.createElement("span");
+        roleBadge.className = "role-badge " + (msg.role || "system");
+        roleBadge.textContent = msg.role || "unknown";
+        header.appendChild(roleBadge);
+
+        // Timestamp
+        if (msg.timestamp) {
+          const ts = document.createElement("span");
+          ts.className = "msg-timestamp";
+          ts.textContent = formatTime(msg.timestamp);
+          ts.title = msg.timestamp;
+          header.appendChild(ts);
+        }
+
+        // Source badge
+        if (msg.source) {
+          const src = document.createElement("span");
+          src.className = "source-badge";
+          src.textContent = msg.source;
+          header.appendChild(src);
+        }
+
+        // Tool name for tool results
+        if (msg.role === "tool" && msg.name) {
+          const tn = document.createElement("span");
+          tn.className = "tool-name-badge";
+          tn.textContent = msg.name;
+          header.appendChild(tn);
+        }
+
+        // Compressed badge
+        if (msg.compressed) {
+          const cb = document.createElement("span");
+          cb.className = "compressed-badge";
+          cb.textContent = "compressed";
+          cb.title = "Click to toggle original/compressed view";
+          header.appendChild(cb);
+
+          let showingCompressed = false;
+          cb.addEventListener("click", () => {
+            showingCompressed = !showingCompressed;
+            const bodyEl = card.querySelector(".msg-body");
+            if (bodyEl) {
+              bodyEl.textContent = showingCompressed ? msg.compressed : (msg.content || "");
+              cb.textContent = showingCompressed ? "original" : "compressed";
+            }
+          });
+        }
+
+        // Message ID
+        if (msg.id) {
+          const idEl = document.createElement("span");
+          idEl.className = "msg-id";
+          idEl.textContent = truncateId(msg.id);
+          idEl.title = msg.id;
+          header.appendChild(idEl);
+        }
+
+        card.appendChild(header);
+
+        // Body
+        const content = msg.content || "";
+        const wakeData = (msg.role === "user") ? parseWakeXML(content) : null;
+
+        if (wakeData) {
+          const body = document.createElement("div");
+          body.className = "msg-body wake-view";
+
+          const fields = document.createElement("div");
+          fields.className = "wake-fields";
+
+          const fieldOrder = ["source", "thread", "session", "time", "delivery", "action"];
+          for (const key of fieldOrder) {
+            if (wakeData[key]) {
+              const label = document.createElement("span");
+              label.className = "wake-label";
+              label.textContent = key;
+
+              const value = document.createElement("span");
+              value.className = "wake-value";
+              value.textContent = wakeData[key];
+
+              fields.appendChild(label);
+              fields.appendChild(value);
             }
           }
-        } catch (err) {
-          addMsg("system", `history load failed: ${err}`);
+          body.appendChild(fields);
+
+          if (wakeData._message) {
+            const wakeMsg = document.createElement("div");
+            wakeMsg.className = "wake-message";
+            wakeMsg.textContent = wakeData._message;
+            body.appendChild(wakeMsg);
+          }
+
+          card.appendChild(body);
+        } else if (content) {
+          const body = document.createElement("div");
+          body.className = "msg-body";
+          body.textContent = content;
+
+          // Truncation for long content
+          if (content.length > 500) {
+            body.classList.add("msg-body-truncated");
+            card.appendChild(body);
+
+            const showMore = document.createElement("button");
+            showMore.className = "show-more-btn";
+            showMore.textContent = "Show more";
+            let expanded = false;
+            showMore.addEventListener("click", () => {
+              expanded = !expanded;
+              body.classList.toggle("msg-body-truncated", !expanded);
+              showMore.textContent = expanded ? "Show less" : "Show more";
+            });
+            card.appendChild(showMore);
+          } else {
+            card.appendChild(body);
+          }
+        }
+
+        // Reasoning section
+        if (msg.reasoning_content) {
+          card.appendChild(makeCollapsible("Reasoning", msg.reasoning_content));
+        }
+
+        // Tool calls section
+        if (msg.tool_calls && msg.tool_calls.length > 0) {
+          const names = msg.tool_calls.map(tc => tc.function ? tc.function.name : "unknown").join(", ");
+          const section = document.createElement("div");
+          section.className = "collapsible";
+
+          const toggle = document.createElement("button");
+          toggle.className = "collapsible-toggle";
+          toggle.innerHTML = '<span class="collapsible-arrow">&#9654;</span> Tool Calls: ' + escapeHTML(names);
+          toggle.addEventListener("click", () => section.classList.toggle("open"));
+
+          const bodyDiv = document.createElement("div");
+          bodyDiv.className = "collapsible-body";
+
+          for (const tc of msg.tool_calls) {
+            const fn = tc.function || {};
+            const item = document.createElement("div");
+            item.className = "tool-call-item";
+
+            const nameEl = document.createElement("div");
+            nameEl.className = "tool-call-name";
+            nameEl.textContent = fn.name || "unknown";
+            item.appendChild(nameEl);
+
+            if (fn.arguments) {
+              const argsEl = document.createElement("div");
+              argsEl.className = "tool-call-args";
+              argsEl.textContent = formatJSON(fn.arguments);
+              item.appendChild(argsEl);
+            }
+
+            bodyDiv.appendChild(item);
+          }
+
+          section.appendChild(toggle);
+          section.appendChild(bodyDiv);
+          card.appendChild(section);
+        }
+
+        // Tool call ID reference for tool results
+        if (msg.role === "tool" && msg.tool_call_id) {
+          const ref = document.createElement("div");
+          ref.style.cssText = "padding:4px 10px;font-size:10px;color:var(--text-tertiary);border-top:1px solid var(--border);";
+          ref.textContent = "call_id: " + msg.tool_call_id;
+          card.appendChild(ref);
+        }
+
+        return card;
+      }
+
+      function makeCollapsible(title, content) {
+        const section = document.createElement("div");
+        section.className = "collapsible";
+
+        const toggle = document.createElement("button");
+        toggle.className = "collapsible-toggle";
+        toggle.innerHTML = '<span class="collapsible-arrow">&#9654;</span> ' + escapeHTML(title);
+        toggle.addEventListener("click", () => section.classList.toggle("open"));
+
+        const bodyDiv = document.createElement("div");
+        bodyDiv.className = "collapsible-body";
+
+        const contentDiv = document.createElement("div");
+        contentDiv.className = "collapsible-content";
+        contentDiv.textContent = content;
+
+        bodyDiv.appendChild(contentDiv);
+        section.appendChild(toggle);
+        section.appendChild(bodyDiv);
+        return section;
+      }
+
+      // ── Input / Send ───────────────────────────────────────
+
+      function updateInputState() {
+        const connected = ws && ws.readyState === WebSocket.OPEN;
+        const hasSession = !!currentSession;
+        chatInput.disabled = !connected || !hasSession;
+        sendBtn.disabled = !connected || !hasSession;
+        if (!hasSession) {
+          chatInput.placeholder = "Select a session first...";
+        } else if (!connected) {
+          chatInput.placeholder = "Disconnected...";
+        } else {
+          chatInput.placeholder = "Send a message to " + currentSession + "...";
         }
       }
 
       function sendMessage() {
-        const text = inputEl.value.trim();
-        if (!text || !ws || ws.readyState !== WebSocket.OPEN) return;
+        const text = chatInput.value.trim();
+        if (!text || !ws || ws.readyState !== WebSocket.OPEN || !currentSession) return;
 
-        const payload = {
+        ws.send(JSON.stringify({
           type: "message",
-          id: crypto.randomUUID ? crypto.randomUUID() : Date.now().toString(),
-          session_id: sessionId,
-          text
-        };
+          session_id: currentSession,
+          text: text
+        }));
 
-        ws.send(JSON.stringify(payload));
-        addMsg("user", text);
-        inputEl.value = "";
+        // Show sent message locally
+        const localMsg = {
+          role: "user",
+          content: text,
+          timestamp: new Date().toISOString(),
+          source: "web"
+        };
+        messagesEmpty.style.display = "none";
+        messagesContainer.appendChild(renderMessageCard(localMsg));
+        if (userAtBottom) scrollToBottom();
+
+        chatInput.value = "";
+        chatInput.style.height = "auto";
       }
 
       sendBtn.addEventListener("click", sendMessage);
-      inputEl.addEventListener("keydown", (e) => {
+      chatInput.addEventListener("keydown", (e) => {
         if (e.key === "Enter" && !e.shiftKey) {
           e.preventDefault();
           sendMessage();
         }
       });
 
-      connect();
-      loadHistory();
+      // ── Config Modal ───────────────────────────────────────
+
+      configBtn.addEventListener("click", async () => {
+        configModal.classList.add("open");
+        configBody.textContent = "Loading...";
+        try {
+          const res = await fetch("/api/config");
+          if (!res.ok) {
+            configBody.textContent = "Failed to load config: HTTP " + res.status;
+            return;
+          }
+          const cfg = await res.json();
+          renderConfig(cfg);
+        } catch (err) {
+          configBody.textContent = "Error: " + err.message;
+        }
+      });
+
+      function renderConfig(cfg) {
+        configBody.innerHTML = "";
+
+        // Thread section
+        if (cfg.thread) {
+          const section = document.createElement("div");
+          section.className = "config-section";
+          const title = document.createElement("div");
+          title.className = "config-section-title";
+          title.textContent = "Thread";
+          section.appendChild(title);
+
+          const keys = Object.keys(cfg.thread);
+          for (const k of keys) {
+            const row = document.createElement("div");
+            row.className = "config-row";
+            const keyEl = document.createElement("span");
+            keyEl.className = "config-key";
+            keyEl.textContent = k;
+            const valEl = document.createElement("span");
+            valEl.className = "config-value";
+            valEl.textContent = String(cfg.thread[k]);
+            valEl.title = String(cfg.thread[k]);
+            row.appendChild(keyEl);
+            row.appendChild(valEl);
+            section.appendChild(row);
+          }
+          configBody.appendChild(section);
+        }
+
+        // Channels section
+        if (cfg.channels) {
+          const section = document.createElement("div");
+          section.className = "config-section";
+          const title = document.createElement("div");
+          title.className = "config-section-title";
+          title.textContent = "Channels";
+          section.appendChild(title);
+
+          const keys = Object.keys(cfg.channels);
+          for (const k of keys) {
+            const row = document.createElement("div");
+            row.className = "config-row";
+            const keyEl = document.createElement("span");
+            keyEl.className = "config-key";
+            keyEl.textContent = k;
+            const valEl = document.createElement("span");
+            valEl.className = "config-value";
+            const val = cfg.channels[k];
+            valEl.textContent = typeof val === "object" ? JSON.stringify(val) : String(val);
+            row.appendChild(keyEl);
+            row.appendChild(valEl);
+            section.appendChild(row);
+          }
+          configBody.appendChild(section);
+        }
+
+        // Cron section
+        if (cfg.cron && Array.isArray(cfg.cron)) {
+          const section = document.createElement("div");
+          section.className = "config-section";
+          const title = document.createElement("div");
+          title.className = "config-section-title";
+          title.textContent = "Cron Jobs";
+          section.appendChild(title);
+
+          for (const job of cfg.cron) {
+            const row = document.createElement("div");
+            row.className = "config-row";
+            const keyEl = document.createElement("span");
+            keyEl.className = "config-key";
+            keyEl.textContent = typeof job === "object" ? (job.name || JSON.stringify(job)) : String(job);
+            row.appendChild(keyEl);
+            section.appendChild(row);
+          }
+          configBody.appendChild(section);
+        }
+
+        // Other top-level keys
+        const handled = new Set(["thread", "channels", "cron"]);
+        const otherKeys = Object.keys(cfg).filter(k => !handled.has(k));
+        if (otherKeys.length > 0) {
+          const section = document.createElement("div");
+          section.className = "config-section";
+          const title = document.createElement("div");
+          title.className = "config-section-title";
+          title.textContent = "Other";
+          section.appendChild(title);
+
+          for (const k of otherKeys) {
+            const row = document.createElement("div");
+            row.className = "config-row";
+            const keyEl = document.createElement("span");
+            keyEl.className = "config-key";
+            keyEl.textContent = k;
+            const valEl = document.createElement("span");
+            valEl.className = "config-value";
+            const val = cfg[k];
+            valEl.textContent = typeof val === "object" ? JSON.stringify(val) : String(val);
+            valEl.title = typeof val === "object" ? JSON.stringify(val, null, 2) : String(val);
+            row.appendChild(keyEl);
+            row.appendChild(valEl);
+            section.appendChild(row);
+          }
+          configBody.appendChild(section);
+        }
+      }
+
+      // ── Heartbeat Modal ────────────────────────────────────
+
+      heartbeatBtn.addEventListener("click", async () => {
+        heartbeatModal.classList.add("open");
+        heartbeatBody.textContent = "Loading...";
+
+        if (!currentSession) {
+          heartbeatBody.innerHTML = '<div class="heartbeat-empty">No session selected</div>';
+          return;
+        }
+
+        try {
+          const res = await fetch("/api/heartbeat/" + currentSession.split(":").map(encodeURIComponent).join("/"));
+          if (!res.ok) {
+            heartbeatBody.innerHTML = '<div class="heartbeat-empty">Failed to load heartbeat: HTTP ' + res.status + '</div>';
+            return;
+          }
+          const data = await res.json();
+          if (!data.content) {
+            heartbeatBody.innerHTML = '<div class="heartbeat-empty">No heartbeat items</div>';
+            return;
+          }
+          heartbeatBody.innerHTML = "";
+          const pre = document.createElement("div");
+          pre.className = "heartbeat-content";
+          pre.textContent = data.content;
+          heartbeatBody.appendChild(pre);
+        } catch (err) {
+          heartbeatBody.innerHTML = '<div class="heartbeat-empty">Error: ' + escapeHTML(err.message) + '</div>';
+        }
+      });
+
+      // ── Modal close handlers ───────────────────────────────
+
+      function closeModal(modalEl) {
+        modalEl.classList.remove("open");
+      }
+
+      configClose.addEventListener("click", () => closeModal(configModal));
+      heartbeatClose.addEventListener("click", () => closeModal(heartbeatModal));
+
+      configModal.addEventListener("click", (e) => {
+        if (e.target === configModal) closeModal(configModal);
+      });
+
+      heartbeatModal.addEventListener("click", (e) => {
+        if (e.target === heartbeatModal) closeModal(heartbeatModal);
+      });
+
+      document.addEventListener("keydown", (e) => {
+        if (e.key === "Escape") {
+          closeModal(configModal);
+          closeModal(heartbeatModal);
+        }
+      });
+
+      // ── Init ───────────────────────────────────────────────
+
+      connectWS();
+      loadSessions();
+
+      // Auto-refresh session list every 30s
+      sessionRefreshTimer = setInterval(loadSessions, 30000);
     </script>
   </body>
 </html>

@@ -137,8 +137,16 @@ func (d *Dispatcher) route(msg *channel.Message) string {
 		return "cli"
 	}
 
-	if msg.ChannelID == "cli:local" || strings.HasPrefix(msg.ChannelID, "web:") || strings.HasPrefix(msg.ChannelID, "socket:") {
+	if msg.ChannelID == "cli:local" || strings.HasPrefix(msg.ChannelID, "socket:") {
 		return "cli"
+	}
+
+	// Web channel: "web:main" and "web:cli" → "cli"; "web:{sessionKey}" → route to that session.
+	if suffix, ok := strings.CutPrefix(msg.ChannelID, "web:"); ok {
+		if suffix == "" || suffix == "main" || suffix == "cli" {
+			return "cli"
+		}
+		return suffix
 	}
 
 	// Chat channels (telegram, feishu, discord): group → shared session, else → per-user.

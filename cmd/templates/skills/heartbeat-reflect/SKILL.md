@@ -23,7 +23,7 @@ The session directory path is provided in the wake message (e.g. `Session direct
 
 3. **Update `heartbeat.md`** based on your review:
    - **Add** new items you identified from the conversation
-   - **Remove** items that are no longer relevant (resolved, outdated, user moved on)
+   - **Remove** items that are no longer relevant (resolved, outdated, user moved on). Also remove items that already exist in the cron system to avoid duplication
    - **Keep** items that are still active and worth monitoring
    - If no items remain, write an empty string to clear the file — do NOT leave behind headings, comments, or any other text. Do NOT delete the file.
 
@@ -54,6 +54,8 @@ Each item is a brief description of what to monitor, with an optional condition 
   created: 2026-03-11
   reason: user seems to activate in the evenings, a friendly greeting could be a nice touch
 ```
+
+Example of removing a duplicate: if you find an item like "Summarize daily tech news every morning" in heartbeat.md, but the conversation history shows cron wakes already doing `push daily tech news summary every morning`, remove it from heartbeat.md — the cron system already handles it.
 
 Rules:
 - Items are **ongoing attention/monitoring items**, not one-time tasks

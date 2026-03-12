@@ -1,6 +1,7 @@
 package channel
 
 import (
+	"bufio"
 	"context"
 	"embed"
 	"encoding/json"
@@ -11,6 +12,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -20,6 +22,7 @@ import (
 	"github.com/coder/websocket/wsjson"
 	"github.com/linanwx/nagobot/config"
 	"github.com/linanwx/nagobot/logger"
+	"github.com/linanwx/nagobot/provider"
 	"github.com/linanwx/nagobot/session"
 )
 
@@ -51,8 +54,9 @@ type WebChannel struct {
 }
 
 type wsClient struct {
-	conn *websocket.Conn
-	mu   sync.Mutex
+	conn         *websocket.Conn
+	mu           sync.Mutex
+	boundSession string // session key this client is bound to
 }
 
 type webInboundMessage struct {
@@ -102,6 +106,10 @@ func (w *WebChannel) Start(ctx context.Context) error {
 	mux := http.NewServeMux()
 	mux.Handle("/ws", http.HandlerFunc(w.handleWS))
 	mux.Handle("/api/history", http.HandlerFunc(w.handleHistory))
+	mux.Handle("/api/sessions/", http.HandlerFunc(w.handleSessionMessages))
+	mux.Handle("/api/sessions", http.HandlerFunc(w.handleSessions))
+	mux.Handle("/api/config", http.HandlerFunc(w.handleConfig))
+	mux.Handle("/api/heartbeat/", http.HandlerFunc(w.handleHeartbeat))
 	mux.Handle("/", http.FileServer(http.FS(frontendFS)))
 
 	w.server = &http.Server{
@@ -167,7 +175,7 @@ func (w *WebChannel) Send(ctx context.Context, resp *Response) error {
 		return fmt.Errorf("response is nil")
 	}
 
-	sessionID := sanitizeSessionID(resp.ReplyTo)
+	sessionID := sanitizeSessionKey(resp.ReplyTo)
 	if sessionID == "" {
 		sessionID = webMainSessionID
 	}
@@ -201,7 +209,7 @@ func (w *WebChannel) handleWS(rw http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	client := &wsClient{conn: conn}
+	client := &wsClient{conn: conn, boundSession: webMainSessionID}
 	w.registerPeer(client)
 	w.bindClient(webMainSessionID, client)
 
@@ -209,7 +217,10 @@ func (w *WebChannel) handleWS(rw http.ResponseWriter, r *http.Request) {
 	defer w.wg.Done()
 	defer func() {
 		w.unregisterPeer(client)
-		w.unbindClient(webMainSessionID, client)
+		client.mu.Lock()
+		bound := client.boundSession
+		client.mu.Unlock()
+		w.unbindClient(bound, client)
 		_ = conn.Close(websocket.StatusNormalClosure, "")
 	}()
 
@@ -223,33 +234,62 @@ func (w *WebChannel) handleWS(rw http.ResponseWriter, r *http.Request) {
 		if reqType == "" {
 			reqType = "message"
 		}
-		if reqType != "message" {
+
+		switch reqType {
+		case "bind":
+			sid := sanitizeSessionKey(strings.TrimSpace(req.SessionID))
+			if sid == "" {
+				_ = wsjson.Write(r.Context(), conn, webOutboundMessage{Type: "error", Error: "invalid session_id"})
+				continue
+			}
+			client.mu.Lock()
+			oldSession := client.boundSession
+			client.boundSession = sid
+			client.mu.Unlock()
+			w.unbindClient(oldSession, client)
+			w.bindClient(sid, client)
+			_ = wsjson.Write(r.Context(), conn, webOutboundMessage{Type: "bound", Text: sid})
+
+		case "message":
+			text := strings.TrimSpace(req.Text)
+			if text == "" {
+				continue
+			}
+
+			client.mu.Lock()
+			boundSess := client.boundSession
+			client.mu.Unlock()
+
+			sessionID := boundSess
+			channelID := "web:" + sessionID
+			if sid := strings.TrimSpace(req.SessionID); sid != "" {
+				if valid := sanitizeSessionKey(sid); valid != "" {
+					sessionID = valid
+					channelID = "web:" + valid
+				}
+			}
+
+			msg := &Message{
+				ID:        fmt.Sprintf("web-%d", atomic.AddInt64(&w.msgID, 1)),
+				ChannelID: channelID,
+				UserID:    sessionID,
+				Username:  "web-user",
+				Text:      text,
+				Metadata: map[string]string{
+					"chat_id": sessionID,
+				},
+			}
+
+			select {
+			case w.messages <- msg:
+			case <-w.done:
+				return
+			case <-r.Context().Done():
+				return
+			}
+
+		default:
 			_ = wsjson.Write(r.Context(), conn, webOutboundMessage{Type: "error", Error: "unsupported message type"})
-			continue
-		}
-
-		text := strings.TrimSpace(req.Text)
-		if text == "" {
-			continue
-		}
-
-		msg := &Message{
-			ID:        fmt.Sprintf("web-%d", atomic.AddInt64(&w.msgID, 1)),
-			ChannelID: "web:main",
-			UserID:    webMainSessionID,
-			Username:  "web-user",
-			Text:      text,
-			Metadata: map[string]string{
-				"chat_id": webMainSessionID,
-			},
-		}
-
-		select {
-		case w.messages <- msg:
-		case <-w.done:
-			return
-		case <-r.Context().Done():
-			return
 		}
 	}
 }
@@ -284,20 +324,6 @@ func (w *WebChannel) unbindClient(sessionID string, client *wsClient) {
 	if current == client {
 		delete(w.clients, sessionID)
 	}
-}
-
-func sanitizeSessionID(raw string) string {
-	s := strings.TrimSpace(raw)
-	if s == "" || len(s) > 128 {
-		return ""
-	}
-	for _, r := range s {
-		if (r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z') || (r >= '0' && r <= '9') || r == '-' || r == '_' {
-			continue
-		}
-		return ""
-	}
-	return s
 }
 
 func webURLHintFromAddr(addr string) string {
@@ -373,4 +399,281 @@ func (w *WebChannel) loadHistory() ([]webHistoryMessage, error) {
 		out = append(out, webHistoryMessage{Role: role, Content: content})
 	}
 	return out, nil
+}
+
+// sanitizeSessionKey validates a session key (allows colons for keys like "telegram:12345").
+func sanitizeSessionKey(raw string) string {
+	s := strings.TrimSpace(raw)
+	if s == "" || len(s) > 128 {
+		return ""
+	}
+	for _, r := range s {
+		if (r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z') || (r >= '0' && r <= '9') || r == '-' || r == '_' || r == ':' || r == '.' {
+			continue
+		}
+		return ""
+	}
+	return s
+}
+
+// parseKeyFromPath extracts a session key from a URL path by stripping the given
+// prefix and converting "/" separators to ":".
+func parseKeyFromPath(urlPath, prefix string) string {
+	raw := strings.TrimPrefix(urlPath, prefix)
+	raw = strings.TrimRight(raw, "/")
+	if raw == "" {
+		return ""
+	}
+	return strings.ReplaceAll(raw, "/", ":")
+}
+
+// resolveSessionFile resolves a session key to a safe filesystem path within
+// the sessions directory. Returns empty string if the path would escape
+// the sessions directory (path traversal protection).
+func (w *WebChannel) resolveSessionFile(key, filename string) string {
+	sessionsDir := filepath.Join(w.workspace, sessionsDirName)
+	keyPath := strings.ReplaceAll(key, ":", string(filepath.Separator))
+	resolved := filepath.Clean(filepath.Join(sessionsDir, keyPath, filename))
+	// Ensure the resolved path stays within the sessions directory.
+	if !strings.HasPrefix(resolved, filepath.Clean(sessionsDir)+string(filepath.Separator)) {
+		return ""
+	}
+	return resolved
+}
+
+// --- GET /api/sessions ---
+
+type sessionListEntry struct {
+	Key          string    `json:"key"`
+	CreatedAt    time.Time `json:"created_at"`
+	UpdatedAt    time.Time `json:"updated_at"`
+	MessageCount int       `json:"message_count"`
+}
+
+func (w *WebChannel) handleSessions(rw http.ResponseWriter, r *http.Request) {
+	if w.workspace == "" {
+		http.Error(rw, "workspace is not configured", http.StatusInternalServerError)
+		return
+	}
+
+	sessionsDir := filepath.Join(w.workspace, sessionsDirName)
+	var entries []sessionListEntry
+
+	_ = filepath.WalkDir(sessionsDir, func(path string, d fs.DirEntry, err error) error {
+		if err != nil {
+			return nil // skip unreadable dirs
+		}
+		if d.IsDir() || d.Name() != session.SessionFileName {
+			return nil
+		}
+
+		key := session.DeriveKeyFromPath(path)
+
+		// Use file stat for UpdatedAt and line counting for MessageCount
+		// instead of parsing every message in the JSONL file.
+		info, statErr := d.Info()
+		if statErr != nil {
+			return nil
+		}
+		lineCount := countLines(path)
+
+		entries = append(entries, sessionListEntry{
+			Key:          key,
+			UpdatedAt:    info.ModTime(),
+			MessageCount: lineCount,
+		})
+		return nil
+	})
+
+	// Sort by updated_at descending.
+	sort.Slice(entries, func(i, j int) bool {
+		return entries[i].UpdatedAt.After(entries[j].UpdatedAt)
+	})
+
+	if entries == nil {
+		entries = []sessionListEntry{}
+	}
+
+	rw.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(rw).Encode(entries)
+}
+
+// countLines counts newlines in a file without parsing JSON. Returns 0 on error.
+func countLines(path string) int {
+	f, err := os.Open(path)
+	if err != nil {
+		return 0
+	}
+	defer f.Close()
+	count := 0
+	scanner := bufio.NewScanner(f)
+	for scanner.Scan() {
+		if len(scanner.Bytes()) > 0 {
+			count++
+		}
+	}
+	return count
+}
+
+// --- GET /api/sessions/{key...} ---
+
+type sessionDetail struct {
+	Key       string             `json:"key"`
+	Messages  []provider.Message `json:"messages"`
+	CreatedAt time.Time          `json:"created_at"`
+	UpdatedAt time.Time          `json:"updated_at"`
+}
+
+func (w *WebChannel) handleSessionMessages(rw http.ResponseWriter, r *http.Request) {
+	if w.workspace == "" {
+		http.Error(rw, "workspace is not configured", http.StatusInternalServerError)
+		return
+	}
+
+	key := parseKeyFromPath(r.URL.Path, "/api/sessions/")
+	if key == "" {
+		http.Error(rw, "missing session key", http.StatusBadRequest)
+		return
+	}
+
+	path := w.resolveSessionFile(key, session.SessionFileName)
+	if path == "" {
+		http.Error(rw, "invalid session key", http.StatusBadRequest)
+		return
+	}
+
+	s, err := session.ReadFile(path)
+	if err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			http.Error(rw, "session not found", http.StatusNotFound)
+			return
+		}
+		http.Error(rw, fmt.Sprintf("failed to read session: %v", err), http.StatusInternalServerError)
+		return
+	}
+
+	rw.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(rw).Encode(sessionDetail{
+		Key:       key,
+		Messages:  s.Messages,
+		CreatedAt: s.CreatedAt,
+		UpdatedAt: s.UpdatedAt,
+	})
+}
+
+// --- GET /api/config ---
+
+func (w *WebChannel) handleConfig(rw http.ResponseWriter, r *http.Request) {
+	cfg, err := config.Load()
+	if err != nil {
+		http.Error(rw, fmt.Sprintf("failed to load config: %v", err), http.StatusInternalServerError)
+		return
+	}
+
+	redactConfig(cfg)
+
+	rw.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(rw).Encode(cfg)
+}
+
+const redactedValue = "***configured***"
+
+// redactConfig replaces sensitive fields with a placeholder.
+func redactConfig(cfg *config.Config) {
+	redactProvider := func(pc *config.ProviderConfig) {
+		if pc != nil && pc.APIKey != "" {
+			pc.APIKey = redactedValue
+		}
+	}
+	redactProvider(cfg.Providers.OpenRouter)
+	redactProvider(cfg.Providers.Anthropic)
+	redactProvider(cfg.Providers.DeepSeek)
+	redactProvider(cfg.Providers.MoonshotCN)
+	redactProvider(cfg.Providers.MoonshotGlobal)
+	redactProvider(cfg.Providers.ZhipuCN)
+	redactProvider(cfg.Providers.ZhipuGlobal)
+	redactProvider(cfg.Providers.MinimaxCN)
+	redactProvider(cfg.Providers.MinimaxGlobal)
+	redactProvider(cfg.Providers.OpenAI)
+	redactProvider(cfg.Providers.Gemini)
+
+	if cfg.Providers.OpenAIOAuth != nil {
+		if cfg.Providers.OpenAIOAuth.AccessToken != "" {
+			cfg.Providers.OpenAIOAuth.AccessToken = redactedValue
+		}
+		if cfg.Providers.OpenAIOAuth.RefreshToken != "" {
+			cfg.Providers.OpenAIOAuth.RefreshToken = redactedValue
+		}
+	}
+
+	// Redact channel tokens.
+	if cfg.Channels != nil {
+		if cfg.Channels.Telegram != nil && cfg.Channels.Telegram.Token != "" {
+			cfg.Channels.Telegram.Token = redactedValue
+		}
+		if cfg.Channels.Discord != nil && cfg.Channels.Discord.Token != "" {
+			cfg.Channels.Discord.Token = redactedValue
+		}
+		if cfg.Channels.Feishu != nil {
+			if cfg.Channels.Feishu.AppSecret != "" {
+				cfg.Channels.Feishu.AppSecret = redactedValue
+			}
+			if cfg.Channels.Feishu.VerificationToken != "" {
+				cfg.Channels.Feishu.VerificationToken = redactedValue
+			}
+			if cfg.Channels.Feishu.EncryptKey != "" {
+				cfg.Channels.Feishu.EncryptKey = redactedValue
+			}
+		}
+	}
+
+	// Redact tool keys.
+	if cfg.Tools.Web.Fetch.JinaKey != "" {
+		cfg.Tools.Web.Fetch.JinaKey = redactedValue
+	}
+	for k, v := range cfg.Tools.Web.Search.Keys {
+		if v != "" {
+			cfg.Tools.Web.Search.Keys[k] = redactedValue
+		}
+	}
+}
+
+// --- GET /api/heartbeat/{key...} ---
+
+type heartbeatResponse struct {
+	Key     string `json:"key"`
+	Content string `json:"content"`
+}
+
+func (w *WebChannel) handleHeartbeat(rw http.ResponseWriter, r *http.Request) {
+	if w.workspace == "" {
+		http.Error(rw, "workspace is not configured", http.StatusInternalServerError)
+		return
+	}
+
+	key := parseKeyFromPath(r.URL.Path, "/api/heartbeat/")
+	if key == "" {
+		http.Error(rw, "missing session key", http.StatusBadRequest)
+		return
+	}
+
+	path := w.resolveSessionFile(key, "heartbeat.md")
+	if path == "" {
+		http.Error(rw, "invalid session key", http.StatusBadRequest)
+		return
+	}
+
+	content, err := os.ReadFile(path)
+	if err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			rw.Header().Set("Content-Type", "application/json")
+			_ = json.NewEncoder(rw).Encode(heartbeatResponse{Key: key, Content: ""})
+			return
+		}
+		http.Error(rw, fmt.Sprintf("failed to read heartbeat: %v", err), http.StatusInternalServerError)
+		return
+	}
+
+	rw.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(rw).Encode(heartbeatResponse{Key: key, Content: string(content)})
 }
