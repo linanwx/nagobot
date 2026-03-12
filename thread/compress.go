@@ -217,6 +217,16 @@ func compressToolResults(messages []provider.Message, keepLastAssistants int) (b
 		}
 	}
 
+	// Pre-scan: find the last occurrence of each skill load.
+	lastSkillLoad := make(map[string]int) // skill name → last message index
+	for i, m := range messages {
+		if m.Role == "tool" && m.Name == "use_skill" {
+			if name := extractSkillName(m.Content); name != "" {
+				lastSkillLoad[name] = i
+			}
+		}
+	}
+
 	modified := false
 	result := make([]provider.Message, len(messages))
 	copy(result, messages)
@@ -226,7 +236,20 @@ func compressToolResults(messages []provider.Message, keepLastAssistants int) (b
 		if msg.Role != "tool" {
 			continue
 		}
-		if msg.Compressed != "" || len(msg.Content) <= compressMinContentLen {
+		if msg.Compressed != "" {
+			continue
+		}
+		// use_skill: compress if a newer load of the same skill exists.
+		if msg.Name == "use_skill" {
+			if skillName := extractSkillName(msg.Content); skillName != "" && lastSkillLoad[skillName] > i {
+				msg.Compressed = fmt.Sprintf(
+					`<compressed tool="use_skill" skill="%s" original="%d" outdated="true"/>`,
+					skillName, len(msg.Content))
+				modified = true
+			}
+			continue
+		}
+		if len(msg.Content) <= compressMinContentLen {
 			continue
 		}
 		if strings.Contains(msg.Content, "<<media:") {
@@ -246,6 +269,18 @@ func compressToolResults(messages []provider.Message, keepLastAssistants int) (b
 	}
 
 	return modified, result
+}
+
+// extractSkillName parses the <skill name="xxx" .../> header from a use_skill result.
+func extractSkillName(content string) string {
+	const prefix = `<skill name="`
+	if strings.HasPrefix(content, prefix) {
+		rest := content[len(prefix):]
+		if end := strings.IndexByte(rest, '"'); end > 0 {
+			return rest[:end]
+		}
+	}
+	return ""
 }
 
 // backupSession writes the current session file to the history directory.

@@ -70,7 +70,7 @@ func (t *UseSkillTool) Run(ctx context.Context, args json.RawMessage) string {
 	}
 
 	if dir != "" {
-		return fmt.Sprintf("Skill directory: %s\n\n%s", dir, prompt)
+		return fmt.Sprintf("<skill name=%q dir=%q/>\n%s", a.Name, dir, prompt)
 	}
-	return prompt
+	return fmt.Sprintf("<skill name=%q/>\n%s", a.Name, prompt)
 }
