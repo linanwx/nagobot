@@ -13,13 +13,19 @@ import (
 	"github.com/linanwx/nagobot/logger"
 )
 
-const timeLayout = "2006-01-02 (Monday)"
+const dateLayout = "2006-01-02 (Monday)"
 
 // Agent builds a system prompt for a thread run.
 type Agent struct {
 	Name      string
 	workspace string
+	loc       *time.Location // session timezone; nil = local
 	vars      map[string]any // lazy placeholder overrides, applied at Build time
+}
+
+// SetLocation sets the timezone used for {{DATE}} and {{CALENDAR}} resolution.
+func (a *Agent) SetLocation(loc *time.Location) {
+	a.loc = loc
 }
 
 // Set records a placeholder replacement applied lazily at Build time.
@@ -33,8 +39,8 @@ func (a *Agent) Set(key string, value any) *Agent {
 }
 
 // Build constructs the final prompt: reads template, applies vars.
+// {{DATE}} and {{CALENDAR}} are auto-resolved from the current time and agent timezone.
 // For "TASK": if {{TASK}} is not found in the prompt, appends the task.
-// For time.Time values: also replaces {{CALENDAR}} automatically.
 func (a *Agent) Build() string {
 	if a == nil {
 		return ""
@@ -51,6 +57,14 @@ func (a *Agent) Build() string {
 		prompt = strings.ReplaceAll(prompt, "{{SESSIONS_SUMMARY}}", buildSessionsSummary(a.workspace))
 	}
 
+	// Auto-resolve {{DATE}} and {{CALENDAR}} from current time + agent timezone.
+	now := time.Now()
+	if a.loc != nil {
+		now = now.In(a.loc)
+	}
+	prompt = strings.ReplaceAll(prompt, "{{DATE}}", now.Format(dateLayout))
+	prompt = strings.ReplaceAll(prompt, "{{CALENDAR}}", formatCalendar(now))
+
 	for key, value := range a.vars {
 		formatted := formatVar(value)
 		placeholder := "{{" + key + "}}"
@@ -58,9 +72,6 @@ func (a *Agent) Build() string {
 			prompt = strings.ReplaceAll(prompt, placeholder, formatted)
 		} else if key == "TASK" && strings.TrimSpace(formatted) != "" {
 			prompt = strings.TrimSpace(prompt) + "\n\n[Task]\n" + formatted
-		}
-		if t, ok := value.(time.Time); ok && !t.IsZero() {
-			prompt = strings.ReplaceAll(prompt, "{{CALENDAR}}", formatCalendar(t))
 		}
 	}
 
@@ -72,11 +83,6 @@ func formatVar(value any) string {
 	switch v := value.(type) {
 	case string:
 		return v
-	case time.Time:
-		if v.IsZero() {
-			v = time.Now()
-		}
-		return v.Format(timeLayout)
 	case []string:
 		return strings.Join(v, ", ")
 	default:

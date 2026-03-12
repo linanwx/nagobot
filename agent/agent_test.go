@@ -93,7 +93,7 @@ func TestAllAgentsBuild_NoUnresolvedPlaceholders(t *testing.T) {
 			}
 
 			// Set all runtime vars that thread/run.go would set.
-			a.Set("TIME", now)
+			a.SetLocation(now.Location())
 			a.Set("TOOLS", "tool_a, tool_b, tool_c")
 			a.Set("SKILLS", "skill_x: does X\nskill_y: does Y")
 			a.Set("TASK", "Test task content")
@@ -127,7 +127,7 @@ func TestAllAgentsBuild_NoUnresolvedPlaceholders(t *testing.T) {
 				t.Error("{{SKILLS}} was not resolved in prompt")
 			}
 			if !strings.Contains(prompt, now.Format("2006-01-02")) {
-				t.Error("{{TIME}} was not resolved in prompt")
+				t.Error("{{DATE}} was not resolved in prompt")
 			}
 			if !strings.Contains(prompt, "Available agents") {
 				t.Error("{{AGENTS}} was not resolved in prompt")

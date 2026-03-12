@@ -180,7 +180,3 @@ func (t *Thread) location() *time.Location {
 	return time.Now().Location()
 }
 
-// now returns the current time in the thread's session timezone.
-func (t *Thread) now() time.Time {
-	return time.Now().In(t.location())
-}

@@ -92,7 +92,7 @@ func (t *Thread) buildSystemPrompt() string {
 	}
 
 	skillsSection := t.buildSkillsSection()
-	activeAgent.Set("TIME", t.now())
+	activeAgent.SetLocation(t.location())
 	activeAgent.Set("TOOLS", t.tools.Names())
 	activeAgent.Set("SKILLS", skillsSection)
 	activeAgent.Set("USER", t.buildUserSection())

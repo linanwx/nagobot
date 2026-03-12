@@ -1,6 +1,6 @@
 # Context
 
-- Time: {{TIME}}
+- Date: {{DATE}}
 - Calendar:
 {{CALENDAR}}
 - Root Path: {{WORKSPACE}}
