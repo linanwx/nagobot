@@ -3,6 +3,7 @@ package cmd
 import (
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/spf13/cobra"
 
@@ -59,6 +60,33 @@ func runSetProviderKey(_ *cobra.Command, _ []string) error {
 			if strings.TrimSpace(pc.APIKey) != "" {
 				status = maskKey(pc.APIKey)
 			}
+			// Show OAuth status for providers that support it.
+			if tok := cfg.GetOAuthToken(name); tok != nil && tok.AccessToken != "" {
+				oauthStatus := "oauth"
+				if tok.ExpiresAt > 0 {
+					remaining := tok.ExpiresAt - time.Now().Unix()
+					if remaining <= 0 {
+						if tok.RefreshToken != "" {
+							oauthStatus = "oauth (expired, has refresh token)"
+						} else {
+							oauthStatus = "oauth (expired)"
+						}
+					} else {
+						days := remaining / 86400
+						if days > 0 {
+							oauthStatus = fmt.Sprintf("oauth (expires in %dd)", days)
+						} else {
+							hours := remaining / 3600
+							oauthStatus = fmt.Sprintf("oauth (expires in %dh)", hours)
+						}
+					}
+				}
+				if status == "not configured" {
+					status = oauthStatus
+				} else {
+					status += " + " + oauthStatus
+				}
+			}
 			marker := "  "
 			if name == cfg.GetProvider() {
 				marker = "* "
@@ -94,11 +122,19 @@ func runSetProviderKey(_ *cobra.Command, _ []string) error {
 	if apiKey == "" {
 		// Show status for this provider
 		pc := cfg.EnsureProviderConfigFor(provName)
-		if strings.TrimSpace(pc.APIKey) == "" {
+		hasKey := strings.TrimSpace(pc.APIKey) != ""
+		tok := cfg.GetOAuthToken(provName)
+		hasOAuth := tok != nil && tok.AccessToken != ""
+		if !hasKey && !hasOAuth {
 			fmt.Printf("Provider %q: not configured\n", provName)
 			fmt.Printf("Fix: nagobot set-provider-key --provider %s --api-key YOUR_KEY\n", provName)
 		} else {
-			fmt.Printf("Provider %q: %s\n", provName, maskKey(pc.APIKey))
+			if hasKey {
+				fmt.Printf("Provider %q: %s\n", provName, maskKey(pc.APIKey))
+			}
+			if hasOAuth {
+				fmt.Printf("Provider %q: oauth configured\n", provName)
+			}
 			if pc.APIBase != "" {
 				fmt.Printf("  API base: %s\n", pc.APIBase)
 			}
