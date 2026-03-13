@@ -164,10 +164,10 @@ func (t *Thread) executeRunner(ctx, runCtx context.Context, p provider.Provider,
 	runner := NewRunner(p, t.tools, metrics)
 	runner.ShouldHalt(t.isHaltLoop)
 
-	// Set up streaming for idempotent sinks (Telegram, Discord, Feishu, CLI).
+	// Set up streaming for chunkable sinks (Telegram, Discord, Feishu, CLI).
 	var streamer *MarkdownStreamer
 	var chatStreamed bool // whether current Chat() round produced streaming deltas
-	if !sink.IsZero() && sink.Idempotent {
+	if !sink.IsZero() && sink.Chunkable {
 		streamer = NewMarkdownStreamer(sink, ctx, streamFlushThreshold)
 		runner.OnText(func(delta string) {
 			if !t.isSuppressSink() {
@@ -187,26 +187,33 @@ func (t *Thread) executeRunner(ctx, runCtx context.Context, p provider.Provider,
 		// Deliver intermediate assistant content to user in real time.
 		// For streaming providers, the streamer already delivered it via OnText deltas.
 		// For non-streaming providers (e.g. OpenRouter), this is the only delivery path.
-		if m.Role == "assistant" && isUserFacingContent(m.Content) && !sink.IsZero() && sink.Idempotent && !chatStreamed && !t.isSuppressSink() {
+		if m.Role == "assistant" && isUserFacingContent(m.Content) && !sink.IsZero() && sink.Chunkable && !chatStreamed && !t.isSuppressSink() {
 			_ = sink.Send(ctx, m.Content)
 		}
 		if m.Role == "assistant" {
 			chatStreamed = false
 		}
 	})
+
+	// Deliver final response (no tool calls) inside the runner lifecycle.
+	// For streaming: streamer already delivered via OnText chunks — skip.
+	// For non-streaming or when streamer didn't fire: deliver via sink.Send.
+	// WithRetry(3) only wraps final delivery, not streaming chunks.
+	runner.OnFinalResponse(func(content string) {
+		if sink.IsZero() || t.isSuppressSink() || !isUserFacingContent(content) {
+			return
+		}
+		if streamer != nil && streamer.Streamed() {
+			return
+		}
+		_ = sink.WithRetry(3).Send(ctx, content)
+	})
+
 	runner.OnIterationEnd(injectFn)
 	response, err := runner.RunWithMessages(runCtx, messages)
 	usage := runner.TotalUsage()
 	if err != nil {
 		return "", nil, usage, err
-	}
-
-	// Flush remaining streamed content and suppress final sink delivery.
-	if streamer != nil {
-		streamer.Flush()
-		if streamer.Streamed() {
-			t.SetSuppressSink()
-		}
 	}
 
 	return response, intermediates, usage, nil

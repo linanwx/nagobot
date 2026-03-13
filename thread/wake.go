@@ -108,7 +108,6 @@ func (t *Thread) RunOnce(ctx context.Context) {
 		if sink.IsZero() {
 			sink = t.defaultSink
 		}
-
 		// Resolve delivery label for the AI prompt.
 		deliveryLabel := ""
 		if !msg.Sink.IsZero() {
@@ -148,17 +147,18 @@ func (t *Thread) RunOnce(ctx context.Context) {
 		}
 
 		response, err := t.run(ctx, userMessage, sink, injectFn, string(msg.Source))
+		t.checkAndResetSuppressSink()
+
 		if err != nil {
 			logger.Error("thread run error", "threadID", t.id, "sessionKey", t.sessionKey, "source", msg.Source, "err", err)
-			response = sysmsg.BuildSystemMessage("error", nil, fmt.Sprintf("%v", err))
-		}
-
-		suppress := t.checkAndResetSuppressSink()
-		if !sink.IsZero() && strings.TrimSpace(response) != "" && !suppress {
-			if sinkErr := sink.Send(ctx, response); sinkErr != nil {
-				logger.Error("sink delivery error", "threadID", t.id, "sessionKey", t.sessionKey, "err", sinkErr)
+			errMsg := sysmsg.BuildSystemMessage("error", nil, fmt.Sprintf("%v", err))
+			if !sink.IsZero() {
+				if sinkErr := sink.WithRetry(3).Send(ctx, errMsg); sinkErr != nil {
+					logger.Error("sink delivery error", "threadID", t.id, "sessionKey", t.sessionKey, "err", sinkErr)
+				}
 			}
 		}
+		_ = response // persisted inside run(); not delivered here
 	default:
 		// No message available; should not be called without pending messages.
 	}

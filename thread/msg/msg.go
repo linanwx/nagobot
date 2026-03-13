@@ -5,6 +5,7 @@ import (
 	"context"
 	"sort"
 	"strings"
+	"time"
 
 	"gopkg.in/yaml.v3"
 )
@@ -53,13 +54,35 @@ func addYAMLPair(node *yaml.Node, key, value string) {
 
 // Sink defines how thread output is delivered.
 type Sink struct {
-	Label      string
-	Send       func(ctx context.Context, response string) error
-	Idempotent bool // True for display-only sinks (telegram, feishu, cli) safe for intermediate streaming.
+	Label     string
+	Send      func(ctx context.Context, response string) error
+	Chunkable bool // True for sinks that accept chunked streaming delivery (telegram, discord, feishu, cli).
 }
 
 // IsZero reports whether the sink has no delivery function.
 func (s Sink) IsZero() bool { return s.Send == nil }
+
+// WithRetry wraps the sink's Send with exponential-backoff retry logic.
+func (s Sink) WithRetry(maxAttempts int) Sink {
+	original := s.Send
+	s.Send = func(ctx context.Context, response string) error {
+		var err error
+		for i := 0; i < maxAttempts; i++ {
+			if err = original(ctx, response); err == nil {
+				return nil
+			}
+			if i < maxAttempts-1 {
+				select {
+				case <-ctx.Done():
+					return ctx.Err()
+				case <-time.After(time.Duration(1<<i) * time.Second):
+				}
+			}
+		}
+		return err
+	}
+	return s
+}
 
 // ToolCallRecord records a single tool invocation during a turn.
 type ToolCallRecord struct {

@@ -207,7 +207,7 @@ func (d *Dispatcher) buildSink(ch channel.Channel, msg *channel.Message) thread.
 
 	return thread.Sink{
 		Label:      "your response will be sent to the user via " + channelName,
-		Idempotent: true,
+		Chunkable: true,
 		Send: func(ctx context.Context, response string) error {
 			if strings.TrimSpace(response) == "" {
 				return nil

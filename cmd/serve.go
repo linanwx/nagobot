@@ -227,7 +227,7 @@ func buildDefaultSinkFor(chMgr *channel.Manager, cfg *config.Config) func(string
 			if userID != "" {
 				return thread.Sink{
 					Label:      "your response will be sent to telegram user " + userID,
-					Idempotent: true,
+					Chunkable: true,
 					Send: func(ctx context.Context, response string) error {
 						if strings.TrimSpace(response) == "" {
 							return nil
@@ -244,7 +244,7 @@ func buildDefaultSinkFor(chMgr *channel.Manager, cfg *config.Config) func(string
 			if openID != "" {
 				return thread.Sink{
 					Label:      "your response will be sent to feishu user " + openID,
-					Idempotent: true,
+					Chunkable: true,
 					Send: func(ctx context.Context, response string) error {
 						if strings.TrimSpace(response) == "" {
 							return nil
@@ -261,7 +261,7 @@ func buildDefaultSinkFor(chMgr *channel.Manager, cfg *config.Config) func(string
 			if channelID != "" {
 				return thread.Sink{
 					Label:      "your response will be sent to discord channel " + channelID,
-					Idempotent: true,
+					Chunkable: true,
 					Send: func(ctx context.Context, response string) error {
 						if strings.TrimSpace(response) == "" {
 							return nil
@@ -277,7 +277,7 @@ func buildDefaultSinkFor(chMgr *channel.Manager, cfg *config.Config) func(string
 			if _, ok := chMgr.Get("socket"); ok {
 				return thread.Sink{
 					Label:      "your response will be sent to the CLI client via socket",
-					Idempotent: true,
+					Chunkable: true,
 					Send: func(ctx context.Context, response string) error {
 						if strings.TrimSpace(response) == "" {
 							return nil

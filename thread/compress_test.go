@@ -82,7 +82,7 @@ func TestTrimWakeFields(t *testing.T) {
 	}
 }
 
-func TestTrimWakeFields_Idempotent(t *testing.T) {
+func TestTrimWakeFields_Chunkable(t *testing.T) {
 	messages := []provider.Message{
 		{Role: "user", Content: makeWakeContent("telegram", "t-1", "telegram:123", "telegram:123", "hint", "hello")},
 		{Role: "assistant", Content: "hi"},

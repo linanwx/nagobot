@@ -20,9 +20,10 @@ type Runner struct {
 	totalUsage     provider.Usage            // accumulated usage across all Chat calls
 	onMessage      func(provider.Message)    // optional observer for intermediate messages
 	onIterationEnd func() []provider.Message // optional: called after each tool iteration; returned messages are injected before the next LLM call
-	onText         func(delta string)        // optional: called with each text chunk during streaming generation
-	onChatEnd      func()                    // optional: called after each provider.Chat() returns
-	shouldHalt     func() bool               // optional: if true, stop loop after current tool calls
+	onText          func(delta string)  // optional: called with each text chunk during streaming generation
+	onChatEnd       func()             // optional: called after each provider.Chat() returns
+	onFinalResponse func(string)       // optional: called with the final response content (no tool calls) before return
+	shouldHalt      func() bool        // optional: if true, stop loop after current tool calls
 }
 
 // OnMessage sets a callback invoked for each intermediate message
@@ -39,6 +40,10 @@ func (r *Runner) OnText(fn func(string)) { r.onText = fn }
 
 // OnChatEnd sets a callback invoked after each provider.Chat() call returns.
 func (r *Runner) OnChatEnd(fn func()) { r.onChatEnd = fn }
+
+// OnFinalResponse sets a callback invoked with the final response content
+// (when no tool calls are present) just before RunWithMessages returns.
+func (r *Runner) OnFinalResponse(fn func(string)) { r.onFinalResponse = fn }
 
 // ShouldHalt sets a callback checked after each tool-call iteration.
 // If it returns true, the loop exits immediately without calling the LLM again.
@@ -82,6 +87,9 @@ func (r *Runner) RunWithMessages(ctx context.Context, messages []provider.Messag
 		r.totalUsage.TotalTokens += resp.Usage.TotalTokens
 
 		if !resp.HasToolCalls() {
+			if r.onFinalResponse != nil {
+				r.onFinalResponse(resp.Content)
+			}
 			return resp.Content, nil
 		}
 
