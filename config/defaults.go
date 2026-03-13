@@ -26,14 +26,14 @@ func defaultCronSeeds() []cronpkg.Job {
 		{
 			ID:     "tidyup",
 			Expr:   "0 4 * * *",
-			Task:   "tidyup",
+			Task:   `Load skill "tidyup-dispatcher" and follow its instructions.`,
 			Agent:  "tidyup",
 			Silent: true,
 		},
 		{
 			ID:     "session-summary",
 			Expr:   "0 */6 * * *",
-			Task:   "session-summary",
+			Task:   `Load skill "session-summary-dispatcher" and follow its instructions.`,
 			Agent:  "session-summary",
 			Silent: true,
 		},
