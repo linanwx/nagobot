@@ -16,19 +16,23 @@ jobs:
       - uses: actions/setup-go@v5
         with:
           go-version: '1.24'
+          cache: true
 
-      - name: Build binaries
+      - name: Build binaries (parallel)
         run: |
           VERSION="${GITHUB_REF_NAME}"
           LDFLAGS="-X github.com/linanwx/nagobot/cmd.Version=${VERSION}"
+          pids=""
           for pair in linux/amd64 linux/arm64 darwin/amd64 darwin/arm64 windows/amd64; do
             GOOS="${pair%/*}"
             GOARCH="${pair#*/}"
             OUT="nagobot-${GOOS}-${GOARCH}"
             if [ "$GOOS" = "windows" ]; then OUT="${OUT}.exe"; fi
             echo "Building ${OUT}..."
-            GOOS="$GOOS" GOARCH="$GOARCH" go build -ldflags="$LDFLAGS" -o "$OUT" .
+            GOOS="$GOOS" GOARCH="$GOARCH" go build -ldflags="$LDFLAGS" -o "$OUT" . &
+            pids="$pids $!"
           done
+          for pid in $pids; do wait "$pid" || exit 1; done
           sha256sum nagobot-* > checksums.txt
 
       - name: Create Release
