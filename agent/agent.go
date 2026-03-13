@@ -225,15 +225,7 @@ func buildSessionsSummary(workspace string) string {
 		// Filter by session's last message timestamp (lightweight tail read).
 		sessionPath := filepath.Join(sessionsDir, filepath.FromSlash(strings.ReplaceAll(key, ":", "/")), session.SessionFileName)
 		ts, err := session.ReadUpdatedAt(sessionPath)
-		if err != nil {
-			continue
-		}
-		if ts.IsZero() {
-			if fi, statErr := os.Stat(sessionPath); statErr == nil {
-				ts = fi.ModTime()
-			}
-		}
-		if ts.Before(cutoff) {
+		if err != nil || ts.IsZero() || ts.Before(cutoff) {
 			continue
 		}
 		fmt.Fprintf(&sb, "- %s: %s\n", key, e.Summary)

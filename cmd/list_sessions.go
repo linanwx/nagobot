@@ -108,13 +108,7 @@ func collectSessions(cfg *config.Config, days int) (*listSessionsOutput, error) 
 		total++
 
 		updatedAt := s.UpdatedAt
-		if updatedAt.IsZero() {
-			// Fallback to file mtime for empty sessions.
-			if fi, statErr := os.Stat(path); statErr == nil {
-				updatedAt = fi.ModTime()
-			}
-		}
-		if updatedAt.Before(cutoff) {
+		if updatedAt.IsZero() || updatedAt.Before(cutoff) {
 			return nil
 		}
 
