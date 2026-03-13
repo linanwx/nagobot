@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/linanwx/nagobot/config"
+	"github.com/linanwx/nagobot/session"
 	"github.com/spf13/cobra"
 )
 
@@ -54,11 +55,25 @@ func runSetSummary(_ *cobra.Command, args []string) error {
 		SummaryAt: time.Now(),
 	}
 
-	// Cleanup entries older than 7 days.
+	// Cleanup entries whose session hasn't been active in 7+ days.
+	sessionsDir := filepath.Join(workspace, "sessions")
 	cutoff := time.Now().AddDate(0, 0, -7)
 	var cleaned []string
-	for k, v := range summaries {
-		if !v.SummaryAt.IsZero() && v.SummaryAt.Before(cutoff) {
+	for k := range summaries {
+		sessionPath := filepath.Join(sessionsDir, filepath.FromSlash(strings.ReplaceAll(k, ":", "/")), session.SessionFileName)
+		s, readErr := session.ReadFile(sessionPath)
+		if readErr != nil {
+			cleaned = append(cleaned, k)
+			delete(summaries, k)
+			continue
+		}
+		updatedAt := s.UpdatedAt
+		if updatedAt.IsZero() {
+			if fi, statErr := os.Stat(sessionPath); statErr == nil {
+				updatedAt = fi.ModTime()
+			}
+		}
+		if updatedAt.Before(cutoff) {
 			cleaned = append(cleaned, k)
 			delete(summaries, k)
 		}
@@ -72,8 +87,13 @@ func runSetSummary(_ *cobra.Command, args []string) error {
 	if err != nil {
 		return fmt.Errorf("failed to marshal: %w", err)
 	}
-	if err := os.WriteFile(summaryPath, data, 0644); err != nil {
-		return fmt.Errorf("failed to write: %w", err)
+	// Atomic write: temp file + rename to avoid corruption on crash.
+	tmp := summaryPath + ".tmp"
+	if err := os.WriteFile(tmp, data, 0644); err != nil {
+		return fmt.Errorf("failed to write temp file: %w", err)
+	}
+	if err := os.Rename(tmp, summaryPath); err != nil {
+		return fmt.Errorf("failed to rename: %w", err)
 	}
 
 	fmt.Printf("Summary saved for %q.\n", key)

@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/linanwx/nagobot/logger"
+	"github.com/linanwx/nagobot/session"
 )
 
 const dateLayout = "2006-01-02 (Monday)"
@@ -195,6 +196,7 @@ func buildAgentsPromptSection(workspace string) string {
 }
 
 // buildSessionsSummary reads system/sessions_summary.json and formats it for prompt injection.
+// Only sessions whose session.jsonl was modified within the last 7 days are included.
 func buildSessionsSummary(workspace string) string {
 	if strings.TrimSpace(workspace) == "" {
 		return "(no session summaries available)"
@@ -213,16 +215,30 @@ func buildSessionsSummary(workspace string) string {
 		return "(no session summaries available)"
 	}
 
+	cutoff := time.Now().AddDate(0, 0, -7)
+	sessionsDir := filepath.Join(workspace, "sessions")
+
 	var sb strings.Builder
 	for key, e := range summaries {
 		if strings.TrimSpace(e.Summary) == "" {
 			continue
 		}
-		date := "unknown"
-		if !e.SummaryAt.IsZero() {
-			date = e.SummaryAt.Format("2006-01-02")
+		// Filter by session's last message timestamp.
+		sessionPath := filepath.Join(sessionsDir, filepath.FromSlash(strings.ReplaceAll(key, ":", "/")), session.SessionFileName)
+		s, err := session.ReadFile(sessionPath)
+		if err != nil {
+			continue
 		}
-		fmt.Fprintf(&sb, "- %s (%s): %s\n", key, date, e.Summary)
+		updatedAt := s.UpdatedAt
+		if updatedAt.IsZero() {
+			if fi, statErr := os.Stat(sessionPath); statErr == nil {
+				updatedAt = fi.ModTime()
+			}
+		}
+		if updatedAt.Before(cutoff) {
+			continue
+		}
+		fmt.Fprintf(&sb, "- %s: %s\n", key, e.Summary)
 	}
 	result := strings.TrimSpace(sb.String())
 	if result == "" {
