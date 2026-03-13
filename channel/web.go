@@ -480,13 +480,8 @@ func (w *WebChannel) handleSessions(rw http.ResponseWriter, r *http.Request) {
 
 		key := session.DeriveKeyFromPath(path)
 
-		// Use file stat for UpdatedAt and line counting for MessageCount
-		// instead of parsing every message in the JSONL file.
-		info, statErr := d.Info()
-		if statErr != nil {
-			return nil
-		}
 		lineCount := countLines(path)
+		updatedAt, _ := session.ReadUpdatedAt(path)
 
 		// Check for heartbeat.md in the same directory.
 		hbPath := filepath.Join(filepath.Dir(path), "heartbeat.md")
@@ -497,7 +492,7 @@ func (w *WebChannel) handleSessions(rw http.ResponseWriter, r *http.Request) {
 
 		entries = append(entries, sessionListEntry{
 			Key:          key,
-			UpdatedAt:    info.ModTime(),
+			UpdatedAt:    updatedAt,
 			MessageCount: lineCount,
 			HasHeartbeat: hasHB,
 		})

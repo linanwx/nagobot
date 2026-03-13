@@ -128,11 +128,9 @@ func runKeywordSearch(args []string) error {
 			return nil
 		}
 
-		// Check recency via file mtime.
-		if fi, err := os.Stat(path); err == nil {
-			if fi.ModTime().Before(cutoff) {
-				return nil
-			}
+		// Check recency via last message timestamp.
+		if ts, err := session.ReadUpdatedAt(path); err != nil || ts.IsZero() || ts.Before(cutoff) {
+			return nil
 		}
 
 		dirs = append(dirs, sessionDir{key: key, dir: dir})
