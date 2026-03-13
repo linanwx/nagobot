@@ -504,9 +504,6 @@
         color: var(--text-tertiary);
         margin-left: auto;
         cursor: default;
-        max-width: 120px;
-        overflow: hidden;
-        text-overflow: ellipsis;
         white-space: nowrap;
       }
 
@@ -1039,12 +1036,41 @@
       }
 
       /* Responsive */
+      .menu-toggle {
+        display: none;
+        background: none;
+        border: 1px solid var(--border);
+        border-radius: 4px;
+        color: var(--text-primary);
+        font-size: 18px;
+        padding: 2px 8px;
+        cursor: pointer;
+        line-height: 1;
+      }
       @media (max-width: 768px) {
+        .menu-toggle { display: inline-block; }
         .main {
           grid-template-columns: 1fr;
+          position: relative;
         }
-        .sidebar, .resize-handle {
+        .sidebar {
           display: none;
+          position: absolute;
+          top: 0; left: 0; bottom: 0;
+          width: 85vw;
+          max-width: 340px;
+          z-index: 200;
+          background: var(--bg-surface);
+          border-right: 1px solid var(--border);
+          box-shadow: 4px 0 12px rgba(0,0,0,0.4);
+        }
+        .sidebar.mobile-open { display: flex; flex-direction: column; }
+        .resize-handle { display: none; }
+        .mobile-overlay {
+          position: fixed;
+          top: 0; left: 0; right: 0; bottom: 0;
+          background: rgba(0,0,0,0.4);
+          z-index: 199;
         }
       }
     </style>
@@ -1054,6 +1080,7 @@
       <!-- Header -->
       <div class="header">
         <div class="header-left">
+          <button class="menu-toggle" id="menuToggle" aria-label="Toggle sidebar">&#9776;</button>
           <div class="logo"><span class="logo-bar"></span>NAGOBOT</div>
           <div class="conn-status">
             <span class="conn-dot" id="connDot"></span>
@@ -1221,6 +1248,27 @@
 
       // Parse YAML frontmatter messages (wake and system messages).
       // Returns { fields: {key:val}, _message: "body" } or null.
+      // Append text to parent, with truncation + Show more if > 500 chars.
+      function appendTruncated(parent, text, className) {
+        const el = document.createElement("div");
+        el.className = className || "msg-body";
+        el.textContent = text;
+        parent.appendChild(el);
+        if (text.length > 500) {
+          el.classList.add("msg-body-truncated");
+          const btn = document.createElement("button");
+          btn.className = "show-more-btn";
+          btn.textContent = "Show more";
+          let expanded = false;
+          btn.addEventListener("click", () => {
+            expanded = !expanded;
+            el.classList.toggle("msg-body-truncated", !expanded);
+            btn.textContent = expanded ? "Show less" : "Show more";
+          });
+          parent.appendChild(btn);
+        }
+      }
+
       function parseFrontmatter(content) {
         if (!content || !content.startsWith("---\n")) return null;
         try {
@@ -1581,6 +1629,7 @@
 
       async function selectSession(key) {
         if (currentSession === key) return;
+        if (typeof closeMobileSidebar === "function") closeMobileSidebar();
         currentSession = key;
         inspectorSession.textContent = "session: " + key;
         chatInput.placeholder = "Send a message to " + key + "...";
@@ -1744,8 +1793,7 @@
         if (msg.id) {
           const idEl = document.createElement("span");
           idEl.className = "msg-id";
-          idEl.textContent = truncateId(msg.id);
-          idEl.title = msg.id;
+          idEl.textContent = msg.id;
           header.appendChild(idEl);
         }
 
@@ -1762,7 +1810,7 @@
         // Body — show compressed content by default (what the bot sees)
         const displayContent = msg.compressed || msg.content || "";
         const content = displayContent;
-        const fmData = (msg.role === "user" || msg.role === "tool") ? parseFrontmatter(content) : null;
+        const fmData = parseFrontmatter(content);
 
         if (fmData) {
           const body = document.createElement("div");
@@ -1801,43 +1849,16 @@
               }
               body.appendChild(sysFields);
               if (nested._message) {
-                const wakeMsg = document.createElement("div");
-                wakeMsg.className = "wake-message";
-                wakeMsg.textContent = nested._message;
-                body.appendChild(wakeMsg);
+                appendTruncated(body, nested._message, "wake-message");
               }
             } else {
-              const wakeMsg = document.createElement("div");
-              wakeMsg.className = "wake-message";
-              wakeMsg.textContent = fmData._message;
-              body.appendChild(wakeMsg);
+              appendTruncated(body, fmData._message, "wake-message");
             }
           }
 
           card.appendChild(body);
         } else if (content) {
-          const body = document.createElement("div");
-          body.className = "msg-body";
-          body.textContent = content;
-
-          // Truncation for long content
-          if (content.length > 500) {
-            body.classList.add("msg-body-truncated");
-            card.appendChild(body);
-
-            const showMore = document.createElement("button");
-            showMore.className = "show-more-btn";
-            showMore.textContent = "Show more";
-            let expanded = false;
-            showMore.addEventListener("click", () => {
-              expanded = !expanded;
-              body.classList.toggle("msg-body-truncated", !expanded);
-              showMore.textContent = expanded ? "Show less" : "Show more";
-            });
-            card.appendChild(showMore);
-          } else {
-            card.appendChild(body);
-          }
+          appendTruncated(card, content, "msg-body");
         }
 
         // Reasoning section
@@ -1963,6 +1984,28 @@
         if (e.key === "Enter" && !e.shiftKey) {
           e.preventDefault();
           sendMessage();
+        }
+      });
+
+      // ── Mobile sidebar toggle ─────────────────────────────
+      const menuToggle = $("menuToggle");
+      const sidebar = document.querySelector(".sidebar");
+      let mobileOverlay = null;
+
+      function closeMobileSidebar() {
+        sidebar.classList.remove("mobile-open");
+        if (mobileOverlay) { mobileOverlay.remove(); mobileOverlay = null; }
+      }
+
+      menuToggle.addEventListener("click", () => {
+        if (sidebar.classList.contains("mobile-open")) {
+          closeMobileSidebar();
+        } else {
+          sidebar.classList.add("mobile-open");
+          mobileOverlay = document.createElement("div");
+          mobileOverlay.className = "mobile-overlay";
+          mobileOverlay.addEventListener("click", closeMobileSidebar);
+          document.querySelector(".main").appendChild(mobileOverlay);
         }
       });
 
