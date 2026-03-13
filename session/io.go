@@ -2,11 +2,13 @@ package session
 
 import (
 	"bufio"
+	"bytes"
 	"encoding/json"
 	"io"
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/linanwx/nagobot/provider"
 )
@@ -111,6 +113,49 @@ func deriveTimestamps(s *Session) {
 	if last := s.Messages[len(s.Messages)-1].Timestamp; !last.IsZero() {
 		s.UpdatedAt = last
 	}
+}
+
+// ReadUpdatedAt returns the last message's timestamp from a session JSONL file.
+// Much lighter than ReadFile — reads only the tail of the file without loading
+// all messages or running sanitization.
+func ReadUpdatedAt(path string) (time.Time, error) {
+	f, err := os.Open(path)
+	if err != nil {
+		return time.Time{}, err
+	}
+	defer f.Close()
+
+	fi, err := f.Stat()
+	if err != nil {
+		return time.Time{}, err
+	}
+	if fi.Size() == 0 {
+		return time.Time{}, nil
+	}
+
+	// Read tail of file to find last JSON line.
+	readSize := fi.Size()
+	if readSize > maxLineSize {
+		readSize = maxLineSize
+	}
+	buf := make([]byte, readSize)
+	if _, err := f.ReadAt(buf, fi.Size()-readSize); err != nil && err != io.EOF {
+		return time.Time{}, err
+	}
+
+	// Find last complete line and extract timestamp.
+	buf = bytes.TrimRight(buf, "\n\r")
+	if idx := bytes.LastIndexByte(buf, '\n'); idx >= 0 {
+		buf = buf[idx+1:]
+	}
+
+	var m struct {
+		Timestamp time.Time `json:"timestamp"`
+	}
+	if err := json.Unmarshal(buf, &m); err != nil {
+		return time.Time{}, nil // malformed last line
+	}
+	return m.Timestamp, nil
 }
 
 // SessionFileName is the canonical session file name.

@@ -207,8 +207,7 @@ func buildSessionsSummary(workspace string) string {
 	}
 
 	type entry struct {
-		Summary   string    `json:"summary"`
-		SummaryAt time.Time `json:"summary_at"`
+		Summary string `json:"summary"`
 	}
 	var summaries map[string]entry
 	if err := json.Unmarshal(data, &summaries); err != nil || len(summaries) == 0 {
@@ -223,19 +222,18 @@ func buildSessionsSummary(workspace string) string {
 		if strings.TrimSpace(e.Summary) == "" {
 			continue
 		}
-		// Filter by session's last message timestamp.
+		// Filter by session's last message timestamp (lightweight tail read).
 		sessionPath := filepath.Join(sessionsDir, filepath.FromSlash(strings.ReplaceAll(key, ":", "/")), session.SessionFileName)
-		s, err := session.ReadFile(sessionPath)
+		ts, err := session.ReadUpdatedAt(sessionPath)
 		if err != nil {
 			continue
 		}
-		updatedAt := s.UpdatedAt
-		if updatedAt.IsZero() {
+		if ts.IsZero() {
 			if fi, statErr := os.Stat(sessionPath); statErr == nil {
-				updatedAt = fi.ModTime()
+				ts = fi.ModTime()
 			}
 		}
-		if updatedAt.Before(cutoff) {
+		if ts.Before(cutoff) {
 			continue
 		}
 		fmt.Fprintf(&sb, "- %s: %s\n", key, e.Summary)

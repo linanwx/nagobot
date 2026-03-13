@@ -61,19 +61,18 @@ func runSetSummary(_ *cobra.Command, args []string) error {
 	var cleaned []string
 	for k := range summaries {
 		sessionPath := filepath.Join(sessionsDir, filepath.FromSlash(strings.ReplaceAll(k, ":", "/")), session.SessionFileName)
-		s, readErr := session.ReadFile(sessionPath)
+		ts, readErr := session.ReadUpdatedAt(sessionPath)
 		if readErr != nil {
 			cleaned = append(cleaned, k)
 			delete(summaries, k)
 			continue
 		}
-		updatedAt := s.UpdatedAt
-		if updatedAt.IsZero() {
+		if ts.IsZero() {
 			if fi, statErr := os.Stat(sessionPath); statErr == nil {
-				updatedAt = fi.ModTime()
+				ts = fi.ModTime()
 			}
 		}
-		if updatedAt.Before(cutoff) {
+		if ts.Before(cutoff) {
 			cleaned = append(cleaned, k)
 			delete(summaries, k)
 		}

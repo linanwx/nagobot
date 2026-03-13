@@ -607,12 +607,16 @@ type systemPromptResponse struct {
 	Key       string `json:"key"`
 	Prompt    string `json:"prompt,omitempty"`
 	Available bool   `json:"available"`
+	Tokens    int    `json:"tokens,omitempty"`
 }
 
 func (w *WebChannel) handleSystemPrompt(rw http.ResponseWriter, key string) {
 	resp := systemPromptResponse{Key: key}
 	if w.systemPromptFn != nil {
 		resp.Prompt, resp.Available = w.systemPromptFn(key)
+		if resp.Available && resp.Prompt != "" {
+			resp.Tokens = thread.EstimateTextTokens(resp.Prompt)
+		}
 	}
 	rw.Header().Set("Content-Type", "application/json")
 	_ = json.NewEncoder(rw).Encode(resp)
