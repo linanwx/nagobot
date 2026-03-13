@@ -117,7 +117,9 @@ func (t *Thread) RunOnce(ctx context.Context) {
 		}
 
 		loc := t.location()
-		userMessage := buildWakePayload(msg.Source, msg.Message, t.id, t.sessionKey, deliveryLabel, loc)
+		prov, mod := t.resolvedProviderModel()
+		modelLabel := prov + "/" + mod
+		userMessage := buildWakePayload(msg.Source, msg.Message, t.id, t.sessionKey, deliveryLabel, modelLabel, loc)
 
 		// Build injection function: between tool iterations, drain inbox for
 		// mergeable user messages and inject them into the LLM conversation.
@@ -127,7 +129,7 @@ func (t *Thread) RunOnce(ctx context.Context) {
 				select {
 				case next := <-t.inbox:
 					if canMerge(msg, next) {
-						payload := buildWakePayload(next.Source, next.Message, t.id, t.sessionKey, deliveryLabel, loc)
+						payload := buildWakePayload(next.Source, next.Message, t.id, t.sessionKey, deliveryLabel, modelLabel, loc)
 						if payload != "" {
 							injected = append(injected, provider.UserMessage(payload))
 							logger.Info("injected mid-execution message",
@@ -167,7 +169,7 @@ func (t *Thread) RunOnce(ctx context.Context) {
 // buildWakePayload constructs the user message from a wake source and message.
 // Uses YAML frontmatter + markdown body so the AI knows the wake context
 // and which content the user can see vs assistant-only.
-func buildWakePayload(source WakeSource, message, threadID, sessionKey, deliveryLabel string, loc *time.Location) string {
+func buildWakePayload(source WakeSource, message, threadID, sessionKey, deliveryLabel, model string, loc *time.Location) string {
 	message = strings.TrimSpace(message)
 	if message == "" {
 		return ""
@@ -188,6 +190,7 @@ func buildWakePayload(source WakeSource, message, threadID, sessionKey, delivery
 		Thread:     threadID,
 		Session:    sessionKey,
 		Time:       fmt.Sprintf("%s (%s, %s, UTC%s)", now.Format(time.RFC3339), now.Weekday(), now.Location(), now.Format("-07:00")),
+		Model:      model,
 		Delivery:   delivery,
 		Visibility: messageVisibility(source),
 	}
@@ -212,6 +215,7 @@ type wakeHeader struct {
 	Thread     string `yaml:"thread"`
 	Session    string `yaml:"session"`
 	Time       string `yaml:"time"`
+	Model      string `yaml:"model,omitempty"`
 	Delivery   string `yaml:"delivery"`
 	Visibility string `yaml:"visibility"`
 	Action     string `yaml:"action,omitempty"`
