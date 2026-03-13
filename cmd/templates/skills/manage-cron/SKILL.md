@@ -1,6 +1,6 @@
 ---
 name: manage-cron
-description: Manage scheduled cron jobs (create, update, remove, list).
+description: Use when the user wants to schedule recurring or one-time tasks, set up automated reminders/jobs, or manage existing cron schedules (create, update, remove, list).
 ---
 # Manage Cron Jobs
 

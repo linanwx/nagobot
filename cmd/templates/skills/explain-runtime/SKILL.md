@@ -1,6 +1,6 @@
 ---
 name: explain-runtime
-description: Guidance for explaining how nagobot works and is configured.
+description: Use when the user asks how nagobot works, its architecture, configuration, or runtime behavior — provider selection, session routing, tool dispatch, hot-reload. Investigates from actual source code, not guessing.
 ---
 # Runtime Explainer Skill
 

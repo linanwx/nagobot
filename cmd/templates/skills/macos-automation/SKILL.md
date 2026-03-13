@@ -1,6 +1,6 @@
 ---
 name: macos-automation
-description: Control macOS settings and apps (dark mode, volume, apps, Finder, Focus).
+description: Use when the user wants to control macOS system settings (dark mode, volume, brightness, Wi-Fi, Bluetooth, Focus, sleep/lock) or manage apps (launch, quit, bring to front). Does NOT manage app data — use apple-apps for Calendar/Reminders/Notes/Mail content.
 tags: [macos, automation, settings, utility]
 ---
 # macOS Automation

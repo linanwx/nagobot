@@ -1,6 +1,6 @@
 ---
 name: system-info
-description: System diagnostics and process management — disk, memory, CPU, network, battery, processes, services.
+description: Use when the user asks about system status, resource usage (disk, memory, CPU, network, battery), running processes, or service management. Covers diagnostics and process control.
 tags: [macos, linux, system, diagnostics, process]
 ---
 # System Info & Process Management

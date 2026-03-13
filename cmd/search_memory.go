@@ -24,6 +24,7 @@ var (
 	searchMemoryBefore  string
 	searchMemoryContext string
 	searchMemoryWindow  int
+	searchMemoryFull    bool
 )
 
 var searchMemoryCmd = &cobra.Command{
@@ -47,6 +48,7 @@ func init() {
 	searchMemoryCmd.Flags().StringVar(&searchMemoryBefore, "before", "", "Only include messages before this date (YYYY-MM-DD or RFC3339)")
 	searchMemoryCmd.Flags().StringVar(&searchMemoryContext, "context", "", "Browse messages around a specific message ID")
 	searchMemoryCmd.Flags().IntVar(&searchMemoryWindow, "window", 5, "Number of messages before and after the target (used with --context)")
+	searchMemoryCmd.Flags().BoolVar(&searchMemoryFull, "full", false, "Show full content for target message without truncation (used with --context)")
 	rootCmd.AddCommand(searchMemoryCmd)
 }
 
@@ -272,9 +274,12 @@ func runContextBrowse(_ []string) error {
 			ts = m.Timestamp.Format(time.RFC3339)
 		}
 		content := m.Content
-		// Truncate very long messages for readability.
-		if r := []rune(content); len(r) > 500 {
-			content = string(r[:500]) + "..."
+		// Truncate very long messages for readability (unless --full and this is the target).
+		isFull := searchMemoryFull && i == targetIdx
+		if !isFull {
+			if r := []rune(content); len(r) > 500 {
+				content = string(r[:500]) + "..."
+			}
 		}
 		msgs = append(msgs, contextMessage{
 			MessageID: m.ID,

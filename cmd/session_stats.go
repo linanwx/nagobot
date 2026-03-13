@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"sort"
 
 	"github.com/linanwx/nagobot/agent"
 	"github.com/linanwx/nagobot/config"
@@ -25,19 +26,28 @@ func init() {
 }
 
 type sessionStatsOutput struct {
-	SessionKey          string         `json:"session_key"`
-	MessageCount        int            `json:"message_count"`
-	RoleCounts          map[string]int `json:"role_counts"`
-	CompressedMessages  int            `json:"compressed_messages"`
-	RoleTokens          map[string]int `json:"role_tokens"`
-	SystemPromptTokens  int            `json:"system_prompt_tokens"`
-	RawTokens           int            `json:"raw_tokens"`
-	CompressedTokens    int            `json:"compressed_tokens"`
-	TokensSaved         int            `json:"tokens_saved"`
-	ContextWindowTokens int            `json:"context_window_tokens"`
-	UsageRatio          float64        `json:"usage_ratio"`
-	WarnRatio           float64        `json:"warn_ratio"`
-	PressureStatus      string         `json:"pressure_status"`
+	SessionKey          string            `json:"session_key"`
+	MessageCount        int               `json:"message_count"`
+	RoleCounts          map[string]int    `json:"role_counts"`
+	CompressedMessages  int               `json:"compressed_messages"`
+	RoleTokens          map[string]int    `json:"role_tokens"`
+	SystemPromptTokens  int               `json:"system_prompt_tokens"`
+	RawTokens           int               `json:"raw_tokens"`
+	CompressedTokens    int               `json:"compressed_tokens"`
+	TokensSaved         int               `json:"tokens_saved"`
+	ContextWindowTokens int               `json:"context_window_tokens"`
+	UsageRatio          float64           `json:"usage_ratio"`
+	WarnRatio           float64           `json:"warn_ratio"`
+	PressureStatus      string            `json:"pressure_status"`
+	LongestMessages     []longestMsgEntry `json:"longest_messages"`
+}
+
+type longestMsgEntry struct {
+	MessageID string `json:"message_id"`
+	Role      string `json:"role"`
+	Tokens    int    `json:"tokens"`
+	Chars     int    `json:"chars"`
+	Snippet   string `json:"snippet"`
 }
 
 func runSessionStats(_ *cobra.Command, args []string) error {
@@ -88,6 +98,39 @@ func runSessionStats(_ *cobra.Command, args []string) error {
 		status = "warning"
 	}
 
+	// Find top 3 longest messages (by token count, using compressed view).
+	type indexedMsg struct {
+		idx    int
+		tokens int
+	}
+	ranked := make([]indexedMsg, len(compressed))
+	for i, m := range compressed {
+		ranked[i] = indexedMsg{idx: i, tokens: thread.EstimateMessageTokens(m)}
+	}
+	sort.Slice(ranked, func(a, b int) bool {
+		return ranked[a].tokens > ranked[b].tokens
+	})
+	topN := 3
+	if len(ranked) < topN {
+		topN = len(ranked)
+	}
+	longest := make([]longestMsgEntry, topN)
+	for i := 0; i < topN; i++ {
+		m := compressed[ranked[i].idx]
+		orig := messages[ranked[i].idx]
+		snippet := []rune(m.Content)
+		if len(snippet) > 100 {
+			snippet = append(snippet[:100], []rune("...")...)
+		}
+		longest[i] = longestMsgEntry{
+			MessageID: orig.ID,
+			Role:      m.Role,
+			Tokens:    ranked[i].tokens,
+			Chars:     len(m.Content),
+			Snippet:   string(snippet),
+		}
+	}
+
 	output := sessionStatsOutput{
 		SessionKey:          key,
 		MessageCount:        len(messages),
@@ -102,6 +145,7 @@ func runSessionStats(_ *cobra.Command, args []string) error {
 		UsageRatio:          usageRatio,
 		WarnRatio:           warnRatio,
 		PressureStatus:      status,
+		LongestMessages:     longest,
 	}
 
 	enc := json.NewEncoder(os.Stdout)

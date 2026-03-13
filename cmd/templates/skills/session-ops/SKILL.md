@@ -1,6 +1,6 @@
 ---
 name: session-ops
-description: List, read, sample, summarize, search, and inspect sessions (including context usage stats).
+description: Use when the user wants to review past conversations, search session history or memory, check context usage/compression stats, or inspect session metadata.
 tags: [session, summary, search, internal]
 ---
 # Session Operations
