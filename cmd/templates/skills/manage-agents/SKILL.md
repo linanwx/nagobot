@@ -1,45 +1,45 @@
 ---
 name: manage-agents
-description: Switch agent or set timezone for a session.
+description: Create or edit agent templates. Use when the user wants to add a new agent, modify an existing agent's prompt, or understand agent template structure.
 ---
-# Manage Session Configuration
+# Manage Agents
 
-## Switch Agent
+## Create Agent
 
-Set the agent for a session:
-```
-exec: {{WORKSPACE}}/bin/nagobot set-agent --session <session_key> --agent <agent_name>
-```
+Write a markdown file to `{{WORKSPACE}}/agents/<name>.md`:
 
-Clear the agent override (revert to default):
-```
-exec: {{WORKSPACE}}/bin/nagobot set-agent --session <session_key>
-```
+```markdown
+---
+name: researcher
+description: Deep research tasks requiring multi-step web search and structured synthesis.
+specialty: toolcall
+---
 
-### Parameters
+# Research Agent
 
-- `--session`: session key (required). Examples: `discord:123456`, `telegram:78910`, `cli`.
-- `--agent`: agent template name from `agents/*.md`. Omit or empty to clear the override.
+You are a research agent. Investigate topics thoroughly, cross-reference sources, and produce structured findings.
 
-## Set Timezone
+## Instructions
 
-Set the IANA timezone for a session:
-```
-exec: {{WORKSPACE}}/bin/nagobot set-timezone --session <session_key> --timezone <iana_timezone>
-```
+- Break complex questions into sub-questions.
+- Verify claims across multiple sources before reporting.
+- Cite sources with URLs when available.
 
-Clear the timezone (revert to system default):
-```
-exec: {{WORKSPACE}}/bin/nagobot set-timezone --session <session_key>
+{{CORE_MECHANISM}}
 ```
 
-### Parameters
+### Frontmatter
 
-- `--session`: session key (required). Examples: `discord:123456`, `telegram:78910`, `cli`.
-- `--timezone`: IANA timezone name. Examples: `Asia/Shanghai`, `America/New_York`, `Europe/London`. Omit or empty to clear.
+- `name`: unique ID, must match filename (without `.md`).
+- `description`: routing rule — write as "when to pick this agent" so the LLM can match tasks to agents.
+- `specialty`: model capability needed (e.g. `toolcall`, `reasoning`, `creative`).
 
-## Notes
+### Body
 
-- Changes take effect on the **next message** in that session (not the current turn).
-- Changes persist across server restarts (saved to config.yaml).
-- To see available agents, list files in `{{WORKSPACE}}/agents/`.
+General guidance for the agent's role and behavior. Keep it high-level — specific procedures belong in skills. Available placeholders: `{{TASK}}`, `{{WORKSPACE}}`, `{{CORE_MECHANISM}}`, `{{AGENTS}}`, `{{SESSIONS_SUMMARY}}`, `{{USER}}`, `{{TIME}}`, `{{TOOLS}}`, `{{SKILLS}}`. Always end with `{{CORE_MECHANISM}}`.
+
+## List Available Agents
+
+```
+ls {{WORKSPACE}}/agents/
+```

@@ -1,6 +1,6 @@
 ---
 name: manage-config
-description: Configure nagobot settings — LLM provider API keys, model routing, messaging channels (Telegram), and web search providers. Use when the user wants to add/change/check API keys, switch models, set up Telegram, configure search providers, or troubleshoot any configuration issue.
+description: Configure nagobot settings — LLM provider API keys, model routing, and web search providers. Use when the user wants to add/change/check API keys, switch models, configure search providers, or troubleshoot provider/model configuration issues.
 ---
 # Manage Configuration
 
@@ -66,43 +66,6 @@ exec: {{WORKSPACE}}/bin/nagobot set-model --type <model_type> --clear
 ```
 
 **Note**: You must configure a provider's API key BEFORE routing models to it.
-
----
-
-## Telegram Channel
-
-### View Status
-
-```
-exec: {{WORKSPACE}}/bin/nagobot set-telegram
-```
-
-### Set Bot Token
-
-```
-exec: {{WORKSPACE}}/bin/nagobot set-telegram --token <BOT_TOKEN>
-```
-
-Get token from [@BotFather](https://t.me/BotFather) (`/newbot` command).
-
-### Set Allowed User/Chat IDs
-
-```
-exec: {{WORKSPACE}}/bin/nagobot set-telegram --allowed "123456,789012"
-```
-
-Allow all (no restriction):
-```
-exec: {{WORKSPACE}}/bin/nagobot set-telegram --allowed ""
-```
-
-### Clear Telegram Config
-
-```
-exec: {{WORKSPACE}}/bin/nagobot set-telegram --clear
-```
-
-**Hot-reload**: Token and allowed ID changes are detected every 10 seconds. No restart needed.
 
 ---
 
