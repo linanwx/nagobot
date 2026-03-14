@@ -82,7 +82,9 @@ func (t *SleepThreadTool) Run(_ context.Context, args json.RawMessage) string {
 	// Skip mode: suppress output only, no scheduled wake.
 	if a.Skip {
 		t.sleeper.SetHaltLoop()
-		return "Thread sleeping. Output suppressed."
+		return "SLEEP activated (skip mode). No wake scheduled. " +
+			"WARNING: This tool call terminates the current reasoning loop immediately. " +
+			"All output for this turn is suppressed — the user will NOT receive any message."
 	}
 
 	// Default duration: 2 minutes.
@@ -113,7 +115,9 @@ func (t *SleepThreadTool) Run(_ context.Context, args json.RawMessage) string {
 
 	t.sleeper.SetHaltLoop()
 	wakeAt := time.Now().Add(d)
-	return fmt.Sprintf("Sleep scheduled. Wake at %s (%s from now).",
-		wakeAt.Format(time.RFC3339), durationStr,
+	return fmt.Sprintf("SLEEP activated via cron scheduler. Job: kind=at, wake_at=%s (%s from now), session=%s, message=%q. "+
+		"WARNING: This tool call terminates the current reasoning loop immediately. "+
+		"All output for this turn is suppressed — the user will NOT receive any message.",
+		wakeAt.Format(time.RFC3339), durationStr, "current", message,
 	)
 }
