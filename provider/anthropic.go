@@ -21,8 +21,12 @@ func init() {
 	RegisterProvider("anthropic", ProviderRegistration{
 		Models:       []string{"claude-sonnet-4-6", "claude-opus-4-6"},
 		VisionModels: []string{"claude-sonnet-4-6", "claude-opus-4-6"},
-		EnvKey:       "ANTHROPIC_API_KEY",
-		EnvBase:      "ANTHROPIC_API_BASE",
+		ContextWindows: map[string]int{
+			"claude-sonnet-4-6": 1048576,
+			"claude-opus-4-6":   1048576,
+		},
+		EnvKey:  "ANTHROPIC_API_KEY",
+		EnvBase: "ANTHROPIC_API_BASE",
 		Constructor: func(apiKey, apiBase, modelType, modelName string, maxTokens int, temperature float64) Provider {
 			return newAnthropicProvider(apiKey, apiBase, modelType, modelName, maxTokens, temperature)
 		},

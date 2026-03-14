@@ -140,8 +140,19 @@ func init() {
 	RegisterProvider("openrouter", ProviderRegistration{
 		Models:       []string{"moonshotai/kimi-k2.5", "anthropic/claude-sonnet-4.6", "anthropic/claude-opus-4.6", "z-ai/glm-5", "minimax/minimax-m2.5", "qwen/qwen3.5-35b-a3b", "google/gemini-3-flash-preview", "openrouter/hunter-alpha", "openrouter/healer-alpha"},
 		VisionModels: []string{"moonshotai/kimi-k2.5", "anthropic/claude-sonnet-4.6", "anthropic/claude-opus-4.6", "qwen/qwen3.5-35b-a3b", "google/gemini-3-flash-preview", "openrouter/healer-alpha"},
-		EnvKey:       "OPENROUTER_API_KEY",
-		EnvBase:      "OPENROUTER_API_BASE",
+		ContextWindows: map[string]int{
+			"moonshotai/kimi-k2.5":          262144,
+			"anthropic/claude-sonnet-4.6":   1048576,
+			"anthropic/claude-opus-4.6":     1048576,
+			"z-ai/glm-5":                   200000,
+			"minimax/minimax-m2.5":          204800,
+			"qwen/qwen3.5-35b-a3b":         262144,
+			"google/gemini-3-flash-preview": 1048576,
+			"openrouter/hunter-alpha":       1048576,
+			"openrouter/healer-alpha":       262144,
+		},
+		EnvKey:  "OPENROUTER_API_KEY",
+		EnvBase: "OPENROUTER_API_BASE",
 		Constructor: func(apiKey, apiBase, modelType, modelName string, maxTokens int, temperature float64) Provider {
 			return newOpenRouterProvider(apiKey, apiBase, modelType, modelName, maxTokens, temperature)
 		},

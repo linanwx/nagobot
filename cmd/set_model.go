@@ -180,10 +180,30 @@ func listModelRouting(cfg *config.Config) error {
 	fmt.Println("\nAvailable models:")
 	for _, prov := range provider.SupportedProviders() {
 		models := provider.SupportedModelsForProvider(prov)
-		if len(models) > 0 {
-			fmt.Printf("  %-16s %s\n", prov, strings.Join(models, ", "))
+		if len(models) == 0 {
+			continue
+		}
+		fmt.Printf("  %s:\n", prov)
+		for _, m := range models {
+			ctx := provider.ContextWindowForModel(m)
+			if ctx > 0 {
+				fmt.Printf("    %-40s %s\n", m, formatContextTokens(ctx))
+			} else {
+				fmt.Printf("    %s\n", m)
+			}
 		}
 	}
 
 	return nil
+}
+
+func formatContextTokens(tokens int) string {
+	if tokens >= 1000000 {
+		v := float64(tokens) / 1048576
+		if v == float64(int(v)) {
+			return fmt.Sprintf("%dM", int(v))
+		}
+		return fmt.Sprintf("%.1fM", v)
+	}
+	return fmt.Sprintf("%dK", tokens/1000)
 }

@@ -23,8 +23,14 @@ func init() {
 	RegisterProvider("openai", ProviderRegistration{
 		Models:       []string{"gpt-5.4", "gpt-5.3-codex", "gpt-5.2-codex", "gpt-5.2"},
 		VisionModels: []string{"gpt-5.4", "gpt-5.3-codex", "gpt-5.2-codex", "gpt-5.2"},
-		EnvKey:       "OPENAI_API_KEY",
-		EnvBase:      "OPENAI_API_BASE",
+		ContextWindows: map[string]int{
+			"gpt-5.4":       1048576,
+			"gpt-5.3-codex": 1048576,
+			"gpt-5.2-codex": 400000,
+			"gpt-5.2":       400000,
+		},
+		EnvKey:  "OPENAI_API_KEY",
+		EnvBase: "OPENAI_API_BASE",
 		Constructor: func(apiKey, apiBase, modelType, modelName string, maxTokens int, temperature float64) Provider {
 			return newOpenAIProvider(apiKey, apiBase, modelType, modelName, maxTokens, temperature)
 		},

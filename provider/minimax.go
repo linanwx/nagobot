@@ -26,7 +26,10 @@ var minimaxModelAPINames = map[string]string{
 
 func init() {
 	RegisterProvider("minimax-cn", ProviderRegistration{
-		Models:  []string{"minimax-m2.5"},
+		Models: []string{"minimax-m2.5"},
+		ContextWindows: map[string]int{
+			"minimax-m2.5": 204800,
+		},
 		EnvKey:  "MINIMAX_API_KEY",
 		EnvBase: "MINIMAX_API_BASE",
 		Constructor: func(apiKey, apiBase, modelType, modelName string, maxTokens int, temperature float64) Provider {
@@ -35,7 +38,10 @@ func init() {
 	})
 
 	RegisterProvider("minimax-global", ProviderRegistration{
-		Models:  []string{"minimax-m2.5"},
+		Models: []string{"minimax-m2.5"},
+		ContextWindows: map[string]int{
+			"minimax-m2.5": 204800,
+		},
 		EnvKey:  "MINIMAX_GLOBAL_API_KEY",
 		EnvBase: "MINIMAX_GLOBAL_API_BASE",
 		Constructor: func(apiKey, apiBase, modelType, modelName string, maxTokens int, temperature float64) Provider {

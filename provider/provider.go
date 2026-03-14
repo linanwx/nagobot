@@ -109,11 +109,12 @@ type ProviderConstructor func(apiKey, apiBase, modelType, modelName string, maxT
 
 // ProviderRegistration defines metadata and constructor for a provider.
 type ProviderRegistration struct {
-	Models       []string
-	VisionModels []string // Subset of Models that support image input.
-	EnvKey       string
-	EnvBase      string
-	Constructor  ProviderConstructor
+	Models         []string
+	VisionModels   []string       // Subset of Models that support image input.
+	ContextWindows map[string]int // model key -> context window size in tokens
+	EnvKey         string
+	EnvBase        string
+	Constructor    ProviderConstructor
 }
 
 // supportedModelTypes is the whitelist of supported model types.
@@ -124,6 +125,9 @@ var providerModelTypes = map[string][]string{}
 
 // visionCapable tracks provider:model pairs that support image input.
 var visionCapable = map[string]bool{}
+
+// modelContextWindows maps model keys to context window size in tokens.
+var modelContextWindows = map[string]int{}
 
 var providerRegistry = map[string]ProviderRegistration{}
 
@@ -152,6 +156,9 @@ func RegisterProvider(name string, reg ProviderRegistration) {
 		if vm != "" {
 			visionCapable[name+":"+vm] = true
 		}
+	}
+	for k, v := range reg.ContextWindows {
+		modelContextWindows[k] = v
 	}
 	providerRegistry[name] = reg
 	providerModelTypes[name] = append([]string(nil), models...)
@@ -201,6 +208,12 @@ func ValidateProviderModelType(providerName, modelType string) error {
 // SupportsVision reports whether a provider+model combination supports image input.
 func SupportsVision(providerName, modelType string) bool {
 	return visionCapable[providerName+":"+modelType]
+}
+
+// ContextWindowForModel returns the context window size in tokens for a model.
+// Returns 0 if unknown.
+func ContextWindowForModel(modelType string) int {
+	return modelContextWindows[modelType]
 }
 
 // IsKimiModel returns true if the model type is a Kimi model.

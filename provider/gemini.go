@@ -20,8 +20,11 @@ func init() {
 	RegisterProvider("gemini", ProviderRegistration{
 		Models:       []string{"gemini-3-flash-preview"},
 		VisionModels: []string{"gemini-3-flash-preview"},
-		EnvKey:       "GEMINI_API_KEY",
-		EnvBase:      "GEMINI_API_BASE",
+		ContextWindows: map[string]int{
+			"gemini-3-flash-preview": 1048576,
+		},
+		EnvKey:  "GEMINI_API_KEY",
+		EnvBase: "GEMINI_API_BASE",
 		Constructor: func(apiKey, apiBase, modelType, modelName string, maxTokens int, temperature float64) Provider {
 			return newGeminiProvider(apiKey, apiBase, modelType, modelName, maxTokens, temperature)
 		},

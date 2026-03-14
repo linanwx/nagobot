@@ -22,8 +22,11 @@ func init() {
 	RegisterProvider("moonshot-cn", ProviderRegistration{
 		Models:       []string{"kimi-k2.5"},
 		VisionModels: []string{"kimi-k2.5"},
-		EnvKey:       "MOONSHOT_API_KEY",
-		EnvBase:      "MOONSHOT_API_BASE",
+		ContextWindows: map[string]int{
+			"kimi-k2.5": 262144,
+		},
+		EnvKey:  "MOONSHOT_API_KEY",
+		EnvBase: "MOONSHOT_API_BASE",
 		Constructor: func(apiKey, apiBase, modelType, modelName string, maxTokens int, temperature float64) Provider {
 			return newMoonshotProvider("moonshot-cn", apiKey, apiBase, moonshotCNAPIBase, modelType, modelName, maxTokens, temperature)
 		},
@@ -32,8 +35,11 @@ func init() {
 	RegisterProvider("moonshot-global", ProviderRegistration{
 		Models:       []string{"kimi-k2.5"},
 		VisionModels: []string{"kimi-k2.5"},
-		EnvKey:       "MOONSHOT_GLOBAL_API_KEY",
-		EnvBase:      "MOONSHOT_GLOBAL_API_BASE",
+		ContextWindows: map[string]int{
+			"kimi-k2.5": 262144,
+		},
+		EnvKey:  "MOONSHOT_GLOBAL_API_KEY",
+		EnvBase: "MOONSHOT_GLOBAL_API_BASE",
 		Constructor: func(apiKey, apiBase, modelType, modelName string, maxTokens int, temperature float64) Provider {
 			return newMoonshotProvider("moonshot-global", apiKey, apiBase, moonshotGlobalAPIBase, modelType, modelName, maxTokens, temperature)
 		},
