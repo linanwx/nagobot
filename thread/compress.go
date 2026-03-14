@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-
 	"strings"
 	"time"
 
@@ -16,14 +15,17 @@ import (
 )
 
 const (
-	compressMinContentLen  = 2000 // skip short tool results (idempotency)
+	compressMinContentLen  = 2000 // skip short content
 	compressKeepAssistants = 3    // protect last N assistant turns
 	softTrimHeadChars      = 1500 // chars kept from start of result
 	softTrimTailChars      = 1500 // chars kept from end of result
+
+	compressedHintFmt  = "[compressed — use search-memory --context %s --full to see content if needed, use skill session-ops to see more]"
+	compressedHintNoID = "[compressed — use search-memory with session key and timeframe to find original content, or use skill session-ops to see more]"
 )
 
 // runCompressionScan scans idle threads and applies the appropriate compression tier:
-//   - Tier 1 (idle 5-30min, >50% tokens): mechanical tool-result compression
+//   - Tier 1 (idle 5-30min): mechanical compression of tools and large assistant-only user messages
 //   - Tier 2 (idle ≥30min, >60% tokens): AI-driven silent compression via context-ops skill
 func (m *Manager) runCompressionScan() {
 	cfg := m.cfg
@@ -55,14 +57,13 @@ func (m *Manager) runCompressionScan() {
 		if c.idle >= tier2IdleMin {
 			m.tryTier2Compress(c.key)
 		} else {
-			// Tier 1: mechanical compression (5-30min idle), no token threshold
 			m.tryTier1Compress(c.key)
 		}
 	}
 }
 
-// tryTier1Compress performs mechanical tool-result compression on an idle session.
-// No token threshold — always compresses tool results when idle 5-30min.
+// tryTier1Compress performs mechanical compression on an idle session.
+// No token threshold — always runs when idle 5-30min.
 func (m *Manager) tryTier1Compress(sessionKey string) {
 	cfg := m.cfg
 	sess, err := cfg.Sessions.Reload(sessionKey)
@@ -74,9 +75,8 @@ func (m *Manager) tryTier1Compress(sessionKey string) {
 		return
 	}
 
-	toolModified, newMessages := compressToolResults(sess.Messages, compressKeepAssistants)
-	wakeModified, newMessages := trimWakeFields(newMessages, compressKeepAssistants)
-	if !toolModified && !wakeModified {
+	modified, newMessages := compressTier1(sess.Messages, compressKeepAssistants)
+	if !modified {
 		return
 	}
 
@@ -92,7 +92,7 @@ func (m *Manager) tryTier1Compress(sessionKey string) {
 		return
 	}
 
-	logger.Info("tier1 compress: tool results trimmed",
+	logger.Info("tier1 compress: compression applied",
 		"sessionKey", sessionKey,
 		"messageCount", len(newMessages),
 	)
@@ -152,82 +152,11 @@ func (m *Manager) tryTier2Compress(sessionKey string) {
 	)
 }
 
-// trimWakeFields strips redundant fields from older wake messages.
-// Keeps the last keepLast wake messages intact; older ones lose
-// thread, session, delivery, and action fields from YAML frontmatter.
-func trimWakeFields(messages []provider.Message, keepLast int) (bool, []provider.Message) {
-	// Walk backward, count wake user messages (detected by YAML frontmatter).
-	wakeCount := 0
-	trimTargets := map[int]bool{}
-	for i := len(messages) - 1; i >= 0; i-- {
-		if messages[i].Role == "user" && strings.HasPrefix(messages[i].Content, "---\n") {
-			wakeCount++
-			if wakeCount > keepLast {
-				trimTargets[i] = true
-			}
-		}
-	}
-	if len(trimTargets) == 0 {
-		return false, messages
-	}
-
-	modified := false
-	result := make([]provider.Message, len(messages))
-	copy(result, messages)
-	for i := range result {
-		if !trimTargets[i] {
-			continue
-		}
-		content := trimFrontmatterFields(result[i].Content, wakeTrimFields)
-		if content != result[i].Content {
-			result[i].Content = content
-			modified = true
-		}
-	}
-	return modified, result
-}
-
-// wakeTrimFields are the frontmatter keys to strip during compression.
-var wakeTrimFields = map[string]bool{
-	"thread": true, "session": true, "delivery": true, "action": true,
-}
-
-// trimFrontmatterFields removes specified keys from a YAML frontmatter block.
-func trimFrontmatterFields(content string, removeKeys map[string]bool) string {
-	if !strings.HasPrefix(content, "---\n") {
-		return content
-	}
-	endIdx := strings.Index(content[4:], "\n---\n")
-	if endIdx < 0 {
-		return content
-	}
-	endIdx += 4 // offset from the initial "---\n"
-
-	yamlBlock := content[4:endIdx]
-	body := content[endIdx+5:] // skip "\n---\n"
-
-	var kept []string
-	for _, line := range strings.Split(yamlBlock, "\n") {
-		key := strings.SplitN(line, ":", 2)[0]
-		if removeKeys[strings.TrimSpace(key)] {
-			continue
-		}
-		kept = append(kept, line)
-	}
-
-	var sb strings.Builder
-	sb.WriteString("---\n")
-	sb.WriteString(strings.Join(kept, "\n"))
-	sb.WriteString("\n---\n")
-	sb.WriteString(body)
-	return sb.String()
-}
-
-// compressToolResults mechanically trims tool result messages.
-// Messages within the last keepLastAssistants assistant turns are protected.
-// Tool results with content <= compressMinContentLen are skipped (idempotent).
-func compressToolResults(messages []provider.Message, keepLastAssistants int) (bool, []provider.Message) {
-	// Find protection boundary: walk backward, count assistant messages.
+// compressTier1 performs unified mechanical compression on all message types.
+// Results are always written to Compressed; Content is never modified.
+// Always recomputes from original Content (idempotent — same Content → same Compressed).
+func compressTier1(messages []provider.Message, keepLastAssistants int) (bool, []provider.Message) {
+	// Find protection boundary: walk backward, count assistant turns.
 	protectFrom := len(messages)
 	assistantsSeen := 0
 	for i := len(messages) - 1; i >= 0; i-- {
@@ -240,8 +169,8 @@ func compressToolResults(messages []provider.Message, keepLastAssistants int) (b
 		}
 	}
 
-	// Pre-scan: find the last occurrence of each skill load.
-	lastSkillLoad := make(map[string]int) // skill name → last message index
+	// Pre-scan: find the last occurrence of each skill load (for outdated detection).
+	lastSkillLoad := make(map[string]int)
 	for i, m := range messages {
 		if m.Role == "tool" && m.Name == "use_skill" {
 			if name := extractSkillName(m.Content); name != "" {
@@ -255,47 +184,156 @@ func compressToolResults(messages []provider.Message, keepLastAssistants int) (b
 	copy(result, messages)
 
 	for i := 0; i < protectFrom; i++ {
-		msg := &result[i]
-		if msg.Role != "tool" {
-			continue
-		}
-		if msg.Compressed != "" {
-			continue
-		}
-		// use_skill: compress if a newer load of the same skill exists.
-		if msg.Name == "use_skill" {
-			if skillName := extractSkillName(msg.Content); skillName != "" && lastSkillLoad[skillName] > i {
-				msg.Compressed = marshalCompressed(compressedHeader{
-					Compressed: "use_skill", Skill: skillName,
-					Original: len(msg.Content), Outdated: true,
-				}, "")
-				modified = true
+		m := &result[i]
+		var newCompressed string
+
+		switch m.Role {
+		case "tool":
+			newCompressed = computeToolCompressed(m, i, lastSkillLoad)
+		case "user":
+			if strings.HasPrefix(m.Content, "---\n") {
+				newCompressed = computeWakeCompressed(m)
 			}
-			continue
 		}
-		if len(msg.Content) <= compressMinContentLen {
-			continue
+
+		if newCompressed != m.Compressed {
+			m.Compressed = newCompressed
+			modified = true
 		}
-		if strings.Contains(msg.Content, "<<media:") {
-			continue
-		}
-		n := len(msg.Content)
-		if n > softTrimHeadChars+softTrimTailChars {
-			head := msg.Content[:softTrimHeadChars]
-			tail := msg.Content[n-softTrimTailChars:]
-			trimmed := n - softTrimHeadChars - softTrimTailChars
-			msg.Compressed = marshalCompressed(compressedHeader{
-				Compressed: msg.Name, Original: n, Trimmed: trimmed,
-			}, head+"\n\n[trimmed]\n\n"+tail)
-		} else {
-			msg.Compressed = marshalCompressed(compressedHeader{
-				Compressed: msg.Name, Original: n,
-			}, "")
-		}
-		modified = true
 	}
 
 	return modified, result
+}
+
+// computeToolCompressed returns the Compressed value for a tool message.
+// Returns "" if no compression is needed.
+func computeToolCompressed(m *provider.Message, idx int, lastSkillLoad map[string]int) string {
+	if m.Name == "use_skill" {
+		skillName := extractSkillName(m.Content)
+		if skillName != "" && lastSkillLoad[skillName] > idx {
+			return marshalCompressed(compressedHeader{
+				Compressed: "use_skill", Skill: skillName,
+				Original: len(m.Content), Outdated: true,
+			}, "")
+		}
+		return ""
+	}
+	if len(m.Content) <= compressMinContentLen || strings.Contains(m.Content, "<<media:") {
+		return ""
+	}
+	return softTrimWithHint(m.Content, m.Name, m.ID)
+}
+
+// computeWakeCompressed returns the Compressed value for a user message with wake YAML frontmatter.
+// Strips redundant fields (thread/session/delivery/action) and compresses large assistant-only bodies.
+// Returns "" if no compression is needed.
+func computeWakeCompressed(m *provider.Message) string {
+	yamlBlock, body, ok := splitFrontmatter(m.Content)
+	if !ok {
+		return ""
+	}
+
+	// Build trimmed YAML lines (remove redundant fields).
+	var kept []string
+	for _, line := range strings.Split(yamlBlock, "\n") {
+		key := strings.TrimSpace(strings.SplitN(line, ":", 2)[0])
+		if wakeTrimKeys[key] {
+			continue
+		}
+		kept = append(kept, line)
+	}
+	trimmedYAML := strings.Join(kept, "\n")
+
+	// Check whether body needs compression.
+	visibility := extractFrontmatterValue(yamlBlock, "visibility")
+	bodyLarge := visibility == "assistant-only" &&
+		len(body) > compressMinContentLen &&
+		!strings.Contains(body, "<<media:")
+
+	if bodyLarge {
+		n := len(body)
+		hint := buildRecoveryHint(m.ID)
+		var compressedBody string
+		trimmed := 0
+		if n > softTrimHeadChars+softTrimTailChars {
+			trimmed = n - softTrimHeadChars - softTrimTailChars
+			compressedBody = body[:softTrimHeadChars] + "\n\n" + hint + "\n\n" + body[n-softTrimTailChars:]
+		} else {
+			compressedBody = hint
+		}
+		// Append compression metadata inline into the wake YAML.
+		trimmedYAML += "\ncompressed: true"
+		trimmedYAML += fmt.Sprintf("\noriginal: %d", n)
+		if trimmed > 0 {
+			trimmedYAML += fmt.Sprintf("\ntrimmed: %d", trimmed)
+		}
+		return "---\n" + trimmedYAML + "\n---\n" + compressedBody
+	}
+
+	// Wake trim only — strip redundant fields but preserve full body.
+	rebuilt := "---\n" + trimmedYAML + "\n---\n" + body
+	if rebuilt == m.Content {
+		return "" // nothing changed, no compression needed
+	}
+	return rebuilt
+}
+
+// wakeTrimKeys are the wake YAML frontmatter fields stripped from older messages.
+var wakeTrimKeys = map[string]bool{
+	"thread": true, "session": true, "delivery": true, "action": true,
+}
+
+// splitFrontmatter splits a YAML-frontmatter-wrapped string into its YAML block and body.
+func splitFrontmatter(content string) (yamlBlock, body string, ok bool) {
+	if !strings.HasPrefix(content, "---\n") {
+		return
+	}
+	endIdx := strings.Index(content[4:], "\n---\n")
+	if endIdx < 0 {
+		return
+	}
+	endIdx += 4
+	yamlBlock = content[4:endIdx]
+	body = content[endIdx+5:] // skip "\n---\n"
+	ok = true
+	return
+}
+
+// extractFrontmatterValue extracts a scalar value from a raw YAML block by key name.
+func extractFrontmatterValue(yamlBlock, key string) string {
+	for _, line := range strings.Split(yamlBlock, "\n") {
+		parts := strings.SplitN(line, ":", 2)
+		if len(parts) == 2 && strings.TrimSpace(parts[0]) == key {
+			return strings.TrimSpace(parts[1])
+		}
+	}
+	return ""
+}
+
+// buildRecoveryHint builds the hint string pointing to the original content.
+func buildRecoveryHint(messageID string) string {
+	if messageID == "" {
+		return compressedHintNoID
+	}
+	return fmt.Sprintf(compressedHintFmt, messageID)
+}
+
+// softTrimWithHint applies head+hint+tail compression and returns a Compressed value.
+func softTrimWithHint(content, name, messageID string) string {
+	n := len(content)
+	hint := buildRecoveryHint(messageID)
+	if n > softTrimHeadChars+softTrimTailChars {
+		head := content[:softTrimHeadChars]
+		tail := content[n-softTrimTailChars:]
+		trimmed := n - softTrimHeadChars - softTrimTailChars
+		return marshalCompressed(compressedHeader{
+			Compressed: name, Original: n, Trimmed: trimmed,
+		}, head+"\n\n"+hint+"\n\n"+tail)
+	}
+	// Large enough to compress but not enough to soft-trim: keep full content + hint.
+	return marshalCompressed(compressedHeader{
+		Compressed: name, Original: n,
+	}, content+"\n\n"+hint)
 }
 
 // compressedHeader is the YAML frontmatter for compressed tool results.

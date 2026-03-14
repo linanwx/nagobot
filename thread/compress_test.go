@@ -22,7 +22,7 @@ func makeWakeContent(source, thread, session, delivery, action, msg string) stri
 	return sb.String()
 }
 
-func TestTrimWakeFields(t *testing.T) {
+func TestCompressTier1_WakeTrim(t *testing.T) {
 	// Build 5 wake messages + assistant replies.
 	var messages []provider.Message
 	for i := 0; i < 5; i++ {
@@ -32,57 +32,65 @@ func TestTrimWakeFields(t *testing.T) {
 		)
 	}
 
-	modified, result := trimWakeFields(messages, 3)
+	modified, result := compressTier1(messages, 3)
 	if !modified {
 		t.Fatal("expected modified=true")
 	}
 
-	// Count wake messages that still have thread field.
+	// Content must never be modified.
+	for i, m := range result {
+		if m.Content != messages[i].Content {
+			t.Errorf("message %d: Content was modified", i)
+		}
+	}
+
+	// Count wake messages whose Compressed strips redundant fields.
 	trimmed, kept := 0, 0
 	for _, m := range result {
 		if m.Role != "user" || !strings.HasPrefix(m.Content, "---\n") {
 			continue
 		}
-		if strings.Contains(m.Content, "thread:") {
-			kept++
+		if m.Compressed == "" {
+			kept++ // no compression = still intact (protected)
 		} else {
 			trimmed++
+			// Compressed must not contain thread/session/delivery/action.
+			if strings.Contains(m.Compressed, "thread:") {
+				t.Error("trimmed Compressed still has thread field")
+			}
+			if strings.Contains(m.Compressed, "session:") {
+				t.Error("trimmed Compressed still has session field")
+			}
+			if strings.Contains(m.Compressed, "delivery:") {
+				t.Error("trimmed Compressed still has delivery field")
+			}
+			if strings.Contains(m.Compressed, "action:") {
+				t.Error("trimmed Compressed still has action field")
+			}
+			// Must preserve source, time, visibility.
+			if !strings.Contains(m.Compressed, "source:") {
+				t.Error("trimmed Compressed lost source")
+			}
+			if !strings.Contains(m.Compressed, "time:") {
+				t.Error("trimmed Compressed lost time")
+			}
+			if !strings.Contains(m.Compressed, "visibility:") {
+				t.Error("trimmed Compressed lost visibility")
+			}
 		}
 	}
-	if kept != 3 {
-		t.Errorf("expected 3 kept wake messages, got %d", kept)
+	// Protection is based on last 3 assistant turns (not last 3 wake messages).
+	// With 5 wake+assistant pairs and keepLast=3: messages 0-4 are outside protection,
+	// so wake messages at idx 0, 2, 4 get trimmed; wake messages at idx 6, 8 are kept.
+	if kept != 2 {
+		t.Errorf("expected 2 kept wake messages, got %d", kept)
 	}
-	if trimmed != 2 {
-		t.Errorf("expected 2 trimmed wake messages, got %d", trimmed)
-	}
-
-	// Verify trimmed messages still have source, time, visibility; lost thread, session, delivery, action.
-	for _, m := range result {
-		if m.Role != "user" || strings.Contains(m.Content, "thread:") {
-			continue
-		}
-		if !strings.Contains(m.Content, "source:") {
-			t.Error("trimmed message lost source")
-		}
-		if !strings.Contains(m.Content, "time:") {
-			t.Error("trimmed message lost time")
-		}
-		if !strings.Contains(m.Content, "visibility:") {
-			t.Error("trimmed message lost visibility")
-		}
-		if strings.Contains(m.Content, "session:") {
-			t.Error("trimmed message still has session")
-		}
-		if strings.Contains(m.Content, "delivery:") {
-			t.Error("trimmed message still has delivery")
-		}
-		if strings.Contains(m.Content, "action:") {
-			t.Error("trimmed message still has action")
-		}
+	if trimmed != 3 {
+		t.Errorf("expected 3 trimmed wake messages, got %d", trimmed)
 	}
 }
 
-func TestTrimWakeFields_Chunkable(t *testing.T) {
+func TestCompressTier1_WakeTrimIdempotent(t *testing.T) {
 	messages := []provider.Message{
 		{Role: "user", Content: makeWakeContent("telegram", "t-1", "telegram:123", "telegram:123", "hint", "hello")},
 		{Role: "assistant", Content: "hi"},
@@ -94,12 +102,9 @@ func TestTrimWakeFields_Chunkable(t *testing.T) {
 		{Role: "assistant", Content: "hi4"},
 	}
 
-	_, result := trimWakeFields(messages, 3)
-	modified2, result2 := trimWakeFields(result, 3)
+	_, result := compressTier1(messages, 3)
+	modified2, _ := compressTier1(result, 3)
 	if modified2 {
-		t.Error("second pass should not modify anything (not idempotent)")
-	}
-	if len(result) != len(result2) {
-		t.Error("message count changed on second pass")
+		t.Error("second pass should not modify anything (idempotent)")
 	}
 }
