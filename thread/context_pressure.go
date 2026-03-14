@@ -69,6 +69,7 @@ func EstimateTextTokens(text string) int {
 }
 
 // EstimateMessageTokens returns a tiktoken-based token estimate for a single message.
+// Includes image token estimation for <<media:...>> markers.
 func EstimateMessageTokens(message provider.Message) int {
 	tokens := 6 // Base per-message structure overhead.
 	tokens += EstimateTextTokens(message.Role)
@@ -86,6 +87,13 @@ func EstimateMessageTokens(message provider.Message) int {
 		tokens += EstimateTextTokens(call.Type)
 		tokens += EstimateTextTokens(call.Function.Name)
 		tokens += EstimateTextTokens(call.Function.Arguments)
+	}
+
+	// Estimate image tokens from <<media:mime:path>> markers.
+	if _, markers := provider.ParseMediaMarkers(message.Content); len(markers) > 0 {
+		for _, m := range markers {
+			tokens += provider.EstimateImageTokens(m.FilePath)
+		}
 	}
 
 	return tokens
