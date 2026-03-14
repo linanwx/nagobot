@@ -110,26 +110,41 @@ func (t *GrepTool) Run(ctx context.Context, args json.RawMessage) string {
 	if err != nil {
 		// Exit code 1 means no matches for both rg and grep
 		if exitErr, ok := err.(*exec.ExitError); ok && exitErr.ExitCode() == 1 {
-			return fmt.Sprintf("No matches found for pattern: %s", a.Pattern)
+			return toolResult("grep", map[string]any{
+				"pattern": a.Pattern,
+				"path":    searchPath,
+				"results": 0,
+			}, "No matches found.")
 		}
 		if output != "" {
-			return fmt.Sprintf("Error: %s", output)
+			return toolError("grep", output)
 		}
-		return fmt.Sprintf("Error: %v", err)
+		return toolError("grep", fmt.Sprintf("%v", err))
 	}
 
 	if output == "" {
-		return fmt.Sprintf("No matches found for pattern: %s", a.Pattern)
+		return toolResult("grep", map[string]any{
+			"pattern": a.Pattern,
+			"path":    searchPath,
+			"results": 0,
+		}, "No matches found.")
 	}
 
 	// Truncate to max_results lines
 	lines := strings.Split(output, "\n")
+	fields := map[string]any{
+		"pattern": a.Pattern,
+		"path":    searchPath,
+		"results": len(lines),
+	}
 	if len(lines) > maxResults {
+		fields["results"] = maxResults
+		fields["total"] = len(lines)
+		fields["truncated"] = true
 		output = strings.Join(lines[:maxResults], "\n")
-		output += fmt.Sprintf("\n\n(truncated: showing %d of %d lines)", maxResults, len(lines))
 	}
 
-	return output
+	return toolResult("grep", fields, output)
 }
 
 func (t *GrepTool) buildRgArgs(a grepArgs, searchPath string) []string {

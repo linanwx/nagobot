@@ -100,23 +100,27 @@ func (t *SpawnThreadTool) Run(ctx context.Context, args json.RawMessage) string 
 		taskPreview = taskPreview[:200] + "..."
 	}
 
-	var sb strings.Builder
-	fmt.Fprintf(&sb, "Child thread spawned.\n")
-	fmt.Fprintf(&sb, "  ID:        %s\n", result.ID)
-	fmt.Fprintf(&sb, "  Agent:     %s\n", agentLabel)
+	fields := map[string]any{
+		"child_id":  result.ID,
+		"agent":     agentLabel,
+		"mechanism": "async_child_thread",
+	}
 	if result.Specialty != "" {
-		fmt.Fprintf(&sb, "  Specialty: %s\n", result.Specialty)
+		fields["specialty"] = result.Specialty
 	}
-	if result.Provider != "" || result.Model != "" {
-		fmt.Fprintf(&sb, "  Provider:  %s / %s\n", result.Provider, result.Model)
+	if result.Provider != "" {
+		fields["provider"] = result.Provider
 	}
-	fmt.Fprintf(&sb, "  Task:      %s\n", taskPreview)
-	fmt.Fprintf(&sb, "\nThe child is running asynchronously. When it finishes, this thread will ")
-	fmt.Fprintf(&sb, "receive a 'child_completed' wake message containing the child's output.\n")
-	fmt.Fprintf(&sb, "You do not need to wait or poll — just finish your current response. ")
-	fmt.Fprintf(&sb, "You will be woken up automatically when the child is done.\n")
-	fmt.Fprintf(&sb, "Use check_thread with the ID above to inspect progress if needed.")
-	return sb.String()
+	if result.Model != "" {
+		fields["model"] = result.Model
+	}
+
+	return toolResult("spawn_thread", fields,
+		"Child thread is running asynchronously. When it completes, a child_completed "+
+			"wake message will be delivered to this thread via the sink system. "+
+			"Do not wait or poll — continue with other work. "+
+			"Use check_thread with the child_id to inspect progress if needed.\n"+
+			"Task: "+taskPreview)
 }
 
 // CheckThreadTool checks the status of a spawned thread.

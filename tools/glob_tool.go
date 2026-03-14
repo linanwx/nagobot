@@ -141,7 +141,11 @@ func (t *GlobTool) Run(ctx context.Context, args json.RawMessage) string {
 	}
 
 	if len(entries) == 0 {
-		return fmt.Sprintf("No files found matching pattern: %s", a.Pattern)
+		return toolResult("glob", map[string]any{
+			"pattern": a.Pattern,
+			"path":    searchPath,
+			"results": 0,
+		}, "No files found.")
 	}
 
 	// Sort by modification time descending (most recent first)
@@ -149,10 +153,15 @@ func (t *GlobTool) Run(ctx context.Context, args json.RawMessage) string {
 		return entries[i].modTime > entries[j].modTime
 	})
 
-	truncated := false
+	fields := map[string]any{
+		"pattern": a.Pattern,
+		"path":    searchPath,
+		"results": len(entries),
+	}
 	if len(entries) > globMaxResults {
+		fields["results"] = globMaxResults
+		fields["truncated"] = true
 		entries = entries[:globMaxResults]
-		truncated = true
 	}
 
 	var sb strings.Builder
@@ -160,11 +169,8 @@ func (t *GlobTool) Run(ctx context.Context, args json.RawMessage) string {
 		sb.WriteString(e.relPath)
 		sb.WriteByte('\n')
 	}
-	if truncated {
-		sb.WriteString(fmt.Sprintf("\n(truncated: showing %d of more results)", globMaxResults))
-	}
 
-	return strings.TrimRight(sb.String(), "\n")
+	return toolResult("glob", fields, strings.TrimRight(sb.String(), "\n"))
 }
 
 // matchDoublestar handles glob patterns containing **.

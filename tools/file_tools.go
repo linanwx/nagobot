@@ -89,21 +89,21 @@ func (t *ReadFileTool) Run(ctx context.Context, args json.RawMessage) string {
 	info, err := os.Stat(path)
 	if err != nil {
 		if os.IsNotExist(err) {
-			return fmt.Sprintf("Error: file not found: %s", formatResolvedPath(a.Path, resolvedPath))
+			return toolError("read_file", fmt.Sprintf("file not found: %s", formatResolvedPath(a.Path, resolvedPath)))
 		}
-		return fmt.Sprintf("Error: failed to stat file: %s: %v", formatResolvedPath(a.Path, resolvedPath), err)
+		return toolError("read_file", fmt.Sprintf("failed to stat file: %s: %v", formatResolvedPath(a.Path, resolvedPath), err))
 	}
 
 	if info.IsDir() {
-		return fmt.Sprintf("Error: path is a directory, not a file: %s", formatResolvedPath(a.Path, resolvedPath))
+		return toolError("read_file", fmt.Sprintf("path is a directory, not a file: %s", formatResolvedPath(a.Path, resolvedPath)))
 	}
 
 	content, err := os.ReadFile(path)
 	if err != nil {
-		return fmt.Sprintf("Error: failed to read file: %s: %v", formatResolvedPath(a.Path, resolvedPath), err)
+		return toolError("read_file", fmt.Sprintf("failed to read file: %s: %v", formatResolvedPath(a.Path, resolvedPath), err))
 	}
 	if len(content) == 0 {
-		return fmt.Sprintf("Error: file exists but is empty: %s", resolvedPath)
+		return toolError("read_file", fmt.Sprintf("file exists but is empty: %s", resolvedPath))
 	}
 
 	allLines := strings.Split(string(content), "\n")
@@ -131,7 +131,7 @@ func (t *ReadFileTool) Run(ctx context.Context, args json.RawMessage) string {
 
 		startIdx = offset - 1
 		if startIdx >= totalLines {
-			return fmt.Sprintf("[File has %d lines. Offset %d is beyond end of file.]", totalLines, offset)
+			return toolError("read_file", fmt.Sprintf("offset %d is beyond end of file (%d lines)", offset, totalLines))
 		}
 		endIdx = startIdx + limit
 		if endIdx > totalLines {
@@ -139,16 +139,21 @@ func (t *ReadFileTool) Run(ctx context.Context, args json.RawMessage) string {
 		}
 	}
 
-	var sb strings.Builder
-	if a.Tail <= 0 && endIdx < totalLines {
-		fmt.Fprintf(&sb, "[Showing lines %d-%d of %d total. Use offset=%d to read more.]\n\n",
-			startIdx+1, endIdx, totalLines, endIdx+1)
+	fields := map[string]any{
+		"path":  resolvedPath,
+		"lines": fmt.Sprintf("%d-%d", startIdx+1, endIdx),
+		"total": totalLines,
 	}
+	if endIdx < totalLines {
+		fields["next_offset"] = endIdx + 1
+	}
+
+	var sb strings.Builder
 	for i := startIdx; i < endIdx; i++ {
 		fmt.Fprintf(&sb, "%d\t%s\n", i+1, allLines[i])
 	}
 
-	return sb.String()
+	return toolResult("read_file", fields, sb.String())
 }
 
 // WriteFileTool writes content to a file.
@@ -201,15 +206,18 @@ func (t *WriteFileTool) Run(ctx context.Context, args json.RawMessage) string {
 	dir := filepath.Dir(path)
 	resolvedDir := absOrOriginal(dir)
 	if err := os.MkdirAll(dir, 0755); err != nil {
-		return fmt.Sprintf("Error: failed to create parent directory: %s: %v", formatResolvedPath(dir, resolvedDir), err)
+		return toolError("write_file", fmt.Sprintf("failed to create parent directory: %s: %v", formatResolvedPath(dir, resolvedDir), err))
 	}
 
 	// Write file (overwrite)
 	if err := os.WriteFile(path, []byte(a.Content), 0644); err != nil {
-		return fmt.Sprintf("Error: failed to write file: %s: %v", formatResolvedPath(a.Path, resolvedPath), err)
+		return toolError("write_file", fmt.Sprintf("failed to write file: %s: %v", formatResolvedPath(a.Path, resolvedPath), err))
 	}
 
-	return fmt.Sprintf("Successfully wrote %d bytes to %s", len(a.Content), formatResolvedPath(a.Path, resolvedPath))
+	return toolResult("write_file", map[string]any{
+		"path":  resolvedPath,
+		"bytes": len(a.Content),
+	}, "")
 }
 
 // EditFileTool edits a file by replacing text.
@@ -280,9 +288,9 @@ func (t *EditFileTool) Run(ctx context.Context, args json.RawMessage) string {
 	content, err := os.ReadFile(path)
 	if err != nil {
 		if os.IsNotExist(err) {
-			return fmt.Sprintf("Error: file not found: %s", formatResolvedPath(a.Path, resolvedPath))
+			return toolError("edit_file", fmt.Sprintf("file not found: %s", formatResolvedPath(a.Path, resolvedPath)))
 		}
-		return fmt.Sprintf("Error: failed to read file: %s: %v", formatResolvedPath(a.Path, resolvedPath), err)
+		return toolError("edit_file", fmt.Sprintf("failed to read file: %s: %v", formatResolvedPath(a.Path, resolvedPath), err))
 	}
 
 	contentStr := string(content)
@@ -298,10 +306,10 @@ func (t *EditFileTool) Run(ctx context.Context, args json.RawMessage) string {
 		normCount := strings.Count(normContent, normOld)
 
 		if normCount == 0 {
-			return fmt.Sprintf("Error: text not found in file: %q (path: %s)", a.OldText, displayPath)
+			return toolError("edit_file", fmt.Sprintf("text not found in file: %q (path: %s)", a.OldText, displayPath))
 		}
 		if normCount > 1 && !a.ReplaceAll {
-			return fmt.Sprintf("Error: text appears %d times in file (path: %s); match must be unique. Provide more context or use replace_all.", normCount, displayPath)
+			return toolError("edit_file", fmt.Sprintf("text appears %d times in file (path: %s); match must be unique. Provide more context or use replace_all.", normCount, displayPath))
 		}
 
 		// Find the corresponding region in the original content and replace.
@@ -313,17 +321,21 @@ func (t *EditFileTool) Run(ctx context.Context, args json.RawMessage) string {
 		}
 
 		if err := os.WriteFile(path, []byte(newContent), 0644); err != nil {
-			return fmt.Sprintf("Error: failed to write file: %s: %v", displayPath, err)
+			return toolError("edit_file", fmt.Sprintf("failed to write file: %s: %v", displayPath, err))
 		}
 		n := normCount
 		if !a.ReplaceAll {
 			n = 1
 		}
-		return fmt.Sprintf("Successfully edited %s (%d replacement(s), fuzzy whitespace match)", displayPath, n)
+		return toolResult("edit_file", map[string]any{
+			"path":         displayPath,
+			"replacements": n,
+			"fuzzy":        true,
+		}, "")
 	}
 
 	if count > 1 && !a.ReplaceAll {
-		return fmt.Sprintf("Error: text appears %d times in file (path: %s); match must be unique. Provide more context or use replace_all.", count, displayPath)
+		return toolError("edit_file", fmt.Sprintf("text appears %d times in file (path: %s); match must be unique. Provide more context or use replace_all.", count, displayPath))
 	}
 
 	var newContent string
@@ -334,10 +346,13 @@ func (t *EditFileTool) Run(ctx context.Context, args json.RawMessage) string {
 	}
 
 	if err := os.WriteFile(path, []byte(newContent), 0644); err != nil {
-		return fmt.Sprintf("Error: failed to write file: %s: %v", displayPath, err)
+		return toolError("edit_file", fmt.Sprintf("failed to write file: %s: %v", displayPath, err))
 	}
 
-	return fmt.Sprintf("Successfully edited %s (%d replacement(s))", displayPath, count)
+	return toolResult("edit_file", map[string]any{
+		"path":         displayPath,
+		"replacements": count,
+	}, "")
 }
 
 // normToOrigPos maps a character position in normalized text back to the

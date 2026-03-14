@@ -3,7 +3,6 @@ package tools
 import (
 	"context"
 	"encoding/json"
-	"fmt"
 	"strings"
 
 	"github.com/linanwx/nagobot/provider"
@@ -79,12 +78,11 @@ func (t *WakeThreadTool) Run(ctx context.Context, args json.RawMessage) string {
 		Source:  msg.WakeExternal,
 		Message: message,
 	})
-	return fmt.Sprintf(
-		"Thread awakened: %s\n"+
-			"The target thread will run reasoning asynchronously — it may take a moment to produce output.\n"+
-			"When it finishes, its result will be pushed back via a wake message to the originating thread.\n"+
-			"You can: continue with other actions now, or sleep this thread to wait for the result.\n"+
-			"Use the thread-ops skill for more thread operations (check status, list threads, etc.).",
-		sessionKey,
-	)
+	return toolResult("wake_thread", map[string]any{
+		"session_key": sessionKey,
+		"mechanism":   "thread_manager_enqueue",
+	}, "Message enqueued to target thread. The thread manager will schedule it for execution asynchronously.\n"+
+		"When it finishes, its result will be pushed back via a wake message to the originating thread.\n"+
+		"You can: continue with other actions now, or sleep this thread to wait for the result.\n"+
+		"Use the thread-ops skill for more thread operations (check status, list threads, etc.).")
 }

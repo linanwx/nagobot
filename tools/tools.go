@@ -121,7 +121,7 @@ func (r *Registry) Run(ctx context.Context, name string, args json.RawMessage) s
 			"limit", toolResultMaxChars,
 		)
 	}
-	okResult := !strings.HasPrefix(result, "Error:")
+	okResult := !IsToolError(result)
 	logger.Debug(
 		"tool call finished",
 		"tool", name,

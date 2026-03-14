@@ -121,17 +121,10 @@ func (t *ExecTool) Run(ctx context.Context, args json.RawMessage) string {
 
 	output, err := cmd.CombinedOutput()
 	if execCtx.Err() == context.DeadlineExceeded {
-		return fmt.Sprintf("Error: command timed out after %d seconds\nPartial output:\n%s", timeout, string(output))
-	}
-
-	if err != nil {
-		return fmt.Sprintf("Command failed (workdir: %s): %v\nOutput:\n%s", cmd.Dir, err, string(output))
+		return toolError("exec", fmt.Sprintf("command timed out after %d seconds\nPartial output:\n%s", timeout, string(output)))
 	}
 
 	result := string(output)
-	if result == "" {
-		return "(no output)"
-	}
 	result, truncated := truncateWithNotice(result, execOutputMaxChars)
 	if truncated {
 		logger.Warn("exec output truncated",
@@ -141,5 +134,22 @@ func (t *ExecTool) Run(ctx context.Context, args json.RawMessage) string {
 		)
 	}
 
-	return result
+	fields := map[string]any{
+		"command": a.Command,
+		"workdir": cmd.Dir,
+	}
+	if err != nil {
+		if exitErr, ok := err.(*exec.ExitError); ok {
+			fields["exit_code"] = exitErr.ExitCode()
+		} else {
+			fields["exit_code"] = -1
+		}
+	} else {
+		fields["exit_code"] = 0
+	}
+	if truncated {
+		fields["truncated"] = true
+	}
+
+	return toolResult("exec", fields, result)
 }

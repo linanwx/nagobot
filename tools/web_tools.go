@@ -111,10 +111,14 @@ func (t *WebSearchTool) Run(ctx context.Context, args json.RawMessage) string {
 
 	results, err := p.Search(ctx, a.Query, a.MaxResults)
 	if err != nil {
-		return fmt.Sprintf("Error: %v", err)
+		return toolError("web_search", fmt.Sprintf("%v", err))
 	}
 
-	return FormatSearchResults(a.Query, results)
+	return toolResult("web_search", map[string]any{
+		"query":   a.Query,
+		"source":  source,
+		"results": len(results),
+	}, FormatSearchResults(a.Query, results))
 }
 
 // webFetchCache is a simple in-memory cache for fetched page content.
@@ -260,7 +264,7 @@ func (t *WebFetchTool) Run(ctx context.Context, args json.RawMessage) string {
 		offset = 0
 	}
 	if offset >= totalChars {
-		return fmt.Sprintf("[Total: %d chars | offset %d is beyond end of content]", totalChars, offset)
+		return toolError("web_fetch", fmt.Sprintf("offset %d is beyond end of content (total: %d chars)", offset, totalChars))
 	}
 
 	end := offset + limit
@@ -269,21 +273,20 @@ func (t *WebFetchTool) Run(ctx context.Context, args json.RawMessage) string {
 	}
 	slice := content[offset:end]
 
-	// Build header with pagination info
-	var header string
-	switch {
-	case cached:
-		header = fmt.Sprintf("[Cached | Total: %d chars | Showing: %d–%d]", totalChars, offset, end)
-	case source != "direct":
-		header = fmt.Sprintf("[via %s | Total: %d chars | Showing: %d–%d]", source, totalChars, offset, end)
-	default:
-		header = fmt.Sprintf("[Total: %d chars | Showing: %d–%d]", totalChars, offset, end)
+	fields := map[string]any{
+		"url":         a.URL,
+		"source":      source,
+		"total_chars": totalChars,
+		"showing":     fmt.Sprintf("%d-%d", offset, end),
+	}
+	if cached {
+		fields["cached"] = true
 	}
 	if end < totalChars {
-		header += fmt.Sprintf(" [Next page: offset=%d]", end)
+		fields["next_offset"] = end
 	}
 
-	return header + "\n" + slice
+	return toolResult("web_fetch", fields, slice)
 }
 
 func (t *WebFetchTool) availableSources() []string {

@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"strings"
 	"time"
 
 	"github.com/linanwx/nagobot/logger"
@@ -106,7 +105,7 @@ func (r *Runner) RunWithMessages(ctx context.Context, messages []provider.Messag
 
 			start := time.Now()
 			result := r.tools.Run(ctx, tc.Function.Name, json.RawMessage(tc.Function.Arguments))
-			if strings.HasPrefix(result, "Error:") {
+			if tools.IsToolError(result) {
 				logger.Error("tool error", "tool", tc.Function.Name, "err", result)
 			}
 			toolMsg := provider.ToolResultMessage(tc.ID, tc.Function.Name, result)
@@ -121,7 +120,7 @@ func (r *Runner) RunWithMessages(ctx context.Context, messages []provider.Messag
 					ArgsSummary:   truncateStr(tc.Function.Arguments, 200),
 					ResultPreview: truncateStr(result, 200),
 					DurationMs:    time.Since(start).Milliseconds(),
-					Error:         strings.HasPrefix(result, "Error:"),
+					Error:         tools.IsToolError(result),
 				})
 			}
 		}
