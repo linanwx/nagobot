@@ -39,7 +39,8 @@ func init() {
 func runSetAgent(_ *cobra.Command, _ []string) error {
 	session := strings.TrimSpace(setAgentSession)
 	if session == "" {
-		return fmt.Errorf("--session is required.\nFix: nagobot set-agent --session <session_key> --agent <agent_name>\nExample: nagobot set-agent --session \"discord:123456\" --agent fallout")
+		fmt.Printf("---\ncommand: set-agent\nstatus: error\n---\n\n--session is required.\nFix: nagobot set-agent --session <session_key> --agent <agent_name>\nExample: nagobot set-agent --session \"discord:123456\" --agent fallout\n")
+		return fmt.Errorf("--session is required")
 	}
 
 	cfg, err := config.Load()
@@ -66,9 +67,9 @@ func runSetAgent(_ *cobra.Command, _ []string) error {
 	}
 
 	if agent == "" {
-		fmt.Printf("Cleared agent for session %q\n", session)
+		fmt.Printf("---\ncommand: set-agent\nstatus: ok\nsession: %s\nagent: cleared\n---\n\nCleared agent for session %q.\n", session, session)
 	} else {
-		fmt.Printf("Set agent %q for session %q\n", agent, session)
+		fmt.Printf("---\ncommand: set-agent\nstatus: ok\nsession: %s\nagent: %s\n---\n\nSet agent %q for session %q.\n", session, agent, agent, session)
 		printAgentModelRouting(cfg, agent)
 	}
 	return nil

@@ -43,7 +43,8 @@ func runSampleSession(_ *cobra.Command, args []string) error {
 	filteredCount := len(filtered)
 
 	if filteredCount == 0 {
-		fmt.Printf("No messages in session %q (%d total, all filtered).\n", key, totalCount)
+		fmt.Printf("---\ncommand: sample-session\nstatus: empty\nsession: %s\ntotal: %d\n---\n\nNo messages (all filtered).\n",
+			key, totalCount)
 		return nil
 	}
 
@@ -56,13 +57,17 @@ func runSampleSession(_ *cobra.Command, args []string) error {
 		step = fmt.Sprintf("every %d", filteredCount/count)
 	}
 
-	fmt.Printf("Sampled %d of %d messages (evenly spaced, %sth). Deterministic. Filtered from %d total.\n---\n",
-		count, filteredCount, step, totalCount)
+	fmt.Printf("---\ncommand: sample-session\nstatus: ok\nsession: %s\nsampled: %d\nfiltered: %d\ntotal: %d\nstep: %s\n---\n\n",
+		key, count, filteredCount, totalCount, step)
 
 	for _, idx := range indices {
 		m := filtered[idx]
 		content, _ := truncateContent(m.Content, defaultTruncateLen)
-		fmt.Printf("[%d] %s: %s\n", idx+1, m.Role, content)
+		msgID := m.ID
+		if msgID == "" {
+			msgID = "-"
+		}
+		fmt.Printf("[%d] (%s) %s: %s\n", idx+1, msgID, m.Role, content)
 	}
 
 	return nil

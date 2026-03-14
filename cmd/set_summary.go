@@ -85,7 +85,7 @@ func runSetSummary(_ *cobra.Command, args []string) error {
 		return fmt.Errorf("failed to rename: %w", err)
 	}
 
-	fmt.Printf("Summary saved for %q.\n", key)
+	fmt.Printf("---\ncommand: set-summary\nstatus: ok\nsession: %s\n---\n\nSummary saved for %q.\n", key, key)
 	if len(cleaned) > 0 {
 		fmt.Printf("Cleaned %d stale entries (inactive >7 days): %s\n", len(cleaned), strings.Join(cleaned, ", "))
 	}

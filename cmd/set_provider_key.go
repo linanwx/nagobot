@@ -53,7 +53,7 @@ func runSetProviderKey(_ *cobra.Command, _ []string) error {
 
 	// --list: show all providers and key status
 	if provKeyList {
-		fmt.Println("LLM provider key status:")
+		fmt.Printf("---\ncommand: set-provider-key\nmode: list\n---\n\nLLM provider key status:\n")
 		for _, name := range supported {
 			pc := cfg.EnsureProviderConfigFor(name)
 			status := "not configured"
@@ -114,7 +114,7 @@ func runSetProviderKey(_ *cobra.Command, _ []string) error {
 		if err := cfg.Save(); err != nil {
 			return fmt.Errorf("failed to save config: %w", err)
 		}
-		fmt.Printf("Cleared API key for provider %q\n", provName)
+		fmt.Printf("---\ncommand: set-provider-key\nstatus: ok\nprovider: %s\naction: cleared\n---\n\nCleared API key for provider %q.\n", provName, provName)
 		return nil
 	}
 
@@ -125,7 +125,9 @@ func runSetProviderKey(_ *cobra.Command, _ []string) error {
 		hasKey := strings.TrimSpace(pc.APIKey) != ""
 		tok := cfg.GetOAuthToken(provName)
 		hasOAuth := tok != nil && tok.AccessToken != ""
-		if !hasKey && !hasOAuth {
+		configured := hasKey || hasOAuth
+		fmt.Printf("---\ncommand: set-provider-key\nprovider: %s\nconfigured: %t\n---\n\n", provName, configured)
+		if !configured {
 			fmt.Printf("Provider %q: not configured\n", provName)
 			fmt.Printf("Fix: nagobot set-provider-key --provider %s --api-key YOUR_KEY\n", provName)
 		} else {
@@ -151,7 +153,7 @@ func runSetProviderKey(_ *cobra.Command, _ []string) error {
 	if err := cfg.Save(); err != nil {
 		return fmt.Errorf("failed to save config: %w", err)
 	}
-	fmt.Printf("Set API key for provider %q: %s\n", provName, maskKey(apiKey))
+	fmt.Printf("---\ncommand: set-provider-key\nstatus: ok\nprovider: %s\n---\n\nSet API key for provider %q: %s\n", provName, provName, maskKey(apiKey))
 	if provKeyAPIBase != "" {
 		fmt.Printf("  API base: %s\n", strings.TrimSpace(provKeyAPIBase))
 	}

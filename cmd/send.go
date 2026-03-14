@@ -62,25 +62,35 @@ func runSend(_ *cobra.Command, _ []string) error {
 
 	ctx := context.Background()
 	chunks := channel.SplitMessage(strings.TrimSpace(sendText), channel.TelegramMaxMessageLength)
+	var lastMsgID int
 	for _, chunk := range chunks {
 		htmlChunk := tgmd.Convert(chunk)
-		_, sendErr := b.SendMessage(ctx, &bot.SendMessageParams{
+		resp, sendErr := b.SendMessage(ctx, &bot.SendMessageParams{
 			ChatID:    chatID,
 			Text:      htmlChunk,
 			ParseMode: models.ParseModeHTML,
 		})
 		if sendErr != nil {
 			// Retry without formatting.
-			_, retryErr := b.SendMessage(ctx, &bot.SendMessageParams{
+			resp, retryErr := b.SendMessage(ctx, &bot.SendMessageParams{
 				ChatID: chatID,
 				Text:   chunk,
 			})
 			if retryErr != nil {
 				return fmt.Errorf("telegram send error: %w", retryErr)
 			}
+			if resp != nil {
+				lastMsgID = resp.ID
+			}
+		} else if resp != nil {
+			lastMsgID = resp.ID
 		}
 	}
 
-	fmt.Printf("Message sent to %s\n", to)
+	fmt.Printf("---\ncommand: send\nstatus: ok\nrecipient: %s\nchunks: %d\n", to, len(chunks))
+	if lastMsgID > 0 {
+		fmt.Printf("message_id: %d\n", lastMsgID)
+	}
+	fmt.Printf("---\n")
 	return nil
 }

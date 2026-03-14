@@ -65,13 +65,21 @@ func runReadSession(_ *cobra.Command, args []string) error {
 	}
 
 	if readSessionOffset >= filteredCount {
-		fmt.Printf("No messages at offset %d. Total filtered messages: %d (from %d total).\n",
-			readSessionOffset, filteredCount, totalCount)
+		fmt.Printf("---\ncommand: read-session\nstatus: empty\nsession: %s\nfiltered: %d\ntotal: %d\n---\n\nNo messages at offset %d.\n",
+			key, filteredCount, totalCount, readSessionOffset)
 		return nil
 	}
 
 	end := min(readSessionOffset+readSessionLimit, filteredCount)
 	page := filtered[readSessionOffset:end]
+
+	// YAML header
+	fmt.Printf("---\ncommand: read-session\nstatus: ok\nsession: %s\nshowing: \"%d-%d\"\nfiltered: %d\ntotal: %d\n",
+		key, readSessionOffset+1, end, filteredCount, totalCount)
+	if end < filteredCount {
+		fmt.Printf("next_offset: %d\n", end)
+	}
+	fmt.Printf("---\n\n")
 
 	truncatedCount := 0
 	for i, m := range page {
@@ -86,22 +94,16 @@ func runReadSession(_ *cobra.Command, args []string) error {
 				truncatedCount++
 			}
 		}
-		fmt.Printf("[%d] %s: %s\n", idx, m.Role, content)
+		msgID := m.ID
+		if msgID == "" {
+			msgID = "-"
+		}
+		fmt.Printf("[%d] (%s) %s: %s\n", idx, msgID, m.Role, content)
 	}
 
-	remaining := filteredCount - end
-	fmt.Printf("---\nShowing messages %d-%d of %d (filtered from %d total).",
-		readSessionOffset+1, end, filteredCount, totalCount)
-	if remaining > 0 {
-		fmt.Printf(" %d remaining.\nNext: nagobot read-session %q --offset %d --limit %d",
-			remaining, key, end, readSessionLimit)
-	} else {
-		fmt.Print(" End of session.")
-	}
 	if truncatedCount > 0 {
-		fmt.Printf("\n%d message(s) truncated to %d chars. Use --full to show complete content.", truncatedCount, defaultTruncateLen)
+		fmt.Printf("\n%d message(s) truncated to %d chars. Use --full to show complete content.\n", truncatedCount, defaultTruncateLen)
 	}
-	fmt.Println()
 
 	return nil
 }

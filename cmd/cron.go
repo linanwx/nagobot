@@ -63,7 +63,7 @@ func runSetCron(_ *cobra.Command, _ []string) error {
 	if updated {
 		action = "updated"
 	}
-	fmt.Printf("Job %s: %s (kind=cron, expr=%s)\n", action, job.ID, job.Expr)
+	fmt.Printf("---\ncommand: cron set-cron\nstatus: %s\njob_id: %s\nkind: cron\nschedule: %s\n---\n", action, job.ID, job.Expr)
 	return nil
 }
 
@@ -112,7 +112,7 @@ func runSetAt(_ *cobra.Command, _ []string) error {
 	if updated {
 		action = "updated"
 	}
-	fmt.Printf("Job %s: %s (kind=at, at=%s)\n", action, job.ID, job.AtTime.Format(time.RFC3339))
+	fmt.Printf("---\ncommand: cron set-at\nstatus: %s\njob_id: %s\nkind: at\ntime: %s\n---\n", action, job.ID, job.AtTime.Format(time.RFC3339))
 	return nil
 }
 
@@ -160,12 +160,13 @@ func runCronRemove(_ *cobra.Command, args []string) error {
 		}
 	}
 
+	fmt.Printf("---\ncommand: cron remove\nstatus: ok\nremoved: %d\nrequested: %d\n---\n\n", len(removed), len(args))
 	for _, id := range args {
 		id = strings.TrimSpace(id)
 		if removed[id] {
-			fmt.Printf("Removed: %s\n", id)
+			fmt.Printf("removed: %s\n", id)
 		} else {
-			fmt.Printf("Not found: %s\n", id)
+			fmt.Printf("not_found: %s\n", id)
 		}
 	}
 	return nil
@@ -194,9 +195,11 @@ func runCronList(_ *cobra.Command, _ []string) error {
 		return fmt.Errorf("failed to read cron store: %w", err)
 	}
 	if len(jobs) == 0 {
-		fmt.Println("No cron jobs.")
+		fmt.Printf("---\ncommand: cron list\nstatus: ok\ncount: 0\n---\n\nNo cron jobs.\n")
 		return nil
 	}
+	fmt.Printf("---\ncommand: cron list\nstatus: ok\ncount: %d\n---\n\n", len(jobs))
+	fmt.Printf("ID\tKIND\tSCHEDULE\tAGENT\tTASK\n")
 	for _, job := range jobs {
 		schedule := job.Expr
 		if job.Kind == cronsvc.JobKindAt {

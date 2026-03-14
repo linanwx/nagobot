@@ -156,9 +156,8 @@ func runCompressSession(_ *cobra.Command, args []string) error {
 		"backup", backupPath,
 		"session", sessionFile,
 	)
-	fmt.Printf("Session compressed: %d → %d messages (~%d tokens)\n", origCount, len(orig.Messages), record.EstimatedTokens)
-	fmt.Printf("Backup: %s\n", backupPath)
-	fmt.Printf("Session: %s\n", sessionFile)
+	fmt.Printf("---\ncommand: compress-session\nstatus: ok\nmessages_before: %d\nmessages_after: %d\nestimated_tokens: %d\nbackup: %s\nsession: %s\n---\n",
+		origCount, len(orig.Messages), record.EstimatedTokens, backupPath, sessionFile)
 	return nil
 }
 

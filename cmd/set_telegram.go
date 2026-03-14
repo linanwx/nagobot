@@ -60,7 +60,7 @@ func runSetTelegram(cmd *cobra.Command, _ []string) error {
 		if err := cfg.Save(); err != nil {
 			return fmt.Errorf("failed to save config: %w", err)
 		}
-		fmt.Println("Cleared all Telegram configuration")
+		fmt.Printf("---\ncommand: set-telegram\nstatus: ok\naction: cleared\n---\n\nCleared all Telegram configuration.\n")
 		return nil
 	}
 
@@ -82,10 +82,11 @@ func runSetTelegram(cmd *cobra.Command, _ []string) error {
 		return fmt.Errorf("failed to save config: %w", err)
 	}
 
+	fmt.Printf("---\ncommand: set-telegram\nstatus: ok\n---\n\n")
 	if tokenChanged {
 		t := strings.TrimSpace(setTgToken)
 		if t == "" {
-			fmt.Println("Cleared Telegram bot token")
+			fmt.Println("Cleared Telegram bot token.")
 		} else {
 			fmt.Printf("Set Telegram bot token: %s\n", maskKey(t))
 		}
@@ -93,7 +94,7 @@ func runSetTelegram(cmd *cobra.Command, _ []string) error {
 	if allowedChanged {
 		ids := parseAllowedIDs(setTgAllowed)
 		if len(ids) == 0 {
-			fmt.Println("Cleared allowed IDs (all users can interact)")
+			fmt.Println("Cleared allowed IDs (all users can interact).")
 		} else {
 			fmt.Printf("Set allowed IDs: %s\n", formatAllowedIDs(ids))
 		}
@@ -106,8 +107,9 @@ func showTelegramStatus(cfg *config.Config) error {
 	token := cfg.GetTelegramToken()
 	ids := cfg.GetTelegramAllowedIDs()
 
-	fmt.Println("Telegram configuration:")
-	if token == "" {
+	tokenConfigured := token != ""
+	fmt.Printf("---\ncommand: set-telegram\ntoken_configured: %t\n---\n\nTelegram configuration:\n", tokenConfigured)
+	if !tokenConfigured {
 		fmt.Println("  Token:       not configured")
 	} else {
 		fmt.Printf("  Token:       %s\n", maskKey(token))

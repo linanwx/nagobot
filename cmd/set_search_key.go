@@ -49,6 +49,7 @@ func runSetSearchKey(_ *cobra.Command, _ []string) error {
 
 	// --list: show configured providers
 	if searchKeyList {
+		fmt.Printf("---\ncommand: set-search-key\nmode: list\n---\n\n")
 		if len(cfg.Tools.Web.Search.Keys) == 0 {
 			fmt.Println("No search provider keys configured.")
 			fmt.Println("Add one: nagobot set-search-key --provider brave --key <api_key>")
@@ -73,7 +74,7 @@ func runSetSearchKey(_ *cobra.Command, _ []string) error {
 		if err := cfg.Save(); err != nil {
 			return fmt.Errorf("failed to save config: %w", err)
 		}
-		fmt.Printf("Removed key for provider %q\n", provider)
+		fmt.Printf("---\ncommand: set-search-key\nstatus: ok\nprovider: %s\naction: cleared\n---\n\nRemoved key for provider %q.\n", provider, provider)
 		return nil
 	}
 
@@ -82,7 +83,9 @@ func runSetSearchKey(_ *cobra.Command, _ []string) error {
 	if key == "" {
 		// Show status for this provider
 		existing := cfg.Tools.Web.Search.Keys[provider]
-		if existing == "" {
+		configured := existing != ""
+		fmt.Printf("---\ncommand: set-search-key\nprovider: %s\nconfigured: %t\n---\n\n", provider, configured)
+		if !configured {
 			fmt.Printf("Provider %q: not configured\n", provider)
 		} else {
 			fmt.Printf("Provider %q: %s\n", provider, maskKey(existing))
@@ -94,7 +97,7 @@ func runSetSearchKey(_ *cobra.Command, _ []string) error {
 	if err := cfg.Save(); err != nil {
 		return fmt.Errorf("failed to save config: %w", err)
 	}
-	fmt.Printf("Set key for provider %q: %s\n", provider, maskKey(key))
+	fmt.Printf("---\ncommand: set-search-key\nstatus: ok\nprovider: %s\n---\n\nSet key for provider %q: %s\n", provider, provider, maskKey(key))
 	return nil
 }
 

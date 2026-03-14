@@ -79,7 +79,7 @@ func runSetModel(_ *cobra.Command, _ []string) error {
 		if err := cfg.Save(); err != nil {
 			return fmt.Errorf("failed to save config: %w", err)
 		}
-		fmt.Printf("Cleared model routing for type %q (will use default: %s/%s)\n", modelType, cfg.GetProvider(), cfg.GetModelType())
+		fmt.Printf("---\ncommand: set-model\nstatus: ok\ntype: %s\naction: cleared\n---\n\nCleared model routing for type %q (will use default: %s/%s).\n", modelType, modelType, cfg.GetProvider(), cfg.GetModelType())
 		return nil
 	}
 
@@ -106,7 +106,7 @@ func runSetModel(_ *cobra.Command, _ []string) error {
 	if err := cfg.Save(); err != nil {
 		return fmt.Errorf("failed to save config: %w", err)
 	}
-	fmt.Printf("Set model routing: type %q -> %s/%s\n", modelType, provName, modelName)
+	fmt.Printf("---\ncommand: set-model\nstatus: ok\ntype: %s\nprovider: %s\nmodel: %s\n---\n\nSet model routing: type %q -> %s/%s.\n", modelType, provName, modelName, modelType, provName, modelName)
 	return nil
 }
 
@@ -128,7 +128,7 @@ func setDefaultModel(cfg *config.Config) error {
 	if err := cfg.Save(); err != nil {
 		return fmt.Errorf("failed to save config: %w", err)
 	}
-	fmt.Printf("Set default model: %s / %s\n", provName, modelName)
+	fmt.Printf("---\ncommand: set-model\nstatus: ok\ntype: default\nprovider: %s\nmodel: %s\n---\n\nSet default model: %s / %s.\n", provName, modelName, provName, modelName)
 	return nil
 }
 
@@ -155,8 +155,8 @@ func validateProviderModel(cfg *config.Config, provName, modelName, cmdPrefix st
 }
 
 func listModelRouting(cfg *config.Config) error {
+	fmt.Printf("---\ncommand: set-model\nmode: list\n---\n\nModel routing:\n")
 	// Show all routing in a unified table
-	fmt.Println("Model routing:")
 	fmt.Printf("  %-16s -> %s / %s (default)\n", "(default)", cfg.GetProvider(), cfg.GetModelType())
 	for mt, mc := range cfg.Thread.Models {
 		fmt.Printf("  %-16s -> %s / %s\n", mt, mc.Provider, mc.ModelType)

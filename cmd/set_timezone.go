@@ -73,9 +73,9 @@ func runSetTimezone(_ *cobra.Command, _ []string) error {
 	}
 
 	if tz == "" {
-		fmt.Printf("Cleared timezone for session %q\n", session)
+		fmt.Printf("---\ncommand: set-timezone\nstatus: ok\nsession: %s\ntimezone: cleared\n---\n\nCleared timezone for session %q.\n", session, session)
 	} else {
-		fmt.Printf("Set timezone %q for session %q\n", tz, session)
+		fmt.Printf("---\ncommand: set-timezone\nstatus: ok\nsession: %s\ntimezone: %s\n---\n\nSet timezone %q for session %q.\n", session, tz, tz, session)
 	}
 	return nil
 }
