@@ -47,7 +47,7 @@ Data flow: `session.jsonl` → reflect → `heartbeat.md` → wake → user
 
 4. **Reflection**: If `last_reflection[key]` is missing or older than 2 hours, trigger reflection:
    - Run: `{{WORKSPACE}}/bin/nagobot heartbeat reflect <key>`
-   - Update `last_reflection[key]` to current time in `system/heartbeat-state.json`
+   - The CLI automatically updates `last_reflection[key]` — do NOT write `heartbeat-state.json` manually.
 
 5. **Wake**: If the session has `has_heartbeat: true` (heartbeat.md exists with content) **and was not just reflected in step 4**, trigger wake:
    - Run: `{{WORKSPACE}}/bin/nagobot heartbeat wake <key>`
@@ -56,6 +56,6 @@ Data flow: `session.jsonl` → reflect → `heartbeat.md` → wake → user
 
 ## Rules
 
-- Only write `system/heartbeat-state.json` — no other files.
+- Do NOT write `system/heartbeat-state.json` — timestamps are managed automatically by the CLI commands.
 - Keep tool calls minimal. Skip sessions early if they don't qualify.
 - Don't trigger reflection and wake for the same session in the same run — let reflection finish first, wake will happen next run.
