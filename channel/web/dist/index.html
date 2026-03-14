@@ -1273,7 +1273,13 @@
         if (!timestamp) return "";
         const d = new Date(timestamp);
         if (isNaN(d.getTime())) return "";
-        return d.toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit", second: "2-digit" });
+        const time = d.toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit", second: "2-digit" });
+        const now = new Date();
+        if (d.getFullYear() === now.getFullYear() && d.getMonth() === now.getMonth() && d.getDate() === now.getDate()) {
+          return time;
+        }
+        const date = d.getFullYear() + "-" + String(d.getMonth() + 1).padStart(2, "0") + "-" + String(d.getDate()).padStart(2, "0");
+        return date + " " + time;
       }
 
       function formatJSON(str) {
