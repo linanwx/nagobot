@@ -540,7 +540,8 @@ type sessionDetail struct {
 
 type messageWithTok struct {
 	provider.Message
-	Tokens int `json:"tokens"`
+	Tokens           int `json:"tokens"`
+	CompressedTokens int `json:"compressed_tokens,omitempty"`
 }
 
 func (w *WebChannel) handleSessionMessages(rw http.ResponseWriter, r *http.Request) {
@@ -559,6 +560,12 @@ func (w *WebChannel) handleSessionMessages(rw http.ResponseWriter, r *http.Reque
 	// parseKeyFromPath converts "/" to ":", so the suffix becomes ":system-prompt".
 	if key, ok := strings.CutSuffix(raw, ":system-prompt"); ok {
 		w.handleSystemPrompt(rw, key)
+		return
+	}
+
+	// Route: /api/sessions/{key...}/stats
+	if key, ok := strings.CutSuffix(raw, ":stats"); ok {
+		w.handleSessionStats(rw, key)
 		return
 	}
 	key := raw
@@ -581,10 +588,16 @@ func (w *WebChannel) handleSessionMessages(rw http.ResponseWriter, r *http.Reque
 
 	msgs := make([]messageWithTok, len(s.Messages))
 	for i, m := range s.Messages {
-		msgs[i] = messageWithTok{
+		mt := messageWithTok{
 			Message: m,
 			Tokens:  thread.EstimateMessageTokens(m),
 		}
+		if m.Compressed != "" {
+			compressed := m
+			compressed.Content = m.Compressed
+			mt.CompressedTokens = thread.EstimateMessageTokens(compressed)
+		}
+		msgs[i] = mt
 	}
 
 	rw.Header().Set("Content-Type", "application/json")
@@ -615,6 +628,85 @@ func (w *WebChannel) handleSystemPrompt(rw http.ResponseWriter, key string) {
 	}
 	rw.Header().Set("Content-Type", "application/json")
 	_ = json.NewEncoder(rw).Encode(resp)
+}
+
+// --- GET /api/sessions/{key...}/stats ---
+
+type sessionStatsResponse struct {
+	Key                 string         `json:"key"`
+	MessageCount        int            `json:"message_count"`
+	RoleCounts          map[string]int `json:"role_counts"`
+	CompressedMessages  int            `json:"compressed_messages"`
+	RoleTokens          map[string]int `json:"role_tokens"`
+	RawTokens           int            `json:"raw_tokens"`
+	CompressedTokens    int            `json:"compressed_tokens"`
+	TokensSaved         int            `json:"tokens_saved"`
+	ContextWindowTokens int            `json:"context_window_tokens"`
+	UsagePercent        float64        `json:"usage_percent"`
+	PressureStatus      string         `json:"pressure_status"`
+}
+
+func (w *WebChannel) handleSessionStats(rw http.ResponseWriter, key string) {
+	path := w.resolveSessionFile(key, session.SessionFileName)
+	if path == "" {
+		http.Error(rw, "invalid session key", http.StatusBadRequest)
+		return
+	}
+	s, err := session.ReadFile(path)
+	if err != nil {
+		http.Error(rw, "session not found", http.StatusNotFound)
+		return
+	}
+
+	messages := s.Messages
+	roleCounts := map[string]int{}
+	compressedCount := 0
+	for _, m := range messages {
+		roleCounts[m.Role]++
+		if m.Compressed != "" {
+			compressedCount++
+		}
+	}
+
+	rawTokens := thread.EstimateMessagesTokens(messages)
+	compressed := thread.ApplyCompressed(provider.SanitizeMessages(messages))
+	compressedTokens := thread.EstimateMessagesTokens(compressed)
+
+	roleTokens := map[string]int{}
+	for _, m := range compressed {
+		roleTokens[m.Role] += thread.EstimateMessageTokens(m)
+	}
+
+	cfg, _ := config.Load()
+	contextWindow := 200000
+	warnRatio := 0.8
+	if cfg != nil {
+		contextWindow = cfg.GetContextWindowTokens()
+		warnRatio = cfg.GetContextWarnRatio()
+	}
+	usageRatio := float64(compressedTokens) / float64(contextWindow)
+
+	status := "ok"
+	if usageRatio >= warnRatio {
+		status = "pressure"
+	} else if usageRatio >= warnRatio*0.8 {
+		status = "warning"
+	}
+
+	rw.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(rw).Encode(sessionStatsResponse{
+		Key:                 key,
+		MessageCount:        len(messages),
+		RoleCounts:          roleCounts,
+		CompressedMessages:  compressedCount,
+		RoleTokens:          roleTokens,
+		RawTokens:           rawTokens,
+		CompressedTokens:    compressedTokens,
+		TokensSaved:         rawTokens - compressedTokens,
+		ContextWindowTokens: contextWindow,
+		UsagePercent:        usageRatio * 100,
+		PressureStatus:      status,
+	})
 }
 
 // --- GET /api/config ---

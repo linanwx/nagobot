@@ -418,6 +418,39 @@
         font-family: var(--font-mono);
       }
 
+      .stats-bar {
+        display: none;
+        align-items: center;
+        gap: 12px;
+        padding: 4px 16px;
+        background: var(--bg-surface);
+        border-bottom: 1px solid var(--border);
+        font-size: 10px;
+        color: var(--text-tertiary);
+        font-family: var(--font-mono);
+        flex-wrap: wrap;
+      }
+      .stats-bar.visible { display: flex; }
+      .stats-item { white-space: nowrap; }
+      .stats-label { color: var(--text-tertiary); margin-right: 3px; }
+      .stats-value { color: var(--text-secondary); }
+      .stats-bar-fill {
+        height: 4px;
+        border-radius: 2px;
+        background: var(--border);
+        flex: 1;
+        min-width: 60px;
+        overflow: hidden;
+      }
+      .stats-bar-progress {
+        height: 100%;
+        border-radius: 2px;
+        transition: width 0.3s;
+      }
+      .stats-bar-progress.ok { background: var(--accent-green); }
+      .stats-bar-progress.warning { background: #d97706; }
+      .stats-bar-progress.pressure { background: #ef4444; }
+
       /* Messages */
       .messages {
         overflow-y: auto;
@@ -527,6 +560,10 @@
         white-space: nowrap;
         padding-left: 6px;
       }
+      .tok-low { color: #6b7280; }
+      .tok-mid { color: #d97706; }
+      .tok-high { color: #ef4444; }
+      .tok-huge { color: #c084fc; font-weight: 600; }
 
       .msg-body {
         padding: 8px 10px;
@@ -1114,6 +1151,7 @@
             <span class="inspector-header-label">Message Inspector</span>
             <span class="inspector-header-session" id="inspectorSession">No session selected</span>
           </div>
+          <div class="stats-bar" id="statsBar"></div>
           <div class="messages" id="messagesContainer">
             <div class="messages-empty" id="messagesEmpty">Select a session to inspect messages</div>
           </div>
@@ -1164,6 +1202,7 @@
       const inspectorSession = $("inspectorSession");
       const messagesContainer = $("messagesContainer");
       const messagesEmpty = $("messagesEmpty");
+      const statsBar = $("statsBar");
       const chatInput = $("chatInput");
       const sendBtn = $("sendBtn");
       const configBtn = $("configBtn");
@@ -1308,9 +1347,15 @@
         }
       }
 
-      function formatTokens(n) {
-        if (!n || n <= 0) return "";
-        return (n >= 1000 ? (n / 1000).toFixed(1) + "k" : n) + " tok";
+      function fmtTok(n) {
+        if (!n || n <= 0) return "0";
+        return n >= 1000 ? (n / 1000).toFixed(1) + "k" : String(n);
+      }
+      function tokColorClass(n) {
+        if (n < 300) return "tok-low";
+        if (n < 800) return "tok-mid";
+        if (n < 3000) return "tok-high";
+        return "tok-huge";
       }
 
       function truncateId(id) {
@@ -1685,7 +1730,7 @@
                 arrow.textContent = "\u25B8";
                 const label = document.createElement("span");
                 label.className = "system-prompt-label";
-                const tokStr = formatTokens(sp.tokens);
+                const tokStr = sp.tokens > 0 ? fmtTok(sp.tokens) + " tok" : "";
                 label.textContent = "System Prompt (live)" + (tokStr ? "  \u00B7  " + tokStr : "");
                 hdr.appendChild(arrow);
                 hdr.appendChild(label);
@@ -1705,6 +1750,39 @@
               }
             })
             .catch(() => {});
+
+          // Fetch session stats (non-blocking, best-effort)
+          fetch("/api/sessions/" + key.split(":").map(encodeURIComponent).join("/") + "/stats")
+            .then(r => r.ok ? r.json() : null)
+            .then(st => {
+              if (!st || currentSession !== key) { statsBar.classList.remove("visible"); return; }
+              statsBar.innerHTML = "";
+              const items = [
+                ["ctx", fmtTok(st.compressed_tokens) + "/" + fmtTok(st.context_window_tokens)],
+                ["msgs", st.message_count],
+                ["saved", fmtTok(st.tokens_saved)],
+              ];
+              for (const [label, value] of items) {
+                const el = document.createElement("span");
+                el.className = "stats-item";
+                const l = document.createElement("span"); l.className = "stats-label"; l.textContent = label;
+                const v = document.createElement("span"); v.className = "stats-value"; v.textContent = value;
+                el.appendChild(l); el.appendChild(v);
+                statsBar.appendChild(el);
+              }
+              const bar = document.createElement("div"); bar.className = "stats-bar-fill";
+              const progress = document.createElement("div");
+              progress.className = "stats-bar-progress " + st.pressure_status;
+              progress.style.width = Math.min(st.usage_percent, 100).toFixed(1) + "%";
+              bar.appendChild(progress);
+              statsBar.appendChild(bar);
+              const pct = document.createElement("span");
+              pct.className = "stats-item stats-value";
+              pct.textContent = st.usage_percent.toFixed(1) + "%";
+              statsBar.appendChild(pct);
+              statsBar.classList.add("visible");
+            })
+            .catch(() => { statsBar.classList.remove("visible"); });
 
           // Simple virtualization: if > 500 messages, only render last 500
           const renderMsgs = msgs.length > 500 ? msgs.slice(msgs.length - 500) : msgs;
@@ -1801,7 +1879,22 @@
         if (msg.tokens > 0) {
           const tokEl = document.createElement("span");
           tokEl.className = "token-badge";
-          tokEl.textContent = formatTokens(msg.tokens);
+          if (msg.compressed_tokens && msg.compressed_tokens !== msg.tokens) {
+            const cSpan = document.createElement("span");
+            cSpan.className = tokColorClass(msg.compressed_tokens);
+            cSpan.textContent = fmtTok(msg.compressed_tokens);
+            const sep = document.createTextNode("/");
+            const oSpan = document.createElement("span");
+            oSpan.className = tokColorClass(msg.tokens);
+            oSpan.textContent = fmtTok(msg.tokens);
+            tokEl.appendChild(cSpan);
+            tokEl.appendChild(sep);
+            tokEl.appendChild(oSpan);
+            tokEl.appendChild(document.createTextNode(" tok"));
+          } else {
+            tokEl.className += " " + tokColorClass(msg.tokens);
+            tokEl.textContent = fmtTok(msg.tokens) + " tok";
+          }
           header.appendChild(tokEl);
         }
 
