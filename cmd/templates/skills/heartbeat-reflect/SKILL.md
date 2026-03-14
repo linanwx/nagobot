@@ -22,48 +22,52 @@ The session directory path is provided in the wake message (e.g. `Session direct
 2. **Read `heartbeat.md`** from the session directory. If it doesn't exist or is empty, that's fine — it means there are no current attention items.
 
 3. **Update `heartbeat.md`** based on your review:
-   - **Add** new items you identified from the conversation
-   - **Remove** items that are no longer relevant (resolved, outdated, user moved on)
-   - **Remove** items that were proactively raised with the user but met with silence or disinterest — if the user didn't engage after being asked, it's not worth keeping
-   - **Remove** items that already exist in the cron system to avoid duplication. If unsure, run `{{WORKSPACE}}/bin/nagobot cron list` to check
-   - **Keep** items that are still active and worth monitoring
+   - **Add** new items from the conversation. Every item MUST have a `moved_on` field.
+   - **Remove** items whose `moved_on` condition is met
+   - **Remove** items duplicated by cron jobs. If unsure, run `{{WORKSPACE}}/bin/nagobot cron list` to check.
+   - **Keep** items whose `moved_on` condition is not yet met
    - If no items remain, write an empty string to clear the file — do NOT leave behind headings, comments, or any other text. Do NOT delete the file.
 
 4. Reply with `HEARTBEAT_OK`.
 
 ## heartbeat.md Format
 
-Each item is a brief description of what to monitor, with an optional condition line:
+Each item is a brief description of what to monitor, with condition fields:
 
 ```markdown
 - Check Beijing weather for user (they mentioned going out tomorrow)
   when: 2026-03-12 morning
   created: 2026-03-11
+  moved_on: after 2026-03-12 (the outing day has passed)
   reason: user mentioned going out tomorrow, might be helpful to proactively check weather
 
 - Periodically check unread emails and summarize
   when: anytime
   created: 2026-03-10
+  moved_on: user hasn't mentioned emails for over a week
   reason: user mentioned wanting to stay on top of emails, could be helpful to provide regular summaries
 
 - Remind about quarterly report deadline
   if: talk about work or deadlines
   created: 2026-03-08
+  moved_on: after 2026-03-20 (deadline passed) or user confirms submission
   reason: user mentioned a quarterly report due on March 20, a reminder when discussing work could be helpful
 
 - Greet user in the evening
   when: every night at 9 PM
   created: 2026-03-11
+  moved_on: user asks to stop or shows no response for 3 days
   reason: user seems to activate in the evenings, a friendly greeting could be a nice touch
 ```
 
 Example of removing a duplicate: if you find an item like "Summarize daily tech news every morning" in heartbeat.md, but the conversation history shows cron wakes already doing `push daily tech news summary every morning`, remove it from heartbeat.md — the cron system already handles it.
 
 Rules:
-- Items are **ongoing attention/monitoring items**, not one-time tasks
-- No `[ ]` / `[x]` checkboxes — items are either present (active) or deleted (resolved)
-- Condition fields are free-form: `when`, `where`, `if`, `created`, `reason`, or any other condition the LLM can interpret
-- Keep descriptions concise but informative
+- Items are ongoing attention items, not one-time tasks
+- No `[ ]` / `[x]` checkboxes — items are either present (active) or removed
+- Condition fields are free-form: `when`, `if`, `created`, `reason`, `moved_on`, etc.
+- **`moved_on` is required** — describes when to remove this item (date passed, user lost interest, condition fulfilled). Evaluate during each reflection.
+- Keep descriptions concise
 
 ## Important
 
