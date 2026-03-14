@@ -24,6 +24,7 @@ The session directory path is provided in the wake message (e.g. `Session direct
 3. **Update `heartbeat.md`** based on your review:
    - **Add** new items you identified from the conversation
    - **Remove** items that are no longer relevant (resolved, outdated, user moved on)
+   - **Remove** items that were proactively raised with the user but met with silence or disinterest — if the user didn't engage after being asked, it's not worth keeping
    - **Remove** items that already exist in the cron system to avoid duplication. If unsure, run `{{WORKSPACE}}/bin/nagobot cron list` to check
    - **Keep** items that are still active and worth monitoring
    - If no items remain, write an empty string to clear the file — do NOT leave behind headings, comments, or any other text. Do NOT delete the file.
