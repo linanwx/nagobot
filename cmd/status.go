@@ -77,7 +77,8 @@ func runStatus(cmd *cobra.Command, args []string) error {
 	fmt.Println("Settings:")
 	fmt.Printf("  Max Tokens: %d\n", cfg.GetMaxTokens())
 	fmt.Printf("  Temperature: %.1f\n", cfg.GetTemperature())
-	fmt.Printf("  Context Window Tokens: %d\n", cfg.GetContextWindowTokens())
+	effectiveCtx := provider.EffectiveContextWindow(cfg.GetModelName(), cfg.GetContextWindowTokens())
+	fmt.Printf("  Context Window Tokens: %d (effective: %d)\n", cfg.GetContextWindowTokens(), effectiveCtx)
 	fmt.Printf("  Context Warn Ratio: %.2f\n", cfg.GetContextWarnRatio())
 
 	return nil

@@ -25,7 +25,7 @@ func init() {
 		VisionModels: []string{"gpt-5.4", "gpt-5.3-codex", "gpt-5.2-codex", "gpt-5.2"},
 		ContextWindows: map[string]int{
 			"gpt-5.4":       1048576,
-			"gpt-5.3-codex": 1048576,
+			"gpt-5.3-codex": 400000,
 			"gpt-5.2-codex": 400000,
 			"gpt-5.2":       400000,
 		},

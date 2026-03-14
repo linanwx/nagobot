@@ -65,6 +65,36 @@ func IsToolError(result string) bool {
 	return false
 }
 
+// CmdResult builds a YAML frontmatter string for CLI command output.
+// The "command" field is always first, followed by "status: ok", then remaining fields sorted.
+func CmdResult(command string, fields map[string]any, body string) string {
+	var sb strings.Builder
+	sb.WriteString("---\n")
+	sb.WriteString(fmt.Sprintf("command: %s\n", command))
+	sb.WriteString("status: ok\n")
+
+	keys := make([]string, 0, len(fields))
+	for k := range fields {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	for _, k := range keys {
+		sb.WriteString(formatYAMLField(k, fields[k]))
+	}
+
+	sb.WriteString("---")
+	if body != "" {
+		sb.WriteString("\n\n")
+		sb.WriteString(body)
+	}
+	return sb.String()
+}
+
+// CmdError builds a YAML frontmatter error string for CLI command output.
+func CmdError(command, message string) string {
+	return fmt.Sprintf("---\ncommand: %s\nstatus: error\n---\n\nError: %s", command, message)
+}
+
 // formatYAMLField formats a single key-value pair for YAML output.
 func formatYAMLField(key string, value any) string {
 	switch v := value.(type) {

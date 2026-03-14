@@ -39,8 +39,7 @@ func init() {
 func runSetAgent(_ *cobra.Command, _ []string) error {
 	session := strings.TrimSpace(setAgentSession)
 	if session == "" {
-		fmt.Printf("---\ncommand: set-agent\nstatus: error\n---\n\n--session is required.\nFix: nagobot set-agent --session <session_key> --agent <agent_name>\nExample: nagobot set-agent --session \"discord:123456\" --agent fallout\n")
-		return fmt.Errorf("--session is required")
+		return fmt.Errorf("--session is required.\nFix: nagobot set-agent --session <session_key> --agent <agent_name>\nExample: nagobot set-agent --session \"discord:123456\" --agent fallout")
 	}
 
 	cfg, err := config.Load()

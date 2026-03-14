@@ -107,14 +107,17 @@ func (m *Manager) tryTier2Compress(sessionKey string) {
 	}
 
 	tokens := EstimateMessagesTokens(ApplyCompressed(sess.Messages))
-	threshold := int(float64(cfg.ContextWindowTokens) * tier2TokenRatio)
-	if tokens < threshold {
-		return
-	}
 
 	m.mu.Lock()
 	t, ok := m.threads[sessionKey]
 	if !ok || t.state != threadIdle {
+		m.mu.Unlock()
+		return
+	}
+	_, modelName := t.resolvedProviderModel()
+	effectiveWindow := provider.EffectiveContextWindow(modelName, cfg.ContextWindowTokens)
+	threshold := int(float64(effectiveWindow) * tier2TokenRatio)
+	if tokens < threshold {
 		m.mu.Unlock()
 		return
 	}
@@ -131,8 +134,8 @@ func (m *Manager) tryTier2Compress(sessionKey string) {
 		"session_key":      sessionKey,
 		"session_file":     sessionPath,
 		"estimated_tokens": fmt.Sprintf("%d", tokens),
-		"context_window":   fmt.Sprintf("%d", cfg.ContextWindowTokens),
-		"usage_ratio":      fmt.Sprintf("%.2f", float64(tokens)/float64(cfg.ContextWindowTokens)),
+		"context_window":   fmt.Sprintf("%d", effectiveWindow),
+		"usage_ratio":      fmt.Sprintf("%.2f", float64(tokens)/float64(effectiveWindow)),
 	}, `This is an automated background maintenance task. You MUST load and execute skill "context-ops" NOW. Use the session_file path provided above. Do NOT produce any user-facing output. Reply with COMPRESS_OK when done.`)
 
 	t.Enqueue(&WakeMessage{

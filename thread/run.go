@@ -110,9 +110,13 @@ func (t *Thread) buildMessageHistory(systemPrompt, userMessage string, sess *ses
 	messages := make([]provider.Message, 0, 2)
 	messages = append(messages, provider.SystemMessage(systemPrompt))
 
+	contextWindowTokens, contextWarnRatio := t.contextBudget()
+
 	var sessionMessages []provider.Message
+	var sessionEstimatedTokens int
 	if sess != nil {
 		sessionMessages = ApplyCompressed(provider.SanitizeMessages(sess.Messages))
+		sessionMessages, sessionEstimatedTokens = t.applyTier0Truncation(sessionMessages, contextWindowTokens)
 		messages = append(messages, sessionMessages...)
 	}
 
@@ -121,9 +125,7 @@ func (t *Thread) buildMessageHistory(systemPrompt, userMessage string, sess *ses
 	messages = append(messages, userMsg)
 	turnUserMessages = append(turnUserMessages, userMsg)
 
-	sessionEstimatedTokens := EstimateMessagesTokens(sessionMessages)
-	requestEstimatedTokens := EstimateMessagesTokens(messages)
-	contextWindowTokens, contextWarnRatio := t.contextBudget()
+	requestEstimatedTokens := sessionEstimatedTokens + EstimateMessageTokens(messages[0]) + EstimateMessageTokens(userMsg) + 3
 	logger.Debug(
 		"context estimate",
 		"threadID", t.id,

@@ -8,6 +8,7 @@ import (
 	"github.com/linanwx/nagobot/config"
 	"github.com/linanwx/nagobot/provider"
 	"github.com/linanwx/nagobot/session"
+	"github.com/linanwx/nagobot/tools"
 	"github.com/spf13/cobra"
 )
 
@@ -65,22 +66,28 @@ func runReadSession(_ *cobra.Command, args []string) error {
 	}
 
 	if readSessionOffset >= filteredCount {
-		fmt.Printf("---\ncommand: read-session\nstatus: empty\nsession: %s\nfiltered: %d\ntotal: %d\n---\n\nNo messages at offset %d.\n",
-			key, filteredCount, totalCount, readSessionOffset)
+		fmt.Print(tools.CmdResult("read-session", map[string]any{
+			"session":  key,
+			"filtered": filteredCount,
+			"total":    totalCount,
+		}, fmt.Sprintf("No messages at offset %d.", readSessionOffset)))
 		return nil
 	}
 
 	end := min(readSessionOffset+readSessionLimit, filteredCount)
 	page := filtered[readSessionOffset:end]
 
-	// YAML header
-	fmt.Printf("---\ncommand: read-session\nstatus: ok\nsession: %s\nshowing: \"%d-%d\"\nfiltered: %d\ntotal: %d\n",
-		key, readSessionOffset+1, end, filteredCount, totalCount)
-	if end < filteredCount {
-		fmt.Printf("next_offset: %d\n", end)
+	fields := map[string]any{
+		"session":  key,
+		"showing":  fmt.Sprintf("%d-%d", readSessionOffset+1, end),
+		"filtered": filteredCount,
+		"total":    totalCount,
 	}
-	fmt.Printf("---\n\n")
+	if end < filteredCount {
+		fields["next_offset"] = end
+	}
 
+	var sb strings.Builder
 	truncatedCount := 0
 	for i, m := range page {
 		idx := readSessionOffset + i + 1
@@ -94,17 +101,18 @@ func runReadSession(_ *cobra.Command, args []string) error {
 				truncatedCount++
 			}
 		}
-		msgID := m.ID
-		if msgID == "" {
-			msgID = "-"
-		}
-		fmt.Printf("[%d] (%s) %s: %s\n", idx, msgID, m.Role, content)
+		msgID := messageIDOrDash(m.ID)
+		fmt.Fprintf(&sb, "[%d] (%s) %s: %s\n", idx, msgID, m.Role, content)
 	}
 
 	if truncatedCount > 0 {
-		fmt.Printf("\n%d message(s) truncated to %d chars. Use --full to show complete content.\n", truncatedCount, defaultTruncateLen)
+		fmt.Fprintf(&sb, "\n%d message(s) truncated to %d chars. Use --full to show complete content.\n", truncatedCount, defaultTruncateLen)
+	}
+	if end < filteredCount {
+		fmt.Fprintf(&sb, "\nNext: nagobot read-session %q --offset %d --limit %d\n", key, end, readSessionLimit)
 	}
 
+	fmt.Print(tools.CmdResult("read-session", fields, sb.String()))
 	return nil
 }
 
@@ -145,6 +153,13 @@ func filterToolMessages(messages []provider.Message) []provider.Message {
 }
 
 // truncateContent returns the (possibly truncated) string and the number of characters truncated.
+func messageIDOrDash(id string) string {
+	if id == "" {
+		return "-"
+	}
+	return id
+}
+
 func truncateContent(s string, maxLen int) (string, int) {
 	s = strings.TrimSpace(s)
 	// Collapse newlines for compact display.

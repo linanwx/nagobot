@@ -678,20 +678,14 @@ func (w *WebChannel) handleSessionStats(rw http.ResponseWriter, key string) {
 	}
 
 	cfg, _ := config.Load()
-	contextWindow := 200000
-	warnRatio := 0.8
-	if cfg != nil {
-		contextWindow = cfg.GetContextWindowTokens()
-		warnRatio = cfg.GetContextWarnRatio()
+	if cfg == nil {
+		cfg = config.DefaultConfig()
 	}
+	contextWindow := provider.EffectiveContextWindow(cfg.GetModelName(), cfg.GetContextWindowTokens())
+	warnRatio := cfg.GetContextWarnRatio()
 	usageRatio := float64(compressedTokens) / float64(contextWindow)
 
-	status := "ok"
-	if usageRatio >= warnRatio {
-		status = "pressure"
-	} else if usageRatio >= warnRatio*0.8 {
-		status = "warning"
-	}
+	status := thread.PressureStatus(usageRatio, warnRatio)
 
 	rw.Header().Set("Content-Type", "application/json")
 	_ = json.NewEncoder(rw).Encode(sessionStatsResponse{

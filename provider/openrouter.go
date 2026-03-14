@@ -145,7 +145,7 @@ func init() {
 			"anthropic/claude-sonnet-4.6":   1048576,
 			"anthropic/claude-opus-4.6":     1048576,
 			"z-ai/glm-5":                   200000,
-			"minimax/minimax-m2.5":          204800,
+			"minimax/minimax-m2.5":          196608,
 			"qwen/qwen3.5-35b-a3b":         262144,
 			"google/gemini-3-flash-preview": 1048576,
 			"openrouter/hunter-alpha":       1048576,

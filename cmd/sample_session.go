@@ -2,8 +2,10 @@ package cmd
 
 import (
 	"fmt"
+	"strings"
 
 	"github.com/linanwx/nagobot/config"
+	"github.com/linanwx/nagobot/tools"
 	"github.com/spf13/cobra"
 )
 
@@ -43,33 +45,35 @@ func runSampleSession(_ *cobra.Command, args []string) error {
 	filteredCount := len(filtered)
 
 	if filteredCount == 0 {
-		fmt.Printf("---\ncommand: sample-session\nstatus: empty\nsession: %s\ntotal: %d\n---\n\nNo messages (all filtered).\n",
-			key, totalCount)
+		fmt.Print(tools.CmdResult("sample-session", map[string]any{
+			"session": key,
+			"total":   totalCount,
+		}, "No messages (all filtered)."))
 		return nil
 	}
 
 	count := min(sampleSessionCount, filteredCount)
-
-	// Evenly spaced indices.
 	indices := evenlySpacedIndices(filteredCount, count)
 	step := "all"
 	if filteredCount > count {
 		step = fmt.Sprintf("every %d", filteredCount/count)
 	}
 
-	fmt.Printf("---\ncommand: sample-session\nstatus: ok\nsession: %s\nsampled: %d\nfiltered: %d\ntotal: %d\nstep: %s\n---\n\n",
-		key, count, filteredCount, totalCount, step)
-
+	var sb strings.Builder
 	for _, idx := range indices {
 		m := filtered[idx]
 		content, _ := truncateContent(m.Content, defaultTruncateLen)
-		msgID := m.ID
-		if msgID == "" {
-			msgID = "-"
-		}
-		fmt.Printf("[%d] (%s) %s: %s\n", idx+1, msgID, m.Role, content)
+		msgID := messageIDOrDash(m.ID)
+		fmt.Fprintf(&sb, "[%d] (%s) %s: %s\n", idx+1, msgID, m.Role, content)
 	}
 
+	fmt.Print(tools.CmdResult("sample-session", map[string]any{
+		"session":  key,
+		"sampled":  count,
+		"filtered": filteredCount,
+		"total":    totalCount,
+		"step":     step,
+	}, sb.String()))
 	return nil
 }
 

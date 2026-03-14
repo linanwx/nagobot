@@ -216,6 +216,22 @@ func ContextWindowForModel(modelType string) int {
 	return modelContextWindows[modelType]
 }
 
+// EffectiveContextWindow returns min(modelContextWindow, configuredWindow).
+// If the model context window is unknown (0), returns configuredWindow.
+func EffectiveContextWindow(modelType string, configuredWindow int) int {
+	modelWindow := ContextWindowForModel(modelType)
+	if modelWindow <= 0 {
+		return configuredWindow
+	}
+	if configuredWindow <= 0 {
+		return modelWindow
+	}
+	if modelWindow < configuredWindow {
+		return modelWindow
+	}
+	return configuredWindow
+}
+
 // IsKimiModel returns true if the model type is a Kimi model.
 func IsKimiModel(modelType string) bool {
 	return strings.Contains(modelType, "kimi")

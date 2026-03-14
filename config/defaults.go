@@ -7,7 +7,7 @@ const (
 	defaultModelType           = "deepseek-reasoner"
 	defaultMaxTokens           = 8192
 	defaultTemperature         = 1.0
-	defaultContextWindowTokens = 128000
+	defaultContextWindowTokens = 200000
 	defaultContextWarnRatio    = 0.8
 	defaultWebAddr             = "127.0.0.1:8080"
 	defaultSkillHubURL         = "https://clawhub.ai"

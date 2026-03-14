@@ -87,16 +87,11 @@ func runSessionStats(_ *cobra.Command, args []string) error {
 
 	systemPromptTokens := estimateSystemPrompt(cfg, workspace, key)
 
-	contextWindow := cfg.GetContextWindowTokens()
+	contextWindow := provider.EffectiveContextWindow(cfg.GetModelName(), cfg.GetContextWindowTokens())
 	warnRatio := cfg.GetContextWarnRatio()
 	usageRatio := float64(compressedTokens) / float64(contextWindow)
 
-	status := "ok"
-	if usageRatio >= warnRatio {
-		status = "pressure"
-	} else if usageRatio >= warnRatio*0.8 {
-		status = "warning"
-	}
+	status := thread.PressureStatus(usageRatio, warnRatio)
 
 	// Find top 3 longest messages (by token count, using compressed view).
 	type indexedMsg struct {

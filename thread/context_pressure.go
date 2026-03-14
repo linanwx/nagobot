@@ -42,7 +42,19 @@ func (t *Thread) sessionFilePath() (string, bool) {
 
 func (t *Thread) contextBudget() (tokens int, warnRatio float64) {
 	cfg := t.cfg()
-	return cfg.ContextWindowTokens, cfg.ContextWarnRatio
+	_, modelName := t.resolvedProviderModel()
+	return provider.EffectiveContextWindow(modelName, cfg.ContextWindowTokens), cfg.ContextWarnRatio
+}
+
+// PressureStatus returns "ok", "warning", or "pressure" based on usage ratio.
+func PressureStatus(usageRatio, warnRatio float64) string {
+	if usageRatio >= warnRatio {
+		return "pressure"
+	}
+	if usageRatio >= warnRatio*0.8 {
+		return "warning"
+	}
+	return "ok"
 }
 
 func (t *Thread) buildCompressionNotice(requestTokens, contextWindowTokens int, usageRatio float64, sessionPath string) string {

@@ -28,7 +28,7 @@ func init() {
 	RegisterProvider("minimax-cn", ProviderRegistration{
 		Models: []string{"minimax-m2.5"},
 		ContextWindows: map[string]int{
-			"minimax-m2.5": 204800,
+			"minimax-m2.5": 196608,
 		},
 		EnvKey:  "MINIMAX_API_KEY",
 		EnvBase: "MINIMAX_API_BASE",
@@ -40,7 +40,7 @@ func init() {
 	RegisterProvider("minimax-global", ProviderRegistration{
 		Models: []string{"minimax-m2.5"},
 		ContextWindows: map[string]int{
-			"minimax-m2.5": 204800,
+			"minimax-m2.5": 196608,
 		},
 		EnvKey:  "MINIMAX_GLOBAL_API_KEY",
 		EnvBase: "MINIMAX_GLOBAL_API_BASE",

@@ -20,7 +20,7 @@ func init() {
 	RegisterProvider("deepseek", ProviderRegistration{
 		Models: []string{"deepseek-reasoner", "deepseek-chat"},
 		ContextWindows: map[string]int{
-			"deepseek-reasoner": 64000,
+			"deepseek-reasoner": 128000,
 			"deepseek-chat":     128000,
 		},
 		EnvKey:  "DEEPSEEK_API_KEY",
