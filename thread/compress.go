@@ -15,8 +15,7 @@ import (
 )
 
 const (
-	compressMinContentLen  = 2000 // skip short content
-	compressKeepAssistants = 3    // protect last N assistant turns
+	compressKeepAssistants = 3 // protect last N assistant turns
 	softTrimHeadChars      = 1500 // chars kept from start of result
 	softTrimTailChars      = 1500 // chars kept from end of result
 
@@ -218,7 +217,7 @@ func computeToolCompressed(m *provider.Message, idx int, lastSkillLoad map[strin
 		}
 		return ""
 	}
-	if len(m.Content) <= compressMinContentLen || strings.Contains(m.Content, "<<media:") {
+	if len(m.Content) <= softTrimHeadChars+softTrimTailChars || strings.Contains(m.Content, "<<media:") {
 		return ""
 	}
 	return softTrimWithHint(m.Content, m.Name, m.ID)
@@ -244,29 +243,21 @@ func computeWakeCompressed(m *provider.Message) string {
 	}
 	trimmedYAML := strings.Join(kept, "\n")
 
-	// Check whether body needs compression.
+	// Check whether body needs compression: only when actually trimmable.
 	visibility := extractFrontmatterValue(yamlBlock, "visibility")
-	bodyLarge := visibility == "assistant-only" &&
-		len(body) > compressMinContentLen &&
+	bodyTrimmable := visibility == "assistant-only" &&
+		len(body) > softTrimHeadChars+softTrimTailChars &&
 		!strings.Contains(body, "<<media:")
 
-	if bodyLarge {
+	if bodyTrimmable {
 		n := len(body)
+		trimmed := n - softTrimHeadChars - softTrimTailChars
 		hint := buildRecoveryHint(m.ID)
-		var compressedBody string
-		trimmed := 0
-		if n > softTrimHeadChars+softTrimTailChars {
-			trimmed = n - softTrimHeadChars - softTrimTailChars
-			compressedBody = body[:softTrimHeadChars] + "\n\n" + hint + "\n\n" + body[n-softTrimTailChars:]
-		} else {
-			compressedBody = hint
-		}
+		compressedBody := body[:softTrimHeadChars] + "\n\n" + hint + "\n\n" + body[n-softTrimTailChars:]
 		// Append compression metadata inline into the wake YAML.
 		trimmedYAML += "\ncompressed: true"
 		trimmedYAML += fmt.Sprintf("\noriginal: %d", n)
-		if trimmed > 0 {
-			trimmedYAML += fmt.Sprintf("\ntrimmed: %d", trimmed)
-		}
+		trimmedYAML += fmt.Sprintf("\ntrimmed: %d", trimmed)
 		return "---\n" + trimmedYAML + "\n---\n" + compressedBody
 	}
 
@@ -319,21 +310,20 @@ func buildRecoveryHint(messageID string) string {
 }
 
 // softTrimWithHint applies head+hint+tail compression and returns a Compressed value.
+// Only compresses when content is large enough to actually shrink after trimming.
 func softTrimWithHint(content, name, messageID string) string {
 	n := len(content)
-	hint := buildRecoveryHint(messageID)
-	if n > softTrimHeadChars+softTrimTailChars {
-		head := content[:softTrimHeadChars]
-		tail := content[n-softTrimTailChars:]
-		trimmed := n - softTrimHeadChars - softTrimTailChars
-		return marshalCompressed(compressedHeader{
-			Compressed: name, Original: n, Trimmed: trimmed,
-		}, head+"\n\n"+hint+"\n\n"+tail)
+	if n <= softTrimHeadChars+softTrimTailChars {
+		// Not large enough to benefit from head+tail trim — compression would be larger.
+		return ""
 	}
-	// Large enough to compress but not enough to soft-trim: keep full content + hint.
+	head := content[:softTrimHeadChars]
+	tail := content[n-softTrimTailChars:]
+	trimmed := n - softTrimHeadChars - softTrimTailChars
+	hint := buildRecoveryHint(messageID)
 	return marshalCompressed(compressedHeader{
-		Compressed: name, Original: n,
-	}, content+"\n\n"+hint)
+		Compressed: name, Original: n, Trimmed: trimmed,
+	}, head+"\n\n"+hint+"\n\n"+tail)
 }
 
 // compressedHeader is the YAML frontmatter for compressed tool results.
