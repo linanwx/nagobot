@@ -32,8 +32,9 @@ func (p *ZhipuSearchProvider) Search(ctx context.Context, query string, maxResul
 	}
 
 	reqBody := zhipuSearchRequest{
-		SearchQuery: query,
-		Count:       maxResults,
+		SearchEngine: "search_pro",
+		SearchQuery:  query,
+		Count:        maxResults,
 	}
 	bodyBytes, err := json.Marshal(reqBody)
 	if err != nil {
@@ -68,8 +69,9 @@ func (p *ZhipuSearchProvider) Search(ctx context.Context, query string, maxResul
 }
 
 type zhipuSearchRequest struct {
-	SearchQuery string `json:"search_query"`
-	Count       int    `json:"count,omitempty"`
+	SearchEngine string `json:"search_engine"`
+	SearchQuery  string `json:"search_query"`
+	Count        int    `json:"count,omitempty"`
 }
 
 type zhipuSearchResponse struct {
