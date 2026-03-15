@@ -21,6 +21,8 @@ const (
 
 	compressedHintFmt  = "[compressed — use search-memory --context %s --full to see content if needed, use skill session-ops to see more]"
 	compressedHintNoID = "[compressed — use search-memory with session key and timeframe to find original content, or use skill session-ops to see more]"
+
+	skillExpireAge = time.Hour // compress use_skill results older than this
 )
 
 // runCompressionScan scans idle threads and applies the appropriate compression tier:
@@ -212,11 +214,22 @@ func compressTier1(messages []provider.Message, keepLastAssistants int) (bool, [
 func computeToolCompressed(m *provider.Message, idx int, lastSkillLoad map[string]int) string {
 	if m.Name == "use_skill" {
 		skillName := extractSkillName(m.Content)
-		if skillName != "" && lastSkillLoad[skillName] > idx {
+		if skillName == "" {
+			return ""
+		}
+		// Outdated: same skill loaded again later → header-only, no hint
+		if lastSkillLoad[skillName] > idx {
 			return marshalCompressed(compressedHeader{
 				Compressed: "use_skill", Skill: skillName,
 				Original: len(m.Content), Outdated: true,
 			}, "")
+		}
+		// Expired: older than 1 hour → header-only, with reload hint
+		if !m.Timestamp.IsZero() && time.Since(m.Timestamp) > skillExpireAge {
+			return marshalCompressed(compressedHeader{
+				Compressed: "use_skill", Skill: skillName,
+				Original: len(m.Content), Outdated: true,
+			}, "[compressed — call use_skill to reload if needed]")
 		}
 		return ""
 	}
@@ -313,20 +326,24 @@ func buildRecoveryHint(messageID string) string {
 }
 
 // softTrimWithHint applies head+hint+tail compression and returns a Compressed value.
-// Only compresses when content is large enough to actually shrink after trimming.
+// Only compresses when the result is at least 5% smaller than the original.
 func softTrimWithHint(content, name, messageID string) string {
 	n := len(content)
 	if n <= softTrimHeadChars+softTrimTailChars {
-		// Not large enough to benefit from head+tail trim — compression would be larger.
 		return ""
 	}
 	head := content[:softTrimHeadChars]
 	tail := content[n-softTrimTailChars:]
 	trimmed := n - softTrimHeadChars - softTrimTailChars
 	hint := buildRecoveryHint(messageID)
-	return marshalCompressed(compressedHeader{
+	result := marshalCompressed(compressedHeader{
 		Compressed: name, Original: n, Trimmed: trimmed,
 	}, head+"\n\n"+hint+"\n\n"+tail)
+	// Skip if compression didn't shrink by at least 5%.
+	if len(result) >= int(float64(n)*0.95) {
+		return ""
+	}
+	return result
 }
 
 // compressedHeader is the YAML frontmatter for compressed tool results.

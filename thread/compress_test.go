@@ -3,6 +3,7 @@ package thread
 import (
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/linanwx/nagobot/provider"
 )
@@ -106,5 +107,125 @@ func TestCompressTier1_WakeTrimIdempotent(t *testing.T) {
 	modified2, _ := compressTier1(result, 3)
 	if modified2 {
 		t.Error("second pass should not modify anything (idempotent)")
+	}
+}
+
+func makeSkillContent(skillName string) string {
+	return "---\nskill: " + skillName + "\ndir: /workspace/skills/" + skillName + "\n---\n\n# " + skillName + " instructions\n\nSome skill content here."
+}
+
+func TestCompressTier1_SkillOutdated(t *testing.T) {
+	// Same skill loaded twice → first one should be compressed as outdated (no hint).
+	messages := []provider.Message{
+		{Role: "assistant", Content: "", ToolCalls: []provider.ToolCall{{ID: "c1", Type: "function", Function: provider.FunctionCall{Name: "use_skill", Arguments: `{"name":"research"}`}}}},
+		{Role: "tool", Name: "use_skill", ToolCallID: "c1", Content: makeSkillContent("research")},
+		{Role: "assistant", Content: "doing research..."},
+		{Role: "assistant", Content: "", ToolCalls: []provider.ToolCall{{ID: "c2", Type: "function", Function: provider.FunctionCall{Name: "use_skill", Arguments: `{"name":"research"}`}}}},
+		{Role: "tool", Name: "use_skill", ToolCallID: "c2", Content: makeSkillContent("research")},
+		{Role: "assistant", Content: "done"},
+		{Role: "user", Content: "next"},
+		{Role: "assistant", Content: "ok"},
+		{Role: "user", Content: "next2"},
+		{Role: "assistant", Content: "ok2"},
+		{Role: "user", Content: "next3"},
+		{Role: "assistant", Content: "ok3"},
+	}
+
+	modified, result := compressTier1(messages, 3)
+	if !modified {
+		t.Fatal("expected modified=true")
+	}
+
+	// First skill result (idx 1) should be compressed (outdated).
+	m1 := result[1]
+	if m1.Compressed == "" {
+		t.Fatal("first skill result should be compressed")
+	}
+	if !strings.Contains(m1.Compressed, "outdated: true") {
+		t.Error("first skill should be marked outdated")
+	}
+	// Outdated should NOT have reload hint.
+	if strings.Contains(m1.Compressed, "use_skill to reload") {
+		t.Error("outdated skill should not have reload hint")
+	}
+
+	// Second skill result (idx 4) should NOT be compressed (latest load, not expired).
+	m4 := result[4]
+	if m4.Compressed != "" {
+		t.Error("latest skill result should not be compressed")
+	}
+}
+
+func TestCompressTier1_SkillExpired(t *testing.T) {
+	// Single skill load older than 1 hour → should be compressed with reload hint.
+	messages := []provider.Message{
+		{Role: "assistant", Content: "", ToolCalls: []provider.ToolCall{{ID: "c1", Type: "function", Function: provider.FunctionCall{Name: "use_skill", Arguments: `{"name":"fallout"}`}}}},
+		{Role: "tool", Name: "use_skill", ToolCallID: "c1", Content: makeSkillContent("fallout"), Timestamp: time.Now().Add(-2 * time.Hour)},
+		{Role: "assistant", Content: "playing fallout"},
+		{Role: "user", Content: "next"},
+		{Role: "assistant", Content: "ok"},
+		{Role: "user", Content: "next2"},
+		{Role: "assistant", Content: "ok2"},
+		{Role: "user", Content: "next3"},
+		{Role: "assistant", Content: "ok3"},
+	}
+
+	modified, result := compressTier1(messages, 3)
+	if !modified {
+		t.Fatal("expected modified=true for expired skill")
+	}
+
+	m := result[1]
+	if m.Compressed == "" {
+		t.Fatal("expired skill should be compressed")
+	}
+	if !strings.Contains(m.Compressed, "outdated: true") {
+		t.Error("expired skill should be marked outdated")
+	}
+	// Expired SHOULD have reload hint.
+	if !strings.Contains(m.Compressed, "use_skill to reload") {
+		t.Error("expired skill should have reload hint")
+	}
+}
+
+func TestCompressTier1_SkillNotExpired(t *testing.T) {
+	// Single skill load within 1 hour → should NOT be compressed.
+	messages := []provider.Message{
+		{Role: "assistant", Content: "", ToolCalls: []provider.ToolCall{{ID: "c1", Type: "function", Function: provider.FunctionCall{Name: "use_skill", Arguments: `{"name":"research"}`}}}},
+		{Role: "tool", Name: "use_skill", ToolCallID: "c1", Content: makeSkillContent("research"), Timestamp: time.Now().Add(-30 * time.Minute)},
+		{Role: "assistant", Content: "researching"},
+		{Role: "user", Content: "next"},
+		{Role: "assistant", Content: "ok"},
+		{Role: "user", Content: "next2"},
+		{Role: "assistant", Content: "ok2"},
+		{Role: "user", Content: "next3"},
+		{Role: "assistant", Content: "ok3"},
+	}
+
+	modified, result := compressTier1(messages, 3)
+	// May be modified due to wake trim, but skill should not be compressed.
+	m := result[1]
+	if m.Compressed != "" {
+		t.Errorf("skill within 1 hour should not be compressed, got: %s", m.Compressed)
+	}
+	_ = modified
+}
+
+func TestSoftTrimWithHint_SkipWhenNotSmallEnough(t *testing.T) {
+	// Content barely above threshold (3064 chars) → overhead makes result larger → should skip.
+	content := strings.Repeat("x", 3064)
+	result := softTrimWithHint(content, "web_fetch", "msg-123")
+	if result != "" {
+		t.Errorf("soft trim should skip when result is not at least 5%% smaller, got len=%d (original=%d)", len(result), len(content))
+	}
+
+	// Content well above threshold (10000 chars) → should compress.
+	bigContent := strings.Repeat("y", 10000)
+	result2 := softTrimWithHint(bigContent, "web_fetch", "msg-456")
+	if result2 == "" {
+		t.Error("soft trim should compress large content")
+	}
+	if len(result2) >= int(float64(len(bigContent))*0.95) {
+		t.Errorf("compressed result should be at least 5%% smaller: got %d, original %d", len(result2), len(bigContent))
 	}
 }
