@@ -86,6 +86,11 @@ func (r *Runner) RunWithMessages(ctx context.Context, messages []provider.Messag
 		r.totalUsage.TotalTokens += resp.Usage.TotalTokens
 
 		if !resp.HasToolCalls() {
+			// Emit final response via onMessage — symmetric with the tool-calls path,
+			// so intermediates always contains the complete message set.
+			if r.onMessage != nil {
+				r.onMessage(provider.AssistantMessageWithTools(resp.Content, resp.ReasoningContent, resp.ReasoningDetails, nil))
+			}
 			if r.onFinalResponse != nil {
 				r.onFinalResponse(resp.Content)
 			}

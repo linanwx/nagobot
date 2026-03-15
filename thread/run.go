@@ -69,7 +69,7 @@ func (t *Thread) run(ctx context.Context, userMessage string, sink Sink, injectF
 		return "", err
 	}
 
-	t.persistTurnMessages(cfg, sess, intermediates, response, wakeSource)
+	t.persistTurnMessages(cfg, sess, intermediates, wakeSource)
 	providerName, modelName := t.resolvedProviderModel()
 	agentName := ""
 	t.mu.Lock()
@@ -186,10 +186,10 @@ func (t *Thread) executeRunner(ctx, runCtx context.Context, p provider.Provider,
 
 	runner.OnMessage(func(m provider.Message) {
 		intermediates = append(intermediates, m)
-		// Deliver intermediate assistant content to user in real time.
-		// For streaming providers, the streamer already delivered it via OnText deltas.
-		// For non-streaming providers (e.g. OpenRouter), this is the only delivery path.
-		if m.Role == "assistant" && isUserFacingContent(m.Content) && !sink.IsZero() && sink.Chunkable && !chatStreamed && !t.isSuppressSink() {
+		// Deliver intermediate assistant content (with tool_calls) to user in real time.
+		// Final response delivery is handled by onFinalResponse — only intermediate
+		// messages (those with tool_calls) are delivered here to avoid double delivery.
+		if m.Role == "assistant" && len(m.ToolCalls) > 0 && isUserFacingContent(m.Content) && !sink.IsZero() && sink.Chunkable && !chatStreamed && !t.isSuppressSink() {
 			_ = sink.Send(ctx, m.Content)
 		}
 		if m.Role == "assistant" {
@@ -221,15 +221,15 @@ func (t *Thread) executeRunner(ctx, runCtx context.Context, p provider.Provider,
 	return response, intermediates, usage, nil
 }
 
-// persistTurnMessages saves intermediate tool messages and final response to the session.
-// When wakeSource is non-empty, all messages are tagged with it.
-func (t *Thread) persistTurnMessages(cfg *ThreadConfig, sess *session.Session, intermediates []provider.Message, response string, wakeSource string) {
+// persistTurnMessages saves all turn messages (intermediates + final response) to the session.
+// Both paths (normal and halt) emit all messages via onMessage into intermediates,
+// so this function simply persists them as-is.
+func (t *Thread) persistTurnMessages(cfg *ThreadConfig, sess *session.Session, intermediates []provider.Message, wakeSource string) {
 	if sess == nil {
 		return
 	}
-	toAppend := make([]provider.Message, 0, len(intermediates)+1)
-	toAppend = append(toAppend, intermediates...)
-	toAppend = append(toAppend, provider.AssistantMessage(response))
+	toAppend := make([]provider.Message, len(intermediates))
+	copy(toAppend, intermediates)
 	if wakeSource != "" {
 		for i := range toAppend {
 			toAppend[i].Source = wakeSource
