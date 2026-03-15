@@ -211,6 +211,120 @@ func TestCompressTier1_SkillNotExpired(t *testing.T) {
 	_ = modified
 }
 
+func TestCompressTier1_HeartbeatExpired(t *testing.T) {
+	// Heartbeat source + >6h + >100 bytes → header-only
+	messages := []provider.Message{
+		{Role: "assistant", Content: "", ToolCalls: []provider.ToolCall{{ID: "c1", Type: "function", Function: provider.FunctionCall{Name: "exec", Arguments: `{"cmd":"nagobot list-sessions"}`}}}},
+		{Role: "tool", Name: "exec", ToolCallID: "c1", Content: strings.Repeat("session data\n", 50), Source: "heartbeat_wake", Timestamp: time.Now().Add(-8 * time.Hour)},
+		{Role: "assistant", Content: "HEARTBEAT_OK", Source: "heartbeat_wake"},
+		{Role: "user", Content: "next"},
+		{Role: "assistant", Content: "ok"},
+		{Role: "user", Content: "next2"},
+		{Role: "assistant", Content: "ok2"},
+		{Role: "user", Content: "next3"},
+		{Role: "assistant", Content: "ok3"},
+	}
+
+	modified, result := compressTier1(messages, 3)
+	if !modified {
+		t.Fatal("expected modified=true")
+	}
+
+	m := result[1]
+	if m.Compressed == "" {
+		t.Fatal("heartbeat tool result >6h should be compressed")
+	}
+	if !strings.Contains(m.Compressed, "compressed: exec") {
+		t.Error("should have compressed header with tool name")
+	}
+	// Should be header-only (no body content from original).
+	if strings.Contains(m.Compressed, "session data") {
+		t.Error("header-only compression should not contain original body")
+	}
+}
+
+func TestCompressTier1_HeartbeatRecent(t *testing.T) {
+	// Heartbeat source + <6h → not compressed
+	messages := []provider.Message{
+		{Role: "assistant", Content: "", ToolCalls: []provider.ToolCall{{ID: "c1", Type: "function", Function: provider.FunctionCall{Name: "exec", Arguments: `{"cmd":"nagobot list-sessions"}`}}}},
+		{Role: "tool", Name: "exec", ToolCallID: "c1", Content: strings.Repeat("session data\n", 50), Source: "heartbeat_wake", Timestamp: time.Now().Add(-3 * time.Hour)},
+		{Role: "assistant", Content: "HEARTBEAT_OK", Source: "heartbeat_wake"},
+		{Role: "user", Content: "next"},
+		{Role: "assistant", Content: "ok"},
+		{Role: "user", Content: "next2"},
+		{Role: "assistant", Content: "ok2"},
+		{Role: "user", Content: "next3"},
+		{Role: "assistant", Content: "ok3"},
+	}
+
+	_, result := compressTier1(messages, 3)
+	m := result[1]
+	// Content is 650 bytes, above 3000 threshold? No, 13*50=650 < 3000. So no compression at all.
+	if m.Compressed != "" {
+		t.Errorf("heartbeat tool result <6h should not be compressed, got: %s", m.Compressed)
+	}
+}
+
+func TestCompressTier1_HeartbeatSmall(t *testing.T) {
+	// Heartbeat source + >6h + ≤100 bytes → not compressed
+	messages := []provider.Message{
+		{Role: "assistant", Content: "", ToolCalls: []provider.ToolCall{{ID: "c1", Type: "function", Function: provider.FunctionCall{Name: "sleep_thread", Arguments: `{"skip":true}`}}}},
+		{Role: "tool", Name: "sleep_thread", ToolCallID: "c1", Content: "ok: skipped", Source: "heartbeat_wake", Timestamp: time.Now().Add(-8 * time.Hour)},
+		{Role: "assistant", Content: "HEARTBEAT_OK", Source: "heartbeat_wake"},
+		{Role: "user", Content: "next"},
+		{Role: "assistant", Content: "ok"},
+		{Role: "user", Content: "next2"},
+		{Role: "assistant", Content: "ok2"},
+		{Role: "user", Content: "next3"},
+		{Role: "assistant", Content: "ok3"},
+	}
+
+	_, result := compressTier1(messages, 3)
+	m := result[1]
+	if m.Compressed != "" {
+		t.Errorf("small heartbeat tool result should not be compressed, got: %s", m.Compressed)
+	}
+}
+
+func TestCompressTier1_WakeBodyTrimSkipSmall(t *testing.T) {
+	// Wake body barely above 3000 → 95% guard should skip body trim, only YAML trim.
+	body := strings.Repeat("x", 3064)
+	content := "---\nsource: child_completed\nthread: t-1\nsession: s-1\ndelivery: d-1\ntime: \"2026-03-06T10:00:00+08:00\"\nvisibility: assistant-only\naction: hint\n---\n" + body
+
+	messages := []provider.Message{
+		{Role: "user", Content: content},
+		{Role: "assistant", Content: "ok"},
+		{Role: "user", Content: "next"},
+		{Role: "assistant", Content: "ok2"},
+		{Role: "user", Content: "next2"},
+		{Role: "assistant", Content: "ok3"},
+		{Role: "user", Content: "next3"},
+		{Role: "assistant", Content: "ok4"},
+	}
+
+	modified, result := compressTier1(messages, 3)
+	if !modified {
+		t.Fatal("expected modified=true for YAML trim")
+	}
+
+	m := result[0]
+	if m.Compressed == "" {
+		t.Fatal("should at least have YAML field trim")
+	}
+	// Should NOT have body compression (95% guard).
+	if strings.Contains(m.Compressed, "compressed: true") {
+		t.Error("body trim should be skipped when result is not 5% smaller")
+	}
+	// Should still trim redundant YAML fields.
+	if strings.Contains(m.Compressed, "thread:") {
+		t.Error("should still strip thread field")
+	}
+	// Body should be fully preserved.
+	if !strings.Contains(m.Compressed, body) {
+		t.Error("body should be preserved when body trim is skipped")
+	}
+}
+
 func TestSoftTrimWithHint_SkipWhenNotSmallEnough(t *testing.T) {
 	// Content barely above threshold (3064 chars) → overhead makes result larger → should skip.
 	content := strings.Repeat("x", 3064)

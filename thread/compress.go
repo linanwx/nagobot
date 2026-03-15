@@ -22,7 +22,9 @@ const (
 	compressedHintFmt  = "[compressed — use search-memory --context %s --full to see content if needed, use skill session-ops to see more]"
 	compressedHintNoID = "[compressed — use search-memory with session key and timeframe to find original content, or use skill session-ops to see more]"
 
-	skillExpireAge = time.Hour // compress use_skill results older than this
+	skillExpireAge         = time.Hour     // compress use_skill results older than this
+	heartbeatExpireAge     = 6 * time.Hour // compress heartbeat tool results older than this
+	heartbeatTrimThreshold = 100           // minimum content size to compress heartbeat results
 )
 
 // runCompressionScan scans idle threads and applies the appropriate compression tier:
@@ -233,6 +235,14 @@ func computeToolCompressed(m *provider.Message, idx int, lastSkillLoad map[strin
 		}
 		return ""
 	}
+	// Heartbeat tool results older than 6 hours → header-only
+	if (m.Source == string(WakeHeartbeatWake) || m.Source == string(WakeHeartbeatReflect)) &&
+		!m.Timestamp.IsZero() && time.Since(m.Timestamp) > heartbeatExpireAge &&
+		len(m.Content) > heartbeatTrimThreshold {
+		return marshalCompressed(compressedHeader{
+			Compressed: m.Name, Original: len(m.Content),
+		}, "")
+	}
 	if len(m.Content) <= softTrimHeadChars+softTrimTailChars || strings.Contains(m.Content, "<<media:") {
 		return ""
 	}
@@ -270,11 +280,15 @@ func computeWakeCompressed(m *provider.Message) string {
 		trimmed := n - softTrimHeadChars - softTrimTailChars
 		hint := buildRecoveryHint(m.ID)
 		compressedBody := body[:softTrimHeadChars] + "\n\n" + hint + "\n\n" + body[n-softTrimTailChars:]
-		// Append compression metadata inline into the wake YAML.
-		trimmedYAML += "\ncompressed: true"
-		trimmedYAML += fmt.Sprintf("\noriginal: %d", n)
-		trimmedYAML += fmt.Sprintf("\ntrimmed: %d", trimmed)
-		return "---\n" + trimmedYAML + "\n---\n" + compressedBody
+		bodyYAML := trimmedYAML + "\ncompressed: true"
+		bodyYAML += fmt.Sprintf("\noriginal: %d", n)
+		bodyYAML += fmt.Sprintf("\ntrimmed: %d", trimmed)
+		result := "---\n" + bodyYAML + "\n---\n" + compressedBody
+		// Skip body trim if result is not at least 5% smaller than original.
+		if len(result) < int(float64(len(m.Content))*0.95) {
+			return result
+		}
+		// Fall through to wake trim only (strip redundant YAML fields).
 	}
 
 	// Wake trim only — strip redundant fields but preserve full body.
