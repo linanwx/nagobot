@@ -25,6 +25,7 @@ The session directory path is provided in the wake message (e.g. `Session direct
    - **Add** new items from the conversation. Every item MUST have a `moved_on` field.
    - **Remove** items whose `moved_on` condition is met
    - **Remove** items duplicated by cron jobs. If unsure, run `{{WORKSPACE}}/bin/nagobot cron list` to check.
+   - **Remove** items that are irrelevant in the current context and were created 3 or more days ago
    - **Keep** items whose `moved_on` condition is not yet met
    - If no items remain, write an empty string to clear the file — do NOT leave behind headings, comments, or any other text. Do NOT delete the file.
 
