@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"path/filepath"
 	"sort"
 
 	"github.com/linanwx/nagobot/agent"
@@ -27,6 +28,7 @@ func init() {
 
 type sessionStatsOutput struct {
 	SessionKey          string            `json:"session_key"`
+	ModelResolution     *modelResolution  `json:"model_resolution"`
 	MessageCount        int               `json:"message_count"`
 	RoleCounts          map[string]int    `json:"role_counts"`
 	CompressedMessages  int               `json:"compressed_messages"`
@@ -40,6 +42,22 @@ type sessionStatsOutput struct {
 	WarnRatio           float64           `json:"warn_ratio"`
 	PressureStatus      string            `json:"pressure_status"`
 	LongestMessages     []longestMsgEntry `json:"longest_messages"`
+}
+
+type modelResolution struct {
+	Steps            []resolutionStep `json:"steps"`
+	ResolvedProvider string           `json:"resolved_provider"`
+	ResolvedModel    string           `json:"resolved_model"`
+	ResolvedCtxWindow int             `json:"resolved_context_window"`
+	IsDefault        bool             `json:"is_default"`
+}
+
+type resolutionStep struct {
+	Step     string `json:"step"`
+	Lookup   string `json:"lookup"`
+	Found    string `json:"found"`
+	Status   string `json:"status"`
+	Fallback string `json:"fallback,omitempty"`
 }
 
 type longestMsgEntry struct {
@@ -85,9 +103,12 @@ func runSessionStats(_ *cobra.Command, args []string) error {
 		roleTokens[m.Role] += thread.EstimateMessageTokens(m)
 	}
 
-	systemPromptTokens := estimateSystemPrompt(cfg, workspace, key)
+	registry := agent.NewRegistry(workspace)
+	resolution := resolveModelChain(cfg, registry, key)
+	systemPromptTokens := estimateSystemPrompt(registry, resolution.agentName)
 
-	contextWindow := provider.EffectiveContextWindow(cfg.GetModelName(), cfg.GetContextWindowTokens())
+	// Use the resolved model for context window, not the global default.
+	contextWindow := resolution.ResolvedCtxWindow
 	warnRatio := cfg.GetContextWarnRatio()
 	usageRatio := float64(compressedTokens) / float64(contextWindow)
 
@@ -128,6 +149,7 @@ func runSessionStats(_ *cobra.Command, args []string) error {
 
 	output := sessionStatsOutput{
 		SessionKey:          key,
+		ModelResolution:     resolution.export(),
 		MessageCount:        len(messages),
 		RoleCounts:          roleCounts,
 		CompressedMessages:  compressedCount,
@@ -150,13 +172,140 @@ func runSessionStats(_ *cobra.Command, args []string) error {
 
 // estimateSystemPrompt rebuilds the agent's system prompt and estimates its token count.
 // This is approximate because runtime vars (TIME, TOOLS, SKILLS, USER) are not available.
-func estimateSystemPrompt(cfg *config.Config, workspace, sessionKey string) int {
-	agentName := cfg.SessionAgent(sessionKey) // empty → Registry.New defaults to "soul"
-	registry := agent.NewRegistry(workspace)
+func estimateSystemPrompt(registry *agent.AgentRegistry, agentName string) int {
 	a, err := registry.New(agentName)
 	if err != nil {
 		return 0
 	}
 	prompt := a.Build()
 	return thread.EstimateTextTokens(prompt)
+}
+
+// resolveModelChainResult holds both the exported JSON fields and internal state.
+type resolveModelChainResult struct {
+	modelResolution
+	agentName string // for reuse by estimateSystemPrompt
+}
+
+func (r *resolveModelChainResult) export() *modelResolution {
+	return &r.modelResolution
+}
+
+// resolveModelChain replicates the model resolution logic from thread/run.go
+// (resolvedModelConfig + resolvedProviderModel) for CLI use.
+func resolveModelChain(cfg *config.Config, registry *agent.AgentRegistry, sessionKey string) *resolveModelChainResult {
+	result := &resolveModelChainResult{}
+	var steps []resolutionStep
+
+	// Step 1: session key → agent name
+	agentName := cfg.SessionAgent(sessionKey)
+	if agentName != "" {
+		steps = append(steps, resolutionStep{
+			Step:   "session_agent",
+			Lookup: fmt.Sprintf("sessionAgents[%q]", sessionKey),
+			Found:  agentName,
+			Status: "hit",
+		})
+	} else {
+		agentName = "soul"
+		steps = append(steps, resolutionStep{
+			Step:     "session_agent",
+			Lookup:   fmt.Sprintf("sessionAgents[%q]", sessionKey),
+			Found:    "",
+			Status:   "miss",
+			Fallback: "soul",
+		})
+	}
+	result.agentName = agentName
+
+	// Step 2: agent name → specialty
+	var specialty string
+	def := registry.Def(agentName)
+	if def != nil && def.Specialty != "" {
+		specialty = def.Specialty
+		// Show which file the agent was loaded from.
+		label := def.Path
+		if label != "" {
+			// Shorten to relative-ish form: agents-builtin/coffee.md or agents/coffee.md
+			if i := findAgentPathPrefix(label); i >= 0 {
+				label = label[i:]
+			}
+		}
+		steps = append(steps, resolutionStep{
+			Step:   "agent_specialty",
+			Lookup: fmt.Sprintf("%s → specialty", label),
+			Found:  specialty,
+			Status: "hit",
+		})
+	} else {
+		reason := ""
+		if def == nil {
+			reason = "agent not found in registry"
+		} else {
+			reason = "no specialty in frontmatter"
+		}
+		steps = append(steps, resolutionStep{
+			Step:     "agent_specialty",
+			Lookup:   fmt.Sprintf("agents/%s.md → specialty", agentName),
+			Found:    "",
+			Status:   "miss",
+			Fallback: reason,
+		})
+	}
+
+	// Step 3: specialty → model routing
+	resolvedProvider := cfg.GetProvider()
+	resolvedModel := cfg.GetModelName()
+	isDefault := true
+
+	if specialty != "" {
+		models := cfg.Thread.Models
+		if mc, ok := models[specialty]; ok && mc != nil {
+			resolvedProvider = mc.Provider
+			resolvedModel = mc.ModelType
+			isDefault = false
+			steps = append(steps, resolutionStep{
+				Step:   "model_routing",
+				Lookup: fmt.Sprintf("models[%q]", specialty),
+				Found:  resolvedProvider + " / " + resolvedModel,
+				Status: "hit",
+			})
+		} else {
+			steps = append(steps, resolutionStep{
+				Step:     "model_routing",
+				Lookup:   fmt.Sprintf("models[%q]", specialty),
+				Found:    "",
+				Status:   "miss",
+				Fallback: resolvedProvider + " / " + resolvedModel + " (default)",
+			})
+		}
+	} else {
+		steps = append(steps, resolutionStep{
+			Step:     "model_routing",
+			Lookup:   "(no specialty)",
+			Found:    "",
+			Status:   "miss",
+			Fallback: resolvedProvider + " / " + resolvedModel + " (default)",
+		})
+	}
+
+	result.Steps = steps
+	result.ResolvedProvider = resolvedProvider
+	result.ResolvedModel = resolvedModel
+	result.ResolvedCtxWindow = provider.EffectiveContextWindow(resolvedModel, cfg.GetContextWindowTokens())
+	result.IsDefault = isDefault
+	return result
+}
+
+// findAgentPathPrefix returns the index of "agents-builtin/" or "agents/" in path,
+// or -1 if not found.
+func findAgentPathPrefix(path string) int {
+	for _, prefix := range []string{"agents-builtin" + string(filepath.Separator), "agents" + string(filepath.Separator)} {
+		for i := len(path) - 1; i >= 0; i-- {
+			if i+len(prefix) <= len(path) && path[i:i+len(prefix)] == prefix {
+				return i
+			}
+		}
+	}
+	return -1
 }

@@ -1,6 +1,6 @@
 ---
 name: session-ops
-description: Use when the user wants to review past conversations, search session history or memory, check context usage/compression stats, inspect session metadata, or configure session settings (switch agent, set timezone).
+description: Use when the user wants to review past conversations, search session history or memory, check context usage/compression stats, inspect which model/provider a session is using (model resolution chain), inspect session metadata, or configure session settings (switch agent, set timezone). Also use when asking "what model am I using" or debugging model routing.
 tags: [session, summary, search, internal]
 ---
 # Session Operations
@@ -72,7 +72,7 @@ Writes to `system/sessions_summary.json`. Automatically cleans up entries with `
 
 ## session-stats
 
-Show context usage stats for a session: token estimates, compression savings, and pressure status.
+Show context usage stats and model resolution chain for a session.
 
 ```
 exec: {{WORKSPACE}}/bin/nagobot session-stats <key>
@@ -81,6 +81,17 @@ exec: {{WORKSPACE}}/bin/nagobot session-stats <key>
 - `<key>`: Session key (e.g. `cli`, `telegram:12345`)
 
 Output: JSON with fields:
+- `model_resolution`: Full model resolution chain for this session
+  - `steps[]`: Each step of the resolution chain:
+    - `step`: Step name (`session_agent`, `agent_specialty`, `model_routing`)
+    - `lookup`: What was queried (e.g. `sessionAgents["discord:123"]`)
+    - `found`: Result (empty string if miss)
+    - `status`: `hit` or `miss`
+    - `fallback`: Value used on miss (only present when status is `miss`)
+  - `resolved_provider`: Final provider name (e.g. `openai`, `openrouter`)
+  - `resolved_model`: Final model identifier (e.g. `gpt-5.4`, `minimax/minimax-m2.5`)
+  - `resolved_context_window`: Context window size for the resolved model
+  - `is_default`: `true` if no agent-specific routing was found (using global default)
 - `message_count`: Total messages in session
 - `role_counts`: Breakdown by role (user, assistant, tool, system)
 - `compressed_messages`: Number of messages with Tier 1 compressed content
@@ -89,10 +100,12 @@ Output: JSON with fields:
 - `raw_tokens`: Token estimate using original content
 - `compressed_tokens`: Token estimate using compressed content (what the LLM actually sees)
 - `tokens_saved`: Difference (raw - compressed)
-- `context_window_tokens`: Configured context window size
+- `context_window_tokens`: Context window size for the resolved model (model-aware, not global default)
 - `usage_ratio`: `compressed_tokens / context_window_tokens`
 - `warn_ratio`: Configured pressure threshold (default 0.8)
 - `pressure_status`: `ok`, `warning` (≥64% of window), or `pressure` (≥80% of window)
+
+Use `model_resolution` to determine the exact model a session is using and debug routing issues. The `steps` array shows exactly which config entries were consulted and whether each step hit or fell back to a default.
 
 ## search-memory
 
