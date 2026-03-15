@@ -15,6 +15,7 @@ import (
 // Skill represents a skill definition.
 type Skill struct {
 	Name        string   `yaml:"name"`
+	Slug        string   `yaml:"-"`           // Directory name, used as registry key and invocation name.
 	Description string   `yaml:"description"`
 	Prompt      string   `yaml:"prompt"`
 	Tags        []string `yaml:"tags,omitempty"`
@@ -36,11 +37,11 @@ func NewRegistry() *Registry {
 	}
 }
 
-// Register adds a skill to the registry.
+// Register adds a skill to the registry, keyed by Slug.
 func (r *Registry) Register(s *Skill) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	r.skills[s.Name] = s
+	r.skills[s.Slug] = s
 }
 
 // Get returns a skill by name.
@@ -193,20 +194,19 @@ func loadSkillsFromDirectory(dir string) (map[string]*Skill, error) {
 	for _, entry := range entries {
 		// Directory-based skill: look for SKILL.md or SKILLS.md inside.
 		if entry.IsDir() {
-			skillFile := FindSkillFile(filepath.Join(dir, entry.Name()))
+			slug := entry.Name()
+			skillFile := FindSkillFile(filepath.Join(dir, slug))
 			if skillFile == "" {
 				continue
 			}
-			skill, loadErr := loadMarkdownSkill(skillFile)
+			skill, loadErr := loadMarkdownSkill(skillFile, slug)
 			if loadErr != nil {
-				return nil, fmt.Errorf("failed to load skill %s/SKILL.md: %w", entry.Name(), loadErr)
+				return nil, fmt.Errorf("failed to load skill %s/SKILL.md: %w", slug, loadErr)
 			}
 			if skill != nil {
-				if skill.Name == "" {
-					skill.Name = entry.Name()
-				}
-				skill.Dir = filepath.Join(dir, entry.Name())
-				loaded[skill.Name] = skill
+				skill.Slug = slug
+				skill.Dir = filepath.Join(dir, slug)
+				loaded[slug] = skill
 			}
 			continue
 		}
@@ -214,6 +214,7 @@ func loadSkillsFromDirectory(dir string) (map[string]*Skill, error) {
 		// Flat file skill (legacy compat).
 		name := entry.Name()
 		ext := strings.ToLower(filepath.Ext(name))
+		slug := strings.TrimSuffix(name, ext)
 
 		var skill *Skill
 		var loadErr error
@@ -222,7 +223,7 @@ func loadSkillsFromDirectory(dir string) (map[string]*Skill, error) {
 		case ".yaml", ".yml":
 			skill, loadErr = loadYAMLSkill(filepath.Join(dir, name))
 		case ".md":
-			skill, loadErr = loadMarkdownSkill(filepath.Join(dir, name))
+			skill, loadErr = loadMarkdownSkill(filepath.Join(dir, name), slug)
 		default:
 			continue
 		}
@@ -232,7 +233,10 @@ func loadSkillsFromDirectory(dir string) (map[string]*Skill, error) {
 		}
 
 		if skill != nil {
-			loaded[skill.Name] = skill
+			if skill.Slug == "" {
+				skill.Slug = slug
+			}
+			loaded[skill.Slug] = skill
 		}
 	}
 
@@ -263,24 +267,18 @@ func loadYAMLSkill(path string) (*Skill, error) {
 		return nil, err
 	}
 
+	slug := strings.TrimSuffix(filepath.Base(path), filepath.Ext(path))
+	skill.Slug = slug
 	if skill.Name == "" {
-		// Use filename as name
-		skill.Name = strings.TrimSuffix(filepath.Base(path), filepath.Ext(path))
+		skill.Name = slug
 	}
 
 	return &skill, nil
 }
 
 // loadMarkdownSkill loads a skill from a Markdown file with YAML frontmatter.
-// Format:
-// ---
-// name: skill-name
-// description: Short description
-// tags: [tag1, tag2]
-// ---
-// # Skill Prompt Content
-// The rest of the markdown is the prompt.
-func loadMarkdownSkill(path string) (*Skill, error) {
+// slug is the directory or file stem name used as the invocation key.
+func loadMarkdownSkill(path string, slug string) (*Skill, error) {
 	data, err := os.ReadFile(path)
 	if err != nil {
 		return nil, err
@@ -291,9 +289,9 @@ func loadMarkdownSkill(path string) (*Skill, error) {
 	// Check for frontmatter
 	if !strings.HasPrefix(content, "---") {
 		// No frontmatter, treat entire file as prompt
-		name := strings.TrimSuffix(filepath.Base(path), ".md")
 		return &Skill{
-			Name:   name,
+			Name:   slug,
+			Slug:   slug,
 			Prompt: content,
 		}, nil
 	}
@@ -311,10 +309,11 @@ func loadMarkdownSkill(path string) (*Skill, error) {
 
 	// The rest is the prompt
 	skill.Prompt = strings.TrimSpace(parts[1])
+	skill.Slug = slug
 
-	// Default name from filename
+	// Default name from slug
 	if skill.Name == "" {
-		skill.Name = strings.TrimSuffix(filepath.Base(path), ".md")
+		skill.Name = slug
 	}
 
 	return &skill, nil
@@ -333,7 +332,7 @@ func (r *Registry) BuildPromptSection() string {
 	sb.WriteString("Available skills (use the `use_skill` tool to load full instructions):\n\n")
 
 	for _, s := range list {
-		sb.WriteString(fmt.Sprintf("- **%s**", s.Name))
+		sb.WriteString(fmt.Sprintf("- **%s**", s.Slug))
 		if s.Description != "" {
 			sb.WriteString(fmt.Sprintf(": %s", s.Description))
 		}
@@ -343,7 +342,7 @@ func (r *Registry) BuildPromptSection() string {
 	return sb.String()
 }
 
-// SkillNames returns the names of all registered skills.
+// SkillNames returns the slugs of all registered skills.
 func (r *Registry) SkillNames() []string {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
@@ -354,7 +353,7 @@ func (r *Registry) SkillNames() []string {
 	return names
 }
 
-// GetSkillPrompt returns the full prompt and directory for a skill by name.
+// GetSkillPrompt returns the full prompt and directory for a skill by slug.
 func (r *Registry) GetSkillPrompt(name string) (prompt string, dir string, ok bool) {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
