@@ -108,6 +108,11 @@ func (t *Thread) RunOnce(ctx context.Context) {
 		if sink.IsZero() {
 			sink = t.defaultSink
 		}
+		// System-initiated wakes: suppress intermediate delivery (streaming +
+		// OnMessage) while keeping final response delivery via OnFinalResponse.
+		if messageVisibility(msg.Source) == "assistant-only" {
+			sink = sink.WithoutStreaming()
+		}
 		// Resolve delivery label for the AI prompt.
 		deliveryLabel := ""
 		if !msg.Sink.IsZero() {

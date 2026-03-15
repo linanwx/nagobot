@@ -62,6 +62,14 @@ type Sink struct {
 // IsZero reports whether the sink has no delivery function.
 func (s Sink) IsZero() bool { return s.Send == nil }
 
+// WithoutStreaming returns a copy with Chunkable disabled, suppressing
+// streaming deltas and intermediate content delivery while keeping
+// final response delivery intact.
+func (s Sink) WithoutStreaming() Sink {
+	s.Chunkable = false
+	return s
+}
+
 // WithRetry wraps the sink's Send with exponential-backoff retry logic.
 func (s Sink) WithRetry(maxAttempts int) Sink {
 	original := s.Send
