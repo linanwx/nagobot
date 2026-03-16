@@ -452,8 +452,17 @@ func (p *DeepSeekProvider) chatStream(ctx context.Context, req *Request, dsReq d
 // ---------- helpers ----------
 
 func toDSMessages(messages []Message) []dsMessage {
+	// DeepSeek only allows reasoning_content on the last assistant message.
+	lastAssistantIdx := -1
+	for i := len(messages) - 1; i >= 0; i-- {
+		if messages[i].Role == "assistant" {
+			lastAssistantIdx = i
+			break
+		}
+	}
+
 	out := make([]dsMessage, 0, len(messages))
-	for _, m := range messages {
+	for i, m := range messages {
 		dm := dsMessage{
 			Role:       m.Role,
 			ToolCallID: m.ToolCallID,
@@ -464,7 +473,9 @@ func toDSMessages(messages []Message) []dsMessage {
 			if m.Content != "" {
 				dm.Content = &m.Content
 			}
-			if m.ReasoningContent != "" {
+			// Only the last assistant message may carry reasoning_content,
+			// and only when it has no tool_calls (mid-loop messages must not).
+			if i == lastAssistantIdx && m.ReasoningContent != "" && len(m.ToolCalls) == 0 {
 				dm.ReasoningContent = &m.ReasoningContent
 			}
 			dm.ToolCalls = m.ToolCalls

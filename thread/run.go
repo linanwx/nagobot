@@ -274,14 +274,19 @@ func isUserFacingContent(s string) bool {
 	return true
 }
 
-// ApplyCompressed returns a copy of messages with Compressed content applied.
-// For messages that have a Compressed field, Content is replaced so the LLM
-// sees the compressed version. The original session data is not modified.
+// ApplyCompressed returns a copy of messages with compression applied.
+// For messages that have a Compressed field, Content is replaced.
+// For messages marked ReasoningTrimmed, reasoning fields are cleared.
+// The original session data is not modified.
 func ApplyCompressed(msgs []provider.Message) []provider.Message {
 	result := make([]provider.Message, len(msgs))
 	for i, m := range msgs {
 		if m.Compressed != "" {
 			m.Content = m.Compressed
+		}
+		if m.ReasoningTrimmed {
+			m.ReasoningContent = ""
+			m.ReasoningDetails = nil
 		}
 		result[i] = m
 	}

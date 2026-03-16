@@ -24,6 +24,7 @@ const (
 
 	skillExpireAge         = time.Hour     // compress use_skill results older than this
 	heartbeatExpireAge     = 6 * time.Hour // compress heartbeat tool results older than this
+	reasoningTrimAge       = 3 * time.Hour // mark reasoning for trimming after this age
 	heartbeatTrimThreshold = 100           // minimum content size to compress heartbeat results
 )
 
@@ -200,6 +201,17 @@ func compressTier1(messages []provider.Message, keepLastAssistants int) (bool, [
 			if strings.HasPrefix(m.Content, "---\n") {
 				newCompressed = computeWakeCompressed(m)
 			}
+		case "assistant":
+			// Mark old reasoning for send-time exclusion (original data preserved).
+			// Uses its own flag (ReasoningTrimmed) instead of Compressed, so skip
+			// the newCompressed check below to avoid accidentally clearing Compressed.
+			if !m.ReasoningTrimmed &&
+				(m.ReasoningContent != "" || len(m.ReasoningDetails) > 0) &&
+				!m.Timestamp.IsZero() && time.Since(m.Timestamp) > reasoningTrimAge {
+				m.ReasoningTrimmed = true
+				modified = true
+			}
+			continue
 		}
 
 		if newCompressed != m.Compressed {

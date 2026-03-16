@@ -325,6 +325,72 @@ func TestCompressTier1_WakeBodyTrimSkipSmall(t *testing.T) {
 	}
 }
 
+func TestCompressTier1_ReasoningTrimmed(t *testing.T) {
+	// Assistant message >3h old with reasoning → should be marked ReasoningTrimmed.
+	messages := []provider.Message{
+		{Role: "assistant", Content: "answer", ReasoningContent: "thinking...", Timestamp: time.Now().Add(-4 * time.Hour)},
+		{Role: "user", Content: "next"},
+		{Role: "assistant", Content: "ok"},
+		{Role: "user", Content: "next2"},
+		{Role: "assistant", Content: "ok2"},
+		{Role: "user", Content: "next3"},
+		{Role: "assistant", Content: "ok3"},
+	}
+
+	modified, result := compressTier1(messages, 3)
+	if !modified {
+		t.Fatal("expected modified=true")
+	}
+
+	m := result[0]
+	if !m.ReasoningTrimmed {
+		t.Error("old assistant reasoning should be marked trimmed")
+	}
+	// Original data must be preserved.
+	if m.ReasoningContent != "thinking..." {
+		t.Error("ReasoningContent should be preserved (not cleared)")
+	}
+}
+
+func TestCompressTier1_ReasoningNotTrimmedRecent(t *testing.T) {
+	// Assistant message <3h old with reasoning → should NOT be marked.
+	messages := []provider.Message{
+		{Role: "assistant", Content: "answer", ReasoningContent: "thinking...", Timestamp: time.Now().Add(-1 * time.Hour)},
+		{Role: "user", Content: "next"},
+		{Role: "assistant", Content: "ok"},
+		{Role: "user", Content: "next2"},
+		{Role: "assistant", Content: "ok2"},
+		{Role: "user", Content: "next3"},
+		{Role: "assistant", Content: "ok3"},
+	}
+
+	_, result := compressTier1(messages, 3)
+	if result[0].ReasoningTrimmed {
+		t.Error("recent assistant reasoning should not be trimmed")
+	}
+}
+
+func TestCompressTier1_ReasoningProtectedByBoundary(t *testing.T) {
+	// Assistant within protectFrom (last 3 assistant turns) should NOT be marked
+	// even if old.
+	messages := []provider.Message{
+		{Role: "user", Content: "q1"},
+		{Role: "assistant", Content: "a1", ReasoningContent: "r1", Timestamp: time.Now().Add(-5 * time.Hour)},
+		{Role: "user", Content: "q2"},
+		{Role: "assistant", Content: "a2", ReasoningContent: "r2", Timestamp: time.Now().Add(-4 * time.Hour)},
+		{Role: "user", Content: "q3"},
+		{Role: "assistant", Content: "a3", ReasoningContent: "r3", Timestamp: time.Now().Add(-4 * time.Hour)},
+	}
+
+	_, result := compressTier1(messages, 3)
+	// All 3 assistants are within protectFrom (only 3 assistant turns total).
+	for i, m := range result {
+		if m.Role == "assistant" && m.ReasoningTrimmed {
+			t.Errorf("message %d: protected assistant should not be trimmed", i)
+		}
+	}
+}
+
 func TestSoftTrimWithHint_SkipWhenNotSmallEnough(t *testing.T) {
 	// Content barely above threshold (3064 chars) → overhead makes result larger → should skip.
 	content := strings.Repeat("x", 3064)
