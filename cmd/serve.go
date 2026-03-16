@@ -85,9 +85,7 @@ func runServe(cmd *cobra.Command, args []string) error {
 	socketCh.SetRPCHandler(func(method string, params json.RawMessage) (any, error) {
 		switch method {
 		case "sessions.list":
-			var p struct {
-				Days int `json:"days"`
-			}
+			var p listSessionsOpts
 			_ = json.Unmarshal(params, &p)
 			if p.Days == 0 {
 				p.Days = 2
@@ -97,7 +95,7 @@ func runServe(cmd *cobra.Command, args []string) error {
 			if err != nil {
 				return nil, fmt.Errorf("load config: %w", err)
 			}
-			output, err := collectSessions(latestCfg, p.Days)
+			output, err := collectSessions(latestCfg, p)
 			if err != nil {
 				return nil, err
 			}

@@ -50,8 +50,6 @@ exec: {{WORKSPACE}}/bin/nagobot set-summary <key> <summary>
 2. **Filter** — skip:
    - Sessions where `changed_since_summary` is `false` (no new activity since last summary)
    - Sessions where `message_count` is `0` (empty sessions)
-   - `cron:*` sessions (scheduled tasks — no user conversation to summarize)
-   - Keys containing `:threads:` (spawned child threads — summarize the parent instead)
 
 3. **For each qualifying session**:
    - Run `sample-session <key>` to read a representative sample of the conversation.

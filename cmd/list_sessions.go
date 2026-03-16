@@ -15,7 +15,11 @@ import (
 	"github.com/spf13/cobra"
 )
 
-var listSessionsDays int
+var (
+	listSessionsDays     int
+	listSessionsUserOnly bool
+	listSessionsFields   string
+)
 
 var listSessionsCmd = &cobra.Command{
 	Use:     "list-sessions",
@@ -26,6 +30,8 @@ var listSessionsCmd = &cobra.Command{
 
 func init() {
 	listSessionsCmd.Flags().IntVar(&listSessionsDays, "days", 2, "Only show sessions active within N days")
+	listSessionsCmd.Flags().BoolVar(&listSessionsUserOnly, "user-only", false, "Exclude cron:* and :threads: sessions")
+	listSessionsCmd.Flags().StringVar(&listSessionsFields, "fields", "", "Comma-separated list of fields to include (e.g. key,is_running,has_heartbeat)")
 	rootCmd.AddCommand(listSessionsCmd)
 }
 
@@ -56,31 +62,79 @@ func runListSessions(_ *cobra.Command, _ []string) error {
 		return fmt.Errorf("failed to load config: %w", err)
 	}
 
+	opts := listSessionsOpts{
+		Days:     listSessionsDays,
+		UserOnly: listSessionsUserOnly,
+	}
+
 	// Try RPC to running serve process first.
-	result, err := rpcCall("sessions.list", map[string]int{"days": listSessionsDays})
+	result, err := rpcCall("sessions.list", opts)
 	if err == nil {
 		var output listSessionsOutput
 		if jsonErr := json.Unmarshal(result, &output); jsonErr == nil {
-			enc := json.NewEncoder(os.Stdout)
-			enc.SetIndent("", "  ")
-			return enc.Encode(output)
+			applyUserOnlyFilter(&output, opts.UserOnly)
+			return encodeSessionsOutput(&output)
 		}
 	}
 
 	// Fallback to file scanning.
-	output, err := collectSessions(cfg, listSessionsDays)
+	output, err := collectSessions(cfg, opts)
 	if err != nil {
 		return err
 	}
+	return encodeSessionsOutput(output)
+}
 
+// listSessionsOpts holds query parameters for list-sessions.
+type listSessionsOpts struct {
+	Days     int  `json:"days"`
+	UserOnly bool `json:"user_only,omitempty"`
+}
+
+// encodeSessionsOutput writes the output as JSON, applying --fields filtering if set.
+func encodeSessionsOutput(output *listSessionsOutput) error {
+	if listSessionsFields == "" {
+		enc := json.NewEncoder(os.Stdout)
+		enc.SetIndent("", "  ")
+		return enc.Encode(output)
+	}
+
+	fields := make(map[string]bool)
+	for _, f := range strings.Split(listSessionsFields, ",") {
+		fields[strings.TrimSpace(f)] = true
+	}
+
+	// Re-encode each session entry through map to filter fields.
+	var filtered []map[string]any
+	for _, s := range output.Sessions {
+		raw, _ := json.Marshal(s)
+		var m map[string]any
+		_ = json.Unmarshal(raw, &m)
+		out := make(map[string]any, len(fields))
+		for k, v := range m {
+			if fields[k] {
+				out[k] = v
+			}
+		}
+		filtered = append(filtered, out)
+	}
+	if filtered == nil {
+		filtered = []map[string]any{}
+	}
+
+	wrapper := map[string]any{
+		"sessions":       filtered,
+		"shown_sessions": len(filtered),
+	}
 	enc := json.NewEncoder(os.Stdout)
 	enc.SetIndent("", "  ")
-	return enc.Encode(output)
+	return enc.Encode(wrapper)
 }
 
 // collectSessions scans session files on disk and returns a summary.
 // IsRunning defaults to false (only populated via RPC from a running serve).
-func collectSessions(cfg *config.Config, days int) (*listSessionsOutput, error) {
+func collectSessions(cfg *config.Config, opts listSessionsOpts) (*listSessionsOutput, error) {
+	days := opts.Days
 	workspace, err := cfg.WorkspacePath()
 	if err != nil {
 		return nil, fmt.Errorf("failed to get workspace: %w", err)
@@ -106,6 +160,10 @@ func collectSessions(cfg *config.Config, days int) (*listSessionsOutput, error) 
 		}
 		key := deriveSessionKey(sessionsDir, path)
 		total++
+
+		if opts.UserOnly && (strings.HasPrefix(key, "cron:") || strings.Contains(key, ":threads:")) {
+			return nil
+		}
 
 		updatedAt := s.UpdatedAt
 		if updatedAt.IsZero() || updatedAt.Before(cutoff) {
@@ -172,6 +230,22 @@ func collectSessions(cfg *config.Config, days int) (*listSessionsOutput, error) 
 	}
 
 	return output, nil
+}
+
+// applyUserOnlyFilter removes cron:* and :threads: sessions in-place when userOnly is true.
+func applyUserOnlyFilter(output *listSessionsOutput, userOnly bool) {
+	if !userOnly {
+		return
+	}
+	filtered := output.Sessions[:0]
+	for _, s := range output.Sessions {
+		if strings.HasPrefix(s.Key, "cron:") || strings.Contains(s.Key, ":threads:") || s.LastUserActiveAt == nil {
+			continue
+		}
+		filtered = append(filtered, s)
+	}
+	output.Sessions = filtered
+	output.ShownSessions = len(filtered)
 }
 
 // enrichWithThreads fills IsRunning from live thread state.

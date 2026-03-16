@@ -28,13 +28,11 @@ Data flow: `session.jsonl` → reflect → `heartbeat.md` → wake → user
 
 ## Workflow
 
-1. **List sessions**: Run `{{WORKSPACE}}/bin/nagobot list-sessions --days 2` to discover recent sessions.
+1. **List sessions**: Run `{{WORKSPACE}}/bin/nagobot list-sessions --days 2 --user-only --fields key,is_running,has_heartbeat,last_user_active_at` to discover recent user sessions.
 
-2. **Filter to real user sessions only** — skip:
-   - `cron:*` (scheduled tasks)
-   - Keys containing `:threads:` (spawned child threads)
+2. **Filter** — skip:
    - Sessions with `is_running: true` (currently executing — don't interrupt)
-   - Sessions where `last_user_active_at` is null (no real user conversation) or the user hasn't been active recently (e.g. 24 hours — adjust based on session context)
+   - Sessions where the user hasn't been active recently (e.g. 24 hours — adjust based on session context)
 
 3. **For each qualifying session**, read `system/heartbeat-state.json` from the workspace to check timing:
    ```json

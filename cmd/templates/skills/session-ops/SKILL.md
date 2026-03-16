@@ -12,10 +12,12 @@ CLI commands for inspecting, summarizing, and configuring sessions. All commands
 List all sessions with summary status. Filtered by recent activity.
 
 ```
-exec: {{WORKSPACE}}/bin/nagobot list-sessions [--days N]
+exec: {{WORKSPACE}}/bin/nagobot list-sessions [--days N] [--user-only] [--fields f1,f2,...]
 ```
 
 - `--days N`: Only show sessions active within N days (default: 2)
+- `--user-only`: Exclude `cron:*` and `:threads:` sessions (only real user sessions)
+- `--fields f1,f2,...`: Only include specified fields per session (e.g. `key,is_running,has_heartbeat`)
 
 Output: JSON with fields per session:
 - `key`: Session identifier (e.g. `telegram:12345`, `cli`)
