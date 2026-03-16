@@ -1257,7 +1257,9 @@
 
       function timeAgo(dateStr) {
         if (!dateStr) return "";
-        const diff = Date.now() - new Date(dateStr).getTime();
+        const d = new Date(dateStr);
+        if (isNaN(d.getTime()) || d.getFullYear() <= 1) return "";
+        const diff = Date.now() - d.getTime();
         if (diff < 0) return "just now";
         const s = Math.floor(diff / 1000);
         if (s < 60) return s + "s ago";
