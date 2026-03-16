@@ -111,9 +111,15 @@ var openRouterModels = map[string]openRouterModelMeta{
 		ProviderOrder: []string{"anthropic"},
 	},
 	"z-ai/glm-5": {
+		ThinkingOpts: []oaioption.RequestOption{
+			oaioption.WithJSONSet("reasoning", map[string]any{"effort": "high"}),
+		},
 		ProviderOrder: []string{"z-ai"},
 	},
 	"minimax/minimax-m2.5": {
+		ThinkingOpts: []oaioption.RequestOption{
+			oaioption.WithJSONSet("reasoning", map[string]any{"effort": "high"}),
+		},
 		ProviderOrder: []string{"minimax/fp8"},
 	},
 	"qwen/qwen3.5-35b-a3b": {
@@ -129,6 +135,9 @@ var openRouterModels = map[string]openRouterModelMeta{
 		ProviderOrder: []string{"google-ai-studio"},
 	},
 	"openrouter/hunter-alpha": {
+		ThinkingOpts: []oaioption.RequestOption{
+			oaioption.WithJSONSet("reasoning", map[string]any{"effort": "high"}),
+		},
 		ProviderOrder: []string{"Stealth"},
 	},
 	"openrouter/healer-alpha": {

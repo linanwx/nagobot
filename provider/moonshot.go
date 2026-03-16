@@ -131,7 +131,13 @@ func (p *MoonshotProvider) Chat(ctx context.Context, req *Request) (*Response, e
 		)
 	}
 
-	chatResp, err := p.client.Chat.Completions.New(ctx, chatReq)
+	var requestOpts []oaioption.RequestOption
+	if strings.TrimSpace(p.modelType) == "kimi-k2.5" {
+		requestOpts = append(requestOpts,
+			oaioption.WithJSONSet("extra_body.chat_template_kwargs.thinking", true),
+		)
+	}
+	chatResp, err := p.client.Chat.Completions.New(ctx, chatReq, requestOpts...)
 	if err != nil {
 		logger.Error("moonshot request send error", "provider", p.providerName, "err", err)
 		return nil, fmt.Errorf("request failed: %w", err)
