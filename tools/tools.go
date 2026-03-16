@@ -160,7 +160,6 @@ func (r *Registry) RegisterDefaultTools(workspace string, cfg DefaultToolsConfig
 	r.Register(&HealthTool{Workspace: workspace})
 	r.Register(&WebSearchTool{defaultMaxResults: cfg.WebSearchMaxResults, providers: cfg.SearchProviders})
 	r.Register(&WebFetchTool{providers: cfg.FetchProviders})
-	r.Register(&ReadImageTool{workspace: workspace})
 	if cfg.Skills != nil {
 		r.Register(NewUseSkillTool(cfg.Skills))
 	}

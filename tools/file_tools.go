@@ -37,10 +37,10 @@ func (t *ReadFileTool) Def() provider.ToolDef {
 		Type: "function",
 		Function: provider.FunctionDef{
 			Name: "read_file",
-			Description: "Read lines from a file. Returns up to 2000 lines starting from offset (default 1). " +
-				"If the file has more lines than the limit, a notice is appended showing total line count " +
-				"so you can make follow-up calls with offset to read the rest. " +
-				"Use tail to read the last N lines of the file (offset and limit are ignored when tail is set).",
+			Description: "Read a file. Automatically detects file type: text files are returned with line numbers " +
+				"and pagination, images are analyzed if the model supports vision or delegated to the imagereader agent, " +
+				"and binary files are rejected with an error. " +
+				"Use tail to read the last N lines of a text file (offset and limit are ignored when tail is set).",
 			Parameters: map[string]any{
 				"type": "object",
 				"properties": map[string]any{
@@ -98,12 +98,41 @@ func (t *ReadFileTool) Run(ctx context.Context, args json.RawMessage) string {
 		return toolError("read_file", fmt.Sprintf("path is a directory, not a file: %s", formatResolvedPath(a.Path, resolvedPath)))
 	}
 
-	content, err := os.ReadFile(path)
+	// Detect file type and dispatch accordingly.
+	fileType, mimeType := DetectFileType(path)
+	switch fileType {
+	case FileTypeImage:
+		return t.handleImage(ctx, resolvedPath, mimeType, info.Size())
+	case FileTypeBinary:
+		return toolError("read_file", fmt.Sprintf("binary file (%s), cannot read as text: %s", mimeType, resolvedPath))
+	default:
+		return t.handleText(a, path, resolvedPath)
+	}
+}
+
+// handleImage returns image data for vision-capable models or delegation guidance.
+// absPath must be an absolute path (used for both display and media markers).
+func (t *ReadFileTool) handleImage(ctx context.Context, absPath, mimeType string, size int64) string {
+	fields := map[string]any{"path": absPath, "type": mimeType, "size": size}
+	rt := RuntimeContextFrom(ctx)
+	if !rt.SupportsVision {
+		return toolResult("read_file", fields,
+			"This is an image file. You cannot view images directly. "+
+				"Use the spawn_thread tool to delegate to the 'imagereader' agent, "+
+				"passing the original user message as the task.")
+	}
+	return toolResult("read_file", fields, fmt.Sprintf("<<media:%s:%s>>", mimeType, absPath))
+}
+
+// handleText reads a text file with line-based pagination.
+// filePath is the workspace-resolved path for reading; absPath is the absolute path for display.
+func (t *ReadFileTool) handleText(a readFileArgs, filePath, absPath string) string {
+	content, err := os.ReadFile(filePath)
 	if err != nil {
-		return toolError("read_file", fmt.Sprintf("failed to read file: %s: %v", formatResolvedPath(a.Path, resolvedPath), err))
+		return toolError("read_file", fmt.Sprintf("failed to read file: %s: %v", formatResolvedPath(a.Path, absPath), err))
 	}
 	if len(content) == 0 {
-		return toolError("read_file", fmt.Sprintf("file exists but is empty: %s", resolvedPath))
+		return toolError("read_file", fmt.Sprintf("file exists but is empty: %s", absPath))
 	}
 
 	allLines := strings.Split(string(content), "\n")
@@ -112,14 +141,12 @@ func (t *ReadFileTool) Run(ctx context.Context, args json.RawMessage) string {
 	var startIdx, endIdx int
 
 	if a.Tail > 0 {
-		// tail mode: read last N lines
 		startIdx = totalLines - a.Tail
 		if startIdx < 0 {
 			startIdx = 0
 		}
 		endIdx = totalLines
 	} else {
-		// normal mode: offset + limit
 		offset := a.Offset
 		if offset <= 0 {
 			offset = 1
@@ -140,7 +167,7 @@ func (t *ReadFileTool) Run(ctx context.Context, args json.RawMessage) string {
 	}
 
 	fields := map[string]any{
-		"path":  resolvedPath,
+		"path":  absPath,
 		"lines": fmt.Sprintf("%d-%d", startIdx+1, endIdx),
 		"total": totalLines,
 	}
