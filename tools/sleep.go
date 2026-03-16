@@ -33,11 +33,14 @@ func (t *SleepThreadTool) Def() provider.ToolDef {
 		Type: "function",
 		Function: provider.FunctionDef{
 			Name: "sleep_thread",
-			Description: "Suppress output and put the current thread to sleep with a scheduled wake-up, " +
-				"or mute the current turn without scheduling a wake-up (skip mode). " +
+			Description: "Suppress output for the CURRENT turn and optionally schedule a future wake-up. " +
+				"Two modes: (1) sleep mode (default) — schedules an extra cron wake-up after the specified duration; " +
+				"(2) skip mode (skip=true) — suppresses output only, no wake-up scheduled. " +
 				"Use when: the message is not directed at you, someone else is talking in a group chat, " +
 				"the wake timing is wrong, or you need to pause before responding. " +
-				"After calling this tool, your output for this turn will be suppressed — the user will NOT receive any message.",
+				"IMPORTANT: Only the current turn is suppressed. Future wakes from heartbeat, cron, or user messages " +
+				"are NOT affected — they still fire on their normal schedule. " +
+				"Sleep mode does NOT block other wakes; it only adds one extra wake-up at the specified time.",
 			Parameters: map[string]any{
 				"type": "object",
 				"properties": map[string]any{
@@ -85,7 +88,8 @@ func (t *SleepThreadTool) Run(_ context.Context, args json.RawMessage) string {
 		return toolResult("sleep_thread", map[string]any{
 			"mode": "skip",
 		}, "WARNING: This tool call terminates the current reasoning loop immediately. "+
-			"No wake scheduled. All output for this turn is suppressed — the user will NOT receive any message.")
+			"No wake scheduled. All output for this turn is suppressed — the user will NOT receive any message. "+
+			"This does NOT affect future turns — heartbeat, cron, and user messages will still trigger normally.")
 	}
 
 	// Default duration: 2 minutes.
@@ -124,5 +128,6 @@ func (t *SleepThreadTool) Run(_ context.Context, args json.RawMessage) string {
 		"message":   message,
 	}, "WARNING: This tool call terminates the current reasoning loop immediately. "+
 		"All output for this turn is suppressed — the user will NOT receive any message. "+
-		"The cron scheduler will wake this thread at the specified time.")
+		"The cron scheduler will wake this thread at the specified time. "+
+		"This does NOT affect future turns — heartbeat, cron, and user messages will still trigger normally.")
 }
