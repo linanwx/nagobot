@@ -299,6 +299,18 @@ func ApplyCompressed(msgs []provider.Message) []provider.Message {
 	return result
 }
 
+// ApplyCompressedMessage applies compression to a single message (content + reasoning).
+func ApplyCompressedMessage(m provider.Message) provider.Message {
+	if m.Compressed != "" {
+		m.Content = m.Compressed
+	}
+	if m.ReasoningTrimmed {
+		m.ReasoningContent = ""
+		m.ReasoningDetails = nil
+	}
+	return m
+}
+
 // resolvedModelConfig returns the model config for the current agent's model type,
 // or nil if the agent uses the default provider.
 // Uses ModelsFn for hot-reload if available, falling back to the startup snapshot.
