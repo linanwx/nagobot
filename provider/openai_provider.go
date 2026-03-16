@@ -176,14 +176,19 @@ func (p *OpenAIProvider) buildRequestBody(req *Request) ([]byte, error) {
 					},
 				})
 			}
-			// Insert reasoning items before function_calls if not trimmed.
+			// Insert OpenAI reasoning items before function_calls if not trimmed.
+			// Only include items with type="reasoning" — ReasoningDetails from other
+			// providers (Anthropic thinking blocks, Gemini thought_signature) have
+			// different formats and must be skipped.
 			if !msg.ReasoningTrimmed && len(msg.ReasoningDetails) > 0 {
 				var items []json.RawMessage
 				if err := json.Unmarshal(msg.ReasoningDetails, &items); err == nil {
 					for _, raw := range items {
 						var ri map[string]any
 						if err := json.Unmarshal(raw, &ri); err == nil {
-							input = append(input, ri)
+							if riType, _ := ri["type"].(string); riType == "reasoning" {
+								input = append(input, ri)
+							}
 						}
 					}
 				}
