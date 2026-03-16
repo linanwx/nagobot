@@ -247,6 +247,7 @@ func (p *OpenAIProvider) buildRequestBody(req *Request) ([]byte, error) {
 		"input":  input,
 		"stream": true,
 		"store":  false,
+		"include": []string{"reasoning.encrypted_content"},
 		"reasoning": map[string]any{
 			"effort":  "high",
 			"summary": "auto",
