@@ -12,11 +12,12 @@ CLI commands for inspecting, summarizing, and configuring sessions. All commands
 List all sessions with summary status. Filtered by recent activity.
 
 ```
-exec: {{WORKSPACE}}/bin/nagobot list-sessions [--days N] [--user-only] [--fields f1,f2,...]
+exec: {{WORKSPACE}}/bin/nagobot list-sessions [--days N] [--user-only] [--changed-only] [--fields f1,f2,...]
 ```
 
 - `--days N`: Only show sessions active within N days (default: 2)
 - `--user-only`: Exclude `cron:*` and `:threads:` sessions (only real user sessions)
+- `--changed-only`: Exclude sessions with `changed_since_summary=false` or `message_count=0`
 - `--fields f1,f2,...`: Only include specified fields per session (e.g. `key,is_running,has_heartbeat`)
 
 Output: JSON with fields per session:
@@ -60,7 +61,7 @@ exec: {{WORKSPACE}}/bin/nagobot sample-session <key> [--count N]
 - `<key>`: Session key
 - `--count N`: Number of messages to sample (default: 20)
 
-Sampling is **deterministic** (no randomness): messages are picked at evenly spaced intervals. The output header explains the sampling mechanism. Each message shows its original position index `[N]` in the filtered sequence.
+Sampling is **deterministic** (no randomness): messages are picked at evenly spaced intervals. The output header explains the sampling mechanism. Each message shows its original position index `[N]` in the filtered sequence. YAML frontmatter in messages is automatically stripped. After the sampled messages, the last 5 recent messages not already in the sample are appended.
 
 ## set-summary
 

@@ -2,9 +2,11 @@ package cmd
 
 import (
 	"fmt"
+	"slices"
 	"strings"
 
 	"github.com/linanwx/nagobot/config"
+	"github.com/linanwx/nagobot/thread"
 	"github.com/linanwx/nagobot/tools"
 	"github.com/spf13/cobra"
 )
@@ -59,12 +61,35 @@ func runSampleSession(_ *cobra.Command, args []string) error {
 		step = fmt.Sprintf("every %d", filteredCount/count)
 	}
 
+	// Track sampled indices to avoid duplicates in tail section.
+	sampledSet := make(map[int]bool, len(indices))
+	for _, idx := range indices {
+		sampledSet[idx] = true
+	}
+
 	var sb strings.Builder
 	for _, idx := range indices {
 		m := filtered[idx]
-		content, _ := truncateContent(m.Content, defaultTruncateLen)
-		msgID := messageIDOrDash(m.ID)
-		fmt.Fprintf(&sb, "[%d] (%s) %s: %s\n", idx+1, msgID, m.Role, content)
+		content, _ := truncateContent(bodyFromFrontmatter(m.Content), defaultTruncateLen)
+		fmt.Fprintf(&sb, "[%d] %s: %s\n", idx+1, m.Role, content)
+	}
+
+	// Append last 5 messages not already sampled.
+	const tailCount = 5
+	var tailMessages []int
+	for i := filteredCount - 1; i >= 0 && len(tailMessages) < tailCount; i-- {
+		if !sampledSet[i] {
+			tailMessages = append(tailMessages, i)
+		}
+	}
+	if len(tailMessages) > 0 {
+		slices.Reverse(tailMessages)
+		sb.WriteString("\n--- recent (last 5 not in sample) ---\n")
+		for _, idx := range tailMessages {
+			m := filtered[idx]
+			content, _ := truncateContent(bodyFromFrontmatter(m.Content), defaultTruncateLen)
+			fmt.Fprintf(&sb, "[%d] %s: %s\n", idx+1, m.Role, content)
+		}
 	}
 
 	fmt.Print(tools.CmdResult("sample-session", map[string]any{
@@ -75,6 +100,14 @@ func runSampleSession(_ *cobra.Command, args []string) error {
 		"step":     step,
 	}, sb.String()))
 	return nil
+}
+
+// bodyFromFrontmatter strips YAML frontmatter if present, returning only the body.
+func bodyFromFrontmatter(content string) string {
+	if _, body, ok := thread.SplitFrontmatter(content); ok {
+		return body
+	}
+	return content
 }
 
 // evenlySpacedIndices returns count evenly-spaced indices from [0, total).

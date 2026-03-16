@@ -16,9 +16,10 @@ import (
 )
 
 var (
-	listSessionsDays     int
-	listSessionsUserOnly bool
-	listSessionsFields   string
+	listSessionsDays        int
+	listSessionsUserOnly    bool
+	listSessionsChangedOnly bool
+	listSessionsFields      string
 )
 
 var listSessionsCmd = &cobra.Command{
@@ -31,6 +32,7 @@ var listSessionsCmd = &cobra.Command{
 func init() {
 	listSessionsCmd.Flags().IntVar(&listSessionsDays, "days", 2, "Only show sessions active within N days")
 	listSessionsCmd.Flags().BoolVar(&listSessionsUserOnly, "user-only", false, "Exclude cron:*, :threads:, and sessions without user activity")
+	listSessionsCmd.Flags().BoolVar(&listSessionsChangedOnly, "changed-only", false, "Exclude sessions with changed_since_summary=false or message_count=0")
 	listSessionsCmd.Flags().StringVar(&listSessionsFields, "fields", "", "Comma-separated list of fields to include (e.g. key,is_running,has_heartbeat)")
 	rootCmd.AddCommand(listSessionsCmd)
 }
@@ -63,8 +65,9 @@ func runListSessions(_ *cobra.Command, _ []string) error {
 	}
 
 	opts := listSessionsOpts{
-		Days:     listSessionsDays,
-		UserOnly: listSessionsUserOnly,
+		Days:        listSessionsDays,
+		UserOnly:    listSessionsUserOnly,
+		ChangedOnly: listSessionsChangedOnly,
 	}
 
 	// Try RPC to running serve process first.
@@ -72,7 +75,7 @@ func runListSessions(_ *cobra.Command, _ []string) error {
 	if err == nil {
 		var output listSessionsOutput
 		if jsonErr := json.Unmarshal(result, &output); jsonErr == nil {
-			applyUserOnlyFilter(&output, opts.UserOnly)
+			applyPostFilters(&output, opts)
 			return encodeSessionsOutput(&output)
 		}
 	}
@@ -87,8 +90,9 @@ func runListSessions(_ *cobra.Command, _ []string) error {
 
 // listSessionsOpts holds query parameters for list-sessions.
 type listSessionsOpts struct {
-	Days     int  `json:"days"`
-	UserOnly bool `json:"user_only,omitempty"`
+	Days        int  `json:"days"`
+	UserOnly    bool `json:"user_only,omitempty"`
+	ChangedOnly bool `json:"changed_only,omitempty"`
 }
 
 // encodeSessionsOutput writes the output as JSON, applying --fields filtering if set.
@@ -222,6 +226,10 @@ func collectSessions(cfg *config.Config, opts listSessionsOpts) (*listSessionsOu
 			entry.ChangedSinceSummary = true
 		}
 
+		if opts.ChangedOnly && (!entry.ChangedSinceSummary || entry.MessageCount == 0) {
+			return nil
+		}
+
 		all = append(all, entry)
 		return nil
 	})
@@ -239,16 +247,18 @@ func collectSessions(cfg *config.Config, opts listSessionsOpts) (*listSessionsOu
 	return output, nil
 }
 
-// applyUserOnlyFilter removes non-user sessions in-place when userOnly is true.
-// Mirrors the filtering in collectSessions for the RPC path (where the serve
-// process may not support opts.UserOnly yet).
-func applyUserOnlyFilter(output *listSessionsOutput, userOnly bool) {
-	if !userOnly {
+// applyPostFilters applies client-side filters (user-only, changed-only) to RPC results.
+// Mirrors the filtering in collectSessions for the RPC path.
+func applyPostFilters(output *listSessionsOutput, opts listSessionsOpts) {
+	if !opts.UserOnly && !opts.ChangedOnly {
 		return
 	}
 	filtered := output.Sessions[:0]
 	for _, s := range output.Sessions {
-		if isExcludedByUserOnly(s.Key, s.LastUserActiveAt) {
+		if opts.UserOnly && isExcludedByUserOnly(s.Key, s.LastUserActiveAt) {
+			continue
+		}
+		if opts.ChangedOnly && (!s.ChangedSinceSummary || s.MessageCount == 0) {
 			continue
 		}
 		filtered = append(filtered, s)

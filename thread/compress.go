@@ -268,7 +268,7 @@ func computeToolCompressed(m *provider.Message, idx int, lastSkillLoad map[strin
 // Strips redundant fields (thread/session/delivery/action) and compresses large assistant-only bodies.
 // Returns "" if no compression is needed.
 func computeWakeCompressed(m *provider.Message) string {
-	yamlBlock, body, ok := splitFrontmatter(m.Content)
+	yamlBlock, body, ok := SplitFrontmatter(m.Content)
 	if !ok {
 		return ""
 	}
@@ -319,8 +319,8 @@ var wakeTrimKeys = map[string]bool{
 	"thread": true, "session": true, "session_dir": true, "delivery": true, "action": true,
 }
 
-// splitFrontmatter splits a YAML-frontmatter-wrapped string into its YAML block and body.
-func splitFrontmatter(content string) (yamlBlock, body string, ok bool) {
+// SplitFrontmatter splits a YAML-frontmatter-wrapped string into its YAML block and body.
+func SplitFrontmatter(content string) (yamlBlock, body string, ok bool) {
 	if !strings.HasPrefix(content, "---\n") {
 		return
 	}
