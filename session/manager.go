@@ -13,9 +13,9 @@ import (
 )
 
 // generateMessageID produces a unique, timestamp-ordered message ID.
-// Format: sessionKey:unixMillis:seq (e.g. "telegram:123456:1709571234567:001").
+// Format: sessionKey:unixMillis:hash (e.g. "telegram:123456:1709571234567:000001").
 func generateMessageID(sessionKey string, ts time.Time, seq int) string {
-	return fmt.Sprintf("%s:%d:%03d", sessionKey, ts.UnixMilli(), seq)
+	return fmt.Sprintf("%s:%d:%06d", sessionKey, ts.UnixMilli(), seq)
 }
 
 // EnsureMessageIDs assigns timestamps and IDs to messages that lack them.
@@ -32,14 +32,14 @@ func EnsureMessageIDs(key string, messages []provider.Message) {
 	}
 }
 
-// msgHash returns a 0-999 hash from message content for stable ID generation.
+// msgHash returns a 0-999999 hash from message content for stable ID generation.
 func msgHash(m provider.Message) int {
 	var h uint32 = 2166136261 // FNV-1a offset basis
 	for _, b := range []byte(m.Role + "\x00" + m.Content + "\x00" + m.ToolCallID) {
 		h ^= uint32(b)
 		h *= 16777619
 	}
-	return int(h % 1000)
+	return int(h % 1000000)
 }
 
 // Session represents a conversation session.

@@ -112,6 +112,7 @@ type Thread struct {
 
 	mu           sync.Mutex
 	hooks        []turnHook
+	pending      []*WakeMessage // Non-mergeable messages deferred by tryMerge (avoids channel requeue deadlock).
 	defaultSink  Sink      // Fallback sink when WakeMessage.Sink is nil.
 	lastActiveAt     time.Time      // Last time this thread completed work (used by GC).
 	lastUserActiveAt time.Time      // Last time a real user interacted (used by compression).

@@ -172,12 +172,18 @@ func (t *Thread) executeRunner(ctx, runCtx context.Context, p provider.Provider,
 	if !sink.IsZero() && sink.Chunkable {
 		streamer = NewMarkdownStreamer(sink, ctx, streamFlushThreshold)
 		runner.OnText(func(delta string) {
+			if ctx.Err() != nil {
+				return
+			}
 			if !t.isSuppressSink() {
 				chatStreamed = true
 				streamer.OnDelta(delta)
 			}
 		})
 		runner.OnChatEnd(func() {
+			if ctx.Err() != nil {
+				return
+			}
 			if !t.isSuppressSink() {
 				streamer.Flush()
 			}

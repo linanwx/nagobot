@@ -25,17 +25,20 @@ func (t *Thread) Enqueue(msg *WakeMessage) {
 	}
 }
 
-// hasMessages returns true if the thread's inbox has pending messages.
+// hasMessages returns true if the thread's inbox has pending messages
+// or there are deferred messages from a previous tryMerge.
 func (t *Thread) hasMessages() bool {
-	return len(t.inbox) > 0
+	return len(t.pending) > 0 || len(t.inbox) > 0
 }
 
 // tryMerge drains the inbox for consecutive messages with the same
 // Source + AgentName + Vars, concatenating their Message fields and
-// keeping the last Sink.  Non-mergeable messages are re-enqueued.
+// keeping the last Sink.  Non-mergeable messages are stored in t.pending
+// (instead of requeuing to the channel) to avoid deadlock when the inbox
+// buffer is full.
 func (t *Thread) tryMerge(first *WakeMessage) *WakeMessage {
 	merged := 0
-	var requeue []*WakeMessage
+	var deferred []*WakeMessage
 	for {
 		select {
 		case next := <-t.inbox:
@@ -44,19 +47,19 @@ func (t *Thread) tryMerge(first *WakeMessage) *WakeMessage {
 				first.Sink = next.Sink
 				merged++
 			} else {
-				requeue = append(requeue, next)
+				deferred = append(deferred, next)
 			}
 		default:
-			for _, m := range requeue {
-				t.inbox <- m
-			}
+			// Store non-mergeable messages for the next RunOnce call
+			// rather than pushing them back into the channel.
+			t.pending = append(t.pending, deferred...)
 			if merged > 0 {
 				logger.Info("merged wake messages",
 					"threadID", t.id,
 					"sessionKey", t.sessionKey,
 					"source", first.Source,
 					"merged", merged+1,
-					"requeued", len(requeue),
+					"deferred", len(deferred),
 				)
 			}
 			return first
@@ -79,98 +82,115 @@ func canMerge(a, b *WakeMessage) bool {
 	return true
 }
 
+// dequeue returns the next WakeMessage, preferring deferred messages
+// (from a previous tryMerge) over the inbox channel.
+func (t *Thread) dequeue() (*WakeMessage, bool) {
+	if len(t.pending) > 0 {
+		m := t.pending[0]
+		t.pending = t.pending[1:]
+		return m, true
+	}
+	select {
+	case m := <-t.inbox:
+		return m, true
+	default:
+		return nil, false
+	}
+}
+
 // RunOnce dequeues one WakeMessage and executes a single turn.
 func (t *Thread) RunOnce(ctx context.Context) {
-	select {
-	case msg := <-t.inbox:
-		msg = t.tryMerge(msg)
-		t.lastWakeSource = msg.Source
-		if name := strings.TrimSpace(msg.AgentName); name != "" {
-			a, err := t.cfg().Agents.New(name)
-			if err != nil {
-				logger.Warn("agent not found, keeping current agent", "agent", name, "err", err)
-			} else {
-				t.mu.Lock()
-				t.Agent = a
-				t.mu.Unlock()
-			}
+	msg, ok := t.dequeue()
+	if !ok {
+		return
+	}
+	msg = t.tryMerge(msg)
+	t.lastWakeSource = msg.Source
+	if name := strings.TrimSpace(msg.AgentName); name != "" {
+		a, err := t.cfg().Agents.New(name)
+		if err != nil {
+			logger.Warn("agent not found, keeping current agent", "agent", name, "err", err)
+		} else {
+			t.mu.Lock()
+			t.Agent = a
+			t.mu.Unlock()
 		}
-		for k, v := range msg.Vars {
-			t.Set(k, v)
-		}
+	}
+	for k, v := range msg.Vars {
+		t.Set(k, v)
+	}
 
-		// Heartbeat reflection is always silent — suppress sink delivery.
-		if msg.Source == WakeHeartbeatReflect {
-			t.SetSuppressSink()
-		}
+	// Heartbeat reflection is always silent — suppress sink delivery.
+	if msg.Source == WakeHeartbeatReflect {
+		t.SetSuppressSink()
+	}
 
-		// Use per-wake sink; fall back to thread's default sink.
-		sink := msg.Sink
-		if sink.IsZero() {
-			sink = t.defaultSink
-		}
-		// System-initiated wakes: suppress intermediate delivery (streaming +
-		// OnMessage) while keeping final response delivery via OnFinalResponse.
-		if messageVisibility(msg.Source) == "assistant-only" {
-			sink = sink.WithoutStreaming()
-		}
-		// Resolve delivery label for the AI prompt.
-		deliveryLabel := ""
-		if !msg.Sink.IsZero() {
-			deliveryLabel = msg.Sink.Label
-		} else if !t.defaultSink.IsZero() {
-			deliveryLabel = t.defaultSink.Label
-		}
+	// Use per-wake sink; fall back to thread's default sink.
+	sink := msg.Sink
+	if sink.IsZero() {
+		sink = t.defaultSink
+	}
+	// System-initiated wakes: suppress intermediate delivery (streaming +
+	// OnMessage) while keeping final response delivery via OnFinalResponse.
+	if messageVisibility(msg.Source) == "assistant-only" {
+		sink = sink.WithoutStreaming()
+	}
+	// Resolve delivery label for the AI prompt.
+	deliveryLabel := ""
+	if !msg.Sink.IsZero() {
+		deliveryLabel = msg.Sink.Label
+	} else if !t.defaultSink.IsZero() {
+		deliveryLabel = t.defaultSink.Label
+	}
 
-		loc := t.location()
-		prov, mod := t.resolvedProviderModel()
-		modelLabel := prov + "/" + mod
-		sessionDir := t.mgr.SessionDir(t.sessionKey)
-		userMessage := buildWakePayload(msg.Source, msg.Message, t.id, t.sessionKey, sessionDir, deliveryLabel, modelLabel, loc)
+	loc := t.location()
+	prov, mod := t.resolvedProviderModel()
+	modelLabel := prov + "/" + mod
+	sessionDir := t.mgr.SessionDir(t.sessionKey)
+	userMessage := buildWakePayload(msg.Source, msg.Message, t.id, t.sessionKey, sessionDir, deliveryLabel, modelLabel, loc)
 
-		// Build injection function: between tool iterations, drain inbox for
-		// mergeable user messages and inject them into the LLM conversation.
-		injectFn := func() []provider.Message {
-			var injected []provider.Message
-			for {
-				select {
-				case next := <-t.inbox:
-					if canMerge(msg, next) {
-						payload := buildWakePayload(next.Source, next.Message, t.id, t.sessionKey, sessionDir, deliveryLabel, modelLabel, loc)
-						if payload != "" {
-							injected = append(injected, provider.UserMessage(payload))
-							logger.Info("injected mid-execution message",
-								"threadID", t.id,
-								"sessionKey", t.sessionKey,
-								"source", next.Source,
-							)
-						}
-					} else {
-						t.inbox <- next // not mergeable, put back
-						return injected
+	// Build injection function: between tool iterations, drain inbox for
+	// mergeable user messages and inject them into the LLM conversation.
+	// Non-mergeable messages are stored in t.pending to avoid channel
+	// requeue deadlock.
+	injectFn := func() []provider.Message {
+		var injected []provider.Message
+		for {
+			select {
+			case next := <-t.inbox:
+				if canMerge(msg, next) {
+					payload := buildWakePayload(next.Source, next.Message, t.id, t.sessionKey, sessionDir, deliveryLabel, modelLabel, loc)
+					if payload != "" {
+						injected = append(injected, provider.UserMessage(payload))
+						logger.Info("injected mid-execution message",
+							"threadID", t.id,
+							"sessionKey", t.sessionKey,
+							"source", next.Source,
+						)
 					}
-				default:
+				} else {
+					t.pending = append(t.pending, next) // not mergeable, defer
 					return injected
 				}
+			default:
+				return injected
 			}
 		}
-
-		response, err := t.run(ctx, userMessage, sink, injectFn, string(msg.Source))
-		t.checkAndResetSuppressSink()
-
-		if err != nil {
-			logger.Error("thread run error", "threadID", t.id, "sessionKey", t.sessionKey, "source", msg.Source, "err", err)
-			errMsg := sysmsg.BuildSystemMessage("error", nil, fmt.Sprintf("%v", err))
-			if !sink.IsZero() {
-				if sinkErr := sink.WithRetry(3).Send(ctx, errMsg); sinkErr != nil {
-					logger.Error("sink delivery error", "threadID", t.id, "sessionKey", t.sessionKey, "err", sinkErr)
-				}
-			}
-		}
-		_ = response // persisted inside run(); not delivered here
-	default:
-		// No message available; should not be called without pending messages.
 	}
+
+	response, err := t.run(ctx, userMessage, sink, injectFn, string(msg.Source))
+	t.checkAndResetSuppressSink()
+
+	if err != nil {
+		logger.Error("thread run error", "threadID", t.id, "sessionKey", t.sessionKey, "source", msg.Source, "err", err)
+		errMsg := sysmsg.BuildSystemMessage("error", nil, fmt.Sprintf("%v", err))
+		if !sink.IsZero() {
+			if sinkErr := sink.WithRetry(3).Send(ctx, errMsg); sinkErr != nil {
+				logger.Error("sink delivery error", "threadID", t.id, "sessionKey", t.sessionKey, "err", sinkErr)
+			}
+		}
+	}
+	_ = response // persisted inside run(); not delivered here
 }
 
 // buildWakePayload constructs the user message from a wake source and message.

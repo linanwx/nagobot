@@ -270,7 +270,7 @@ func threadInfo(t *Thread) tools.ThreadInfo {
 			info.State = "idle"
 		}
 	}
-	info.Pending = len(t.inbox)
+	info.Pending = len(t.inbox) + len(t.pending)
 
 	// Populate runtime metrics for running threads.
 	t.mu.Lock()

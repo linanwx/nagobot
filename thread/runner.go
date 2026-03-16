@@ -65,6 +65,11 @@ func NewRunner(p provider.Provider, t *tools.Registry, m *ExecMetrics) *Runner {
 func (r *Runner) RunWithMessages(ctx context.Context, messages []provider.Message) (string, error) {
 	toolDefs := r.tools.Defs()
 	for {
+		// Check for context cancellation before starting a new LLM call.
+		if ctx.Err() != nil {
+			return "", ctx.Err()
+		}
+
 		if r.metrics != nil {
 			r.metrics.StartIteration()
 		}
@@ -80,6 +85,11 @@ func (r *Runner) RunWithMessages(ctx context.Context, messages []provider.Messag
 		}
 		if err != nil {
 			return "", fmt.Errorf("provider error: %w", err)
+		}
+		// Check for context cancellation after Chat() returns — the call
+		// may have succeeded but ctx was cancelled concurrently.
+		if ctx.Err() != nil {
+			return "", ctx.Err()
 		}
 		r.totalUsage.PromptTokens += resp.Usage.PromptTokens
 		r.totalUsage.CompletionTokens += resp.Usage.CompletionTokens
