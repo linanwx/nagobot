@@ -21,15 +21,17 @@ The `session_dir` field in the wake message YAML frontmatter contains the sessio
 
 2. **Read `heartbeat.md`** from the session directory. If it doesn't exist or is empty, that's fine — it means there are no current attention items.
 
-3. **Update `heartbeat.md`** based on your review:
+3. **Decide what should change** — compare the conversation with `heartbeat.md`:
    - **Add** new items from the conversation. Every item MUST have a `moved_on` field.
    - **Remove** items whose `moved_on` condition is met
    - **Remove** items duplicated by cron jobs. If unsure, run `{{WORKSPACE}}/bin/nagobot cron list` to check.
    - **Remove** items that are irrelevant in the current context and were created 3 or more days ago
    - **Keep** items whose `moved_on` condition is not yet met
+
+4. **Update `heartbeat.md`** if anything changes, otherwise skip update.
    - If no items remain, write an empty string to clear the file — do NOT leave behind headings, comments, or any other text. Do NOT delete the file.
 
-4. Reply with `HEARTBEAT_OK`.
+5. Reply with `HEARTBEAT_OK`.
 
 ## heartbeat.md Format
 
