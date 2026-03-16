@@ -30,7 +30,7 @@ var listSessionsCmd = &cobra.Command{
 
 func init() {
 	listSessionsCmd.Flags().IntVar(&listSessionsDays, "days", 2, "Only show sessions active within N days")
-	listSessionsCmd.Flags().BoolVar(&listSessionsUserOnly, "user-only", false, "Exclude cron:* and :threads: sessions")
+	listSessionsCmd.Flags().BoolVar(&listSessionsUserOnly, "user-only", false, "Exclude cron:*, :threads:, and sessions without user activity")
 	listSessionsCmd.Flags().StringVar(&listSessionsFields, "fields", "", "Comma-separated list of fields to include (e.g. key,is_running,has_heartbeat)")
 	rootCmd.AddCommand(listSessionsCmd)
 }
@@ -124,6 +124,8 @@ func encodeSessionsOutput(output *listSessionsOutput) error {
 
 	wrapper := map[string]any{
 		"sessions":       filtered,
+		"filter":         output.Filter,
+		"total_sessions": output.TotalSessions,
 		"shown_sessions": len(filtered),
 	}
 	enc := json.NewEncoder(os.Stdout)
@@ -161,6 +163,7 @@ func collectSessions(cfg *config.Config, opts listSessionsOpts) (*listSessionsOu
 		key := deriveSessionKey(sessionsDir, path)
 		total++
 
+		// Early exit for cron/threads (avoids expensive file reads below).
 		if opts.UserOnly && (strings.HasPrefix(key, "cron:") || strings.Contains(key, ":threads:")) {
 			return nil
 		}
@@ -191,6 +194,10 @@ func collectSessions(cfg *config.Config, opts listSessionsOpts) (*listSessionsOu
 				lastUserActiveAt = &t
 				break
 			}
+		}
+
+		if opts.UserOnly && lastUserActiveAt == nil {
+			return nil
 		}
 
 		entry := sessionEntry{
@@ -232,20 +239,27 @@ func collectSessions(cfg *config.Config, opts listSessionsOpts) (*listSessionsOu
 	return output, nil
 }
 
-// applyUserOnlyFilter removes cron:* and :threads: sessions in-place when userOnly is true.
+// applyUserOnlyFilter removes non-user sessions in-place when userOnly is true.
+// Mirrors the filtering in collectSessions for the RPC path (where the serve
+// process may not support opts.UserOnly yet).
 func applyUserOnlyFilter(output *listSessionsOutput, userOnly bool) {
 	if !userOnly {
 		return
 	}
 	filtered := output.Sessions[:0]
 	for _, s := range output.Sessions {
-		if strings.HasPrefix(s.Key, "cron:") || strings.Contains(s.Key, ":threads:") || s.LastUserActiveAt == nil {
+		if isExcludedByUserOnly(s.Key, s.LastUserActiveAt) {
 			continue
 		}
 		filtered = append(filtered, s)
 	}
 	output.Sessions = filtered
 	output.ShownSessions = len(filtered)
+}
+
+// isExcludedByUserOnly returns true if the session should be excluded by --user-only.
+func isExcludedByUserOnly(key string, lastUserActiveAt *string) bool {
+	return strings.HasPrefix(key, "cron:") || strings.Contains(key, ":threads:") || lastUserActiveAt == nil
 }
 
 // enrichWithThreads fills IsRunning from live thread state.

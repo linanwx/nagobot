@@ -27,6 +27,9 @@ Output: JSON with fields per session:
 - `summary`: Current summary text (empty if none)
 - `summary_at`: When summary was last written
 - `changed_since_summary`: `true` if session has new activity since last summary
+- `is_running`: Whether the session's thread is currently executing (only populated via RPC)
+- `has_heartbeat`: Whether the session has a non-empty `heartbeat.md`
+- `last_user_active_at`: Timestamp of last message from a real user channel (null if no user activity)
 
 Also includes `filter`, `total_sessions`, `shown_sessions` metadata.
 
