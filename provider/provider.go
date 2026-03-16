@@ -308,9 +308,8 @@ func SanitizeMessages(messages []Message) []Message {
 				m.ReasoningDetails = nil
 			}
 		}
-		// Drop assistant messages with no visible content and no tool calls.
-		// Includes messages left with only ReasoningContent after tool_calls stripping.
-		if m.Role == "assistant" && m.Content == "" && m.Compressed == "" && len(m.ToolCalls) == 0 {
+		// Drop assistant messages with no visible content, no reasoning, and no tool calls.
+		if m.Role == "assistant" && m.Content == "" && m.Compressed == "" && m.ReasoningContent == "" && len(m.ReasoningDetails) == 0 && len(m.ToolCalls) == 0 {
 			continue
 		}
 		if m.Role == "tool" && !callIDs[m.ToolCallID] {

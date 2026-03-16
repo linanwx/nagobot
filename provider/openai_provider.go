@@ -176,6 +176,18 @@ func (p *OpenAIProvider) buildRequestBody(req *Request) ([]byte, error) {
 					},
 				})
 			}
+			// Insert reasoning items before function_calls if not trimmed.
+			if !msg.ReasoningTrimmed && len(msg.ReasoningDetails) > 0 {
+				var items []json.RawMessage
+				if err := json.Unmarshal(msg.ReasoningDetails, &items); err == nil {
+					for _, raw := range items {
+						var ri map[string]any
+						if err := json.Unmarshal(raw, &ri); err == nil {
+							input = append(input, ri)
+						}
+					}
+				}
+			}
 			for _, tc := range msg.ToolCalls {
 				input = append(input, map[string]any{
 					"type":      "function_call",
@@ -264,6 +276,8 @@ func (p *OpenAIProvider) buildRequestBody(req *Request) ([]byte, error) {
 // response.completed for usage data.
 func (p *OpenAIProvider) parseSSEStream(httpResp *http.Response) (*Response, error) {
 	var content strings.Builder
+	var reasoning strings.Builder
+	var reasoningItems []json.RawMessage
 	var toolCalls []ToolCall
 	var usage Usage
 
@@ -301,7 +315,7 @@ func (p *OpenAIProvider) parseSSEStream(httpResp *http.Response) (*Response, err
 
 		switch event.Type {
 		case "response.output_item.done":
-			p.extractOutputItem(event.Item, &content, &toolCalls)
+			p.extractOutputItem(event.Item, &content, &toolCalls, &reasoning, &reasoningItems)
 
 		case "response.completed", "response.done":
 			usage = Usage{
@@ -323,15 +337,23 @@ func (p *OpenAIProvider) parseSSEStream(httpResp *http.Response) (*Response, err
 		return nil, fmt.Errorf("reading SSE stream: %w", err)
 	}
 
+	// Pack all reasoning items into a single JSON array for round-trip in ReasoningDetails.
+	var reasoningDetails json.RawMessage
+	if len(reasoningItems) > 0 {
+		reasoningDetails, _ = json.Marshal(reasoningItems)
+	}
+
 	return &Response{
-		Content:   content.String(),
-		ToolCalls: toolCalls,
-		Usage:     usage,
+		Content:          content.String(),
+		ReasoningContent: reasoning.String(),
+		ReasoningDetails: reasoningDetails,
+		ToolCalls:        toolCalls,
+		Usage:            usage,
 	}, nil
 }
 
 // extractOutputItem processes a single completed output item from the stream.
-func (p *OpenAIProvider) extractOutputItem(item map[string]any, content *strings.Builder, toolCalls *[]ToolCall) {
+func (p *OpenAIProvider) extractOutputItem(item map[string]any, content *strings.Builder, toolCalls *[]ToolCall, reasoning *strings.Builder, reasoningItems *[]json.RawMessage) {
 	if item == nil {
 		return
 	}
@@ -366,6 +388,29 @@ func (p *OpenAIProvider) extractOutputItem(item map[string]any, content *strings
 				Arguments: args,
 			},
 		})
+
+	case "reasoning":
+		// Extract summary text from reasoning item.
+		if summaryArr, ok := item["summary"].([]any); ok {
+			for _, s := range summaryArr {
+				block, ok := s.(map[string]any)
+				if !ok {
+					continue
+				}
+				if blockType, _ := block["type"].(string); blockType == "summary_text" {
+					if text, _ := block["text"].(string); text != "" {
+						if reasoning.Len() > 0 {
+							reasoning.WriteString("\n")
+						}
+						reasoning.WriteString(text)
+					}
+				}
+			}
+		}
+		// Preserve the complete reasoning item as raw JSON for round-trip.
+		if raw, err := json.Marshal(item); err == nil {
+			*reasoningItems = append(*reasoningItems, json.RawMessage(raw))
+		}
 	}
 }
 
