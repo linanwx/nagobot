@@ -204,11 +204,7 @@ func deriveSessionKey(root, path string) string {
 
 // isRealUserSource returns true if the source is a real user channel.
 func isRealUserSource(source string) bool {
-	switch source {
-	case "telegram", "discord", "cli", "web", "feishu":
-		return true
-	}
-	return false
+	return msg.IsUserVisibleSource(msg.WakeSource(source))
 }
 
 // summaryEntry is a single entry in sessions_summary.json.

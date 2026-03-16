@@ -136,6 +136,16 @@ const (
 	WakeHeartbeatWake    WakeSource = "heartbeat_wake"
 )
 
+// IsUserVisibleSource reports whether the given source represents a real
+// user-initiated channel (telegram, discord, cli, web, feishu).
+func IsUserVisibleSource(source WakeSource) bool {
+	switch source {
+	case WakeTelegram, WakeDiscord, WakeCLI, WakeWeb, WakeFeishu:
+		return true
+	}
+	return false
+}
+
 // WakeMessage is an item in a thread's wake queue.
 type WakeMessage struct {
 	Source    WakeSource        // Wake source.

@@ -113,7 +113,9 @@ type Thread struct {
 	mu           sync.Mutex
 	hooks        []turnHook
 	defaultSink  Sink      // Fallback sink when WakeMessage.Sink is nil.
-	lastActiveAt time.Time // Last time this thread completed work.
+	lastActiveAt     time.Time      // Last time this thread completed work (used by GC).
+	lastUserActiveAt time.Time      // Last time a real user interacted (used by compression).
+	lastWakeSource   msg.WakeSource // Source of the most recent wake (set at RunOnce start).
 	suppressSink bool      // When true, RunOnce skips sink delivery (reset after each turn).
 	haltLoop     bool      // When true, Runner stops after current tool calls complete.
 

@@ -22,9 +22,7 @@ const (
 	compressedHintFmt  = "[compressed — use search-memory --context %s --full to see content if needed, use skill session-ops to see more]"
 	compressedHintNoID = "[compressed — use search-memory with session key and timeframe to find original content, or use skill session-ops to see more]"
 
-	skillExpireAge         = time.Hour     // compress use_skill results older than this
-	heartbeatExpireAge     = 6 * time.Hour // compress heartbeat tool results older than this
-	reasoningTrimAge       = 3 * time.Hour // mark reasoning for trimming after this age
+	compressExpireAge      = 2 * time.Hour // unified age threshold for tier-1 compression
 	heartbeatTrimThreshold = 100           // minimum content size to compress heartbeat results
 )
 
@@ -46,7 +44,7 @@ func (m *Manager) runCompressionScan() {
 	var candidates []candidate
 	now := time.Now()
 	for key, t := range m.threads {
-		idle := now.Sub(t.lastActiveAt)
+		idle := now.Sub(t.lastUserActiveAt)
 		if t.state == threadIdle && idle >= tier1IdleMin && idle < tier2IdleMax {
 			candidates = append(candidates, candidate{key: key, idle: idle})
 		}
@@ -207,7 +205,7 @@ func compressTier1(messages []provider.Message, keepLastAssistants int) (bool, [
 			// the newCompressed check below to avoid accidentally clearing Compressed.
 			if !m.ReasoningTrimmed &&
 				(m.ReasoningContent != "" || len(m.ReasoningDetails) > 0) &&
-				!m.Timestamp.IsZero() && time.Since(m.Timestamp) > reasoningTrimAge {
+				!m.Timestamp.IsZero() && time.Since(m.Timestamp) > compressExpireAge {
 				m.ReasoningTrimmed = true
 				modified = true
 			}
@@ -238,8 +236,8 @@ func computeToolCompressed(m *provider.Message, idx int, lastSkillLoad map[strin
 				Original: len(m.Content), Outdated: true,
 			}, "")
 		}
-		// Expired: older than 1 hour → header-only, with reload hint
-		if !m.Timestamp.IsZero() && time.Since(m.Timestamp) > skillExpireAge {
+		// Expired: older than compressExpireAge → header-only, with reload hint
+		if !m.Timestamp.IsZero() && time.Since(m.Timestamp) > compressExpireAge {
 			return marshalCompressed(compressedHeader{
 				Compressed: "use_skill", Skill: skillName,
 				Original: len(m.Content), Outdated: true,
@@ -247,9 +245,9 @@ func computeToolCompressed(m *provider.Message, idx int, lastSkillLoad map[strin
 		}
 		return ""
 	}
-	// Heartbeat tool results older than 6 hours → header-only
+	// Heartbeat tool results older than compressExpireAge → header-only
 	if (m.Source == string(WakeHeartbeatWake) || m.Source == string(WakeHeartbeatReflect)) &&
-		!m.Timestamp.IsZero() && time.Since(m.Timestamp) > heartbeatExpireAge &&
+		!m.Timestamp.IsZero() && time.Since(m.Timestamp) > compressExpireAge &&
 		len(m.Content) > heartbeatTrimThreshold {
 		return marshalCompressed(compressedHeader{
 			Compressed: m.Name, Original: len(m.Content),

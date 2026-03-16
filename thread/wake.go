@@ -84,6 +84,7 @@ func (t *Thread) RunOnce(ctx context.Context) {
 	select {
 	case msg := <-t.inbox:
 		msg = t.tryMerge(msg)
+		t.lastWakeSource = msg.Source
 		if name := strings.TrimSpace(msg.AgentName); name != "" {
 			a, err := t.cfg().Agents.New(name)
 			if err != nil {
@@ -232,18 +233,17 @@ type wakeHeader struct {
 // messageVisibility returns the visibility label for a wake source.
 // User-originated messages are "user-visible"; system messages are "assistant-only".
 func messageVisibility(source WakeSource) string {
-	switch source {
-	case WakeTelegram, WakeCLI, WakeWeb, WakeDiscord, WakeFeishu:
+	if sysmsg.IsUserVisibleSource(source) {
 		return "user-visible"
-	default:
-		return "assistant-only"
 	}
+	return "assistant-only"
 }
 
 func wakeActionHint(source WakeSource) string {
-	switch source {
-	case WakeTelegram, WakeCLI, WakeWeb, WakeDiscord, WakeFeishu:
+	if sysmsg.IsUserVisibleSource(source) {
 		return "A user sent a message. React accordingly."
+	}
+	switch source {
 	case WakeUserActive:
 		return "Resume the target session and respond to this wake message. The content is only visible to you."
 	case WakeChildTask:

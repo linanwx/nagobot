@@ -244,10 +244,10 @@ func TestCompressTier1_HeartbeatExpired(t *testing.T) {
 }
 
 func TestCompressTier1_HeartbeatRecent(t *testing.T) {
-	// Heartbeat source + <6h → not compressed
+	// Heartbeat source + <2h → not compressed
 	messages := []provider.Message{
 		{Role: "assistant", Content: "", ToolCalls: []provider.ToolCall{{ID: "c1", Type: "function", Function: provider.FunctionCall{Name: "exec", Arguments: `{"cmd":"nagobot list-sessions"}`}}}},
-		{Role: "tool", Name: "exec", ToolCallID: "c1", Content: strings.Repeat("session data\n", 50), Source: "heartbeat_wake", Timestamp: time.Now().Add(-3 * time.Hour)},
+		{Role: "tool", Name: "exec", ToolCallID: "c1", Content: strings.Repeat("session data\n", 50), Source: "heartbeat_wake", Timestamp: time.Now().Add(-1 * time.Hour)},
 		{Role: "assistant", Content: "HEARTBEAT_OK", Source: "heartbeat_wake"},
 		{Role: "user", Content: "next"},
 		{Role: "assistant", Content: "ok"},
@@ -261,12 +261,12 @@ func TestCompressTier1_HeartbeatRecent(t *testing.T) {
 	m := result[1]
 	// Content is 650 bytes, above 3000 threshold? No, 13*50=650 < 3000. So no compression at all.
 	if m.Compressed != "" {
-		t.Errorf("heartbeat tool result <6h should not be compressed, got: %s", m.Compressed)
+		t.Errorf("heartbeat tool result <2h should not be compressed, got: %s", m.Compressed)
 	}
 }
 
 func TestCompressTier1_HeartbeatSmall(t *testing.T) {
-	// Heartbeat source + >6h + ≤100 bytes → not compressed
+	// Heartbeat source + >2h + ≤100 bytes → not compressed
 	messages := []provider.Message{
 		{Role: "assistant", Content: "", ToolCalls: []provider.ToolCall{{ID: "c1", Type: "function", Function: provider.FunctionCall{Name: "sleep_thread", Arguments: `{"skip":true}`}}}},
 		{Role: "tool", Name: "sleep_thread", ToolCallID: "c1", Content: "ok: skipped", Source: "heartbeat_wake", Timestamp: time.Now().Add(-8 * time.Hour)},

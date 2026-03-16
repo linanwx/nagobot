@@ -9,6 +9,7 @@ import (
 
 	"github.com/linanwx/nagobot/cron"
 	"github.com/linanwx/nagobot/logger"
+	"github.com/linanwx/nagobot/thread/msg"
 	"github.com/linanwx/nagobot/tools"
 )
 
@@ -96,7 +97,11 @@ func (m *Manager) scheduleReady(ctx context.Context, sem chan struct{}) {
 				thread.RunOnce(ctx)
 
 				m.mu.Lock()
-				thread.lastActiveAt = time.Now()
+				now := time.Now()
+				thread.lastActiveAt = now
+				if msg.IsUserVisibleSource(thread.lastWakeSource) {
+					thread.lastUserActiveAt = now
+				}
 				thread.state = threadIdle
 				hasMore := thread.hasMessages()
 				m.mu.Unlock()
@@ -153,7 +158,8 @@ func (m *Manager) NewThread(sessionKey, agentName string) (*Thread, error) {
 		state:        threadIdle,
 		inbox:        make(chan *WakeMessage, defaultInboxSize),
 		signal:       m.signal,
-		lastActiveAt: time.Now(),
+		lastActiveAt:     time.Now(),
+		lastUserActiveAt: time.Now(),
 	}
 	if strings.TrimSpace(agentName) == "" && m.cfg.DefaultAgentFor != nil {
 		agentName = m.cfg.DefaultAgentFor(sessionKey)
