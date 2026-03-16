@@ -235,6 +235,9 @@ func (p *OpenAIProvider) buildRequestBody(req *Request) ([]byte, error) {
 		"input":  input,
 		"stream": true,
 		"store":  false,
+		"reasoning": map[string]any{
+			"effort": "high",
+		},
 	}
 	if len(instructions) > 0 {
 		body["instructions"] = strings.Join(instructions, "\n\n")
