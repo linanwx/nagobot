@@ -19,7 +19,7 @@ func defaultCronSeeds() []cronpkg.Job {
 		{
 			ID:     "heartbeat",
 			Expr:   "*/30 * * * *",
-			Task:   `Load skill "heartbeat-dispatcher" and follow its instructions.`,
+			Task:   `You must call use_skill("heartbeat-dispatcher") and follow its instructions.`,
 			Agent:  "heartbeat",
 			Silent: true,
 		},

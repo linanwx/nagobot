@@ -12,11 +12,11 @@ import (
 )
 
 func reflectInstruction(sessionDir string) string {
-	return fmt.Sprintf(`Load skill "heartbeat-reflect" and follow its instructions. Session directory: %s`, sessionDir)
+	return fmt.Sprintf(`You must call use_skill("heartbeat-reflect") and follow its instructions. Session directory: %s`, sessionDir)
 }
 
 func wakeInstruction(sessionDir string) string {
-	return fmt.Sprintf(`Load skill "heartbeat-wake" and follow its instructions. Session directory: %s`, sessionDir)
+	return fmt.Sprintf(`You must call use_skill("heartbeat-wake") and follow its instructions. Session directory: %s`, sessionDir)
 }
 
 var heartbeatCmd = &cobra.Command{
