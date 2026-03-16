@@ -308,6 +308,10 @@ func SanitizeMessages(messages []Message) []Message {
 				m.ReasoningDetails = nil
 			}
 		}
+		// Drop messages with empty role.
+		if m.Role == "" {
+			continue
+		}
 		// Drop assistant messages with no visible content, no reasoning, and no tool calls.
 		if m.Role == "assistant" && m.Content == "" && m.Compressed == "" && m.ReasoningContent == "" && len(m.ReasoningDetails) == 0 && len(m.ToolCalls) == 0 {
 			continue
