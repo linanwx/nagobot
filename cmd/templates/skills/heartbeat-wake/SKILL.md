@@ -34,6 +34,6 @@ The `session_dir` field in the wake message YAML frontmatter contains the sessio
 
 ## Important
 
-- If nothing to do: `sleep_thread(skip=true)` — never send empty or pointless messages
+- If nothing to do: you MUST call `sleep_thread(skip=true)` — do not generate any response text without calling this function first. Never send empty or pointless messages.
 - If something to do: respond naturally, then the system handles delivery
 - Do NOT modify `heartbeat.md` — that's the reflection skill's job
