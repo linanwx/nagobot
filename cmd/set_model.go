@@ -2,10 +2,12 @@ package cmd
 
 import (
 	"fmt"
+	"sort"
 	"strings"
 
 	"github.com/spf13/cobra"
 
+	"github.com/linanwx/nagobot/agent"
 	"github.com/linanwx/nagobot/config"
 	"github.com/linanwx/nagobot/provider"
 )
@@ -155,28 +157,38 @@ func validateProviderModel(cfg *config.Config, provName, modelName, cmdPrefix st
 }
 
 func listModelRouting(cfg *config.Config) error {
-	fmt.Printf("---\ncommand: set-model\nmode: list\n---\n\nModel routing:\n")
-	// Show all routing in a unified table
-	fmt.Printf("  %-16s -> %s / %s (default)\n", "(default)", cfg.GetProvider(), cfg.GetModelType())
+	cfgPath, _ := config.ConfigPath()
+	fmt.Printf("---\ncommand: set-model\nmode: list\n---\n")
+
+	// Model routing table with source file
+	fmt.Printf("\nModel routing (from %s):\n", cfgPath)
+	fmt.Printf("  %-20s %s / %s (default)\n", "(default)", cfg.GetProvider(), cfg.GetModelType())
 	for mt, mc := range cfg.Thread.Models {
-		fmt.Printf("  %-16s -> %s / %s\n", mt, mc.Provider, mc.ModelType)
+		fmt.Printf("  %-20s %s / %s\n", mt, mc.Provider, mc.ModelType)
 	}
 
-	// Show agent specialty usage
-	slots := scanAgentModelSlots()
-	groups := groupAgentModelSlots(slots)
-	if len(groups) > 0 {
-		fmt.Println("\nAgent specialties:")
-		for _, g := range groups {
-			routing := "(default) " + cfg.GetProvider() + " / " + cfg.GetModelType()
-			if mc, ok := cfg.Thread.Models[g.ModelType]; ok && mc != nil {
-				routing = mc.Provider + " / " + mc.ModelType
-			}
-			fmt.Printf("  %-16s -> %-40s (agents: %s)\n", g.ModelType, routing, strings.Join(g.AgentNames, ", "))
+	// Agent routing: all agents, right-joined with routing table
+	fmt.Printf("\nAgent routing:\n")
+	fmt.Printf("  %-20s %-20s %s\n", "Agent", "Specialty", "Provider / Model")
+	fmt.Printf("  %-20s %-20s %s\n", "─────", "─────────", "────────────────")
+
+	allAgents := scanAllAgents()
+	defaultLabel := cfg.GetProvider() + " / " + cfg.GetModelType()
+	for _, a := range allAgents {
+		specialty := a.ModelType
+		if specialty == "" {
+			specialty = "(none)"
 		}
+		routingLabel := defaultLabel + " (default)"
+		if a.ModelType != "" {
+			if mc, ok := cfg.Thread.Models[a.ModelType]; ok && mc != nil {
+				routingLabel = mc.Provider + " / " + mc.ModelType
+			}
+		}
+		fmt.Printf("  %-20s %-20s %s\n", a.AgentName, specialty, routingLabel)
 	}
 
-	// Show available models per provider
+	// Available models per provider
 	fmt.Println("\nAvailable models:")
 	for _, prov := range provider.SupportedProviders() {
 		models := provider.SupportedModelsForProvider(prov)
@@ -195,6 +207,38 @@ func listModelRouting(cfg *config.Config) error {
 	}
 
 	return nil
+}
+
+// scanAllAgents reads all embedded agent templates, returning every agent
+// with its specialty (empty string if none declared).
+func scanAllAgents() []agentModelSlot {
+	entries, err := templateFS.ReadDir("templates/agents")
+	if err != nil {
+		return nil
+	}
+	var slots []agentModelSlot
+	for _, e := range entries {
+		if e.IsDir() || !strings.HasSuffix(e.Name(), ".md") {
+			continue
+		}
+		raw, err := templateFS.ReadFile("templates/agents/" + e.Name())
+		if err != nil {
+			continue
+		}
+		meta, _, _, _ := agent.ParseTemplate(string(raw))
+		name := strings.TrimSpace(meta.Name)
+		if name == "" {
+			name = strings.TrimSuffix(e.Name(), ".md")
+		}
+		slots = append(slots, agentModelSlot{
+			AgentName: name,
+			ModelType: strings.TrimSpace(meta.Specialty),
+		})
+	}
+	sort.Slice(slots, func(i, j int) bool {
+		return slots[i].AgentName < slots[j].AgentName
+	})
+	return slots
 }
 
 func formatContextTokens(tokens int) string {
