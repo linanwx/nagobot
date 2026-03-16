@@ -124,12 +124,17 @@ func (m *Manager) tryTier2Compress(sessionKey string) {
 		m.mu.Unlock()
 		return
 	}
-	// Skip if recently compressed (token-based guard failed, e.g. skill didn't execute).
+	// Skip if compression succeeded recently (10 min cooldown).
 	if !t.lastCompressedAt.IsZero() && time.Since(t.lastCompressedAt) < 10*time.Minute {
 		m.mu.Unlock()
 		return
 	}
-	t.lastCompressedAt = time.Now()
+	// Skip if an attempt was enqueued recently (2 min cooldown to avoid duplicate enqueue).
+	if !t.lastCompressAttemptAt.IsZero() && time.Since(t.lastCompressAttemptAt) < 2*time.Minute {
+		m.mu.Unlock()
+		return
+	}
+	t.lastCompressAttemptAt = time.Now()
 	m.mu.Unlock()
 
 	sessionPath := cfg.Sessions.PathForKey(sessionKey)

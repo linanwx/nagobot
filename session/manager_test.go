@@ -272,6 +272,70 @@ func TestReadFileAndWriteFileRoundTrip(t *testing.T) {
 	}
 }
 
+func TestAppendWithoutPriorGetPopulatesCache(t *testing.T) {
+	sessionsDir := filepath.Join(t.TempDir(), "sessions")
+	mgr, err := NewManager(sessionsDir)
+	if err != nil {
+		t.Fatalf("NewManager() error = %v", err)
+	}
+
+	// Append without a prior Get — cache should still be populated.
+	msg := provider.UserMessage("cold-start")
+	if err := mgr.Append("cold:key", msg); err != nil {
+		t.Fatalf("Append() error = %v", err)
+	}
+
+	// Get should return cached data including the appended message.
+	sess, err := mgr.Get("cold:key")
+	if err != nil {
+		t.Fatalf("Get() error = %v", err)
+	}
+	if len(sess.Messages) != 1 {
+		t.Fatalf("expected 1 message from cache, got %d", len(sess.Messages))
+	}
+	if sess.Messages[0].Content != "cold-start" {
+		t.Fatalf("expected content 'cold-start', got %q", sess.Messages[0].Content)
+	}
+}
+
+func TestSaveUpdatesCacheForConcurrentGet(t *testing.T) {
+	sessionsDir := filepath.Join(t.TempDir(), "sessions")
+	mgr, err := NewManager(sessionsDir)
+	if err != nil {
+		t.Fatalf("NewManager() error = %v", err)
+	}
+
+	// Populate cache with initial state.
+	sess, err := mgr.Get("save:sync")
+	if err != nil {
+		t.Fatalf("Get() error = %v", err)
+	}
+	if len(sess.Messages) != 0 {
+		t.Fatalf("expected empty session, got %d messages", len(sess.Messages))
+	}
+
+	// Save a new session (e.g., after compression).
+	compressed := &Session{
+		Key:      "save:sync",
+		Messages: []provider.Message{provider.AssistantMessage("compressed summary")},
+	}
+	if err := mgr.Save(compressed); err != nil {
+		t.Fatalf("Save() error = %v", err)
+	}
+
+	// Get should return the new state, not the stale cache.
+	got, err := mgr.Get("save:sync")
+	if err != nil {
+		t.Fatalf("Get() error = %v", err)
+	}
+	if len(got.Messages) != 1 {
+		t.Fatalf("expected 1 message after Save, got %d", len(got.Messages))
+	}
+	if got.Messages[0].Content != "compressed summary" {
+		t.Fatalf("expected 'compressed summary', got %q", got.Messages[0].Content)
+	}
+}
+
 func TestReadFileToleratesTruncatedLastLine(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "crash.jsonl")

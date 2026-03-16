@@ -137,7 +137,15 @@ func (m *Manager) Save(s *Session) error {
 		os.Remove(tmp)
 		return err
 	}
-	return os.Rename(tmp, path)
+	if err := os.Rename(tmp, path); err != nil {
+		return err
+	}
+
+	// Update cache so concurrent Get() calls see the new state.
+	m.mu.Lock()
+	m.cache[s.Key] = s
+	m.mu.Unlock()
+	return nil
 }
 
 // Append persists new messages by appending to the session file.
@@ -169,6 +177,19 @@ func (m *Manager) Append(key string, msgs ...provider.Message) error {
 		s.Messages = append(s.Messages, msgs...)
 		if last := msgs[len(msgs)-1].Timestamp; !last.IsZero() {
 			s.UpdatedAt = last
+		}
+	} else {
+		// First append for this key — initialize cache entry.
+		now := time.Now()
+		ts := now
+		if last := msgs[len(msgs)-1].Timestamp; !last.IsZero() {
+			ts = last
+		}
+		m.cache[key] = &Session{
+			Key:       key,
+			Messages:  append([]provider.Message(nil), msgs...),
+			CreatedAt: now,
+			UpdatedAt: ts,
 		}
 	}
 	m.mu.Unlock()

@@ -120,7 +120,8 @@ type Thread struct {
 	haltLoop     bool      // When true, Runner stops after current tool calls complete.
 
 	execMetrics      *ExecMetrics // Non-nil only while a turn is executing.
-	lastCompressedAt time.Time    // Last time AI-driven (tier 2) compression ran.
+	lastCompressAttemptAt time.Time // Last time tier 2 compression was enqueued (prevents duplicate enqueue).
+	lastCompressedAt      time.Time // Last time tier 2 compression completed successfully.
 }
 
 // ToolCallRecord is an alias for msg.ToolCallRecord.

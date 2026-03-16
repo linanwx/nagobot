@@ -3,6 +3,7 @@ package thread
 import (
 	"context"
 	"path/filepath"
+	"runtime/debug"
 	"strings"
 	"sync"
 	"time"
@@ -86,11 +87,19 @@ func (m *Manager) scheduleReady(ctx context.Context, sem chan struct{}) {
 							"threadID", thread.id,
 							"sessionKey", thread.sessionKey,
 							"panic", r,
+							"stack", string(debug.Stack()),
 						)
+						thread.mu.Lock()
+						thread.execMetrics = nil
+						thread.mu.Unlock()
 						m.mu.Lock()
 						thread.lastActiveAt = time.Now()
 						thread.state = threadIdle
+						hasMore := thread.hasMessages()
 						m.mu.Unlock()
+						if hasMore {
+							m.notify()
+						}
 					}
 				}()
 
@@ -101,6 +110,9 @@ func (m *Manager) scheduleReady(ctx context.Context, sem chan struct{}) {
 				thread.lastActiveAt = now
 				if msg.IsUserVisibleSource(thread.lastWakeSource) {
 					thread.lastUserActiveAt = now
+				}
+				if thread.lastWakeSource == WakeCompression {
+					thread.lastCompressedAt = now
 				}
 				thread.state = threadIdle
 				hasMore := thread.hasMessages()
