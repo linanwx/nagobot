@@ -248,7 +248,8 @@ func (p *OpenAIProvider) buildRequestBody(req *Request) ([]byte, error) {
 		"stream": true,
 		"store":  false,
 		"reasoning": map[string]any{
-			"effort": "high",
+			"effort":  "high",
+			"summary": "auto",
 		},
 	}
 	if len(instructions) > 0 {
