@@ -7,7 +7,7 @@ tags: [heartbeat, internal]
 
 You have been woken by the heartbeat system to reflect on this session. Review the conversation history and maintain a list of ongoing attention items in `heartbeat.md`.
 
-The session directory path is provided in the wake message (e.g. `Session directory: /path/to/sessions/telegram/12345`). Use it to locate `heartbeat.md`.
+The `session_dir` field in the wake message YAML frontmatter contains the session directory path. `heartbeat.md` is located at `{session_dir}/heartbeat.md`.
 
 **This wake is always silent — your output will NOT be sent to the user.**
 

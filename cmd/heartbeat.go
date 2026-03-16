@@ -11,12 +11,12 @@ import (
 	"github.com/spf13/cobra"
 )
 
-func reflectInstruction(sessionDir string) string {
-	return fmt.Sprintf(`You must call use_skill("heartbeat-reflect") and follow its instructions. Session directory: %s`, sessionDir)
+func reflectInstruction() string {
+	return `You must call use_skill("heartbeat-reflect") and follow its instructions.`
 }
 
-func wakeInstruction(sessionDir string) string {
-	return fmt.Sprintf(`You must call use_skill("heartbeat-wake") and follow its instructions. Session directory: %s`, sessionDir)
+func wakeInstruction() string {
+	return `You must call use_skill("heartbeat-wake") and follow its instructions.`
 }
 
 var heartbeatCmd = &cobra.Command{

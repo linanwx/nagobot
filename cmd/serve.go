@@ -112,7 +112,7 @@ func runServe(cmd *cobra.Command, args []string) error {
 			}
 			threadMgr.Wake(p.Key, &thread.WakeMessage{
 				Source:  thread.WakeHeartbeatReflect,
-				Message: reflectInstruction(threadMgr.SessionDir(p.Key)),
+				Message: reflectInstruction(),
 			})
 			return "ok", nil
 		case "heartbeat.wake":
@@ -124,7 +124,7 @@ func runServe(cmd *cobra.Command, args []string) error {
 			}
 			threadMgr.Wake(p.Key, &thread.WakeMessage{
 				Source:  thread.WakeHeartbeatWake,
-				Message: wakeInstruction(threadMgr.SessionDir(p.Key)),
+				Message: wakeInstruction(),
 			})
 			return "ok", nil
 		default:
