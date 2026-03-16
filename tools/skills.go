@@ -14,6 +14,7 @@ import (
 type SkillProvider interface {
 	GetSkillPrompt(name string) (prompt string, dir string, ok bool)
 	SkillNames() []string
+	Reload() error
 }
 
 // UseSkillTool loads the full prompt for a named skill.
@@ -61,8 +62,15 @@ func (t *UseSkillTool) Run(ctx context.Context, args json.RawMessage) string {
 
 	prompt, dir, ok := t.provider.GetSkillPrompt(a.Name)
 	if !ok {
-		names := t.provider.SkillNames()
-		return fmt.Sprintf("Error: skill %q not found. Available skills: %s", a.Name, strings.Join(names, ", "))
+		// Skill not found — it may have been installed mid-turn.
+		// Force a reload and retry once.
+		if err := t.provider.Reload(); err == nil {
+			prompt, dir, ok = t.provider.GetSkillPrompt(a.Name)
+		}
+		if !ok {
+			names := t.provider.SkillNames()
+			return fmt.Sprintf("Error: skill %q not found. Available skills: %s", a.Name, strings.Join(names, ", "))
+		}
 	}
 
 	rt := RuntimeContextFrom(ctx)

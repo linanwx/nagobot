@@ -188,7 +188,7 @@ func (p *OpenAIProvider) buildRequestBody(req *Request) ([]byte, error) {
 		case "tool":
 			cleanedText, markers := ParseMediaMarkers(msg.Content)
 			output := []map[string]any{
-				{"type": "output_text", "text": cleanedText},
+				{"type": "input_text", "text": cleanedText},
 			}
 			for _, marker := range markers {
 				b64, err := ReadFileAsBase64(marker.FilePath)

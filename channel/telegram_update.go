@@ -182,6 +182,7 @@ func (t *TelegramChannel) handleUpdate(ctx context.Context, b *bot.Bot, update *
 
 	select {
 	case t.messages <- channelMsg:
+	case <-t.done:
 	default:
 		logger.Warn("telegram message buffer full, dropping message")
 	}

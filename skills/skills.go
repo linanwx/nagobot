@@ -28,6 +28,7 @@ type Registry struct {
 	skills       map[string]*Skill
 	mu           sync.RWMutex
 	lastSnapshot dirSnapshot // cached file modtimes for change detection
+	dirs         []string    // directories used by last ReloadFromDirectories call
 }
 
 // NewRegistry creates a new skill registry.
@@ -134,8 +135,26 @@ func (r *Registry) ReloadFromDirectories(dirs ...string) error {
 	r.mu.Lock()
 	r.skills = merged
 	r.lastSnapshot = snap
+	r.dirs = dirs
 	r.mu.Unlock()
 	return nil
+}
+
+// Reload forces a full reload from the directories used by the last
+// ReloadFromDirectories call, bypassing the snapshot cache. This is useful
+// when new skills are installed mid-turn and need to be discovered immediately.
+func (r *Registry) Reload() error {
+	r.mu.RLock()
+	dirs := r.dirs
+	r.mu.RUnlock()
+	if len(dirs) == 0 {
+		return nil
+	}
+	// Clear the snapshot so ReloadFromDirectories bypasses its cache.
+	r.mu.Lock()
+	r.lastSnapshot = dirSnapshot{}
+	r.mu.Unlock()
+	return r.ReloadFromDirectories(dirs...)
 }
 
 // dirSnapshot records file modtimes for change detection.

@@ -29,6 +29,7 @@ type TelegramChannel struct {
 	b         *bot.Bot
 	cancel    context.CancelFunc
 	startDone chan struct{}
+	done      chan struct{}
 	stopOnce  sync.Once
 }
 
@@ -53,6 +54,7 @@ func NewTelegramChannel(cfg *config.Config) Channel {
 		allowedIDs: allowedIDs,
 		messages:   make(chan *Message, telegramMessageBufferSize),
 		mediaDir:   mediaDir,
+		done:       make(chan struct{}),
 	}
 }
 
@@ -109,6 +111,7 @@ func (t *TelegramChannel) Start(ctx context.Context) error {
 // Stop gracefully shuts down the channel.
 func (t *TelegramChannel) Stop() error {
 	t.stopOnce.Do(func() {
+		close(t.done)
 		if t.cancel != nil {
 			t.cancel()
 			<-t.startDone

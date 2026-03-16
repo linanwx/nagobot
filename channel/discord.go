@@ -24,6 +24,7 @@ type DiscordChannel struct {
 	mediaDir      string // local directory for downloaded media files
 	session       *discordgo.Session
 	messages      chan *Message
+	done          chan struct{}
 	stopOnce      sync.Once
 }
 
@@ -53,6 +54,7 @@ func NewDiscordChannel(cfg *config.Config) Channel {
 		allowedUsers:  allowedUsers,
 		mediaDir:      mediaDir,
 		messages:      make(chan *Message, discordMessageBufferSize),
+		done:          make(chan struct{}),
 	}
 }
 
@@ -87,6 +89,7 @@ func (d *DiscordChannel) Start(ctx context.Context) error {
 
 func (d *DiscordChannel) Stop() error {
 	d.stopOnce.Do(func() {
+		close(d.done)
 		if d.session != nil {
 			_ = d.session.Close()
 			d.session = nil
@@ -355,6 +358,7 @@ func (d *DiscordChannel) handleMessageCreate(s *discordgo.Session, m *discordgo.
 
 	select {
 	case d.messages <- msg:
+	case <-d.done:
 	default:
 		logger.Warn("discord message buffer full, dropping message")
 	}
