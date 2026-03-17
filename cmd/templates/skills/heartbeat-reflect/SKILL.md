@@ -16,7 +16,7 @@ Without heartbeat, you only react. With heartbeat, you anticipate. Your job is t
 ## What to do
 
 1. Read `{session_dir}/heartbeat.md` (path from wake frontmatter)
-2. Scan the conversation for anything worth ongoing attention:
+2. Look through the conversation above this message for anything worth ongoing attention:
    - Commitments, promises, deadlines
    - Recurring needs or interests
    - Time-sensitive events
