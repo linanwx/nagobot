@@ -5,37 +5,31 @@ tags: [heartbeat, internal]
 ---
 # Heartbeat Reflection
 
-You have been woken by the heartbeat system to reflect on this session. Review the conversation history and maintain a list of ongoing attention items in `heartbeat.md`.
+You are reflecting on this session. This is silent — the user will not see your output.
 
-The `session_dir` field in the wake message YAML frontmatter contains the session directory path. `heartbeat.md` is located at `{session_dir}/heartbeat.md`.
+## Philosophy
 
-**This wake is always silent — your output will NOT be sent to the user.**
+Without heartbeat, you only react. With heartbeat, you anticipate. Your job is to notice what matters and remember it — so that future you can act on it at the right moment.
 
-## Your Task
+**Bias toward action.** If something might be worth tracking, track it. Removing a stale item later costs nothing; missing a commitment costs trust. When in doubt, add it.
 
-1. **Review the conversation** — look at recent exchanges for things worth keeping an eye on:
-   - Commitments you or the user made ("I'll check on X", "remind me about Y")
-   - Recurring needs (weather checks, email summaries, periodic reports)
-   - Time-sensitive items (deadlines, appointments, scheduled events)
-   - Anything the user might appreciate proactive follow-up on
+## What to do
 
-2. **Read `heartbeat.md`** from the session directory. If it doesn't exist or is empty, that's fine — it means there are no current attention items.
+1. Read `{session_dir}/heartbeat.md` (path from wake frontmatter)
+2. Scan the conversation for anything worth ongoing attention:
+   - Commitments, promises, deadlines
+   - Recurring needs or interests
+   - Time-sensitive events
+   - Anything the user would appreciate you remembering
+3. Update `heartbeat.md`:
+   - **Add** new items you found
+   - **Remove** items whose `moved_on` condition is met, or items older than 3 days that are no longer relevant
+   - **Remove** items already handled by cron (run `{{WORKSPACE}}/bin/nagobot cron list` if unsure)
+   - If nothing changed, still consider: did you look hard enough?
+4. If no items remain, write empty string to clear the file (don't delete it)
+5. Reply `HEARTBEAT_OK`
 
-3. **Decide what should change** — compare the conversation with `heartbeat.md`:
-   - **Add** new items from the conversation. Every item MUST have a `moved_on` field.
-   - **Remove** items whose `moved_on` condition is met
-   - **Remove** items duplicated by cron jobs. If unsure, run `{{WORKSPACE}}/bin/nagobot cron list` to check.
-   - **Remove** items that are irrelevant in the current context and were created 3 or more days ago
-   - **Keep** items whose `moved_on` condition is not yet met
-
-4. **Update `heartbeat.md`** if anything changes, otherwise skip update.
-   - If no items remain, write an empty string to clear the file — do NOT leave behind headings, comments, or any other text. Do NOT delete the file.
-
-5. Reply with `HEARTBEAT_OK`.
-
-## heartbeat.md Format
-
-Each item is a brief description of what to monitor, with condition fields:
+## Item format
 
 ```markdown
 - Check Beijing weather for user (they mentioned going out tomorrow)
@@ -48,31 +42,24 @@ Each item is a brief description of what to monitor, with condition fields:
   when: anytime
   created: 2026-03-10
   moved_on: user hasn't mentioned emails for over a week
-  reason: user mentioned wanting to stay on top of emails, could be helpful to provide regular summaries
+  reason: user mentioned wanting to stay on top of emails
 
 - Remind about quarterly report deadline
   if: talk about work or deadlines
   created: 2026-03-08
   moved_on: after 2026-03-20 (deadline passed) or user confirms submission
-  reason: user mentioned a quarterly report due on March 20, a reminder when discussing work could be helpful
+  reason: user mentioned a quarterly report due on March 20
 
 - Greet user in the evening
   when: every night at 9 PM
   created: 2026-03-11
   moved_on: user asks to stop or shows no response for 3 days
-  reason: user seems to activate in the evenings, a friendly greeting could be a nice touch
+  reason: user seems to activate in the evenings
 ```
 
-Example of removing a duplicate: if you find an item like "Summarize daily tech news every morning" in heartbeat.md, but the conversation history shows cron wakes already doing `push daily tech news summary every morning`, remove it from heartbeat.md — the cron system already handles it.
+Condition fields are free-form: `when`, `if`, `created`, `reason`, `moved_on`, etc. `moved_on` is required. No checkboxes — items exist or they don't.
 
-Rules:
-- Items are ongoing attention items, not one-time tasks
-- No `[ ]` / `[x]` checkboxes — items are either present (active) or removed
-- Condition fields are free-form: `when`, `if`, `created`, `reason`, `moved_on`, etc.
-- **`moved_on` is required** — describes when to remove this item (date passed, user lost interest, condition fulfilled). Evaluate during each reflection.
-- Keep descriptions concise
+## Rules
 
-## Important
-
-- Do NOT create or modify any file other than `heartbeat.md`
-- Be conservative: only add items that genuinely warrant ongoing attention
+- Only touch `heartbeat.md`, no other files
+- Items already handled by cron should be removed (e.g., "Summarize daily tech news" when a cron job already does this)
