@@ -16,7 +16,7 @@ Without heartbeat, you only react. With heartbeat, you anticipate. Your job is t
 ## What to do
 
 1. Read `{session_dir}/heartbeat.md` (path from wake frontmatter)
-2. Look through the conversation above this message for anything worth ongoing attention:
+2. Review the conversation above this message (do NOT call read_file for the session file; you already have all the information) for anything worth ongoing attention:
    - Commitments, promises, deadlines
    - Recurring needs or interests
    - Time-sensitive events
@@ -35,25 +35,25 @@ Without heartbeat, you only react. With heartbeat, you anticipate. Your job is t
 
 ```markdown
 - Check Beijing weather for user (they mentioned going out tomorrow)
-  when: 2026-03-12 morning
+  when/if: 2026-03-12 morning
   created: 2026-03-11
   moved_on: after 2026-03-12 (the outing day has passed)
   reason: user mentioned going out tomorrow, might be helpful to proactively check weather
 
 - Periodically check unread emails and summarize
-  when: anytime
+  when/if: anytime
   created: 2026-03-10
   moved_on: user hasn't mentioned emails for over a week
   reason: user mentioned wanting to stay on top of emails
 
 - Remind about quarterly report deadline
-  if: talk about work or deadlines
+  when/if: talk about work or deadlines
   created: 2026-03-08
   moved_on: after 2026-03-20 (deadline passed) or user confirms submission
   reason: user mentioned a quarterly report due on March 20
 
 - Greet user in the evening
-  when: every night at 9 PM
+  when/if: every night at 9 PM
   created: 2026-03-11
   moved_on: user asks to stop or shows no response for 3 days
   reason: user seems to activate in the evenings
