@@ -1804,17 +1804,21 @@
 
         header.appendChild(metaEl);
 
-        // Click: toggle collapse, or select session if clicking on a session-group
+        // Click: select session on first click, toggle collapse on second click or arrow
         header.addEventListener("click", (e) => {
-          // If this group is also a session, clicking the name selects it;
-          // clicking the arrow toggles collapse.
           const clickedArrow = e.target === arrow;
           if (hasSession && !clickedArrow) {
-            selectSession(node.session.key);
-            // Also expand if collapsed
-            if (collapsedPaths.has(path)) {
-              collapsedPaths.delete(path);
-              group.classList.remove("collapsed");
+            if (currentSession === node.session.key) {
+              // Already selected — toggle collapse
+              if (collapsedPaths.has(path)) {
+                collapsedPaths.delete(path);
+              } else {
+                collapsedPaths.add(path);
+              }
+              group.classList.toggle("collapsed");
+            } else {
+              // First click — just select, don't change collapse state
+              selectSession(node.session.key);
             }
           } else {
             if (collapsedPaths.has(path)) {
