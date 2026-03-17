@@ -16,20 +16,23 @@ Without heartbeat, you only react. With heartbeat, you anticipate. Your job is t
 ## What to do
 
 1. Read `{session_dir}/heartbeat.md` (path from wake frontmatter)
-2. Review the conversation above this message (do NOT call read_file for the session file; you already have all the information) for anything worth ongoing attention:
-   - Commitments, promises, deadlines
-   - Recurring needs or interests
-   - Time-sensitive events
-   - Anything the user would appreciate you remembering
-3. Update `heartbeat.md`:
-   - **Add** new items you found
-   - **Remove** items whose `moved_on` condition is met, or items older than 3 days that are no longer relevant
-   - **Remove** items already handled by cron (run `{{WORKSPACE}}/bin/nagobot cron list` if unsure)
-   - If nothing changed, still consider: did you look hard enough?
-4. For items that won't trigger within the next 2 days:
-   - Remove the item from `heartbeat.md` and create a corresponding cron job to add it back to heartbeat.md in the future
-5. If no items remain, write empty string to clear the file (don't delete it)
-6. Reply `HEARTBEAT_OK`
+2. Review conversation above (do NOT read_file session file; you already have all info)
+   - Scan for: commitments, deadlines, recurring needs, time-sensitive events, advice, user concerns, anything user would appreciate remembering
+3. existing_items = items from heartbeat.md
+   new_items = items found in conversation
+   cron_items = `{{WORKSPACE}}/bin/nagobot cron list` (check if needed)
+   - for each item in existing_items:
+      - if item.moved_on condition is met || (item.created older than 3 days && item not mentioned in conversation) || item is already handled by cron
+         - remove item
+      - else if item won't trigger within next 2 days
+         - remove from heartbeat.md
+         - create cron job to add it back later
+   - for each item in new_items:
+      - if item not already in existing_items
+         - add item
+   - if nothing changed, reconsider: did you look hard enough?
+4. if no items remain → write empty string to clear file (don't delete)
+5. Reply `HEARTBEAT_OK`
 
 ## Item format
 
