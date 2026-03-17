@@ -157,10 +157,11 @@ func runServe(cmd *cobra.Command, args []string) error {
 	threadMgr.SetDefaultAgentFor(buildDefaultAgentFor(cfg))
 	threadMgr.SetDefaultSinkFor(buildDefaultSinkFor(chManager, cfg))
 
-	// Wire system prompt lookup for the web dashboard.
+	// Wire system prompt and context budget lookups for the web dashboard.
 	if ch, ok := chManager.Get("web"); ok {
 		if webCh, ok := ch.(*channel.WebChannel); ok {
 			webCh.SetSystemPromptFn(threadMgr.SystemPrompt)
+			webCh.SetContextBudgetFn(threadMgr.ContextBudget)
 		}
 	}
 

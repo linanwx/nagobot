@@ -54,7 +54,8 @@ type WebChannel struct {
 	msgID    int64
 	stopOnce sync.Once
 
-	systemPromptFn func(string) (string, bool)
+	systemPromptFn  func(string) (string, bool)
+	contextBudgetFn func(string) (int, float64, bool)
 }
 
 type wsClient struct {
@@ -101,6 +102,12 @@ func NewWebChannel(cfg *config.Config) Channel {
 // for a given session key. Returns ("", false) if the thread is not in memory.
 func (w *WebChannel) SetSystemPromptFn(fn func(string) (string, bool)) {
 	w.systemPromptFn = fn
+}
+
+// SetContextBudgetFn sets a callback that returns the effective context window
+// and warn ratio for a given session key from the thread runtime.
+func (w *WebChannel) SetContextBudgetFn(fn func(string) (int, float64, bool)) {
+	w.contextBudgetFn = fn
 }
 
 // Name returns the channel name.
@@ -632,17 +639,30 @@ func (w *WebChannel) handleSystemPrompt(rw http.ResponseWriter, key string) {
 // --- GET /api/sessions/{key...}/stats ---
 
 type sessionStatsResponse struct {
-	Key                 string         `json:"key"`
-	MessageCount        int            `json:"message_count"`
-	RoleCounts          map[string]int `json:"role_counts"`
-	CompressedMessages  int            `json:"compressed_messages"`
-	RoleTokens          map[string]int `json:"role_tokens"`
-	RawTokens           int            `json:"raw_tokens"`
-	CompressedTokens    int            `json:"compressed_tokens"`
-	TokensSaved         int            `json:"tokens_saved"`
-	ContextWindowTokens int            `json:"context_window_tokens"`
-	UsagePercent        float64        `json:"usage_percent"`
-	PressureStatus      string         `json:"pressure_status"`
+	Key                 string          `json:"key"`
+	MessageCount        int             `json:"message_count"`
+	RoleCounts          map[string]int  `json:"role_counts"`
+	CompressedMessages  int             `json:"compressed_messages"`
+	RoleTokens          map[string]int  `json:"role_tokens"`
+	RawTokens           int             `json:"raw_tokens"`
+	CompressedTokens    int             `json:"compressed_tokens"`
+	TokensSaved         int             `json:"tokens_saved"`
+	ContextWindowTokens int             `json:"context_window_tokens"`
+	UsagePercent        float64         `json:"usage_percent"`
+	PressureStatus      string          `json:"pressure_status"`
+	TokenBreakdown      *tokenBreakdown `json:"token_breakdown,omitempty"`
+}
+
+type tokenBreakdown struct {
+	BySource    map[string]int   `json:"by_source"`
+	ByRole      map[string]int   `json:"by_role"`
+	Compression compressionStats `json:"compression"`
+}
+
+type compressionStats struct {
+	RawTokens        int `json:"raw_tokens"`
+	CompressedTokens int `json:"compressed_tokens"`
+	SavedTokens      int `json:"saved_tokens"`
 }
 
 func (w *WebChannel) handleSessionStats(rw http.ResponseWriter, key string) {
@@ -672,18 +692,39 @@ func (w *WebChannel) handleSessionStats(rw http.ResponseWriter, key string) {
 	compressedTokens := thread.EstimateMessagesTokens(compressed)
 
 	roleTokens := map[string]int{}
+	sourceTokens := map[string]int{}
 	for _, m := range compressed {
-		roleTokens[m.Role] += thread.EstimateMessageTokens(m)
+		tok := thread.EstimateMessageTokens(m)
+		roleTokens[m.Role] += tok
+		src := m.Source
+		if src == "" {
+			src = "(no source)"
+		}
+		sourceTokens[src] += tok
 	}
 
-	cfg, _ := config.Load()
-	if cfg == nil {
-		cfg = config.DefaultConfig()
+	// Try to get context window from thread runtime; fall back to global config.
+	var contextWindow int
+	var warnRatio float64
+	if w.contextBudgetFn != nil {
+		if tw, wr, ok := w.contextBudgetFn(key); ok {
+			contextWindow = tw
+			warnRatio = wr
+		}
 	}
-	contextWindow := provider.EffectiveContextWindow(cfg.GetModelName(), cfg.GetContextWindowTokens())
-	warnRatio := cfg.GetContextWarnRatio()
-	usageRatio := float64(compressedTokens) / float64(contextWindow)
+	if contextWindow == 0 {
+		cfg, _ := config.Load()
+		if cfg == nil {
+			cfg = config.DefaultConfig()
+		}
+		contextWindow = provider.EffectiveContextWindow(cfg.GetModelName(), cfg.GetContextWindowTokens())
+		warnRatio = cfg.GetContextWarnRatio()
+	}
 
+	var usageRatio float64
+	if contextWindow > 0 {
+		usageRatio = float64(compressedTokens) / float64(contextWindow)
+	}
 	status := thread.PressureStatus(usageRatio, warnRatio)
 
 	rw.Header().Set("Content-Type", "application/json")
@@ -699,6 +740,15 @@ func (w *WebChannel) handleSessionStats(rw http.ResponseWriter, key string) {
 		ContextWindowTokens: contextWindow,
 		UsagePercent:        usageRatio * 100,
 		PressureStatus:      status,
+		TokenBreakdown: &tokenBreakdown{
+			BySource: sourceTokens,
+			ByRole:   roleTokens,
+			Compression: compressionStats{
+				RawTokens:        rawTokens,
+				CompressedTokens: compressedTokens,
+				SavedTokens:      rawTokens - compressedTokens,
+			},
+		},
 	})
 }
 

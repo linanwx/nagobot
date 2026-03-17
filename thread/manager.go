@@ -234,6 +234,19 @@ func (m *Manager) ThreadStatus(id string) (tools.ThreadInfo, bool) {
 	return tools.ThreadInfo{}, false
 }
 
+// ContextBudget returns the effective context window and warn ratio for the
+// thread identified by sessionKey. Returns (0, 0, false) if no thread exists.
+func (m *Manager) ContextBudget(sessionKey string) (tokens int, warnRatio float64, ok bool) {
+	m.mu.Lock()
+	t, exists := m.threads[sessionKey]
+	m.mu.Unlock()
+	if !exists {
+		return 0, 0, false
+	}
+	tw, wr := t.contextBudget()
+	return tw, wr, true
+}
+
 // SystemPrompt builds the current system prompt for the thread identified by
 // sessionKey. Returns ("", false) if no thread is loaded for that key.
 func (m *Manager) SystemPrompt(sessionKey string) (string, bool) {

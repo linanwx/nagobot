@@ -450,6 +450,95 @@
       .stats-bar-progress.ok { background: var(--accent-green); }
       .stats-bar-progress.warning { background: #d97706; }
       .stats-bar-progress.pressure { background: #ef4444; }
+      .stats-not-running {
+        color: var(--text-tertiary);
+        font-style: italic;
+        font-size: 10px;
+      }
+
+      /* Token Breakdown */
+      .token-breakdown {
+        display: none;
+        background: var(--bg-surface);
+        border-bottom: 1px solid var(--border);
+        font-size: 10px;
+        font-family: var(--font-mono);
+      }
+      .token-breakdown.visible { display: block; }
+      .token-breakdown-toggle {
+        display: flex;
+        align-items: center;
+        gap: 4px;
+        padding: 3px 16px;
+        cursor: pointer;
+        color: var(--text-tertiary);
+        user-select: none;
+        font-size: 10px;
+        font-family: var(--font-mono);
+        background: none;
+        border: none;
+        width: 100%;
+        text-align: left;
+      }
+      .token-breakdown-toggle:hover { color: var(--text-secondary); }
+      .token-breakdown-content {
+        display: none;
+        padding: 4px 16px 8px;
+      }
+      .token-breakdown-content.open { display: block; }
+      .token-breakdown-section {
+        margin-bottom: 6px;
+      }
+      .token-breakdown-section:last-child { margin-bottom: 0; }
+      .token-breakdown-section-title {
+        color: var(--text-tertiary);
+        text-transform: uppercase;
+        font-size: 9px;
+        letter-spacing: 0.5px;
+        margin-bottom: 3px;
+      }
+      .token-breakdown-row {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        padding: 1px 0;
+      }
+      .token-breakdown-name {
+        color: var(--text-secondary);
+        min-width: 70px;
+        flex-shrink: 0;
+      }
+      .token-breakdown-tokens {
+        color: var(--text-tertiary);
+        min-width: 45px;
+        text-align: right;
+        flex-shrink: 0;
+      }
+      .token-breakdown-pct {
+        color: var(--text-tertiary);
+        min-width: 35px;
+        text-align: right;
+        flex-shrink: 0;
+      }
+      .token-breakdown-bar-bg {
+        height: 3px;
+        border-radius: 1.5px;
+        background: var(--border);
+        flex: 1;
+        min-width: 30px;
+        overflow: hidden;
+      }
+      .token-breakdown-bar-fill {
+        height: 100%;
+        border-radius: 1.5px;
+      }
+      .compression-stat {
+        display: flex;
+        gap: 12px;
+        padding: 1px 0;
+        color: var(--text-secondary);
+      }
+      .compression-stat .cs-label { color: var(--text-tertiary); }
 
       /* Messages */
       .messages {
@@ -1152,6 +1241,7 @@
             <span class="inspector-header-session" id="inspectorSession">No session selected</span>
           </div>
           <div class="stats-bar" id="statsBar"></div>
+          <div class="token-breakdown" id="tokenBreakdown"></div>
           <div class="messages" id="messagesContainer">
             <div class="messages-empty" id="messagesEmpty">Select a session to inspect messages</div>
           </div>
@@ -1203,6 +1293,7 @@
       const messagesContainer = $("messagesContainer");
       const messagesEmpty = $("messagesEmpty");
       const statsBar = $("statsBar");
+      const tokenBreakdown = $("tokenBreakdown");
       const chatInput = $("chatInput");
       const sendBtn = $("sendBtn");
       const configBtn = $("configBtn");
@@ -1364,6 +1455,114 @@
         if (n < 800) return "tok-mid";
         if (n < 3000) return "tok-high";
         return "tok-huge";
+      }
+
+      const breakdownColors = [
+        "var(--accent-blue)", "var(--accent-green)", "var(--accent-amber)",
+        "var(--accent-purple)", "var(--accent-cyan)", "var(--accent-red)",
+        "#f472b6", "#a3e635", "#38bdf8", "#fb923c",
+      ];
+
+      function renderTokenBreakdown(bd, totalTokens) {
+        tokenBreakdown.innerHTML = "";
+        const toggle = document.createElement("button");
+        toggle.className = "token-breakdown-toggle";
+        toggle.innerHTML = "\u25B6 Token Breakdown";
+        const content = document.createElement("div");
+        content.className = "token-breakdown-content";
+
+        toggle.addEventListener("click", () => {
+          const open = content.classList.contains("open");
+          content.classList.toggle("open", !open);
+          toggle.innerHTML = (open ? "\u25B6" : "\u25BC") + " Token Breakdown";
+        });
+
+        const total = totalTokens || 1;
+
+        // By Source
+        if (bd.by_source && Object.keys(bd.by_source).length > 0) {
+          content.appendChild(renderBreakdownSection("By Source", bd.by_source, total));
+        }
+
+        // By Role
+        if (bd.by_role && Object.keys(bd.by_role).length > 0) {
+          content.appendChild(renderBreakdownSection("By Role", bd.by_role, total));
+        }
+
+        // Compression
+        if (bd.compression) {
+          const sec = document.createElement("div");
+          sec.className = "token-breakdown-section";
+          const title = document.createElement("div");
+          title.className = "token-breakdown-section-title";
+          title.textContent = "Compression";
+          sec.appendChild(title);
+
+          const c = bd.compression;
+          const saved = (c.raw_tokens || 0) - (c.compressed_tokens || 0);
+          const savedPct = c.raw_tokens > 0 ? ((saved / c.raw_tokens) * 100).toFixed(1) : "0.0";
+          const entries = [
+            ["Raw", fmtTok(c.raw_tokens)],
+            ["Compressed", fmtTok(c.compressed_tokens)],
+            ["Saved", fmtTok(saved) + " (" + savedPct + "%)"],
+          ];
+          for (const [lbl, val] of entries) {
+            const row = document.createElement("div");
+            row.className = "compression-stat";
+            const l = document.createElement("span"); l.className = "cs-label"; l.textContent = lbl + ":";
+            const v = document.createElement("span"); v.textContent = val;
+            row.appendChild(l); row.appendChild(v);
+            sec.appendChild(row);
+          }
+          content.appendChild(sec);
+        }
+
+        tokenBreakdown.appendChild(toggle);
+        tokenBreakdown.appendChild(content);
+      }
+
+      function renderBreakdownSection(title, data, total) {
+        const sec = document.createElement("div");
+        sec.className = "token-breakdown-section";
+        const t = document.createElement("div");
+        t.className = "token-breakdown-section-title";
+        t.textContent = title;
+        sec.appendChild(t);
+
+        const sorted = Object.entries(data).sort((a, b) => b[1] - a[1]);
+        sorted.forEach(([name, tokens], i) => {
+          const pct = total > 0 ? (tokens / total) * 100 : 0;
+          const row = document.createElement("div");
+          row.className = "token-breakdown-row";
+
+          const nm = document.createElement("span");
+          nm.className = "token-breakdown-name";
+          nm.textContent = name;
+
+          const tk = document.createElement("span");
+          tk.className = "token-breakdown-tokens";
+          tk.textContent = fmtTok(tokens);
+
+          const pc = document.createElement("span");
+          pc.className = "token-breakdown-pct";
+          pc.textContent = pct.toFixed(1) + "%";
+
+          const barBg = document.createElement("div");
+          barBg.className = "token-breakdown-bar-bg";
+          const barFill = document.createElement("div");
+          barFill.className = "token-breakdown-bar-fill";
+          barFill.style.width = Math.min(pct, 100).toFixed(1) + "%";
+          barFill.style.background = breakdownColors[i % breakdownColors.length];
+          barBg.appendChild(barFill);
+
+          row.appendChild(nm);
+          row.appendChild(tk);
+          row.appendChild(pc);
+          row.appendChild(barBg);
+          sec.appendChild(row);
+        });
+
+        return sec;
       }
 
       function truncateId(id) {
@@ -1763,8 +1962,16 @@
           fetch("/api/sessions/" + key.split(":").map(encodeURIComponent).join("/") + "/stats")
             .then(r => r.ok ? r.json() : null)
             .then(st => {
-              if (!st || currentSession !== key) { statsBar.classList.remove("visible"); return; }
+              if (!st || currentSession !== key) {
+                statsBar.classList.remove("visible");
+                tokenBreakdown.classList.remove("visible");
+                return;
+              }
               statsBar.innerHTML = "";
+              tokenBreakdown.innerHTML = "";
+
+              const threadRunning = st.context_window_tokens > 0;
+
               const items = [
                 ["ctx", fmtTok(st.compressed_tokens) + "/" + fmtTok(st.context_window_tokens)],
                 ["msgs", st.message_count],
@@ -1778,19 +1985,36 @@
                 el.appendChild(l); el.appendChild(v);
                 statsBar.appendChild(el);
               }
-              const bar = document.createElement("div"); bar.className = "stats-bar-fill";
-              const progress = document.createElement("div");
-              progress.className = "stats-bar-progress " + st.pressure_status;
-              progress.style.width = Math.min(st.usage_percent, 100).toFixed(1) + "%";
-              bar.appendChild(progress);
-              statsBar.appendChild(bar);
-              const pct = document.createElement("span");
-              pct.className = "stats-item stats-value";
-              pct.textContent = st.usage_percent.toFixed(1) + "%";
-              statsBar.appendChild(pct);
+
+              if (threadRunning) {
+                const bar = document.createElement("div"); bar.className = "stats-bar-fill";
+                const progress = document.createElement("div");
+                progress.className = "stats-bar-progress " + st.pressure_status;
+                progress.style.width = Math.min(st.usage_percent, 100).toFixed(1) + "%";
+                bar.appendChild(progress);
+                statsBar.appendChild(bar);
+                const pct = document.createElement("span");
+                pct.className = "stats-item stats-value";
+                pct.textContent = st.usage_percent.toFixed(1) + "%";
+                statsBar.appendChild(pct);
+              } else {
+                const nr = document.createElement("span");
+                nr.className = "stats-not-running";
+                nr.textContent = "thread not running";
+                statsBar.appendChild(nr);
+              }
+
               statsBar.classList.add("visible");
+
+              // Token Breakdown panel
+              if (st.token_breakdown) {
+                renderTokenBreakdown(st.token_breakdown, st.compressed_tokens);
+                tokenBreakdown.classList.add("visible");
+              } else {
+                tokenBreakdown.classList.remove("visible");
+              }
             })
-            .catch(() => { statsBar.classList.remove("visible"); });
+            .catch(() => { statsBar.classList.remove("visible"); tokenBreakdown.classList.remove("visible"); });
 
           // Simple virtualization: if > 500 messages, only render last 500
           const renderMsgs = msgs.length > 500 ? msgs.slice(msgs.length - 500) : msgs;
