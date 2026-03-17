@@ -25,8 +25,8 @@ const (
 )
 
 // rmPattern matches `rm` as a direct shell command at the start or after a
-// shell operator (|, &, &&, ||, ;).
-var rmPattern = regexp.MustCompile(`(?:^|[|&;]\s*|&&\s*|\|\|\s*)rm(?:\s|$)`)
+// shell operator (|, &, ;). Single `|` and `&` also cover `||` and `&&`.
+var rmPattern = regexp.MustCompile(`(?:^|[|&;]\s*)rm(?:\s|$)`)
 
 // subshellRmPattern matches `rm` inside arguments of known sub-shell executors
 // (python, osascript, bash, etc.) where quoted rm will actually be executed.
@@ -119,12 +119,12 @@ func (t *ExecTool) Run(ctx context.Context, args json.RawMessage) string {
 	// Check for dangerous rm command.
 	if isRmCommand(a.Command) {
 		if a.Confirm == "" {
-			return fmt.Sprintf("Dangerous command detected: rm. "+
+			return toolError("exec", fmt.Sprintf("Dangerous command detected: rm. "+
 				"Prefer using safer alternatives like `trash` or `gio trash` to move files to trash instead of permanent deletion. "+
-				"If you still need to use rm, re-call this tool with the same command and set confirm to: %s", t.computeHMAC(a.Command))
+				"If you still need to use rm, re-call this tool with the same command and set confirm to: %s", t.computeHMAC(a.Command)))
 		}
 		if !hmac.Equal([]byte(a.Confirm), []byte(t.computeHMAC(a.Command))) {
-			return "Error: invalid confirmation token. The command may have been modified. Please retry without the confirm parameter."
+			return toolError("exec", "invalid confirmation token. The command may have been modified. Please retry without the confirm parameter.")
 		}
 	}
 
