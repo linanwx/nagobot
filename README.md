@@ -12,6 +12,14 @@
   <a href="https://nagobot.com">Website</a> · <a href="https://github.com/linanwx/nagobot/releases">Releases</a> · <a href="https://nagobot.com">Docs</a>
 </p>
 
+<p align="center">
+  <img src="img/screenshot-web.png" alt="Web Dashboard" width="680" />
+</p>
+
+<p align="center">
+  <img src="img/screenshot-telegram.png" alt="Telegram Bot" width="360" />
+</p>
+
 ## Install
 
 ```bash

@@ -291,6 +291,12 @@ nav{
 .showcase{border-top:1px solid var(--border)}
 .showcase .term{max-width:700px;margin:0 auto}
 .showcase .term-body{padding:14px 18px}
+.ss-grid{display:flex;gap:24px;align-items:flex-start;justify-content:center;flex-wrap:wrap;margin-top:32px}
+.ss-grid img{border-radius:12px;border:1px solid var(--border);box-shadow:0 4px 32px rgba(0,0,0,0.4);transition:transform .3s,box-shadow .3s}
+.ss-grid img:hover{transform:translateY(-4px);box-shadow:0 8px 48px rgba(0,0,0,0.6)}
+.ss-web{width:min(100%,620px)}
+.ss-tg{width:min(100%,280px)}
+@media(max-width:680px){.ss-grid{flex-direction:column;align-items:center}.ss-web,.ss-tg{width:100%;max-width:400px}}
 .lr{
   font-family:'Fira Code',monospace;font-size:0.73rem;
   display:grid;grid-template-columns:46px 1fr 112px 50px;
@@ -575,23 +581,12 @@ footer{
 
 <!-- ═══ SHOWCASE ═══ -->
 <section class="sec showcase rv" id="showcase">
-  <div class="sec-inner" style="max-width:760px">
+  <div class="sec-inner" style="max-width:960px">
     <div class="sec-label sec-center">In Action</div>
     <h2 class="sec-title sec-center">Deploy once, runs forever.</h2>
-    <div class="term">
-      <div class="term-bar">
-        <span class="dot"></span><span class="dot"></span><span class="dot"></span>
-        <span class="term-title">nagobot serve</span>
-      </div>
-      <div class="term-body" style="padding:14px 18px">
-        <div class="lr"><span class="lr-t">09:00</span><span class="lr-s">cron:heartbeat</span><span class="lr-a">web_search</span><span class="lr-d">12.3s</span></div>
-        <div class="lr"><span class="lr-t">09:01</span><span class="lr-s">deepseek-reasoner</span><span class="lr-a">report done</span><span class="lr-d">8.5s</span></div>
-        <div class="lr"><span class="lr-t">10:15</span><span class="lr-s">telegram</span><span class="lr-a">tool:weather</span><span class="lr-d">3.2s</span></div>
-        <div class="lr"><span class="lr-t">10:15</span><span class="lr-s">gemini-3-flash</span><span class="lr-a">response</span><span class="lr-d">2.1s</span></div>
-        <div class="lr"><span class="lr-t">14:30</span><span class="lr-s">discord</span><span class="lr-a">spawn_thread</span><span class="lr-d">6.8s</span></div>
-        <div class="lr"><span class="lr-t">18:00</span><span class="lr-s">cron:news</span><span class="lr-a">web_search x3</span><span class="lr-d">22.7s</span></div>
-        <div class="lr"><span class="lr-t">23:45</span><span class="lr-s">memory</span><span class="lr-a">tier2 compress</span><span class="lr-d">auto</span></div>
-      </div>
+    <div class="ss-grid">
+      <img class="ss-web" src="img/screenshot-web.png" alt="Web Dashboard — session inspector, message history, token stats" loading="lazy">
+      <img class="ss-tg" src="img/screenshot-telegram.png" alt="Telegram Bot — real conversation with proactive updates" loading="lazy">
     </div>
   </div>
 </section>
