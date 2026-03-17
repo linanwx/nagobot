@@ -40,7 +40,7 @@ Data flow: `session.jsonl` → reflect → `heartbeat.md` → wake → user
    - if haven't triggered reflection
       - Read `heartbeat_content`
       - If heartbeat_content has items
-         - If heartbeat item might happen in 2 hours || heartbeat item's time cannot be determined
+         - If any heartbeat item might happen in 2 hours || any heartbeat item's time cannot be determined
             - trigger wake
             - Run: `{{WORKSPACE}}/bin/nagobot heartbeat wake <key>`
 
