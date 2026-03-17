@@ -5,10 +5,13 @@ import (
 	"encoding/json"
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/linanwx/nagobot/provider"
 	"github.com/linanwx/nagobot/thread/msg"
 )
+
+const threadToolTimeout = 5 * time.Second
 
 // SpawnResult contains metadata about a newly spawned child thread.
 type SpawnResult struct {
@@ -75,6 +78,12 @@ type spawnThreadArgs struct {
 
 // Run executes the tool.
 func (t *SpawnThreadTool) Run(ctx context.Context, args json.RawMessage) string {
+	return withTimeout(ctx, "spawn_thread", threadToolTimeout, func(ctx context.Context) string {
+		return t.run(ctx, args)
+	})
+}
+
+func (t *SpawnThreadTool) run(ctx context.Context, args json.RawMessage) string {
 	var a spawnThreadArgs
 	if errMsg := parseArgs(args, &a); errMsg != "" {
 		return errMsg
@@ -159,7 +168,13 @@ type checkThreadArgs struct {
 }
 
 // Run executes the tool.
-func (t *CheckThreadTool) Run(_ context.Context, args json.RawMessage) string {
+func (t *CheckThreadTool) Run(ctx context.Context, args json.RawMessage) string {
+	return withTimeout(ctx, "check_thread", threadToolTimeout, func(ctx context.Context) string {
+		return t.run(ctx, args)
+	})
+}
+
+func (t *CheckThreadTool) run(_ context.Context, args json.RawMessage) string {
 	var a checkThreadArgs
 	if errMsg := parseArgs(args, &a); errMsg != "" {
 		return errMsg

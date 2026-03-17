@@ -7,10 +7,13 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/linanwx/nagobot/logger"
 	"github.com/linanwx/nagobot/provider"
 )
+
+const fileToolTimeout = 10 * time.Second
 
 func absOrOriginal(path string) string {
 	absPath, err := filepath.Abs(path)
@@ -77,6 +80,12 @@ type readFileArgs struct {
 
 // Run executes the tool.
 func (t *ReadFileTool) Run(ctx context.Context, args json.RawMessage) string {
+	return withTimeout(ctx, "read_file", fileToolTimeout, func(ctx context.Context) string {
+		return t.run(ctx, args)
+	})
+}
+
+func (t *ReadFileTool) run(ctx context.Context, args json.RawMessage) string {
 	var a readFileArgs
 	if errMsg := parseArgs(args, &a); errMsg != "" {
 		return errMsg
@@ -221,6 +230,12 @@ type writeFileArgs struct {
 
 // Run executes the tool.
 func (t *WriteFileTool) Run(ctx context.Context, args json.RawMessage) string {
+	return withTimeout(ctx, "write_file", fileToolTimeout, func(ctx context.Context) string {
+		return t.run(ctx, args)
+	})
+}
+
+func (t *WriteFileTool) run(_ context.Context, args json.RawMessage) string {
 	var a writeFileArgs
 	if errMsg := parseArgs(args, &a); errMsg != "" {
 		return errMsg
@@ -304,6 +319,12 @@ func normalizeTrailingWS(s string) string {
 
 // Run executes the tool.
 func (t *EditFileTool) Run(ctx context.Context, args json.RawMessage) string {
+	return withTimeout(ctx, "edit_file", fileToolTimeout, func(ctx context.Context) string {
+		return t.run(ctx, args)
+	})
+}
+
+func (t *EditFileTool) run(_ context.Context, args json.RawMessage) string {
 	var a editFileArgs
 	if errMsg := parseArgs(args, &a); errMsg != "" {
 		return errMsg

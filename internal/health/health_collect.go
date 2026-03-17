@@ -1,6 +1,7 @@
 package health
 
 import (
+	"context"
 	"fmt"
 	"path/filepath"
 	"runtime"
@@ -8,7 +9,7 @@ import (
 )
 
 // Collect returns a health snapshot for the current process.
-func Collect(opts Options) Snapshot {
+func Collect(ctx context.Context, opts Options) Snapshot {
 	opts = opts.normalize()
 	now := time.Now()
 
@@ -64,13 +65,13 @@ func Collect(opts Options) Snapshot {
 		}
 	}
 
-	if opts.SessionFile != "" {
+	if opts.SessionFile != "" && ctx.Err() == nil {
 		s.Session = inspectSessionFile(opts.SessionFile)
 	}
-	if opts.SessionsRoot != "" {
-		s.Sessions = inspectSessionsRoot(opts.SessionsRoot)
+	if opts.SessionsRoot != "" && ctx.Err() == nil {
+		s.Sessions = inspectSessionsRoot(ctx, opts.SessionsRoot)
 	}
-	if opts.Workspace != "" {
+	if opts.Workspace != "" && ctx.Err() == nil {
 		s.Cron = inspectCronFile(filepath.Join(opts.Workspace, "system", "cron.jsonl"))
 	}
 
@@ -78,8 +79,8 @@ func Collect(opts Options) Snapshot {
 		s.Channels = opts.Channels
 	}
 
-	if opts.IncludeTree && opts.Workspace != "" {
-		s.WorkspaceTree = buildWorkspaceTree(opts.Workspace, opts.TreeDepth, opts.TreeMaxEntries)
+	if opts.IncludeTree && opts.Workspace != "" && ctx.Err() == nil {
+		s.WorkspaceTree = buildWorkspaceTree(ctx, opts.Workspace, opts.TreeDepth, opts.TreeMaxEntries)
 	}
 
 	return s

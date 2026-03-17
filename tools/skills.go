@@ -5,10 +5,13 @@ import (
 	"encoding/json"
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/linanwx/nagobot/provider"
 	"gopkg.in/yaml.v3"
 )
+
+const skillToolTimeout = 10 * time.Second
 
 // SkillProvider retrieves skill prompts.
 type SkillProvider interface {
@@ -55,6 +58,12 @@ type useSkillArgs struct {
 
 // Run executes the tool.
 func (t *UseSkillTool) Run(ctx context.Context, args json.RawMessage) string {
+	return withTimeout(ctx, "use_skill", skillToolTimeout, func(ctx context.Context) string {
+		return t.run(ctx, args)
+	})
+}
+
+func (t *UseSkillTool) run(ctx context.Context, args json.RawMessage) string {
 	var a useSkillArgs
 	if errMsg := parseArgs(args, &a); errMsg != "" {
 		return errMsg

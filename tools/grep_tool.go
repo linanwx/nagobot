@@ -6,10 +6,13 @@ import (
 	"fmt"
 	"os/exec"
 	"strings"
+	"time"
 
 	"github.com/linanwx/nagobot/logger"
 	"github.com/linanwx/nagobot/provider"
 )
+
+const grepToolTimeout = 30 * time.Second
 
 // GrepTool searches file contents using regex patterns.
 type GrepTool struct {
@@ -68,6 +71,12 @@ type grepArgs struct {
 
 // Run executes the tool.
 func (t *GrepTool) Run(ctx context.Context, args json.RawMessage) string {
+	return withTimeout(ctx, "grep", grepToolTimeout, func(ctx context.Context) string {
+		return t.run(ctx, args)
+	})
+}
+
+func (t *GrepTool) run(ctx context.Context, args json.RawMessage) string {
 	var a grepArgs
 	if errMsg := parseArgs(args, &a); errMsg != "" {
 		return errMsg

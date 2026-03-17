@@ -4,10 +4,13 @@ import (
 	"context"
 	"encoding/json"
 	"strings"
+	"time"
 
 	"github.com/linanwx/nagobot/provider"
 	"github.com/linanwx/nagobot/thread/msg"
 )
+
+const wakeToolTimeout = 5 * time.Second
 
 // ThreadWaker wakes a session-bound thread with an injected message.
 type ThreadWaker interface {
@@ -56,6 +59,12 @@ type wakeThreadArgs struct {
 
 // Run executes the tool.
 func (t *WakeThreadTool) Run(ctx context.Context, args json.RawMessage) string {
+	return withTimeout(ctx, "wake_thread", wakeToolTimeout, func(ctx context.Context) string {
+		return t.run(ctx, args)
+	})
+}
+
+func (t *WakeThreadTool) run(_ context.Context, args json.RawMessage) string {
 	var a wakeThreadArgs
 	if errMsg := parseArgs(args, &a); errMsg != "" {
 		return errMsg
