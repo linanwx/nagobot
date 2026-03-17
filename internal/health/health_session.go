@@ -1,6 +1,7 @@
 package health
 
 import (
+	"context"
 	"errors"
 	"io/fs"
 	"os"
@@ -40,7 +41,7 @@ func inspectSessionFile(path string) *SessionInfo {
 	return info
 }
 
-func inspectSessionsRoot(root string) *SessionsInfo {
+func inspectSessionsRoot(ctx context.Context, root string) *SessionsInfo {
 	info := &SessionsInfo{Root: root}
 
 	stat, err := os.Stat(root)
@@ -59,6 +60,9 @@ func inspectSessionsRoot(root string) *SessionsInfo {
 	info.Exists = true
 
 	walkErr := filepath.WalkDir(root, func(path string, d fs.DirEntry, walkErr error) error {
+		if ctx.Err() != nil {
+			return ctx.Err()
+		}
 		if walkErr != nil {
 			if info.ScanError == "" {
 				info.ScanError = walkErr.Error()

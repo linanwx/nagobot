@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"strings"
-
 	healthsnap "github.com/linanwx/nagobot/internal/health"
 	"github.com/linanwx/nagobot/provider"
 	"gopkg.in/yaml.v3"
@@ -82,6 +81,12 @@ type healthArgs struct {
 
 // Run executes the tool.
 func (t *HealthTool) Run(ctx context.Context, args json.RawMessage) string {
+	return withTimeout(ctx, "health", healthToolTimeout, func(ctx context.Context) string {
+		return t.run(ctx, args)
+	})
+}
+
+func (t *HealthTool) run(ctx context.Context, args json.RawMessage) string {
 	var a healthArgs
 	if len(args) > 0 {
 		if errMsg := parseArgs(args, &a); errMsg != "" {
@@ -107,7 +112,7 @@ func (t *HealthTool) Run(ctx context.Context, args json.RawMessage) string {
 		modelName = runtimeCtx.ModelName
 	}
 
-	snapshot := healthsnap.Collect(healthsnap.Options{
+	snapshot := healthsnap.Collect(ctx, healthsnap.Options{
 		Workspace:      t.Workspace,
 		SessionsRoot:   t.SessionsRoot,
 		SkillsRoot:     t.SkillsRoot,

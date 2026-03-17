@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"strings"
-
 	"github.com/linanwx/nagobot/provider"
 	"github.com/linanwx/nagobot/thread/msg"
 )
@@ -56,6 +55,12 @@ type wakeThreadArgs struct {
 
 // Run executes the tool.
 func (t *WakeThreadTool) Run(ctx context.Context, args json.RawMessage) string {
+	return withTimeout(ctx, "wake_thread", wakeToolTimeout, func(ctx context.Context) string {
+		return t.run(ctx, args)
+	})
+}
+
+func (t *WakeThreadTool) run(_ context.Context, args json.RawMessage) string {
 	var a wakeThreadArgs
 	if errMsg := parseArgs(args, &a); errMsg != "" {
 		return errMsg

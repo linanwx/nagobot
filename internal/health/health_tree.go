@@ -1,12 +1,13 @@
 package health
 
 import (
+	"context"
 	"os"
 	"path/filepath"
 	"sort"
 )
 
-func buildWorkspaceTree(root string, depth, maxEntries int) *WorkspaceTree {
+func buildWorkspaceTree(ctx context.Context, root string, depth, maxEntries int) *WorkspaceTree {
 	if depth <= 0 {
 		depth = 3
 	}
@@ -33,7 +34,7 @@ func buildWorkspaceTree(root string, depth, maxEntries int) *WorkspaceTree {
 
 	var walk func(absDir, relDir string, level int)
 	walk = func(absDir, relDir string, level int) {
-		if tree.Truncated {
+		if tree.Truncated || ctx.Err() != nil {
 			return
 		}
 

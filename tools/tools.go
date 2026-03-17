@@ -18,6 +18,48 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
+// Tool timeout defaults. Grouped here for visibility.
+const (
+	fileToolTimeout   = 10 * time.Second
+	globToolTimeout   = 30 * time.Second
+	grepToolTimeout   = 30 * time.Second
+	threadToolTimeout = 5 * time.Second
+	wakeToolTimeout   = 5 * time.Second
+	healthToolTimeout = 15 * time.Second
+	skillToolTimeout  = 10 * time.Second
+)
+
+// withTimeout runs fn in a goroutine with a deadline. If the operation
+// completes in time the result is returned; otherwise a timeout error is
+// returned and the goroutine is left to finish in the background.
+// This is the only safe way to bound blocking syscalls (os.ReadFile, etc.)
+// that do not respect context cancellation.
+func withTimeout(ctx context.Context, tool string, timeout time.Duration, fn func(ctx context.Context) string) string {
+	ctx, cancel := context.WithTimeout(ctx, timeout)
+	defer cancel()
+
+	ch := make(chan string, 1)
+	go func() {
+		ch <- fn(ctx)
+	}()
+
+	select {
+	case result := <-ch:
+		return result
+	case <-ctx.Done():
+		// fn may have completed at the same instant — drain before returning an error.
+		select {
+		case result := <-ch:
+			return result
+		default:
+		}
+		if ctx.Err() == context.DeadlineExceeded {
+			return toolError(tool, fmt.Sprintf("operation timed out after %v", timeout))
+		}
+		return toolError(tool, "operation cancelled")
+	}
+}
+
 const (
 	toolResultMaxChars  = 100000
 	toolLogMaxChars     = 50000

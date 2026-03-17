@@ -7,7 +7,6 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
-
 	"github.com/linanwx/nagobot/logger"
 	"github.com/linanwx/nagobot/provider"
 )
@@ -77,6 +76,12 @@ type readFileArgs struct {
 
 // Run executes the tool.
 func (t *ReadFileTool) Run(ctx context.Context, args json.RawMessage) string {
+	return withTimeout(ctx, "read_file", fileToolTimeout, func(ctx context.Context) string {
+		return t.run(ctx, args)
+	})
+}
+
+func (t *ReadFileTool) run(ctx context.Context, args json.RawMessage) string {
 	var a readFileArgs
 	if errMsg := parseArgs(args, &a); errMsg != "" {
 		return errMsg
@@ -221,6 +226,12 @@ type writeFileArgs struct {
 
 // Run executes the tool.
 func (t *WriteFileTool) Run(ctx context.Context, args json.RawMessage) string {
+	return withTimeout(ctx, "write_file", fileToolTimeout, func(ctx context.Context) string {
+		return t.run(ctx, args)
+	})
+}
+
+func (t *WriteFileTool) run(ctx context.Context, args json.RawMessage) string {
 	var a writeFileArgs
 	if errMsg := parseArgs(args, &a); errMsg != "" {
 		return errMsg
@@ -234,6 +245,12 @@ func (t *WriteFileTool) Run(ctx context.Context, args json.RawMessage) string {
 	resolvedDir := absOrOriginal(dir)
 	if err := os.MkdirAll(dir, 0755); err != nil {
 		return toolError("write_file", fmt.Sprintf("failed to create parent directory: %s: %v", formatResolvedPath(dir, resolvedDir), err))
+	}
+
+	// Bail out if the timeout already fired to avoid writing after the caller
+	// received a timeout error.
+	if ctx.Err() != nil {
+		return toolError("write_file", "operation cancelled before write")
 	}
 
 	// Write file (overwrite)
@@ -304,6 +321,12 @@ func normalizeTrailingWS(s string) string {
 
 // Run executes the tool.
 func (t *EditFileTool) Run(ctx context.Context, args json.RawMessage) string {
+	return withTimeout(ctx, "edit_file", fileToolTimeout, func(ctx context.Context) string {
+		return t.run(ctx, args)
+	})
+}
+
+func (t *EditFileTool) run(ctx context.Context, args json.RawMessage) string {
 	var a editFileArgs
 	if errMsg := parseArgs(args, &a); errMsg != "" {
 		return errMsg
@@ -347,6 +370,9 @@ func (t *EditFileTool) Run(ctx context.Context, args json.RawMessage) string {
 			newContent = normalizedReplace(contentStr, normOld, a.NewText)
 		}
 
+		if ctx.Err() != nil {
+			return toolError("edit_file", "operation cancelled before write")
+		}
 		if err := os.WriteFile(path, []byte(newContent), 0644); err != nil {
 			return toolError("edit_file", fmt.Sprintf("failed to write file: %s: %v", displayPath, err))
 		}
@@ -372,6 +398,9 @@ func (t *EditFileTool) Run(ctx context.Context, args json.RawMessage) string {
 		newContent = strings.Replace(contentStr, a.OldText, a.NewText, 1)
 	}
 
+	if ctx.Err() != nil {
+		return toolError("edit_file", "operation cancelled before write")
+	}
 	if err := os.WriteFile(path, []byte(newContent), 0644); err != nil {
 		return toolError("edit_file", fmt.Sprintf("failed to write file: %s: %v", displayPath, err))
 	}

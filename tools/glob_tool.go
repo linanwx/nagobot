@@ -9,7 +9,6 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
-
 	"github.com/linanwx/nagobot/logger"
 	"github.com/linanwx/nagobot/provider"
 )
@@ -70,6 +69,12 @@ type globEntry struct {
 
 // Run executes the tool.
 func (t *GlobTool) Run(ctx context.Context, args json.RawMessage) string {
+	return withTimeout(ctx, "glob", globToolTimeout, func(ctx context.Context) string {
+		return t.run(ctx, args)
+	})
+}
+
+func (t *GlobTool) run(ctx context.Context, args json.RawMessage) string {
 	var a globArgs
 	if errMsg := parseArgs(args, &a); errMsg != "" {
 		return errMsg
@@ -101,6 +106,9 @@ func (t *GlobTool) Run(ctx context.Context, args json.RawMessage) string {
 	hasDoublestar := strings.Contains(a.Pattern, "**")
 
 	err = filepath.WalkDir(searchPath, func(path string, d fs.DirEntry, err error) error {
+		if ctx.Err() != nil {
+			return ctx.Err()
+		}
 		if err != nil {
 			return nil // skip errors
 		}
