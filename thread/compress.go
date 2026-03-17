@@ -242,8 +242,9 @@ func compressTier1(messages []provider.Message, keepLastAssistants int) (bool, [
 
 // markHeartbeatTurns scans for heartbeat turns that can be collapsed to markers.
 // A "turn" = user message + all subsequent assistant/tool messages until next user msg.
-// No protectFrom boundary — heartbeat noise is never worth protecting.
-// Time-gated by compressExpireAge: only marks turns older than 2h.
+// No protectFrom boundary and no time gate — heartbeat turns are trimmed immediately
+// since users never see them and leaving them risks the AI treating user messages
+// as responses to heartbeat actions.
 // Returns true if any messages were newly marked.
 func markHeartbeatTurns(messages []provider.Message) bool {
 	modified := false
@@ -264,12 +265,6 @@ func markHeartbeatTurns(messages []provider.Message) bool {
 		turnEnd := i + 1
 		for turnEnd < len(messages) && messages[turnEnd].Role != "user" {
 			turnEnd++
-		}
-
-		// Time gate: only trim turns older than compressExpireAge.
-		if messages[i].Timestamp.IsZero() || time.Since(messages[i].Timestamp) <= compressExpireAge {
-			i = turnEnd
-			continue
 		}
 
 		shouldTrim := false
