@@ -315,6 +315,7 @@
 
       .session-item {
         display: flex;
+        flex-wrap: wrap;
         align-items: center;
         justify-content: space-between;
         padding: 4px 6px 4px 12px;
@@ -349,6 +350,17 @@
         white-space: nowrap;
         flex: 1;
         min-width: 0;
+      }
+
+      .session-summary {
+        width: 100%;
+        font-size: 9px;
+        color: var(--text-tertiary);
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+        padding-left: 0;
+        line-height: 1.3;
       }
 
       .session-meta {
@@ -1854,6 +1866,14 @@
 
         item.appendChild(keyEl);
         item.appendChild(metaEl);
+
+        if (s.summary) {
+          const summaryEl = document.createElement("span");
+          summaryEl.className = "session-summary";
+          summaryEl.textContent = s.summary;
+          summaryEl.title = s.summary;
+          item.appendChild(summaryEl);
+        }
 
         item.addEventListener("click", () => selectSession(s.key));
         item.addEventListener("keydown", (e) => {

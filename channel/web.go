@@ -466,6 +466,7 @@ type sessionListEntry struct {
 	UpdatedAt    time.Time `json:"updated_at"`
 	MessageCount int       `json:"message_count"`
 	HasHeartbeat bool      `json:"has_heartbeat,omitempty"`
+	Summary      string    `json:"summary,omitempty"`
 }
 
 func (w *WebChannel) handleSessions(rw http.ResponseWriter, r *http.Request) {
@@ -475,6 +476,7 @@ func (w *WebChannel) handleSessions(rw http.ResponseWriter, r *http.Request) {
 	}
 
 	sessionsDir := filepath.Join(w.workspace, sessionsDirName)
+	summaries := loadWebSummaries(filepath.Join(w.workspace, "system", "sessions_summary.json"))
 	var entries []sessionListEntry
 
 	_ = filepath.WalkDir(sessionsDir, func(path string, d fs.DirEntry, err error) error {
@@ -497,12 +499,16 @@ func (w *WebChannel) handleSessions(rw http.ResponseWriter, r *http.Request) {
 			hasHB = true
 		}
 
-		entries = append(entries, sessionListEntry{
+		entry := sessionListEntry{
 			Key:          key,
 			UpdatedAt:    updatedAt,
 			MessageCount: lineCount,
 			HasHeartbeat: hasHB,
-		})
+		}
+		if s, ok := summaries[key]; ok {
+			entry.Summary = s
+		}
+		entries = append(entries, entry)
 		return nil
 	})
 
@@ -517,6 +523,27 @@ func (w *WebChannel) handleSessions(rw http.ResponseWriter, r *http.Request) {
 
 	rw.Header().Set("Content-Type", "application/json")
 	_ = json.NewEncoder(rw).Encode(entries)
+}
+
+// loadWebSummaries reads system/sessions_summary.json and returns key→summary text.
+func loadWebSummaries(path string) map[string]string {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return nil
+	}
+	var raw map[string]struct {
+		Summary string `json:"summary"`
+	}
+	if err := json.Unmarshal(data, &raw); err != nil {
+		return nil
+	}
+	m := make(map[string]string, len(raw))
+	for k, v := range raw {
+		if v.Summary != "" {
+			m[k] = v.Summary
+		}
+	}
+	return m
 }
 
 // countLines counts newlines in a file without parsing JSON. Returns 0 on error.
