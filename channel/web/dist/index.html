@@ -224,6 +224,7 @@
 
       .session-group-header {
         display: flex;
+        flex-wrap: wrap;
         align-items: center;
         gap: 4px;
         padding: 4px 6px;
@@ -1803,6 +1804,14 @@
         }
 
         header.appendChild(metaEl);
+
+        if (hasSession && node.session.summary) {
+          const summaryEl = document.createElement("span");
+          summaryEl.className = "session-summary";
+          summaryEl.textContent = node.session.summary;
+          summaryEl.title = node.session.summary;
+          header.appendChild(summaryEl);
+        }
 
         // Click: select session on first click, toggle collapse on second click or arrow
         header.addEventListener("click", (e) => {
