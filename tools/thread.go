@@ -5,13 +5,9 @@ import (
 	"encoding/json"
 	"fmt"
 	"strings"
-	"time"
-
 	"github.com/linanwx/nagobot/provider"
 	"github.com/linanwx/nagobot/thread/msg"
 )
-
-const threadToolTimeout = 5 * time.Second
 
 // SpawnResult contains metadata about a newly spawned child thread.
 type SpawnResult struct {

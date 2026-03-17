@@ -6,13 +6,9 @@ import (
 	"fmt"
 	"os/exec"
 	"strings"
-	"time"
-
 	"github.com/linanwx/nagobot/logger"
 	"github.com/linanwx/nagobot/provider"
 )
-
-const grepToolTimeout = 30 * time.Second
 
 // GrepTool searches file contents using regex patterns.
 type GrepTool struct {

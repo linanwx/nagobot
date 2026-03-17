@@ -4,13 +4,9 @@ import (
 	"context"
 	"encoding/json"
 	"strings"
-	"time"
-
 	"github.com/linanwx/nagobot/provider"
 	"github.com/linanwx/nagobot/thread/msg"
 )
-
-const wakeToolTimeout = 5 * time.Second
 
 // ThreadWaker wakes a session-bound thread with an injected message.
 type ThreadWaker interface {

@@ -5,13 +5,9 @@ import (
 	"encoding/json"
 	"fmt"
 	"strings"
-	"time"
-
 	"github.com/linanwx/nagobot/provider"
 	"gopkg.in/yaml.v3"
 )
-
-const skillToolTimeout = 10 * time.Second
 
 // SkillProvider retrieves skill prompts.
 type SkillProvider interface {

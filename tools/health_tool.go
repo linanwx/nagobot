@@ -5,14 +5,10 @@ import (
 	"encoding/json"
 	"fmt"
 	"strings"
-	"time"
-
 	healthsnap "github.com/linanwx/nagobot/internal/health"
 	"github.com/linanwx/nagobot/provider"
 	"gopkg.in/yaml.v3"
 )
-
-const healthToolTimeout = 15 * time.Second
 
 // HealthRuntimeContext is thread/session metadata injected at runtime.
 type HealthRuntimeContext struct {

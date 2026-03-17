@@ -9,13 +9,9 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
-	"time"
-
 	"github.com/linanwx/nagobot/logger"
 	"github.com/linanwx/nagobot/provider"
 )
-
-const globToolTimeout = 30 * time.Second
 
 // GlobTool finds files matching a glob pattern.
 type GlobTool struct {
