@@ -3,8 +3,6 @@ package thread
 import (
 	"context"
 	"fmt"
-	"os"
-	"path/filepath"
 	"strings"
 	"time"
 
@@ -88,12 +86,6 @@ func (m *Manager) tryTier1Compress(sessionKey string) {
 
 	modified, newMessages := compressTier1(sess.Messages, compressKeepAssistants)
 	if !modified {
-		return
-	}
-
-	sessionPath := cfg.Sessions.PathForKey(sessionKey)
-	if err := backupSession(sessionPath); err != nil {
-		logger.Warn("tier1 compress: backup failed", "sessionKey", sessionKey, "err", err)
 		return
 	}
 
@@ -527,24 +519,4 @@ func extractSkillName(content string) string {
 		}
 	}
 	return ""
-}
-
-// backupSession writes the current session file to the history directory.
-func backupSession(sessionPath string) error {
-	data, err := os.ReadFile(sessionPath)
-	if err != nil {
-		return err
-	}
-	if len(data) == 0 {
-		return fmt.Errorf("session file is empty")
-	}
-
-	historyDir := filepath.Join(filepath.Dir(sessionPath), "history")
-	if err := os.MkdirAll(historyDir, 0755); err != nil {
-		return err
-	}
-
-	now := time.Now()
-	filename := fmt.Sprintf("%d_%s.jsonl", now.Unix(), now.Format("20060102T150405-0700"))
-	return os.WriteFile(filepath.Join(historyDir, filename), data, 0644)
 }
