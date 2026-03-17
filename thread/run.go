@@ -281,12 +281,16 @@ func isUserFacingContent(s string) bool {
 }
 
 // ApplyCompressed returns a copy of messages with compression applied.
-// For messages that have a Compressed field, Content is replaced.
-// For messages marked ReasoningTrimmed, reasoning fields are cleared.
+// - HeartbeatTrim: assistant/tool messages removed entirely; user msg passes through Compressed→Content.
+// - Compressed field: Content replaced with Compressed value.
+// - ReasoningTrimmed: reasoning fields cleared.
 // The original session data is not modified.
 func ApplyCompressed(msgs []provider.Message) []provider.Message {
-	result := make([]provider.Message, len(msgs))
-	for i, m := range msgs {
+	result := make([]provider.Message, 0, len(msgs))
+	for _, m := range msgs {
+		if m.HeartbeatTrim {
+			continue
+		}
 		if m.Compressed != "" {
 			m.Content = m.Compressed
 		}
@@ -294,7 +298,7 @@ func ApplyCompressed(msgs []provider.Message) []provider.Message {
 			m.ReasoningContent = ""
 			m.ReasoningDetails = nil
 		}
-		result[i] = m
+		result = append(result, m)
 	}
 	return result
 }

@@ -585,6 +585,19 @@
       .msg-card[data-role="system"] { border-left-color: var(--role-system); }
       .msg-card[data-role="tool"] { border-left-color: var(--role-tool); }
 
+      .msg-card.heartbeat-trim {
+        opacity: 0.35;
+      }
+
+      .heartbeat-trim-badge {
+        font-size: 9px;
+        color: var(--accent-red);
+        background: rgba(239, 68, 68, 0.1);
+        padding: 1px 5px;
+        border-radius: 3px;
+        border: 1px solid rgba(239, 68, 68, 0.2);
+      }
+
       .msg-header {
         display: flex;
         align-items: center;
@@ -2065,7 +2078,7 @@
 
       function renderMessageCard(msg) {
         const card = document.createElement("div");
-        card.className = "msg-card";
+        card.className = "msg-card" + (msg.heartbeat_trim ? " heartbeat-trim" : "");
         card.setAttribute("data-role", msg.role || "system");
 
         // Header
@@ -2093,6 +2106,14 @@
           src.className = "source-badge";
           src.textContent = msg.source;
           header.appendChild(src);
+        }
+
+        // Heartbeat trim badge
+        if (msg.heartbeat_trim) {
+          const hbt = document.createElement("span");
+          hbt.className = "heartbeat-trim-badge";
+          hbt.textContent = "trimmed";
+          header.appendChild(hbt);
         }
 
         // Tool name for tool results

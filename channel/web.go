@@ -626,7 +626,7 @@ func (w *WebChannel) handleSessionMessages(rw http.ResponseWriter, r *http.Reque
 			Message: m,
 			Tokens:  thread.EstimateMessageTokens(m),
 		}
-		if m.Compressed != "" || m.ReasoningTrimmed {
+		if m.Compressed != "" || m.ReasoningTrimmed || m.HeartbeatTrim {
 			applied := thread.ApplyCompressedMessage(m)
 			mt.CompressedTokens = thread.EstimateMessageTokens(applied)
 		}

@@ -32,6 +32,7 @@ type sessionStatsOutput struct {
 	MessageCount        int               `json:"message_count"`
 	RoleCounts          map[string]int    `json:"role_counts"`
 	CompressedMessages  int               `json:"compressed_messages"`
+	HeartbeatTrimmed    int               `json:"heartbeat_trimmed"`
 	RoleTokens          map[string]int    `json:"role_tokens"`
 	SystemPromptTokens  int               `json:"system_prompt_tokens"`
 	RawTokens           int               `json:"raw_tokens"`
@@ -87,10 +88,14 @@ func runSessionStats(_ *cobra.Command, args []string) error {
 
 	roleCounts := map[string]int{}
 	compressedCount := 0
+	heartbeatTrimCount := 0
 	for _, m := range messages {
 		roleCounts[m.Role]++
 		if m.Compressed != "" {
 			compressedCount++
+		}
+		if m.HeartbeatTrim {
+			heartbeatTrimCount++
 		}
 	}
 
@@ -153,6 +158,7 @@ func runSessionStats(_ *cobra.Command, args []string) error {
 		MessageCount:        len(messages),
 		RoleCounts:          roleCounts,
 		CompressedMessages:  compressedCount,
+		HeartbeatTrimmed:    heartbeatTrimCount,
 		RoleTokens:          roleTokens,
 		SystemPromptTokens:  systemPromptTokens,
 		RawTokens:           rawTokens,

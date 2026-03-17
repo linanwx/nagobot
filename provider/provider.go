@@ -47,6 +47,7 @@ type Message struct {
 	Timestamp        time.Time  `json:"timestamp,omitempty"`         // when message was created
 	Compressed       string     `json:"compressed,omitempty"`        // compressed version of content
 	ReasoningTrimmed bool       `json:"reasoning_trimmed,omitempty"` // Tier 1 flag: reasoning marked for send-time exclusion (original data preserved)
+	HeartbeatTrim    bool       `json:"heartbeat_trim,omitempty"`    // Tier 1 flag: heartbeat turn marked for send-time removal
 	Source           string     `json:"source,omitempty"`            // wake source that triggered this message
 }
 

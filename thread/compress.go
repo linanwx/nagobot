@@ -26,6 +26,14 @@ const (
 	heartbeatTrimThreshold = 100           // minimum content size to compress heartbeat results
 )
 
+// heartbeatSafeTools lists tools that don't constitute "real work" in a heartbeat turn.
+// If a heartbeat_wake turn only calls these + sleep_thread(skip), the turn is noise.
+var heartbeatSafeTools = map[string]bool{
+	"sleep_thread": true, // the skip/sleep action itself
+	"use_skill":    true, // loads skill instructions (read-only)
+	"read_file":    true, // reads heartbeat.md or config (read-only)
+}
+
 // runCompressionScan scans idle threads and applies the appropriate compression tier:
 //   - Tier 1 (idle 5-30min): mechanical compression of tools and large assistant-only user messages
 //   - Tier 2 (idle ≥30min, >60% tokens): AI-driven silent compression via context-ops skill
@@ -196,6 +204,12 @@ func compressTier1(messages []provider.Message, keepLastAssistants int) (bool, [
 
 	for i := 0; i < protectFrom; i++ {
 		m := &result[i]
+
+		// Skip messages already marked by heartbeat trim pass.
+		if m.HeartbeatTrim || (m.Role == "user" && strings.HasPrefix(m.Compressed, "[heartbeat_")) {
+			continue
+		}
+
 		var newCompressed string
 
 		switch m.Role {
@@ -224,7 +238,106 @@ func compressTier1(messages []provider.Message, keepLastAssistants int) (bool, [
 		}
 	}
 
+	// Mark entire heartbeat turns for send-time removal.
+	// Independent of protectFrom — heartbeat noise is never worth protecting.
+	// Time-gated by compressExpireAge inside markHeartbeatTurns.
+	if markHeartbeatTurns(result) {
+		modified = true
+	}
+
 	return modified, result
+}
+
+// markHeartbeatTurns scans for heartbeat turns that can be collapsed to markers.
+// A "turn" = user message + all subsequent assistant/tool messages until next user msg.
+// No protectFrom boundary — heartbeat noise is never worth protecting.
+// Time-gated by compressExpireAge: only marks turns older than 2h.
+// Returns true if any messages were newly marked.
+func markHeartbeatTurns(messages []provider.Message) bool {
+	modified := false
+	i := 0
+	for i < len(messages) {
+		if messages[i].Role != "user" {
+			i++
+			continue
+		}
+
+		source := messages[i].Source
+		if source != string(WakeHeartbeatReflect) && source != string(WakeHeartbeatWake) {
+			i++
+			continue
+		}
+
+		// Find turn boundary: next user message or end of slice.
+		turnEnd := i + 1
+		for turnEnd < len(messages) && messages[turnEnd].Role != "user" {
+			turnEnd++
+		}
+
+		// Time gate: only trim turns older than compressExpireAge.
+		if messages[i].Timestamp.IsZero() || time.Since(messages[i].Timestamp) <= compressExpireAge {
+			i = turnEnd
+			continue
+		}
+
+		shouldTrim := false
+		trimType := ""
+		switch source {
+		case string(WakeHeartbeatReflect):
+			shouldTrim = true
+			trimType = "reflect"
+		case string(WakeHeartbeatWake):
+			if isHeartbeatSkipTurn(messages[i:turnEnd]) {
+				shouldTrim = true
+				trimType = "skip"
+			}
+		}
+
+		if !shouldTrim {
+			i = turnEnd
+			continue
+		}
+
+		// User message: set Compressed to a short marker.
+		ts := messages[i].Timestamp.Format("15:04")
+		marker := fmt.Sprintf("[heartbeat_%s at %s — trimmed]", trimType, ts)
+		if marker != messages[i].Compressed {
+			messages[i].Compressed = marker
+			modified = true
+		}
+
+		// Assistant/tool messages: mark for send-time removal.
+		for j := i + 1; j < turnEnd; j++ {
+			if !messages[j].HeartbeatTrim {
+				messages[j].HeartbeatTrim = true
+				modified = true
+			}
+		}
+
+		i = turnEnd
+	}
+	return modified
+}
+
+// isHeartbeatSkipTurn returns true if a heartbeat_wake turn only called safe tools
+// and ended with sleep_thread(skip=true).
+func isHeartbeatSkipTurn(turnMessages []provider.Message) bool {
+	hasSleepSkip := false
+	hasRealWork := false
+
+	for i := range turnMessages {
+		m := &turnMessages[i]
+		if m.Role != "tool" {
+			continue
+		}
+		if m.Name == "sleep_thread" && strings.Contains(m.Content, "mode: skip") {
+			hasSleepSkip = true
+		} else if !heartbeatSafeTools[m.Name] {
+			hasRealWork = true
+		}
+	}
+
+	return hasSleepSkip && !hasRealWork
 }
 
 // computeToolCompressed returns the Compressed value for a tool message.
