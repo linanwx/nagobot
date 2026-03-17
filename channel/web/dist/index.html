@@ -333,12 +333,12 @@
         background: var(--bg-elevated);
         border-left-color: var(--accent-green);
       }
-      .session-hb {
+      .header-btn.hb-active {
         color: var(--accent-red);
-        font-size: 9px;
-        margin-right: 3px;
-        flex-shrink: 0;
-        opacity: 0.8;
+        border-color: var(--accent-red);
+      }
+      .header-btn.hb-active:hover {
+        color: var(--accent-red);
       }
 
       .session-key {
@@ -1654,6 +1654,7 @@
           if (!res.ok) return;
           sessions = await res.json();
           renderSessionList();
+          updateHeartbeatBtn();
         } catch { /* silent */ }
       }
 
@@ -1763,13 +1764,6 @@
         nameEl.textContent = name;
 
         header.appendChild(arrow);
-        if (hasSession && node.session.has_heartbeat) {
-          const hb = document.createElement("span");
-          hb.className = "session-hb";
-          hb.textContent = "♥";
-          hb.title = "Has heartbeat";
-          header.appendChild(hb);
-        }
         header.appendChild(nameEl);
 
         // Meta: show session stats if this node is also a session, else show child count
@@ -1858,13 +1852,6 @@
         timeEl.textContent = timeAgo(s.updated_at);
         metaEl.appendChild(timeEl);
 
-        if (s.has_heartbeat) {
-          const hb = document.createElement("span");
-          hb.className = "session-hb";
-          hb.textContent = "♥";
-          hb.title = "Has heartbeat";
-          item.appendChild(hb);
-        }
         item.appendChild(keyEl);
         item.appendChild(metaEl);
 
@@ -1887,6 +1874,7 @@
         chatInput.placeholder = "Send a message to " + key + "...";
         updateInputState();
         renderSessionList();
+        updateHeartbeatBtn();
 
         // Bind WebSocket
         if (ws && ws.readyState === WebSocket.OPEN) {
@@ -2276,6 +2264,19 @@
           chatInput.placeholder = "Disconnected...";
         } else {
           chatInput.placeholder = "Send a message to " + currentSession + "...";
+        }
+      }
+
+      function updateHeartbeatBtn() {
+        if (!currentSession) {
+          heartbeatBtn.classList.remove("hb-active");
+          return;
+        }
+        const s = sessions.find(s => s.key === currentSession);
+        if (s && s.has_heartbeat) {
+          heartbeatBtn.classList.add("hb-active");
+        } else {
+          heartbeatBtn.classList.remove("hb-active");
         }
       }
 
