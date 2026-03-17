@@ -198,7 +198,7 @@ func (r *Registry) RegisterDefaultTools(workspace string, cfg DefaultToolsConfig
 	r.Register(&GrepTool{workspace: workspace})
 	r.Register(&GlobTool{workspace: workspace})
 	r.Register(&EditFileTool{workspace: workspace})
-	r.Register(&ExecTool{workspace: workspace, defaultTimeout: cfg.ExecTimeout, restrictToWorkspace: cfg.RestrictToWorkspace})
+	r.Register(NewExecTool(workspace, cfg.ExecTimeout, cfg.RestrictToWorkspace))
 	r.Register(&HealthTool{Workspace: workspace})
 	r.Register(&WebSearchTool{defaultMaxResults: cfg.WebSearchMaxResults, providers: cfg.SearchProviders})
 	r.Register(&WebFetchTool{providers: cfg.FetchProviders})
