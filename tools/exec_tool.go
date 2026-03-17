@@ -103,6 +103,9 @@ func (t *ExecTool) computeHMAC(command string) string {
 // isRmCommand reports whether the shell command contains an `rm` invocation
 // either as a direct shell command or inside a sub-shell executor's arguments.
 func isRmCommand(cmd string) bool {
+	if !strings.Contains(cmd, "rm") {
+		return false
+	}
 	return rmPattern.MatchString(cmd) || subshellRmPattern.MatchString(cmd)
 }
 
@@ -115,13 +118,12 @@ func (t *ExecTool) Run(ctx context.Context, args json.RawMessage) string {
 
 	// Check for dangerous rm command.
 	if isRmCommand(a.Command) {
-		expected := t.computeHMAC(a.Command)
 		if a.Confirm == "" {
 			return fmt.Sprintf("Dangerous command detected: rm. "+
 				"Prefer using safer alternatives like `trash` or `gio trash` to move files to trash instead of permanent deletion. "+
-				"If you still need to use rm, re-call this tool with the same command and set confirm to: %s", expected)
+				"If you still need to use rm, re-call this tool with the same command and set confirm to: %s", t.computeHMAC(a.Command))
 		}
-		if !hmac.Equal([]byte(a.Confirm), []byte(expected)) {
+		if !hmac.Equal([]byte(a.Confirm), []byte(t.computeHMAC(a.Command))) {
 			return "Error: invalid confirmation token. The command may have been modified. Please retry without the confirm parameter."
 		}
 	}
