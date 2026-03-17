@@ -26,8 +26,10 @@ Without heartbeat, you only react. With heartbeat, you anticipate. Your job is t
    - **Remove** items whose `moved_on` condition is met, or items older than 3 days that are no longer relevant
    - **Remove** items already handled by cron (run `{{WORKSPACE}}/bin/nagobot cron list` if unsure)
    - If nothing changed, still consider: did you look hard enough?
-4. If no items remain, write empty string to clear the file (don't delete it)
-5. Reply `HEARTBEAT_OK`
+4. For items that won't trigger within the next 2 days:
+   - Remove the item from `heartbeat.md` and create a corresponding cron job to handle it in the future
+5. If no items remain, write empty string to clear the file (don't delete it)
+6. Reply `HEARTBEAT_OK`
 
 ## Item format
 
