@@ -45,7 +45,7 @@ func (m *Manager) runCompressionScan() {
 	now := time.Now()
 	for key, t := range m.threads {
 		idle := now.Sub(t.lastUserActiveAt)
-		if t.state == threadIdle && idle >= tier1IdleMin && idle < tier2IdleMax {
+		if t.state == threadIdle && idle >= tier1IdleMin {
 			candidates = append(candidates, candidate{key: key, idle: idle})
 		}
 	}
@@ -56,10 +56,11 @@ func (m *Manager) runCompressionScan() {
 	}
 
 	for _, c := range candidates {
+		// Tier 1 always runs first (mechanical, idempotent, cheap).
+		m.tryTier1Compress(c.key)
+		// Tier 2 runs additionally when idle long enough and tokens exceed threshold.
 		if c.idle >= tier2IdleMin {
 			m.tryTier2Compress(c.key)
-		} else {
-			m.tryTier1Compress(c.key)
 		}
 	}
 }
