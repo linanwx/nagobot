@@ -1674,6 +1674,7 @@
       // Track collapsed state by tree path (persisted across re-renders)
       const collapsedPaths = new Set();
       let treeInitialized = false;
+      let treeAutoExpanded = false;
 
       // Build a tree from flat session keys split on ":"
       function buildSessionTree(sessions) {
@@ -1724,8 +1725,9 @@
           treeInitialized = true;
         }
 
-        // Auto-expand path to currentSession
-        if (currentSession) {
+        // Auto-expand path to currentSession only on first render
+        if (!treeAutoExpanded && currentSession) {
+          treeAutoExpanded = true;
           const segs = currentSession.split(":");
           let p = "";
           for (const seg of segs) {
