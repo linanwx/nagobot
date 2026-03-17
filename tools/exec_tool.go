@@ -7,6 +7,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"time"
 
@@ -17,7 +18,12 @@ import (
 const (
 	execDefaultTimeoutSeconds = 60
 	execOutputMaxChars        = 50000
+	trashDirName              = ".nagobot-trash"
 )
+
+// rmPattern matches standalone rm commands (not as part of another word).
+// Matches: rm, rm -rf, rm -f, etc. Does NOT match: cargo, gorm, xrm.
+var rmPattern = regexp.MustCompile(`(?:^|[;&|]\s*)rm\s`)
 
 // ExecTool executes shell commands.
 type ExecTool struct {
@@ -62,11 +68,68 @@ type execArgs struct {
 	Timeout int    `json:"timeout,omitempty"`
 }
 
+// rewriteRmToTrash rewrites rm commands to mv into a trash directory.
+// Returns the rewritten command and the trash dir used, or empty strings if no rewrite needed.
+func rewriteRmToTrash(command string) (rewritten string, trashDir string) {
+	if !rmPattern.MatchString(command) {
+		return "", ""
+	}
+	trashDir = filepath.Join(os.TempDir(), trashDirName, time.Now().Format("20060102-150405")+"-"+randomHex(3))
+	// Rewrite each rm invocation: strip rm and its flags, mv the remaining paths to trash.
+	rewritten = rmPattern.ReplaceAllStringFunc(command, func(match string) string {
+		// Preserve the leading separator (;, &, |) if present.
+		prefix := ""
+		trimmed := strings.TrimLeft(match, " ")
+		if len(trimmed) > 0 && trimmed[0] != 'r' {
+			idx := strings.Index(match, "rm")
+			prefix = match[:idx]
+		}
+		return prefix + "mv "
+	})
+	// Replace flags like -r, -f, -rf, -fr, --recursive, --force, -i, -I, --interactive, -v, --verbose, -d, --dir
+	rewritten = stripRmFlags(rewritten)
+	rewritten = strings.TrimRight(rewritten, " ") + " " + shellQuote(trashDir) + "/"
+	// Prepend mkdir -p for the trash directory.
+	rewritten = "mkdir -p " + shellQuote(trashDir) + " && " + rewritten
+	return rewritten, trashDir
+}
+
+// stripRmFlags removes rm-specific flags that are invalid for mv.
+var rmFlagsPattern = regexp.MustCompile(`\s+(-[rRfivdI]+|--recursive|--force|--interactive(?:=\S+)?|--verbose|--dir|--one-file-system|--no-preserve-root|--preserve-root)(?:\s|$)`)
+
+func stripRmFlags(cmd string) string {
+	for {
+		next := rmFlagsPattern.ReplaceAllString(cmd, " ")
+		if next == cmd {
+			break
+		}
+		cmd = next
+	}
+	return cmd
+}
+
+// shellQuote wraps a string in single quotes for safe shell use.
+func shellQuote(s string) string {
+	return "'" + strings.ReplaceAll(s, "'", "'\"'\"'") + "'"
+}
+
 // Run executes the tool.
 func (t *ExecTool) Run(ctx context.Context, args json.RawMessage) string {
 	var a execArgs
 	if errMsg := parseArgs(args, &a); errMsg != "" {
 		return errMsg
+	}
+
+	// Rewrite rm → mv to trash directory.
+	var trashDir string
+	if rewritten, td := rewriteRmToTrash(a.Command); rewritten != "" {
+		logger.Info("exec: rewriting rm to trash",
+			"original", a.Command,
+			"rewritten", rewritten,
+			"trashDir", td,
+		)
+		a.Command = rewritten
+		trashDir = td
 	}
 
 	timeout := a.Timeout
@@ -137,6 +200,9 @@ func (t *ExecTool) Run(ctx context.Context, args json.RawMessage) string {
 	fields := map[string]any{
 		"command": a.Command,
 		"workdir": cmd.Dir,
+	}
+	if trashDir != "" {
+		fields["trash_dir"] = trashDir
 	}
 	if err != nil {
 		if exitErr, ok := err.(*exec.ExitError); ok {
