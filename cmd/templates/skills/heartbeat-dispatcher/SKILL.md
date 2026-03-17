@@ -32,7 +32,7 @@ Data flow: `session.jsonl` → reflect → `heartbeat.md` → wake → user
 
 2. **For each session**, decide what to do:
 
-   - **Reflection**: If `last_reflection` is missing or older than 2 hours, consider triggering reflection. But first read the `summary` — if the conversation clearly has no ongoing concerns to follow up on (pure subthread agent research, fully resolved topics, etc.), skip reflection for this session. If you cannot determine whether the session needs follow-up, trigger reflection.
+   - **Reflection**: If `last_reflection` is missing or older than 2 hours, consider triggering reflection. But first read the `summary` — if the conversation clearly has no ongoing concerns to follow up on (pure subthread agent research, cron, etc.), skip reflection for this session. If you cannot determine whether the session needs follow-up, trigger reflection.
      - Run: `{{WORKSPACE}}/bin/nagobot heartbeat reflect <key>`
 
    - **Wake**: If `has_heartbeat` is true **and the session was NOT just reflected above**, consider triggering wake. But first read `heartbeat_content` — if every item is clearly not actionable right now (time hasn't arrived, conditions not met, etc.), skip wake for this session. If you cannot determine whether items are actionable, wake the session.
