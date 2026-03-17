@@ -28,29 +28,17 @@ Data flow: `session.jsonl` → reflect → `heartbeat.md` → wake → user
 
 ## Workflow
 
-1. **List sessions**: Run `{{WORKSPACE}}/bin/nagobot list-sessions --days 2 --user-only --fields key,is_running,has_heartbeat,last_user_active_at` to discover recent user sessions.
+1. **List eligible sessions**: Run `{{WORKSPACE}}/bin/nagobot list-heartbeat` to discover user sessions ready for heartbeat operations. Running sessions and sessions with user activity within the last 5 minutes are automatically excluded. Output includes `last_reflection` timestamps, `summary`, and `heartbeat_content` per session.
 
-2. **Filter** — skip:
-   - Sessions with `is_running: true` (currently executing — don't interrupt)
-   - Sessions where the user hasn't been active recently (e.g. 24 hours — adjust based on session context)
+2. **For each session**, decide what to do:
 
-3. **For each qualifying session**, read `system/heartbeat-state.json` from the workspace to check timing:
-   ```json
-   {
-     "last_reflection": {
-       "telegram:12345": "2026-03-11T10:00:00Z"
-     }
-   }
-   ```
+   - **Reflection**: If `last_reflection` is missing or older than 2 hours, consider triggering reflection. But first read the `summary` — if the conversation clearly has no ongoing concerns to follow up on (pure chitchat, fully resolved topics, etc.), skip reflection for this session.
+     - Run: `{{WORKSPACE}}/bin/nagobot heartbeat reflect <key>`
 
-4. **Reflection**: If `last_reflection[key]` is missing or older than 2 hours, trigger reflection:
-   - Run: `{{WORKSPACE}}/bin/nagobot heartbeat reflect <key>`
-   - The CLI automatically updates `last_reflection[key]` — do NOT write `heartbeat-state.json` manually.
+   - **Wake**: If `has_heartbeat` is true **and the session was NOT just reflected above**, consider triggering wake. But first read `heartbeat_content` — if every item is clearly not actionable right now (time hasn't arrived, conditions not met, etc.), skip wake for this session.
+     - Run: `{{WORKSPACE}}/bin/nagobot heartbeat wake <key>`
 
-5. **Wake**: If the session has `has_heartbeat: true` (heartbeat.md exists with content) **and was not just reflected in step 4**, trigger wake:
-   - Run: `{{WORKSPACE}}/bin/nagobot heartbeat wake <key>`
-
-6. When finished (whether or not any sessions were processed), reply with: `HEARTBEAT_OK`
+3. When finished (whether or not any sessions were processed), reply with: `HEARTBEAT_OK`
 
 ## Rules
 
