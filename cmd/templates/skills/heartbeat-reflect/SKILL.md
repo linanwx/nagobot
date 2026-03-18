@@ -31,8 +31,21 @@ Without heartbeat, you only react. With heartbeat, you anticipate. Your job is t
       - if item not already in existing_items
          - add item
    - if nothing changed, reconsider: did you look hard enough?
+
+
+   Condition fields are free-form: `when`, `if`, `created`, `reason`, `moved_on`, etc. `moved_on` is required. No checkboxes — items exist or they don't.
+
+   when/if is NOT a hook or chat trigger — it does not mean "when the user talks about X, take action." It means: reviewing the conversation from a few hours ago, or the current time meets the criteria, or proactively searching relevant resources — then take action.
+
+   - for each item in existing_items:
+      - if item.when/if is a chat trigger (e.g., "when user talks about X, do Y")
+         - try to fix these chat-condition triggers
+            - catch: if unfixable → remove item
+
 4. if no items remain && current file is not empty → write empty string to clear file (don't delete)
 5. Reply `HEARTBEAT_OK`
+
+
 
 ## Item format
 
@@ -44,25 +57,23 @@ Without heartbeat, you only react. With heartbeat, you anticipate. Your job is t
   reason: user mentioned going out tomorrow, might be helpful to proactively check weather
 
 - Periodically check unread emails and summarize
-  when/if: anytime
+  when/if: daytime
   created: 2026-03-10
   moved_on: user hasn't mentioned emails for over a week
   reason: user mentioned wanting to stay on top of emails
 
 - Remind about quarterly report deadline
-  when/if: talk about work or deadlines
+  when/if: on the morning two days before deadlines
   created: 2026-03-08
   moved_on: after 2026-03-20 (deadline passed) or user confirms submission
   reason: user mentioned a quarterly report due on March 20
 
-- Greet user in the evening
-  when/if: every night at 9 PM
+- Remind user to bring an umbrella
+  when/if: bad weather forecast and user might go out
   created: 2026-03-11
-  moved_on: user asks to stop or shows no response for 3 days
+  moved_on: user hasn't mentioned outings recently
   reason: user seems to activate in the evenings
 ```
-
-Condition fields are free-form: `when`, `if`, `created`, `reason`, `moved_on`, etc. `moved_on` is required. No checkboxes — items exist or they don't.
 
 ## Rules
 
