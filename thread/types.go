@@ -78,8 +78,9 @@ type ThreadConfig struct {
 	SkillsDir           string
 	BuiltinSkillsDir    string
 	SessionsDir         string
-	ContextWindowTokens int
-	ContextWarnRatio    float64
+	ContextWindowTokens  int
+	ContextWarnRatio     float64
+	MaxCompletionTokens  int
 	Sessions            *session.Manager
 	DefaultSinkFor      func(sessionKey string) Sink
 	DefaultAgentFor     func(sessionKey string) string // Session key → default agent name

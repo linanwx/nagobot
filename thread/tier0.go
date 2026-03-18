@@ -9,25 +9,17 @@ import (
 	"github.com/linanwx/nagobot/thread/msg"
 )
 
-const (
-	// tier0SessionBudgetRatio is the fraction of the effective context window
-	// reserved for session messages. The remaining 15% covers system prompt,
-	// current user message, and output headroom.
-	tier0SessionBudgetRatio = 0.85
-)
-
 // applyTier0Truncation drops messages from the head of session history
-// when total tokens exceed the effective context window.
+// when total tokens exceed sessionBudget.
+// sessionBudget should be pre-computed as:
+//
+//	contextWindow - systemPromptTokens - userMessageTokens - maxCompletionTokens
+//
 // It inserts an assistant summary marker at the truncation point.
 // Returns the (possibly truncated) messages and their estimated token count.
 // This is ephemeral — it does NOT modify the session file.
-func (t *Thread) applyTier0Truncation(sessionMessages []provider.Message, effectiveWindow int) ([]provider.Message, int) {
-	if effectiveWindow <= 0 || len(sessionMessages) == 0 {
-		return sessionMessages, EstimateMessagesTokens(sessionMessages)
-	}
-
-	sessionBudget := int(float64(effectiveWindow) * tier0SessionBudgetRatio)
-	if sessionBudget <= 0 {
+func (t *Thread) applyTier0Truncation(sessionMessages []provider.Message, sessionBudget int) ([]provider.Message, int) {
+	if sessionBudget <= 0 || len(sessionMessages) == 0 {
 		return sessionMessages, EstimateMessagesTokens(sessionMessages)
 	}
 
@@ -64,7 +56,7 @@ func (t *Thread) applyTier0Truncation(sessionMessages []provider.Message, effect
 		"truncated", cutIdx,
 		"remaining", len(sessionMessages)-cutIdx,
 		"tokensFreed", tokensToFree,
-		"effectiveWindow", effectiveWindow,
+		"sessionBudget", sessionBudget,
 	)
 
 	return result, resultTokens

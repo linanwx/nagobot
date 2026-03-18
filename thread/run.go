@@ -119,11 +119,20 @@ func (t *Thread) buildMessageHistory(systemPrompt, userMessage string, sess *ses
 
 	contextWindowTokens, contextWarnRatio := t.contextBudget()
 
+	// Compute precise session budget by subtracting known overhead from context window.
+	systemPromptTokens := EstimateMessageTokens(messages[0])
+	userMsgTokens := EstimateTextTokens(userMessage) + 6
+	maxCompletionTokens := t.cfg().MaxCompletionTokens
+	sessionBudget := int(float64(contextWindowTokens-systemPromptTokens-userMsgTokens-maxCompletionTokens) * 0.96)
+	if sessionBudget < 0 {
+		sessionBudget = 0
+	}
+
 	var sessionMessages []provider.Message
 	var sessionEstimatedTokens int
 	if sess != nil {
 		sessionMessages = ApplyCompressed(provider.SanitizeMessages(sess.Messages))
-		sessionMessages, sessionEstimatedTokens = t.applyTier0Truncation(sessionMessages, contextWindowTokens)
+		sessionMessages, sessionEstimatedTokens = t.applyTier0Truncation(sessionMessages, sessionBudget)
 		messages = append(messages, sessionMessages...)
 	}
 
