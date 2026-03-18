@@ -181,7 +181,7 @@ func (t *Thread) executeRunner(ctx, runCtx context.Context, p provider.Provider,
 	var intermediates []provider.Message
 	contextWindowTokens, _ := t.contextBudget()
 	maxCompletionTokens := t.cfg().MaxCompletionTokens
-	loopBudget := contextWindowTokens - maxCompletionTokens
+	loopBudget := int(float64(contextWindowTokens-maxCompletionTokens) * 0.9)
 	if loopBudget < 0 {
 		loopBudget = 0
 	}
