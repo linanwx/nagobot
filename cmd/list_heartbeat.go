@@ -41,7 +41,8 @@ type heartbeatEntry struct {
 }
 
 type listHeartbeatOutput struct {
-	Sessions []heartbeatEntry `json:"sessions"`
+	ReflectSessions []heartbeatEntry `json:"reflect_sessions"`
+	WakeSessions    []heartbeatEntry `json:"wake_sessions"`
 }
 
 func runListHeartbeat(_ *cobra.Command, _ []string) error {
@@ -81,7 +82,7 @@ func runListHeartbeat(_ *cobra.Command, _ []string) error {
 	hbState := loadHeartbeatState(filepath.Join(workspace, "system", "heartbeat-state.json"))
 	now := time.Now()
 
-	var eligible []heartbeatEntry
+	var reflectSessions, wakeSessions []heartbeatEntry
 	for _, s := range raw.Sessions {
 		// Deterministic filter: skip running sessions.
 		if s.IsRunning {
@@ -122,15 +123,40 @@ func runListHeartbeat(_ *cobra.Command, _ []string) error {
 			entry.LastReflection = &lr
 		}
 
-		eligible = append(eligible, entry)
+		// Classify: reflect or wake.
+		needsReflect := false
+		if entry.LastReflection == nil {
+			needsReflect = true // never reflected
+		} else if entry.LastUserActiveAt != nil {
+			lastUser, e1 := time.Parse(time.RFC3339, *entry.LastUserActiveAt)
+			lastRefl, e2 := time.Parse(time.RFC3339, *entry.LastReflection)
+			if e1 == nil && e2 == nil && lastUser.After(lastRefl) {
+				needsReflect = true // new user messages since last reflection
+			}
+		}
+
+		needsWake := entry.HasHeartbeat && entry.HeartbeatContent != ""
+
+		// Overlap rule: reflect takes priority, wake deferred to next cycle.
+		if needsReflect {
+			reflectSessions = append(reflectSessions, entry)
+		} else if needsWake {
+			wakeSessions = append(wakeSessions, entry)
+		}
 	}
-	if eligible == nil {
-		eligible = []heartbeatEntry{}
+	if reflectSessions == nil {
+		reflectSessions = []heartbeatEntry{}
+	}
+	if wakeSessions == nil {
+		wakeSessions = []heartbeatEntry{}
 	}
 
 	enc := json.NewEncoder(os.Stdout)
 	enc.SetIndent("", "  ")
-	return enc.Encode(listHeartbeatOutput{Sessions: eligible})
+	return enc.Encode(listHeartbeatOutput{
+		ReflectSessions: reflectSessions,
+		WakeSessions:    wakeSessions,
+	})
 }
 
 // sessionKeyToDir converts a session key back to its directory path.

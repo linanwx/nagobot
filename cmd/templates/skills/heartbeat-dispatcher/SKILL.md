@@ -28,23 +28,25 @@ Data flow: `session.jsonl` → reflect → `heartbeat.md` → wake → user
 
 ## Workflow
 
-1. **List eligible sessions**: Run `{{WORKSPACE}}/bin/nagobot list-heartbeat` to discover user sessions ready for heartbeat operations. Running sessions and sessions with user activity within the last 5 minutes are automatically excluded. Output includes `last_reflection` timestamps, `summary`, and `heartbeat_content` per session.
+1. **List eligible sessions**: Run `{{WORKSPACE}}/bin/nagobot list-heartbeat` to discover user sessions ready for heartbeat operations. Running sessions and sessions with user activity within the last 5 minutes are automatically excluded. Output contains two pre-classified lists: `reflect_sessions` (sessions needing reflection) and `wake_sessions` (sessions with heartbeat items to execute), each with `last_reflection`, `summary`, and `heartbeat_content`.
 
-2. **For each session**, decide what to do:
+2. **For each session** (across `reflect_sessions`), decide what to do:
 
    - if last_reflection is missing or older than 2 hours
       - Read the `summary`.
       - If summary is not thread/cron && summary is about user conversation
          - trigger reflection
          - Run: `{{WORKSPACE}}/bin/nagobot heartbeat reflect <key>`
-   - if haven't triggered reflection
-      - Read `heartbeat_content`
-      - If heartbeat_content has items
-         - If any heartbeat item might happen in 2 hours || any heartbeat item's time cannot be determined
-            - trigger wake
-            - Run: `{{WORKSPACE}}/bin/nagobot heartbeat wake <key>`
 
-3. When finished (whether or not any sessions were processed), reply with: `HEARTBEAT_OK`
+3. **For each session** (across `wake_sessions`), decide what to do:
+
+   - Read `heartbeat_content`
+   - If heartbeat_content has items
+      - If any heartbeat item might happen in 2 hours || any heartbeat item's time cannot be determined
+         - trigger wake
+         - Run: `{{WORKSPACE}}/bin/nagobot heartbeat wake <key>`
+
+4. When finished (whether or not any sessions were processed), reply with: `HEARTBEAT_OK`
 
 ## Rules
 
