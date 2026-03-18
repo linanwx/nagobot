@@ -13,6 +13,7 @@ import (
 )
 
 const heartbeatActiveThreshold = 5 * time.Minute
+const heartbeatReflectCooldown = 2 * time.Hour
 
 var listHeartbeatCmd = &cobra.Command{
 	Use:     "list-heartbeat",
@@ -127,11 +128,15 @@ func runListHeartbeat(_ *cobra.Command, _ []string) error {
 		needsReflect := false
 		if entry.LastReflection == nil {
 			needsReflect = true // never reflected
-		} else if entry.LastUserActiveAt != nil {
-			lastUser, e1 := time.Parse(time.RFC3339, *entry.LastUserActiveAt)
+		} else {
 			lastRefl, e2 := time.Parse(time.RFC3339, *entry.LastReflection)
-			if e1 == nil && e2 == nil && lastUser.After(lastRefl) {
-				needsReflect = true // new user messages since last reflection
+			if e2 == nil && now.Sub(lastRefl) < heartbeatReflectCooldown {
+				// reflected within cooldown window, skip
+			} else if entry.LastUserActiveAt != nil {
+				lastUser, e1 := time.Parse(time.RFC3339, *entry.LastUserActiveAt)
+				if e1 == nil && e2 == nil && lastUser.After(lastRefl) {
+					needsReflect = true // new user messages since last reflection
+				}
 			}
 		}
 
