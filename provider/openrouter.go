@@ -122,6 +122,12 @@ var openRouterModels = map[string]openRouterModelMeta{
 		},
 		ProviderOrder: []string{"minimax/fp8"},
 	},
+	"minimax/minimax-m2.7": {
+		ThinkingOpts: []oaioption.RequestOption{
+			oaioption.WithJSONSet("reasoning", map[string]any{"effort": "high"}),
+		},
+		ProviderOrder: []string{"minimax/fp8"},
+	},
 	"qwen/qwen3.5-35b-a3b": {
 		ThinkingOpts: []oaioption.RequestOption{
 			oaioption.WithJSONSet("reasoning", map[string]any{"effort": "high"}),
@@ -147,7 +153,7 @@ var openRouterModels = map[string]openRouterModelMeta{
 
 func init() {
 	RegisterProvider("openrouter", ProviderRegistration{
-		Models:       []string{"moonshotai/kimi-k2.5", "anthropic/claude-sonnet-4.6", "anthropic/claude-opus-4.6", "z-ai/glm-5", "minimax/minimax-m2.5", "qwen/qwen3.5-35b-a3b", "google/gemini-3-flash-preview", "openrouter/hunter-alpha", "openrouter/healer-alpha"},
+		Models:       []string{"moonshotai/kimi-k2.5", "anthropic/claude-sonnet-4.6", "anthropic/claude-opus-4.6", "z-ai/glm-5", "minimax/minimax-m2.5", "minimax/minimax-m2.7", "qwen/qwen3.5-35b-a3b", "google/gemini-3-flash-preview", "openrouter/hunter-alpha", "openrouter/healer-alpha"},
 		VisionModels: []string{"moonshotai/kimi-k2.5", "anthropic/claude-sonnet-4.6", "anthropic/claude-opus-4.6", "qwen/qwen3.5-35b-a3b", "google/gemini-3-flash-preview", "openrouter/healer-alpha"},
 		ContextWindows: map[string]int{
 			"moonshotai/kimi-k2.5":          262144,
@@ -155,6 +161,7 @@ func init() {
 			"anthropic/claude-opus-4.6":     1048576,
 			"z-ai/glm-5":                   200000,
 			"minimax/minimax-m2.5":          196608,
+			"minimax/minimax-m2.7":          204800,
 			"qwen/qwen3.5-35b-a3b":         262144,
 			"google/gemini-3-flash-preview": 1048576,
 			"openrouter/hunter-alpha":       1048576,
