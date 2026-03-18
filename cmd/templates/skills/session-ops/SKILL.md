@@ -186,3 +186,22 @@ exec: {{WORKSPACE}}/bin/nagobot set-timezone --session <session_key>
 - `--timezone`: IANA timezone name. Examples: `Asia/Shanghai`, `America/New_York`, `Europe/London`. Omit or empty to clear.
 
 **Note**: `set-agent` and `set-timezone` changes take effect on the **next message** in that session. Changes persist across server restarts (saved to config.yaml).
+
+## Per-Session Model Switching
+
+nagobot does not support directly setting a model per session. When a user asks to use a specific model for a session, analyze their intent:
+
+**Case 1: User wants to switch to an existing agent**
+- If the user's intent maps to an existing agent (e.g. "use the fallout agent for this session"), simply use `set-agent` above.
+
+**Case 2: User explicitly wants a specific provider/model (e.g. "use openai gpt-5.4 for this session")**
+- Create a dedicated agent template for that model:
+  1. Create `agents/<model-slug>.md` — a minimal agent whose `specialty` is a unique name (e.g. `specialty: gpt54-dedicated`)
+  2. Use `manage-config` skill's `set-model --type <specialty> --provider <provider> --model <model>` to route that specialty to the requested model
+  3. Use `set-agent --session <key> --agent <model-slug>` to assign the new agent to the session
+- After switching, reply to the user:
+  - Confirm the switch is done
+  - Explain that per-session model is not natively supported, so the workaround was:
+    - Created agent `<model-slug>` with specialty `<specialty>`
+    - Routed specialty `<specialty>` → `<provider>/<model>`
+    - Assigned agent `<model-slug>` to session `<key>`
