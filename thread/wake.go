@@ -266,7 +266,7 @@ func messageVisibility(source WakeSource) string {
 
 func wakeActionHint(source WakeSource) string {
 	if sysmsg.IsUserVisibleSource(source) {
-		return "A user sent a message. React accordingly."
+		return "A user sent a message. React accordingly and be friendly."
 	}
 	switch source {
 	case WakeUserActive:
