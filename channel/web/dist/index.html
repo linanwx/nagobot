@@ -2006,7 +2006,7 @@
               statsBar.innerHTML = "";
               tokenBreakdown.innerHTML = "";
 
-              const threadRunning = st.context_window_tokens > 0;
+              const threadRunning = st.is_runtime === true;
 
               const items = [
                 ["ctx", fmtTok(st.compressed_tokens) + "/" + fmtTok(st.context_window_tokens)],

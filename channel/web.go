@@ -677,6 +677,7 @@ type sessionStatsResponse struct {
 	ContextWindowTokens int             `json:"context_window_tokens"`
 	UsagePercent        float64         `json:"usage_percent"`
 	PressureStatus      string          `json:"pressure_status"`
+	IsRuntime           bool            `json:"is_runtime"`
 	TokenBreakdown      *tokenBreakdown `json:"token_breakdown,omitempty"`
 }
 
@@ -733,10 +734,12 @@ func (w *WebChannel) handleSessionStats(rw http.ResponseWriter, key string) {
 	// Try to get context window from thread runtime; fall back to global config.
 	var contextWindow int
 	var warnRatio float64
+	var isRuntime bool
 	if w.contextBudgetFn != nil {
 		if tw, wr, ok := w.contextBudgetFn(key); ok {
 			contextWindow = tw
 			warnRatio = wr
+			isRuntime = true
 		}
 	}
 	if contextWindow == 0 {
@@ -767,6 +770,7 @@ func (w *WebChannel) handleSessionStats(rw http.ResponseWriter, key string) {
 		ContextWindowTokens: contextWindow,
 		UsagePercent:        usageRatio * 100,
 		PressureStatus:      status,
+		IsRuntime:           isRuntime,
 		TokenBreakdown: &tokenBreakdown{
 			BySource: sourceTokens,
 			ByRole:   roleTokens,
