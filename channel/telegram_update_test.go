@@ -30,13 +30,49 @@ func TestTelegramReplyContext_CaptionMessage(t *testing.T) {
 	}
 }
 
-func TestTelegramReplyContext_NoText(t *testing.T) {
+func TestTelegramReplyContext_StickerFallback(t *testing.T) {
 	m := &models.Message{
-		From: &models.User{FirstName: "Charlie"},
+		From:    &models.User{FirstName: "Charlie"},
+		Sticker: &models.Sticker{Emoji: "😀"},
+	}
+	got := telegramReplyContext(m)
+	want := "[Reply to Charlie]: [Sticker 😀]"
+	if got != want {
+		t.Errorf("got %q, want %q", got, want)
+	}
+}
+
+func TestTelegramReplyContext_PhotoFallback(t *testing.T) {
+	m := &models.Message{
+		From:  &models.User{FirstName: "Dave"},
+		Photo: []models.PhotoSize{{FileID: "abc", Width: 100, Height: 100}},
+	}
+	got := telegramReplyContext(m)
+	want := "[Reply to Dave]: [Photo]"
+	if got != want {
+		t.Errorf("got %q, want %q", got, want)
+	}
+}
+
+func TestTelegramReplyContext_VoiceFallback(t *testing.T) {
+	m := &models.Message{
+		From:  &models.User{FirstName: "Eve"},
+		Voice: &models.Voice{FileID: "abc", Duration: 5},
+	}
+	got := telegramReplyContext(m)
+	want := "[Reply to Eve]: [Voice message]"
+	if got != want {
+		t.Errorf("got %q, want %q", got, want)
+	}
+}
+
+func TestTelegramReplyContext_PureEmptyMessage(t *testing.T) {
+	m := &models.Message{
+		From: &models.User{FirstName: "Frank"},
 	}
 	got := telegramReplyContext(m)
 	if got != "" {
-		t.Errorf("expected empty string for message without text, got %q", got)
+		t.Errorf("expected empty string for message without text or media, got %q", got)
 	}
 }
 

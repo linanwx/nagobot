@@ -198,7 +198,27 @@ func telegramReplyContext(m *models.Message) string {
 		text = m.Caption
 	}
 	if text == "" {
-		return ""
+		// Fallback for media-only messages (sticker, photo without caption, voice, etc.)
+		switch {
+		case m.Sticker != nil:
+			text = "[Sticker" + ifNotEmpty(" ", m.Sticker.Emoji) + "]"
+		case len(m.Photo) > 0:
+			text = "[Photo]"
+		case m.Voice != nil:
+			text = "[Voice message]"
+		case m.Video != nil:
+			text = "[Video]"
+		case m.Audio != nil:
+			text = "[Audio]"
+		case m.Document != nil:
+			text = "[Document" + ifNotEmpty(": ", m.Document.FileName) + "]"
+		case m.Animation != nil:
+			text = "[GIF]"
+		case m.VideoNote != nil:
+			text = "[Video note]"
+		default:
+			return ""
+		}
 	}
 	author := ""
 	if m.From != nil {
@@ -214,6 +234,14 @@ func telegramReplyContext(m *models.Message) string {
 		author = "unknown"
 	}
 	return "[Reply to " + author + "]: " + text
+}
+
+// ifNotEmpty returns prefix+s when s is non-empty, otherwise "".
+func ifNotEmpty(prefix, s string) string {
+	if s != "" {
+		return prefix + s
+	}
+	return ""
 }
 
 // getFileURL retrieves the download URL for a Telegram file.
