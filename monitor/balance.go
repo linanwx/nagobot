@@ -153,6 +153,40 @@ func (b *DeepSeekBalance) Check(ctx context.Context) (*BalanceInfo, error) {
 	return info, nil
 }
 
+// --- OpenAI (OAuth rate-limit quota from cached headers) ---
+
+// OpenAIQuota reads persisted rate-limit quota captured from OpenAI response headers.
+type OpenAIQuota struct {
+	MetricsDir string // {workspace}/metrics
+}
+
+func (b *OpenAIQuota) Provider() string { return "openai" }
+func (b *OpenAIQuota) Available() bool  { return b.MetricsDir != "" }
+
+func (b *OpenAIQuota) Check(_ context.Context) (*BalanceInfo, error) {
+	q, err := LoadQuota(b.MetricsDir)
+	if err != nil {
+		return &BalanceInfo{Provider: "openai", Error: "no quota data yet (send a message first)"}, nil
+	}
+
+	age := time.Since(q.UpdatedAt).Truncate(time.Second)
+	info := &BalanceInfo{
+		Provider:  "openai",
+		Available: true,
+	}
+	info.Balances = append(info.Balances, BalanceEntry{
+		Currency: "requests",
+		Balance:  float64(q.RemainingRequests),
+		Detail:   fmt.Sprintf("limit=%d, reset=%s, updated %s ago", q.LimitRequests, q.ResetRequests, age),
+	})
+	info.Balances = append(info.Balances, BalanceEntry{
+		Currency: "tokens",
+		Balance:  float64(q.RemainingTokens),
+		Detail:   fmt.Sprintf("limit=%d, reset=%s, updated %s ago", q.LimitTokens, q.ResetTokens, age),
+	})
+	return info, nil
+}
+
 // CheckAllBalances queries all available balance checkers.
 func CheckAllBalances(ctx context.Context, checkers []BalanceChecker) []BalanceInfo {
 	var results []BalanceInfo

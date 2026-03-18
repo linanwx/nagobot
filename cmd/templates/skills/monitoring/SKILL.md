@@ -6,7 +6,7 @@ description: Check LLM provider account balances, query performance metrics, and
 
 ## Check Provider Balances
 
-Query account balance/credits for configured providers. Currently supports OpenRouter and DeepSeek.
+Query account balance/credits for configured providers. Supports OpenRouter, DeepSeek, and OpenAI (OAuth rate-limit quota from cached response headers).
 
 Check all providers:
 ```
@@ -17,6 +17,7 @@ Check a specific provider:
 ```
 exec: {{WORKSPACE}}/bin/nagobot monitor --balance --provider openrouter
 exec: {{WORKSPACE}}/bin/nagobot monitor --balance --provider deepseek
+exec: {{WORKSPACE}}/bin/nagobot monitor --balance --provider openai
 ```
 
 ## Query Performance Metrics

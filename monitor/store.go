@@ -44,6 +44,9 @@ func NewStore(dir string) *Store {
 	return &Store{dir: dir}
 }
 
+// Dir returns the metrics directory path.
+func (s *Store) Dir() string { return s.dir }
+
 // Record appends a turn record to the JSONL file.
 func (s *Store) Record(r TurnRecord) {
 	s.mu.Lock()

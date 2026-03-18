@@ -79,7 +79,11 @@ func runMonitor(_ *cobra.Command, _ []string) error {
 }
 
 func showBalance(cfg *config.Config) error {
-	checkers := buildBalanceCheckers(cfg)
+	metricsDir := ""
+	if ws, err := cfg.WorkspacePath(); err == nil {
+		metricsDir = filepath.Join(ws, "metrics")
+	}
+	checkers := buildBalanceCheckers(cfg, metricsDir)
 
 	if monitorProvider != "" {
 		var filtered []monitor.BalanceChecker
@@ -89,7 +93,7 @@ func showBalance(cfg *config.Config) error {
 			}
 		}
 		if len(filtered) == 0 {
-			return fmt.Errorf("balance checking not supported for provider %q. Supported: openrouter, deepseek", monitorProvider)
+			return fmt.Errorf("balance checking not supported for provider %q. Supported: openrouter, deepseek, openai", monitorProvider)
 		}
 		checkers = filtered
 	}
@@ -155,7 +159,7 @@ func showCompression(cfg *config.Config) error {
 	return nil
 }
 
-func buildBalanceCheckers(cfg *config.Config) []monitor.BalanceChecker {
+func buildBalanceCheckers(cfg *config.Config, metricsDir string) []monitor.BalanceChecker {
 	return []monitor.BalanceChecker{
 		&monitor.OpenRouterBalance{
 			KeyFn: func() string {
@@ -172,6 +176,9 @@ func buildBalanceCheckers(cfg *config.Config) []monitor.BalanceChecker {
 				}
 				return ""
 			},
+		},
+		&monitor.OpenAIQuota{
+			MetricsDir: metricsDir,
 		},
 	}
 }

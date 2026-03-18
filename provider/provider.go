@@ -72,6 +72,17 @@ type FunctionCall struct {
 	Arguments string `json:"arguments"` // JSON string
 }
 
+// Quota holds rate-limit information extracted from API response headers.
+type Quota struct {
+	LimitRequests     int       `json:"limit_requests"`
+	LimitTokens       int       `json:"limit_tokens"`
+	RemainingRequests int       `json:"remaining_requests"`
+	RemainingTokens   int       `json:"remaining_tokens"`
+	ResetRequests     string    `json:"reset_requests,omitempty"`
+	ResetTokens       string    `json:"reset_tokens,omitempty"`
+	UpdatedAt         time.Time `json:"updated_at"`
+}
+
 // Response represents a chat completion response.
 type Response struct {
 	Content          string          // final text response
@@ -79,6 +90,7 @@ type Response struct {
 	ReasoningDetails json.RawMessage // opaque reasoning details (Gemini thought_signature)
 	ToolCalls        []ToolCall      // tool calls (if any)
 	Usage            Usage           // token usage
+	Quota            *Quota          // rate-limit quota (optional, provider-specific)
 }
 
 // HasToolCalls returns true if the response contains tool calls.
