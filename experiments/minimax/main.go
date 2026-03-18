@@ -1,4 +1,4 @@
-// Minimal experiment for MiniMax M2.5 API.
+// Minimal experiment for MiniMax M2.7 API.
 // Tests: basic chat, reasoning mode, tool calling with reasoning multi-turn.
 //
 // Usage:
@@ -180,7 +180,7 @@ func testBasicChat() error {
 	fmt.Println(strings.Repeat("=", 60))
 
 	resp, err := chat(&ChatRequest{
-		Model: "MiniMax-M2.5",
+		Model: "MiniMax-M2.7",
 		Messages: []Message{
 			{Role: "user", Content: "1+1等于几？请简短回答"},
 		},
@@ -216,7 +216,7 @@ func testReasoning() error {
 	fmt.Println(strings.Repeat("=", 60))
 
 	resp, err := chat(&ChatRequest{
-		Model: "MiniMax-M2.5",
+		Model: "MiniMax-M2.7",
 		Messages: []Message{
 			{Role: "user", Content: "如果一个人每天存10元，第一天存10元，第二天存20元，第三天存30元...第100天存多少？总共存了多少？"},
 		},

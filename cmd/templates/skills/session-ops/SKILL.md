@@ -95,7 +95,7 @@ Output: JSON with fields:
     - `status`: `hit` or `miss`
     - `fallback`: Value used on miss (only present when status is `miss`)
   - `resolved_provider`: Final provider name (e.g. `openai`, `openrouter`)
-  - `resolved_model`: Final model identifier (e.g. `gpt-5.4`, `minimax/minimax-m2.5`)
+  - `resolved_model`: Final model identifier (e.g. `gpt-5.4`, `minimax/minimax-m2.7`)
   - `resolved_context_window`: Context window size for the resolved model
   - `is_default`: `true` if no agent-specific routing was found (using global default)
 - `message_count`: Total messages in session
