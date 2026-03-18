@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"strconv"
 	"strings"
 	"time"
 
@@ -127,6 +128,11 @@ func (p *OpenAIProvider) Chat(ctx context.Context, req *Request) (*Response, err
 	resp, err := p.parseSSEStream(httpResp)
 	if err != nil {
 		return nil, fmt.Errorf("failed to parse response: %w", err)
+	}
+
+	// Extract rate-limit quota from response headers (OAuth mode only).
+	if p.accountID != "" {
+		resp.Quota = extractQuota(httpResp.Header)
 	}
 
 	logger.Info(
@@ -424,4 +430,34 @@ func (p *OpenAIProvider) extractOutputItem(item map[string]any, content *strings
 type responsesAPIError struct {
 	Code    string `json:"code"`
 	Message string `json:"message"`
+}
+
+// extractQuota parses x-ratelimit-* headers into a Quota snapshot.
+// Returns nil if no rate-limit headers are present.
+func extractQuota(h http.Header) *Quota {
+	lr := headerInt(h, "X-Ratelimit-Limit-Requests")
+	lt := headerInt(h, "X-Ratelimit-Limit-Tokens")
+	rr := headerInt(h, "X-Ratelimit-Remaining-Requests")
+	rt := headerInt(h, "X-Ratelimit-Remaining-Tokens")
+	if lr == 0 && lt == 0 && rr == 0 && rt == 0 {
+		return nil
+	}
+	return &Quota{
+		LimitRequests:     lr,
+		LimitTokens:       lt,
+		RemainingRequests: rr,
+		RemainingTokens:   rt,
+		ResetRequests:     h.Get("X-Ratelimit-Reset-Requests"),
+		ResetTokens:       h.Get("X-Ratelimit-Reset-Tokens"),
+		UpdatedAt:         time.Now(),
+	}
+}
+
+func headerInt(h http.Header, key string) int {
+	v := h.Get(key)
+	if v == "" {
+		return 0
+	}
+	n, _ := strconv.Atoi(v)
+	return n
 }

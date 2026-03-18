@@ -17,6 +17,7 @@ type Runner struct {
 	tools          *tools.Registry
 	metrics        *ExecMetrics              // optional; nil disables metrics collection
 	totalUsage     provider.Usage            // accumulated usage across all Chat calls
+	lastQuota      *provider.Quota           // last non-nil quota from provider response
 	onMessage      func(provider.Message)    // optional observer for intermediate messages
 	onIterationEnd func() []provider.Message // optional: called after each tool iteration; returned messages are injected before the next LLM call
 	onText          func(delta string)  // optional: called with each text chunk during streaming generation
@@ -50,6 +51,9 @@ func (r *Runner) ShouldHalt(fn func() bool) { r.shouldHalt = fn }
 
 // TotalUsage returns the accumulated token usage across all Chat calls in the loop.
 func (r *Runner) TotalUsage() provider.Usage { return r.totalUsage }
+
+// LastQuota returns the last non-nil quota snapshot from provider responses.
+func (r *Runner) LastQuota() *provider.Quota { return r.lastQuota }
 
 // NewRunner creates a new Runner. Pass a non-nil ExecMetrics to enable
 // real-time metrics collection visible to other threads.
@@ -94,6 +98,9 @@ func (r *Runner) RunWithMessages(ctx context.Context, messages []provider.Messag
 		r.totalUsage.PromptTokens += resp.Usage.PromptTokens
 		r.totalUsage.CompletionTokens += resp.Usage.CompletionTokens
 		r.totalUsage.TotalTokens += resp.Usage.TotalTokens
+		if resp.Quota != nil {
+			r.lastQuota = resp.Quota
+		}
 
 		if !resp.HasToolCalls() {
 			// Emit final response via onMessage — symmetric with the tool-calls path,

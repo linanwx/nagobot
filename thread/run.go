@@ -63,10 +63,17 @@ func (t *Thread) run(ctx context.Context, userMessage string, sink Sink, injectF
 		return noProviderMessage(), nil
 	}
 
-	response, intermediates, usage, err := t.executeRunner(ctx, runCtx, p, metrics, messages, sink, injectFn)
+	response, intermediates, usage, quota, err := t.executeRunner(ctx, runCtx, p, metrics, messages, sink, injectFn)
 	if err != nil {
 		t.recordTurn(metrics, "", "", "", usage, true)
 		return "", err
+	}
+
+	// Persist rate-limit quota snapshot (e.g. OpenAI OAuth ratelimit headers).
+	if quota != nil && cfg.MetricsStore != nil {
+		if err := monitor.StoreQuota(cfg.MetricsStore.Dir(), quota); err != nil {
+			logger.Warn("failed to persist quota", "err", err)
+		}
 	}
 
 	t.persistTurnMessages(cfg, sess, intermediates, wakeSource)
@@ -161,7 +168,7 @@ func (t *Thread) buildMessageHistory(systemPrompt, userMessage string, sess *ses
 }
 
 // executeRunner runs the agentic loop with streaming and message callbacks.
-func (t *Thread) executeRunner(ctx, runCtx context.Context, p provider.Provider, metrics *ExecMetrics, messages []provider.Message, sink Sink, injectFn func() []provider.Message) (string, []provider.Message, provider.Usage, error) {
+func (t *Thread) executeRunner(ctx, runCtx context.Context, p provider.Provider, metrics *ExecMetrics, messages []provider.Message, sink Sink, injectFn func() []provider.Message) (string, []provider.Message, provider.Usage, *provider.Quota, error) {
 	var intermediates []provider.Message
 	runner := NewRunner(p, t.tools, metrics)
 	runner.ShouldHalt(t.isHaltLoop)
@@ -221,10 +228,10 @@ func (t *Thread) executeRunner(ctx, runCtx context.Context, p provider.Provider,
 	response, err := runner.RunWithMessages(runCtx, messages)
 	usage := runner.TotalUsage()
 	if err != nil {
-		return "", nil, usage, err
+		return "", nil, usage, nil, err
 	}
 
-	return response, intermediates, usage, nil
+	return response, intermediates, usage, runner.LastQuota(), nil
 }
 
 // persistTurnMessages saves all turn messages (intermediates + final response) to the session.
