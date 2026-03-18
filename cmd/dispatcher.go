@@ -283,6 +283,11 @@ func (d *Dispatcher) preprocessMessage(msg *channel.Message) string {
 		text = summary + "\n\n" + text
 	}
 
+	// Prepend quoted reply context so the AI knows what message was replied to.
+	if rc := msg.Metadata["reply_context"]; rc != "" {
+		text = truncate(rc, 500) + "\n\n" + text
+	}
+
 	// For group chats, prepend sender name so the AI can distinguish players.
 	chatType := strings.TrimSpace(msg.Metadata["chat_type"])
 	if chatType == "group" || chatType == "supergroup" {
@@ -303,9 +308,28 @@ func (d *Dispatcher) wakeSource(ch channel.Channel) thread.WakeSource {
 	return thread.WakeSource(ch.Name())
 }
 
+// truncate shortens s to at most maxLen runes. It prefers cutting at a
+// sentence boundary (newline or common punctuation) within the last 20% of the
+// limit; otherwise it cuts at the rune boundary.
 func truncate(s string, maxLen int) string {
-	if len(s) <= maxLen {
+	runes := []rune(s)
+	if len(runes) <= maxLen {
 		return s
 	}
-	return s[:maxLen] + "..."
+	// Look for a sentence break in the tail 20% of the window.
+	searchFrom := maxLen - maxLen/5
+	best := -1
+	for i := maxLen - 1; i >= searchFrom; i-- {
+		switch runes[i] {
+		case '\n', '.', '。', '！', '？', '!', '?':
+			best = i + 1
+		}
+		if best > 0 {
+			break
+		}
+	}
+	if best <= 0 {
+		best = maxLen
+	}
+	return string(runes[:best]) + "..."
 }
