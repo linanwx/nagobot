@@ -2009,7 +2009,7 @@
               const threadRunning = st.is_runtime === true;
 
               const items = [
-                ["ctx", fmtTok(st.compressed_tokens) + "/" + fmtTok(st.context_window_tokens)],
+                ["ctx", threadRunning ? fmtTok(st.compressed_tokens) + "/" + fmtTok(st.context_window_tokens) : fmtTok(st.compressed_tokens)],
                 ["msgs", st.message_count],
                 ["saved", fmtTok(st.tokens_saved)],
               ];
