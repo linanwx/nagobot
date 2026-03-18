@@ -473,10 +473,14 @@ func toDSMessages(messages []Message) []dsMessage {
 			if m.Content != "" {
 				dm.Content = &m.Content
 			}
-			// Only the last assistant message may carry reasoning_content,
-			// and only when it has no tool_calls (mid-loop messages must not).
+			// DeepSeek requires reasoning_content on ALL assistant messages.
+			// Only the last assistant message (without tool_calls) may carry
+			// actual reasoning; all others get an empty string.
+			empty := ""
 			if i == lastAssistantIdx && m.ReasoningContent != "" && len(m.ToolCalls) == 0 {
 				dm.ReasoningContent = &m.ReasoningContent
+			} else {
+				dm.ReasoningContent = &empty
 			}
 			dm.ToolCalls = m.ToolCalls
 		default: // system, user, tool
