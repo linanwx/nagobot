@@ -31,7 +31,7 @@ Without heartbeat, you only react. With heartbeat, you anticipate. Your job is t
       - if item not already in existing_items
          - add item
    - if nothing changed, reconsider: did you look hard enough?
-4. if no items remain → write empty string to clear file (don't delete)
+4. if no items remain && current file is not empty → write empty string to clear file (don't delete)
 5. Reply `HEARTBEAT_OK`
 
 ## Item format
