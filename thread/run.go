@@ -179,7 +179,13 @@ func (t *Thread) buildMessageHistory(systemPrompt, userMessage string, sess *ses
 // executeRunner runs the agentic loop with streaming and message callbacks.
 func (t *Thread) executeRunner(ctx, runCtx context.Context, p provider.Provider, metrics *ExecMetrics, messages []provider.Message, sink Sink, injectFn func() []provider.Message) (string, []provider.Message, provider.Usage, *provider.Quota, error) {
 	var intermediates []provider.Message
-	runner := NewRunner(p, t.tools, metrics)
+	contextWindowTokens, _ := t.contextBudget()
+	maxCompletionTokens := t.cfg().MaxCompletionTokens
+	loopBudget := contextWindowTokens - maxCompletionTokens
+	if loopBudget < 0 {
+		loopBudget = 0
+	}
+	runner := NewRunner(p, t.tools, metrics, loopBudget)
 	runner.ShouldHalt(t.isHaltLoop)
 
 	// Set up streaming for chunkable sinks (Telegram, Discord, Feishu, CLI).

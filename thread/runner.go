@@ -18,6 +18,7 @@ type Runner struct {
 	metrics        *ExecMetrics              // optional; nil disables metrics collection
 	totalUsage     provider.Usage            // accumulated usage across all Chat calls
 	lastQuota      *provider.Quota           // last non-nil quota from provider response
+	contextBudget  int                       // contextWindow - maxCompletionTokens; 0 = no guard
 	onMessage      func(provider.Message)    // optional observer for intermediate messages
 	onIterationEnd func() []provider.Message // optional: called after each tool iteration; returned messages are injected before the next LLM call
 	onText          func(delta string)  // optional: called with each text chunk during streaming generation
@@ -57,11 +58,12 @@ func (r *Runner) LastQuota() *provider.Quota { return r.lastQuota }
 
 // NewRunner creates a new Runner. Pass a non-nil ExecMetrics to enable
 // real-time metrics collection visible to other threads.
-func NewRunner(p provider.Provider, t *tools.Registry, m *ExecMetrics) *Runner {
+func NewRunner(p provider.Provider, t *tools.Registry, m *ExecMetrics, contextBudget int) *Runner {
 	return &Runner{
-		provider: p,
-		tools:    t,
-		metrics:  m,
+		provider:      p,
+		tools:         t,
+		metrics:       m,
+		contextBudget: contextBudget,
 	}
 }
 
@@ -76,6 +78,11 @@ func (r *Runner) RunWithMessages(ctx context.Context, messages []provider.Messag
 
 		if r.metrics != nil {
 			r.metrics.StartIteration()
+		}
+
+		// Guard: truncate old tool pairs if messages exceed context budget.
+		if r.contextBudget > 0 {
+			messages = r.trimLoopMessages(messages)
 		}
 
 		chatReq := &provider.Request{
@@ -166,6 +173,75 @@ func (r *Runner) RunWithMessages(ctx context.Context, messages []provider.Messag
 			}
 		}
 	}
+}
+
+// trimLoopMessages removes the oldest tool-call + tool-result pairs when
+// the total estimated tokens exceed contextBudget. It preserves the system
+// prompt (messages[0]) and never removes the last assistant+tool group.
+func (r *Runner) trimLoopMessages(messages []provider.Message) []provider.Message {
+	total := EstimateMessagesTokens(messages)
+	if total <= r.contextBudget {
+		return messages
+	}
+
+	// Find removable tool-call/tool-result groups (skip messages[0] = system prompt).
+	type group struct{ start, end int }
+	var groups []group
+	i := 1
+	for i < len(messages) {
+		m := messages[i]
+		if m.Role == "assistant" && len(m.ToolCalls) > 0 {
+			tcIDs := make(map[string]bool, len(m.ToolCalls))
+			for _, tc := range m.ToolCalls {
+				tcIDs[tc.ID] = true
+			}
+			end := i + 1
+			for end < len(messages) && messages[end].Role == "tool" && tcIDs[messages[end].ToolCallID] {
+				end++
+			}
+			groups = append(groups, group{i, end})
+			i = end
+			continue
+		}
+		i++
+	}
+
+	if len(groups) <= 1 {
+		return messages // keep at least the last group
+	}
+
+	// Remove groups from the oldest until under budget, but keep the last group.
+	removed := 0
+	for gi := 0; gi < len(groups)-1 && total > r.contextBudget; gi++ {
+		g := groups[gi]
+		for j := g.start; j < g.end; j++ {
+			total -= EstimateMessageTokens(messages[j])
+			removed++
+		}
+		for j := g.start; j < g.end; j++ {
+			messages[j].Role = "" // mark for removal
+		}
+	}
+
+	if removed == 0 {
+		return messages
+	}
+
+	// Compact: remove marked messages.
+	result := make([]provider.Message, 0, len(messages)-removed)
+	for _, m := range messages {
+		if m.Role != "" {
+			result = append(result, m)
+		}
+	}
+
+	logger.Info("loop token guard: trimmed old tool groups",
+		"removed", removed,
+		"remainingTokens", total,
+		"contextBudget", r.contextBudget,
+	)
+
+	return result
 }
 
 // truncateStr returns the first n characters of s, appending "..." if truncated.
