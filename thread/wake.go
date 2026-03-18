@@ -71,6 +71,11 @@ func canMerge(a, b *WakeMessage) bool {
 	if a.Source != b.Source || a.AgentName != b.AgentName {
 		return false
 	}
+	// Don't merge messages with different Sinks to prevent cross-delivery
+	// (e.g. cron results leaking to a user's channel sink).
+	if a.Sink.Label != b.Sink.Label {
+		return false
+	}
 	if len(a.Vars) != len(b.Vars) {
 		return false
 	}

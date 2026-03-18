@@ -2516,7 +2516,18 @@
             idEl.className = "cron-card-id";
             idEl.textContent = job.id || "unknown";
             hdr.appendChild(idEl);
-            if (job.expr) {
+            if (job.kind) {
+              const b = document.createElement("span");
+              b.className = "cron-card-badge";
+              b.textContent = job.kind === "at" ? "one-shot" : "recurring";
+              hdr.appendChild(b);
+            }
+            if (job.at_time && job.at_time !== "0001-01-01T00:00:00Z") {
+              const b = document.createElement("span");
+              b.className = "cron-card-badge";
+              b.textContent = new Date(job.at_time).toLocaleString();
+              hdr.appendChild(b);
+            } else if (job.expr) {
               const b = document.createElement("span");
               b.className = "cron-card-badge";
               b.textContent = job.expr;
