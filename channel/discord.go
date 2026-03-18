@@ -354,6 +354,13 @@ func (d *DiscordChannel) handleMessageCreate(s *discordgo.Session, m *discordgo.
 
 	if m.MessageReference != nil {
 		msg.ReplyTo = m.MessageReference.MessageID
+		if ref := m.ReferencedMessage; ref != nil && ref.Content != "" {
+			author := ref.Author.GlobalName
+			if author == "" {
+				author = ref.Author.Username
+			}
+			metadata["reply_context"] = "[Reply to " + author + "]: " + ref.Content
+		}
 	}
 
 	select {

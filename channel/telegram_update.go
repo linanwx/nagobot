@@ -178,6 +178,9 @@ func (t *TelegramChannel) handleUpdate(ctx context.Context, b *bot.Bot, update *
 
 	if msg.ReplyToMessage != nil {
 		channelMsg.ReplyTo = strconv.Itoa(msg.ReplyToMessage.ID)
+		if rc := telegramReplyContext(msg.ReplyToMessage); rc != "" {
+			metadata["reply_context"] = rc
+		}
 	}
 
 	select {
@@ -186,6 +189,31 @@ func (t *TelegramChannel) handleUpdate(ctx context.Context, b *bot.Bot, update *
 	default:
 		logger.Warn("telegram message buffer full, dropping message")
 	}
+}
+
+// telegramReplyContext builds a reply context string from a replied-to message.
+func telegramReplyContext(m *models.Message) string {
+	text := m.Text
+	if text == "" {
+		text = m.Caption
+	}
+	if text == "" {
+		return ""
+	}
+	author := ""
+	if m.From != nil {
+		author = m.From.FirstName
+		if m.From.LastName != "" {
+			author += " " + m.From.LastName
+		}
+		if author == "" {
+			author = m.From.Username
+		}
+	}
+	if author == "" {
+		author = "unknown"
+	}
+	return "[Reply to " + author + "]: " + text
 }
 
 // getFileURL retrieves the download URL for a Telegram file.

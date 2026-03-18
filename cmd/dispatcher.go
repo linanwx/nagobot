@@ -283,6 +283,11 @@ func (d *Dispatcher) preprocessMessage(msg *channel.Message) string {
 		text = summary + "\n\n" + text
 	}
 
+	// Prepend quoted reply context so the AI knows what message was replied to.
+	if rc := msg.Metadata["reply_context"]; rc != "" {
+		text = truncate(rc, 500) + "\n\n" + text
+	}
+
 	// For group chats, prepend sender name so the AI can distinguish players.
 	chatType := strings.TrimSpace(msg.Metadata["chat_type"])
 	if chatType == "group" || chatType == "supergroup" {
