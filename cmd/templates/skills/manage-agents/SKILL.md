@@ -4,6 +4,10 @@ description: Create or edit agent templates. Use when the user wants to add a ne
 ---
 # Manage Agents
 
+## Read Existing Agent Template
+
+Find some agent template files in `{{WORKSPACE}}/agents/<name>.md` and read its content.
+
 ## Create Agent
 
 Write a markdown file to `{{WORKSPACE}}/agents/<name>.md`:
@@ -26,6 +30,8 @@ You are a research agent. Investigate topics thoroughly, cross-reference sources
 - Cite sources with URLs when available.
 
 {{CORE_MECHANISM}}
+
+{{USER}}
 ```
 
 ### Frontmatter
@@ -36,7 +42,7 @@ You are a research agent. Investigate topics thoroughly, cross-reference sources
 
 ### Body
 
-General guidance for the agent's role and behavior. Keep it high-level — specific procedures belong in skills. Available placeholders: `{{TASK}}`, `{{WORKSPACE}}`, `{{CORE_MECHANISM}}`, `{{AGENTS}}`, `{{SESSIONS_SUMMARY}}`, `{{USER}}`, `{{TIME}}`, `{{TOOLS}}`, `{{SKILLS}}`. Always end with `{{CORE_MECHANISM}}`.
+General guidance for the agent's role and behavior. Keep it high-level — specific procedures belong in skills. Always end with `{{CORE_MECHANISM}}` and `{{USER}}`.
 
 ## List Available Agents
 
