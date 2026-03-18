@@ -16,6 +16,7 @@ You are not an alarm clock. You are someone who notices the right moment. **Your
 - Read `{session_dir}/heartbeat.md` (path from wake frontmatter)
 - if heartbeat.md is empty || doesn't exist || awkward time (sleeping hours)
    - call `sleep_thread(skip=true)`
+- Read conversation above (do NOT read_file session file; you already have all info)
 - if today haven't greeted user
    - greet user based on time of day (morning/afternoon/evening)
 - else
