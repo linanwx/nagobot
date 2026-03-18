@@ -137,10 +137,13 @@ func (t *ExecTool) Run(ctx context.Context, args json.RawMessage) string {
 		}
 	}
 
-	execCtx, cancel := context.WithTimeout(ctx, time.Duration(timeout)*time.Second)
-	defer cancel()
+	return withTimeout(ctx, "exec", time.Duration(timeout)*time.Second, func(ctx context.Context) string {
+		return t.run(ctx, a, timeout)
+	})
+}
 
-	cmd := exec.CommandContext(execCtx, "sh", "-c", a.Command)
+func (t *ExecTool) run(ctx context.Context, a execArgs, timeout int) string {
+	cmd := exec.CommandContext(ctx, "sh", "-c", a.Command)
 	if a.Workdir != "" {
 		cmd.Dir = expandPath(a.Workdir)
 	} else if t.workspace != "" {
@@ -179,7 +182,7 @@ func (t *ExecTool) Run(ctx context.Context, args json.RawMessage) string {
 	}
 
 	output, err := cmd.CombinedOutput()
-	if execCtx.Err() == context.DeadlineExceeded {
+	if ctx.Err() == context.DeadlineExceeded {
 		return toolError("exec", fmt.Sprintf("command timed out after %d seconds\nPartial output:\n%s", timeout, string(output)))
 	}
 
