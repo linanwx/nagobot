@@ -120,11 +120,11 @@ func (s *heartbeatScheduler) scan(ctx context.Context) {
 			continue
 		}
 
-		s.maybeFirePulse(key, now)
+		s.maybeFirePulse(key, now, lastActive)
 	}
 }
 
-func (s *heartbeatScheduler) maybeFirePulse(key string, now time.Time) {
+func (s *heartbeatScheduler) maybeFirePulse(key string, now time.Time, lastActive time.Time) {
 	sessionDir := hbSessionKeyToDir(s.sessionsDir, key)
 	hbPath := filepath.Join(sessionDir, "heartbeat.md")
 	hbMtime := hbFileMtime(hbPath)
@@ -140,7 +140,11 @@ func (s *heartbeatScheduler) maybeFirePulse(key string, now time.Time) {
 		interval = hbFastPulse
 	}
 
-	if !lp.IsZero() && now.Sub(lp) < interval {
+	// On restart (lp is zero), align to user's last active time.
+	if lp.IsZero() {
+		lp = lastActive
+	}
+	if now.Sub(lp) < interval {
 		return
 	}
 
