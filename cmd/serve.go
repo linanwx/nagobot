@@ -110,7 +110,7 @@ func runServe(cmd *cobra.Command, args []string) error {
 			}
 			threadMgr.Wake(p.Key, &thread.WakeMessage{
 				Source:  thread.WakeHeartbeat,
-				Message: buildHeartbeatMessage("", "", time.Now().Add(30*time.Minute).Format(time.RFC3339)),
+				Message: buildHeartbeatMessage("", "", time.Now().Add(hbPulseInterval).Format(time.RFC3339)),
 			})
 			return "ok", nil
 		default:

@@ -16,22 +16,22 @@ import (
 )
 
 const (
-	hbScanInterval    = 30 * time.Second
-	hbQuietMin        = 10 * time.Minute  // User must be quiet for at least this long.
-	hbPulseInterval   = 30 * time.Minute  // Default minimum gap between pulses.
-	hbFastPulse       = 10 * time.Minute  // Gap when heartbeat.md was modified last turn.
-	hbActivityWindow  = 48 * time.Hour    // Only pulse sessions active within this window.
+	hbScanInterval   = 30 * time.Second
+	hbQuietMin       = 10 * time.Minute // User must be quiet for at least this long.
+	hbPulseInterval  = 30 * time.Minute // Default minimum gap between pulses.
+	hbFastPulse      = 10 * time.Minute // Gap when heartbeat.md was modified last turn.
+	hbActivityWindow = 48 * time.Hour   // Only pulse sessions active within this window.
 )
 
 // heartbeatScheduler fires heartbeat pulses into user sessions on a fixed interval.
 type heartbeatScheduler struct {
-	mgr        *thread.Manager
-	cfgFn      func() *config.Config
+	mgr         *thread.Manager
+	cfgFn       func() *config.Config
 	sessionsDir string
 
-	mu           sync.Mutex
-	lastPulse    map[string]time.Time // sessionKey → last pulse time
-	lastHBMtime  map[string]time.Time // sessionKey → heartbeat.md mtime at last pulse
+	mu          sync.Mutex
+	lastPulse   map[string]time.Time // sessionKey → last pulse time
+	lastHBMtime map[string]time.Time // sessionKey → heartbeat.md mtime at last pulse
 }
 
 func newHeartbeatScheduler(mgr *thread.Manager, cfgFn func() *config.Config, sessionsDir string) *heartbeatScheduler {
@@ -65,87 +65,24 @@ func (s *heartbeatScheduler) scan(ctx context.Context) {
 		return
 	}
 
-	// Load postpone config.
 	postponed := loadPostponeConfig(filepath.Join(workspace, "system", "heartbeat-postpone.json"))
 
-	// Collect candidate sessions: in-memory threads + on-disk GC'd sessions.
-	candidates := s.collectCandidates(now)
-
-	for key, lastActive := range candidates {
-		if err := ctx.Err(); err != nil {
-			return
-		}
-
-		// Skip if user was active too recently.
-		if now.Sub(lastActive) < hbQuietMin {
-			continue
-		}
-		// Skip if no user activity within the activity window.
-		if now.Sub(lastActive) > hbActivityWindow {
-			continue
-		}
-		// Skip if session is postponed.
-		if until, ok := postponed[key]; ok {
-			if t, err := time.Parse(time.RFC3339, until); err == nil && now.Before(t) {
-				continue
-			}
-		}
-		// Skip if thread is currently running (it has pending work).
-		if s.mgr.HasThread(key) {
-			threads := s.mgr.ListThreads()
-			for _, ti := range threads {
-				if ti.SessionKey == key && ti.State != "idle" {
-					goto nextSession
-				}
-			}
-		}
-
-		// Determine pulse interval: fast if heartbeat.md was modified during last turn.
-		{
-			sessionDir := hbSessionKeyToDir(s.sessionsDir, key)
-			interval := hbPulseInterval
-
-			s.mu.Lock()
-			prevMtime, hasPrev := s.lastHBMtime[key]
-			s.mu.Unlock()
-
-			if hasPrev {
-				currentMtime := hbFileMtime(filepath.Join(sessionDir, "heartbeat.md"))
-				if !currentMtime.IsZero() && currentMtime.After(prevMtime) {
-					interval = hbFastPulse
-				}
-			}
-
-			s.mu.Lock()
-			lp := s.lastPulse[key]
-			s.mu.Unlock()
-
-			if !lp.IsZero() && now.Sub(lp) < interval {
-				continue
-			}
-
-			// Fire pulse.
-			s.firePulse(key, sessionDir, now, interval)
-		}
-	nextSession:
-	}
-}
-
-// collectCandidates returns sessionKey → lastUserActiveAt for all sessions.
-func (s *heartbeatScheduler) collectCandidates(now time.Time) map[string]time.Time {
+	// Collect candidate sessions + thread state in one pass.
+	threadList := s.mgr.ListThreads()
+	threadState := make(map[string]string, len(threadList)) // key → state
 	candidates := make(map[string]time.Time)
 
-	// 1. In-memory threads.
-	for _, ti := range s.mgr.ListThreads() {
+	for _, ti := range threadList {
+		threadState[ti.SessionKey] = ti.State
 		if !ti.LastUserActiveAt.IsZero() {
 			candidates[ti.SessionKey] = ti.LastUserActiveAt
 		}
 	}
 
-	// 2. On-disk GC'd sessions (not already in memory).
+	// Add on-disk GC'd sessions not already in memory.
 	for _, key := range scanSessionDirs(s.sessionsDir) {
 		if _, ok := candidates[key]; ok {
-			continue // already have from in-memory thread
+			continue
 		}
 		sessionDir := hbSessionKeyToDir(s.sessionsDir, key)
 		lastActive := scanLastUserActive(sessionDir)
@@ -154,31 +91,72 @@ func (s *heartbeatScheduler) collectCandidates(now time.Time) map[string]time.Ti
 		}
 	}
 
-	return candidates
-}
-
-func (s *heartbeatScheduler) firePulse(key, sessionDir string, now time.Time, interval time.Duration) {
-	// Read heartbeat.md content.
-	body := "heartbeat pulse triggered"
-	if data, err := os.ReadFile(filepath.Join(sessionDir, "heartbeat.md")); err == nil {
-		if content := strings.TrimSpace(string(data)); content != "" {
-			body = content
+	// Clean up stale map entries.
+	s.mu.Lock()
+	for key := range s.lastPulse {
+		if _, ok := candidates[key]; !ok {
+			delete(s.lastPulse, key)
+			delete(s.lastHBMtime, key)
 		}
 	}
+	s.mu.Unlock()
 
-	// Record heartbeat.md mtime before pulsing.
-	hbMtime := hbFileMtime(filepath.Join(sessionDir, "heartbeat.md"))
+	for key, lastActive := range candidates {
+		if ctx.Err() != nil {
+			return
+		}
+		if now.Sub(lastActive) < hbQuietMin {
+			continue
+		}
+		if now.Sub(lastActive) > hbActivityWindow {
+			continue
+		}
+		if until, ok := postponed[key]; ok {
+			if t, err := time.Parse(time.RFC3339, until); err == nil && now.Before(t) {
+				continue
+			}
+		}
+		if state := threadState[key]; state != "" && state != "idle" {
+			continue
+		}
+
+		s.maybeFirePulse(key, now)
+	}
+}
+
+func (s *heartbeatScheduler) maybeFirePulse(key string, now time.Time) {
+	sessionDir := hbSessionKeyToDir(s.sessionsDir, key)
+	hbPath := filepath.Join(sessionDir, "heartbeat.md")
+	hbMtime := hbFileMtime(hbPath)
+
+	s.mu.Lock()
+	prevMtime := s.lastHBMtime[key]
+	lp := s.lastPulse[key]
+	s.mu.Unlock()
+
+	// Determine interval: fast if heartbeat.md was modified since last pulse.
+	interval := hbPulseInterval
+	if !prevMtime.IsZero() && !hbMtime.IsZero() && hbMtime.After(prevMtime) {
+		interval = hbFastPulse
+	}
+
+	if !lp.IsZero() && now.Sub(lp) < interval {
+		return
+	}
+
+	// Read heartbeat.md content.
+	content := ""
+	if data, err := os.ReadFile(hbPath); err == nil {
+		content = strings.TrimSpace(string(data))
+	}
 
 	nextPulse := now.Add(interval).UTC().Format(time.RFC3339)
-	fields := map[string]string{
-		"next_pulse": nextPulse,
-	}
+	mdModified := ""
 	if !hbMtime.IsZero() {
-		fields["heartbeat_modified"] = hbMtime.UTC().Format(time.RFC3339)
+		mdModified = hbMtime.UTC().Format(time.RFC3339)
 	}
 
-	message := sysmsg.BuildSystemMessage("heartbeat", fields, body)
-	message += "\n\nYou must call use_skill(\"heartbeat-wake\") and follow its instructions."
+	message := buildHeartbeatMessage(content, mdModified, nextPulse)
 
 	s.mgr.Wake(key, &thread.WakeMessage{
 		Source:  thread.WakeHeartbeat,
@@ -200,7 +178,6 @@ func hbSessionKeyToDir(sessionsDir, key string) string {
 }
 
 // scanSessionDirs scans two levels under sessionsDir to find session directories.
-// Skips directories named "threads" (child thread dirs).
 func scanSessionDirs(sessionsDir string) []string {
 	var keys []string
 	channels, err := os.ReadDir(sessionsDir)
@@ -255,9 +232,6 @@ func loadPostponeConfig(path string) map[string]string {
 }
 
 // buildHeartbeatMessage constructs a heartbeat system message.
-// heartbeatContent is the body of heartbeat.md (empty string = default pulse text).
-// mdModified is the RFC3339 mtime of heartbeat.md (empty = omit field).
-// nextPulse is the RFC3339 time of the next scheduled pulse.
 func buildHeartbeatMessage(heartbeatContent, mdModified, nextPulse string) string {
 	fields := map[string]string{}
 	if nextPulse != "" {
@@ -276,4 +250,3 @@ func buildHeartbeatMessage(heartbeatContent, mdModified, nextPulse string) strin
 	message += "\n\nYou must call use_skill(\"heartbeat-wake\") and follow its instructions."
 	return message
 }
-
