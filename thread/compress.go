@@ -257,7 +257,7 @@ func markHeartbeatTurns(messages []provider.Message) bool {
 		}
 
 		source := messages[i].Source
-		if source != string(WakeHeartbeat) {
+		if !strings.HasPrefix(source, "heartbeat") {
 			i++
 			continue
 		}
@@ -337,7 +337,7 @@ func computeToolCompressed(m *provider.Message, idx int, lastSkillLoad map[strin
 		return ""
 	}
 	// Heartbeat tool results older than compressExpireAge → header-only
-	if m.Source == string(WakeHeartbeat) &&
+	if strings.HasPrefix(m.Source, "heartbeat") &&
 		!m.Timestamp.IsZero() && time.Since(m.Timestamp) > compressExpireAge &&
 		len(m.Content) > heartbeatTrimThreshold {
 		return marshalCompressed(compressedHeader{
