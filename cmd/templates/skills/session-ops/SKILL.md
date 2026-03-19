@@ -161,6 +161,11 @@ Set or clear the agent for a session.
 exec: {{WORKSPACE}}/bin/nagobot set-agent --session <session_key> --agent <agent_name>
 ```
 
+Set a specific provider/model for a session (auto-creates a fixed agent):
+```
+exec: {{WORKSPACE}}/bin/nagobot set-agent --session <session_key> --provider <provider> --model <model>
+```
+
 Clear the agent override (revert to default):
 ```
 exec: {{WORKSPACE}}/bin/nagobot set-agent --session <session_key>
@@ -168,6 +173,10 @@ exec: {{WORKSPACE}}/bin/nagobot set-agent --session <session_key>
 
 - `--session`: session key (required). Examples: `discord:123456`, `telegram:78910`, `cli`.
 - `--agent`: agent template name from `agents/*.md`. Omit or empty to clear the override.
+- `--provider`: provider name. Used with `--model` to auto-create a model-pinned agent.
+- `--model`: model type. Used with `--provider`. Auto-creates `agents/fixed-to-<model-slug>.md` with implicit specialty routing.
+
+Output includes: agent name, agent file path, specialty name, and specialty→model mapping.
 
 ## set-timezone
 
@@ -189,19 +198,8 @@ exec: {{WORKSPACE}}/bin/nagobot set-timezone --session <session_key>
 
 ## Per-Session Model Switching
 
-nagobot does not support directly setting a model per session. When a user asks to use a specific model for a session, analyze their intent:
+When a user asks to use a specific model for a session:
 
-**Case 1: User wants to switch to an existing agent**
-- If the user's intent maps to an existing agent (e.g. "use the fallout agent for this session"), simply use `set-agent` above.
+**Case 1: User wants to switch to an existing agent** — use `set-agent --session <key> --agent <name>`.
 
-**Case 2: User explicitly wants a specific provider/model (e.g. "use openai gpt-5.4 for this session")**
-- Create a dedicated agent template for that model:
-  1. Create `agents/<model-slug>.md` — a minimal agent whose `specialty` is a unique name (e.g. `specialty: gpt54-dedicated`)
-  2. Use `manage-config` skill's `set-model --type <specialty> --provider <provider> --model <model>` to route that specialty to the requested model
-  3. Use `set-agent --session <key> --agent <model-slug>` to assign the new agent to the session
-- After switching, reply to the user:
-  - Confirm the switch is done
-  - Explain that per-session model is not natively supported, so the workaround was:
-    - Created agent `<model-slug>` with specialty `<specialty>`
-    - Routed specialty `<specialty>` → `<provider>/<model>`
-    - Assigned agent `<model-slug>` to session `<key>`
+**Case 2: User wants a specific provider/model** — use `set-agent --session <key> --provider <provider> --model <model>`. This auto-creates a fixed agent and sets up implicit routing in one step. No manual agent creation or routing config needed.
