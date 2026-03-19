@@ -213,6 +213,14 @@ func (m *Manager) RegisterTool(t tools.Tool) {
 	}
 }
 
+// HasThread reports whether a thread exists for the given session key.
+func (m *Manager) HasThread(key string) bool {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	_, ok := m.threads[key]
+	return ok
+}
+
 // SessionDir returns the on-disk directory for a session key, or "" if unavailable.
 func (m *Manager) SessionDir(key string) string {
 	if m.cfg.Sessions == nil {
@@ -272,7 +280,7 @@ func (m *Manager) ListThreads() []tools.ThreadInfo {
 }
 
 func threadInfo(t *Thread) tools.ThreadInfo {
-	info := tools.ThreadInfo{ID: t.id, SessionKey: t.sessionKey}
+	info := tools.ThreadInfo{ID: t.id, SessionKey: t.sessionKey, LastUserActiveAt: t.lastUserActiveAt}
 	switch t.state {
 	case threadRunning:
 		info.State = "running"

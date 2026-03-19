@@ -195,6 +195,13 @@ func runServe(cmd *cobra.Command, args []string) error {
 	// Start thread manager run loop in background.
 	go threadMgr.Run(ctx)
 
+	// Start heartbeat scheduler.
+	hbScheduler := newHeartbeatScheduler(threadMgr, func() *config.Config {
+		c, _ := config.Load()
+		return c
+	}, sessionsDir)
+	go hbScheduler.run(ctx)
+
 	// Dispatcher reads from channels and dispatches to threads.
 	dispatcher := NewDispatcher(chManager, threadMgr, cfg)
 

@@ -113,6 +113,7 @@ type ThreadInfo struct {
 	CurrentTool    string           `json:"currentTool,omitempty"`
 	ElapsedSec     int              `json:"elapsedSec,omitempty"`
 	ToolTrace      []ToolCallRecord `json:"toolTrace,omitempty"`
+	LastUserActiveAt time.Time      `json:"lastUserActiveAt,omitempty"`
 }
 
 // WakeSource identifies how a thread was woken.
