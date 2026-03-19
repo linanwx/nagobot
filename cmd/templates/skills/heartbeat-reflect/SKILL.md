@@ -20,7 +20,7 @@ Without heartbeat, you only react. With heartbeat, you anticipate. Your job is t
    - Scan for: commitments, deadlines, recurring needs, time-sensitive events, advice, user concerns, anything user would appreciate remembering
 3. existing_items = items from heartbeat.md
    new_items = items found in conversation
-   cron_items = `{{WORKSPACE}}/bin/nagobot cron list` (check if needed)
+   cron_items = `nagobot cron list` (check if needed)
    - for each item in existing_items:
       - if item.moved_on condition is met || (item.created older than 3 days && item not mentioned in conversation) || item is already handled by cron
          - remove item
