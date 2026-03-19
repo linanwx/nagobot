@@ -76,7 +76,106 @@ var heartbeatPostponeCmd = &cobra.Command{
 	},
 }
 
+var heartbeatStatusCmd = &cobra.Command{
+	Use:   "status",
+	Short: "Show next heartbeat pulse time for all eligible sessions",
+	RunE: func(_ *cobra.Command, _ []string) error {
+		cfg, err := config.Load()
+		if err != nil {
+			return fmt.Errorf("load config: %w", err)
+		}
+		workspace, err := cfg.WorkspacePath()
+		if err != nil {
+			return fmt.Errorf("workspace: %w", err)
+		}
+
+		// Load postpone config.
+		postponed := loadPostponeConfig(filepath.Join(workspace, "system", "heartbeat-postpone.json"))
+
+		// Collect sessions (same logic as scheduler).
+		opts := listSessionsOpts{Days: 2, UserOnly: true}
+		sessions, err := collectSessions(cfg, opts)
+		if err != nil {
+			return fmt.Errorf("collect sessions: %w", err)
+		}
+
+		now := time.Now()
+
+		type entry struct {
+			Key          string `json:"key"`
+			LastActive   string `json:"last_active"`
+			NextPulse    string `json:"next_pulse"`
+			Status       string `json:"status"`
+			HasHeartbeat bool   `json:"has_heartbeat"`
+		}
+		var entries []entry
+
+		for _, se := range sessions.Sessions {
+			if se.LastUserActiveAt == nil {
+				continue
+			}
+			lastActive, parseErr := time.Parse(time.RFC3339, *se.LastUserActiveAt)
+			if parseErr != nil {
+				continue
+			}
+
+			e := entry{
+				Key:          se.Key,
+				LastActive:   lastActive.Local().Format("15:04"),
+				HasHeartbeat: se.HasHeartbeat,
+			}
+
+			// Check inactivity window.
+			if now.Sub(lastActive) > hbActivityWindow {
+				e.Status = "inactive (>48h)"
+				e.NextPulse = "-"
+				entries = append(entries, e)
+				continue
+			}
+
+			// Check postpone.
+			if until, ok := postponed[se.Key]; ok {
+				if t, parseErr := time.Parse(time.RFC3339, until); parseErr == nil && now.Before(t) {
+					e.Status = fmt.Sprintf("postponed until %s", t.Local().Format("15:04"))
+					e.NextPulse = t.Local().Format("15:04")
+					entries = append(entries, e)
+					continue
+				}
+			}
+
+			// Compute next pulse using 10+30+30... schedule.
+			firstPulse := lastActive.Add(hbQuietMin)
+			var nextPulse time.Time
+			if !firstPulse.Before(now) {
+				nextPulse = firstPulse
+			} else {
+				next := firstPulse
+				for next.Before(now) {
+					next = next.Add(hbPulseInterval)
+				}
+				nextPulse = next
+			}
+
+			// Check quiet threshold.
+			if now.Sub(lastActive) < hbQuietMin {
+				e.Status = "user active"
+				e.NextPulse = firstPulse.Local().Format("15:04")
+			} else {
+				e.Status = "scheduled"
+				e.NextPulse = nextPulse.Local().Format("15:04")
+			}
+
+			entries = append(entries, e)
+		}
+
+		enc := json.NewEncoder(os.Stdout)
+		enc.SetIndent("", "  ")
+		return enc.Encode(entries)
+	},
+}
+
 func init() {
 	heartbeatCmd.AddCommand(heartbeatPostponeCmd)
+	heartbeatCmd.AddCommand(heartbeatStatusCmd)
 	rootCmd.AddCommand(heartbeatCmd)
 }
