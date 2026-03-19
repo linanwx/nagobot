@@ -177,8 +177,6 @@ func buildBalanceCheckers(cfg *config.Config, metricsDir string) []monitor.Balan
 				return ""
 			},
 		},
-		&monitor.OpenAIQuota{
-			MetricsDir: metricsDir,
-		},
+		&monitor.OpenAIQuota{},
 	}
 }

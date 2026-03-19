@@ -153,37 +153,105 @@ func (b *DeepSeekBalance) Check(ctx context.Context) (*BalanceInfo, error) {
 	return info, nil
 }
 
-// --- OpenAI (OAuth rate-limit quota from cached headers) ---
+// --- OpenAI (OAuth usage from chatgpt.com/backend-api/wham/usage) ---
 
-// OpenAIQuota reads persisted rate-limit quota captured from OpenAI response headers.
+// OpenAIQuota queries OpenAI usage via the ChatGPT wham/usage endpoint.
 type OpenAIQuota struct {
-	MetricsDir string // {workspace}/metrics
+	AccessToken string
+	AccountID   string
 }
 
 func (b *OpenAIQuota) Provider() string { return "openai" }
-func (b *OpenAIQuota) Available() bool  { return b.MetricsDir != "" }
+func (b *OpenAIQuota) Available() bool  { return b.AccessToken != "" }
 
-func (b *OpenAIQuota) Check(_ context.Context) (*BalanceInfo, error) {
-	q, err := LoadQuota(b.MetricsDir)
+func (b *OpenAIQuota) Check(ctx context.Context) (*BalanceInfo, error) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, "https://chatgpt.com/backend-api/wham/usage", nil)
 	if err != nil {
-		return &BalanceInfo{Provider: "openai", Error: "no quota data yet (send a message first)"}, nil
+		return nil, err
+	}
+	req.Header.Set("Authorization", "Bearer "+b.AccessToken)
+	if b.AccountID != "" {
+		req.Header.Set("ChatGPT-Account-Id", b.AccountID)
 	}
 
-	age := time.Since(q.UpdatedAt).Truncate(time.Second)
-	info := &BalanceInfo{
-		Provider:  "openai",
-		Available: true,
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return &BalanceInfo{Provider: "openai", Error: fmt.Sprintf("request failed: %v", err)}, nil
 	}
-	info.Balances = append(info.Balances, BalanceEntry{
-		Currency: "requests",
-		Balance:  float64(q.RemainingRequests),
-		Detail:   fmt.Sprintf("limit=%d, reset=%s, updated %s ago", q.LimitRequests, q.ResetRequests, age),
-	})
-	info.Balances = append(info.Balances, BalanceEntry{
-		Currency: "tokens",
-		Balance:  float64(q.RemainingTokens),
-		Detail:   fmt.Sprintf("limit=%d, reset=%s, updated %s ago", q.LimitTokens, q.ResetTokens, age),
-	})
+	defer resp.Body.Close()
+
+	if resp.StatusCode == 401 || resp.StatusCode == 403 {
+		return &BalanceInfo{Provider: "openai", Error: "OAuth token expired (run: nagobot auth login openai)"}, nil
+	}
+	if resp.StatusCode != 200 {
+		return &BalanceInfo{Provider: "openai", Error: fmt.Sprintf("HTTP %d", resp.StatusCode)}, nil
+	}
+
+	var data struct {
+		RateLimit *struct {
+			PrimaryWindow *struct {
+				LimitWindowSeconds int     `json:"limit_window_seconds"`
+				UsedPercent        float64 `json:"used_percent"`
+				ResetAt            int64   `json:"reset_at"`
+			} `json:"primary_window"`
+			SecondaryWindow *struct {
+				LimitWindowSeconds int     `json:"limit_window_seconds"`
+				UsedPercent        float64 `json:"used_percent"`
+				ResetAt            int64   `json:"reset_at"`
+			} `json:"secondary_window"`
+		} `json:"rate_limit"`
+		PlanType string `json:"plan_type"`
+		Credits  *struct {
+			Balance *float64 `json:"balance"`
+		} `json:"credits"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&data); err != nil {
+		return &BalanceInfo{Provider: "openai", Error: fmt.Sprintf("parse error: %v", err)}, nil
+	}
+
+	info := &BalanceInfo{Provider: "openai", Available: true}
+
+	if data.RateLimit != nil {
+		if pw := data.RateLimit.PrimaryWindow; pw != nil {
+			hours := pw.LimitWindowSeconds / 3600
+			if hours == 0 {
+				hours = 3
+			}
+			info.Balances = append(info.Balances, BalanceEntry{
+				Currency: fmt.Sprintf("%dh", hours),
+				Balance:  100 - pw.UsedPercent,
+				Detail:   fmt.Sprintf("%.1f%% used", pw.UsedPercent),
+			})
+		}
+		if sw := data.RateLimit.SecondaryWindow; sw != nil {
+			hours := sw.LimitWindowSeconds / 3600
+			label := "Day"
+			if hours >= 168 {
+				label = "Week"
+			}
+			info.Balances = append(info.Balances, BalanceEntry{
+				Currency: label,
+				Balance:  100 - sw.UsedPercent,
+				Detail:   fmt.Sprintf("%.1f%% used", sw.UsedPercent),
+			})
+		}
+	}
+
+	if data.Credits != nil && data.Credits.Balance != nil {
+		info.Balances = append(info.Balances, BalanceEntry{
+			Currency: "credits",
+			Balance:  *data.Credits.Balance,
+			Detail:   fmt.Sprintf("$%.2f", *data.Credits.Balance),
+		})
+	}
+
+	if data.PlanType != "" {
+		info.Balances = append(info.Balances, BalanceEntry{
+			Currency: "plan",
+			Detail:   data.PlanType,
+		})
+	}
+
 	return info, nil
 }
 
