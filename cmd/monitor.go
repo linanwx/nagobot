@@ -177,6 +177,15 @@ func buildBalanceCheckers(cfg *config.Config, metricsDir string) []monitor.Balan
 				return ""
 			},
 		},
-		&monitor.OpenAIQuota{},
+		func() monitor.BalanceChecker {
+		cfg, _ := config.Load()
+		if cfg != nil && cfg.Providers.OpenAIOAuth != nil {
+			return &monitor.OpenAIQuota{
+				AccessToken: cfg.Providers.OpenAIOAuth.AccessToken,
+				AccountID:   cfg.Providers.OpenAIOAuth.AccountID,
+			}
+		}
+		return &monitor.OpenAIQuota{}
+	}(),
 	}
 }
