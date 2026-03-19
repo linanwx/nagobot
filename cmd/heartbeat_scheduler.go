@@ -57,6 +57,7 @@ func (s *heartbeatScheduler) run(ctx context.Context) {
 
 func (s *heartbeatScheduler) scan(ctx context.Context) {
 	now := time.Now()
+	logger.Debug("heartbeat scan started")
 	cfg := s.cfgFn()
 	workspace, err := cfg.WorkspacePath()
 	if err != nil {
@@ -73,6 +74,7 @@ func (s *heartbeatScheduler) scan(ctx context.Context) {
 		logger.Warn("heartbeat scan: collectSessions failed", "err", err)
 		return
 	}
+	logger.Debug("heartbeat scan: found sessions", "count", len(sessions.Sessions))
 
 	// Enrich with live thread state (running/idle/pending).
 	enrichWithThreads(sessions, s.mgr.ListThreads())
@@ -98,6 +100,7 @@ func (s *heartbeatScheduler) scan(ctx context.Context) {
 
 		// LastUserActiveAt is from session.jsonl scan (real user-visible messages).
 		if se.LastUserActiveAt == nil {
+			logger.Debug("heartbeat skip: no user activity", "key", se.Key)
 			continue
 		}
 		lastActive, parseErr := time.Parse(time.RFC3339, *se.LastUserActiveAt)
@@ -105,18 +108,23 @@ func (s *heartbeatScheduler) scan(ctx context.Context) {
 			continue
 		}
 
-		if now.Sub(lastActive) < hbQuietMin {
+		quiet := now.Sub(lastActive)
+		if quiet < hbQuietMin {
+			logger.Debug("heartbeat skip: user active recently", "key", se.Key, "quiet", quiet.Round(time.Second))
 			continue
 		}
-		if now.Sub(lastActive) > hbActivityWindow {
+		if quiet > hbActivityWindow {
+			logger.Debug("heartbeat skip: inactive >48h", "key", se.Key)
 			continue
 		}
 		if until, ok := postponed[se.Key]; ok {
 			if t, parseErr := time.Parse(time.RFC3339, until); parseErr == nil && now.Before(t) {
+				logger.Debug("heartbeat skip: postponed", "key", se.Key, "until", until)
 				continue
 			}
 		}
 		if se.IsRunning {
+			logger.Debug("heartbeat skip: thread running", "key", se.Key)
 			continue
 		}
 
@@ -158,6 +166,9 @@ func (s *heartbeatScheduler) maybeFirePulse(key string, now time.Time, lastActiv
 		}
 	}
 	if now.Sub(lp) < interval {
+		logger.Debug("heartbeat skip: interval not reached", "key", key,
+			"lp", lp.Format(time.RFC3339), "interval", interval,
+			"wait", (interval - now.Sub(lp)).Round(time.Second))
 		return
 	}
 
