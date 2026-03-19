@@ -125,11 +125,6 @@ func (t *Thread) RunOnce(ctx context.Context) {
 		t.Set(k, v)
 	}
 
-	// Heartbeat reflection is always silent — suppress sink delivery.
-	if msg.Source == WakeHeartbeatReflect {
-		t.SetSuppressSink()
-	}
-
 	// Use per-wake sink; fall back to thread's default sink.
 	sink := msg.Sink
 	if sink.IsZero() {
@@ -285,10 +280,8 @@ func wakeActionHint(source WakeSource) string {
 		return "Process this external wake message. The content is only visible to you."
 	case WakeCompression:
 		return "Automated background maintenance. Execute the compression skill immediately. Do not produce user-facing content."
-	case WakeHeartbeatReflect:
-		return "Heartbeat reflection triggered. Load the specified skill and follow its instructions to review this session and update heartbeat.md."
-	case WakeHeartbeatWake:
-		return "Heartbeat wake triggered. Load the specified skill and follow its instructions to check heartbeat.md and act on relevant items."
+	case WakeHeartbeat:
+		return "Heartbeat pulse. Load the heartbeat-wake skill and follow its instructions."
 	default:
 		return "Process this wake message and continue."
 	}

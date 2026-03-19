@@ -25,7 +25,7 @@ const (
 )
 
 // heartbeatSafeTools lists tools that don't constitute "real work" in a heartbeat turn.
-// If a heartbeat_wake turn only calls these + sleep_thread(skip), the turn is noise.
+// If a heartbeat turn only calls these + sleep_thread(skip), the turn is noise.
 var heartbeatSafeTools = map[string]bool{
 	"sleep_thread": true, // the skip/sleep action itself
 	"use_skill":    true, // loads skill instructions (read-only)
@@ -256,7 +256,7 @@ func markHeartbeatTurns(messages []provider.Message) bool {
 		}
 
 		source := messages[i].Source
-		if source != string(WakeHeartbeatReflect) && source != string(WakeHeartbeatWake) {
+		if source != string(WakeHeartbeat) {
 			i++
 			continue
 		}
@@ -269,11 +269,7 @@ func markHeartbeatTurns(messages []provider.Message) bool {
 
 		shouldTrim := false
 		trimType := ""
-		switch source {
-		case string(WakeHeartbeatReflect):
-			shouldTrim = true
-			trimType = "reflect"
-		case string(WakeHeartbeatWake):
+		if source == string(WakeHeartbeat) {
 			if isHeartbeatSkipTurn(messages[i:turnEnd]) {
 				shouldTrim = true
 				trimType = "skip"
@@ -306,7 +302,7 @@ func markHeartbeatTurns(messages []provider.Message) bool {
 	return modified
 }
 
-// isHeartbeatSkipTurn returns true if a heartbeat_wake turn only called safe tools
+// isHeartbeatSkipTurn returns true if a heartbeat turn only called safe tools
 // and ended with sleep_thread(skip=true).
 func isHeartbeatSkipTurn(turnMessages []provider.Message) bool {
 	hasSleepSkip := false
@@ -352,7 +348,7 @@ func computeToolCompressed(m *provider.Message, idx int, lastSkillLoad map[strin
 		return ""
 	}
 	// Heartbeat tool results older than compressExpireAge → header-only
-	if (m.Source == string(WakeHeartbeatWake) || m.Source == string(WakeHeartbeatReflect)) &&
+	if m.Source == string(WakeHeartbeat) &&
 		!m.Timestamp.IsZero() && time.Since(m.Timestamp) > compressExpireAge &&
 		len(m.Content) > heartbeatTrimThreshold {
 		return marshalCompressed(compressedHeader{

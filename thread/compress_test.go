@@ -215,8 +215,8 @@ func TestCompressTier1_HeartbeatExpired(t *testing.T) {
 	// Heartbeat source + >6h + >100 bytes → header-only
 	messages := []provider.Message{
 		{Role: "assistant", Content: "", ToolCalls: []provider.ToolCall{{ID: "c1", Type: "function", Function: provider.FunctionCall{Name: "exec", Arguments: `{"cmd":"nagobot list-sessions"}`}}}},
-		{Role: "tool", Name: "exec", ToolCallID: "c1", Content: strings.Repeat("session data\n", 50), Source: "heartbeat_wake", Timestamp: time.Now().Add(-8 * time.Hour)},
-		{Role: "assistant", Content: "HEARTBEAT_OK", Source: "heartbeat_wake"},
+		{Role: "tool", Name: "exec", ToolCallID: "c1", Content: strings.Repeat("session data\n", 50), Source: "heartbeat", Timestamp: time.Now().Add(-8 * time.Hour)},
+		{Role: "assistant", Content: "HEARTBEAT_OK", Source: "heartbeat"},
 		{Role: "user", Content: "next"},
 		{Role: "assistant", Content: "ok"},
 		{Role: "user", Content: "next2"},
@@ -247,8 +247,8 @@ func TestCompressTier1_HeartbeatRecent(t *testing.T) {
 	// Heartbeat source + <2h → not compressed
 	messages := []provider.Message{
 		{Role: "assistant", Content: "", ToolCalls: []provider.ToolCall{{ID: "c1", Type: "function", Function: provider.FunctionCall{Name: "exec", Arguments: `{"cmd":"nagobot list-sessions"}`}}}},
-		{Role: "tool", Name: "exec", ToolCallID: "c1", Content: strings.Repeat("session data\n", 50), Source: "heartbeat_wake", Timestamp: time.Now().Add(-1 * time.Hour)},
-		{Role: "assistant", Content: "HEARTBEAT_OK", Source: "heartbeat_wake"},
+		{Role: "tool", Name: "exec", ToolCallID: "c1", Content: strings.Repeat("session data\n", 50), Source: "heartbeat", Timestamp: time.Now().Add(-1 * time.Hour)},
+		{Role: "assistant", Content: "HEARTBEAT_OK", Source: "heartbeat"},
 		{Role: "user", Content: "next"},
 		{Role: "assistant", Content: "ok"},
 		{Role: "user", Content: "next2"},
@@ -269,8 +269,8 @@ func TestCompressTier1_HeartbeatSmall(t *testing.T) {
 	// Heartbeat source + >2h + ≤100 bytes → not compressed
 	messages := []provider.Message{
 		{Role: "assistant", Content: "", ToolCalls: []provider.ToolCall{{ID: "c1", Type: "function", Function: provider.FunctionCall{Name: "sleep_thread", Arguments: `{"skip":true}`}}}},
-		{Role: "tool", Name: "sleep_thread", ToolCallID: "c1", Content: "ok: skipped", Source: "heartbeat_wake", Timestamp: time.Now().Add(-8 * time.Hour)},
-		{Role: "assistant", Content: "HEARTBEAT_OK", Source: "heartbeat_wake"},
+		{Role: "tool", Name: "sleep_thread", ToolCallID: "c1", Content: "ok: skipped", Source: "heartbeat", Timestamp: time.Now().Add(-8 * time.Hour)},
+		{Role: "assistant", Content: "HEARTBEAT_OK", Source: "heartbeat"},
 		{Role: "user", Content: "next"},
 		{Role: "assistant", Content: "ok"},
 		{Role: "user", Content: "next2"},

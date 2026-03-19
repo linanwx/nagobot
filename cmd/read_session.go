@@ -141,7 +141,7 @@ func filterToolMessages(messages []provider.Message) []provider.Message {
 		if m.Role == "system" {
 			continue
 		}
-		if m.Source == "heartbeat_reflect" || m.Source == "heartbeat_wake" {
+		if m.Source == "heartbeat" {
 			continue
 		}
 		if m.Role == "assistant" && len(m.ToolCalls) > 0 && strings.TrimSpace(m.Content) == "" {

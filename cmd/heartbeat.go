@@ -86,7 +86,7 @@ var heartbeatReflectCmd = &cobra.Command{
 			return fmt.Errorf("update heartbeat state: %w", err)
 		}
 
-		fmt.Printf("---\ntool: heartbeat_reflect\nstatus: ok\nsession: %s\nfile: %s\nupdated_field: last_reflection\ntimestamp: %s\n---\n\n", key, filePath, ts)
+		fmt.Printf("---\ntool: heartbeat\nstatus: ok\nsession: %s\nfile: %s\nupdated_field: last_reflection\ntimestamp: %s\n---\n\n", key, filePath, ts)
 		fmt.Printf("Reflection triggered for session %q. Timestamp updated automatically — do not write heartbeat-state.json manually.\n", key)
 		return nil
 	},
@@ -103,7 +103,7 @@ var heartbeatWakeCmd = &cobra.Command{
 			return fmt.Errorf("heartbeat wake: %w", err)
 		}
 
-		fmt.Printf("---\ntool: heartbeat_wake\nstatus: ok\nsession: %s\n---\n\n", key)
+		fmt.Printf("---\ntool: heartbeat\nstatus: ok\nsession: %s\n---\n\n", key)
 		fmt.Printf("Wake triggered for session %q.\n", key)
 		return nil
 	},
