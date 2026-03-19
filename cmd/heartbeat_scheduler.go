@@ -70,7 +70,7 @@ func (s *heartbeatScheduler) scan(ctx context.Context) {
 	opts := listSessionsOpts{Days: 2, UserOnly: true}
 	sessions, err := collectSessions(cfg, opts)
 	if err != nil {
-		logger.Debug("heartbeat scan: collectSessions failed", "err", err)
+		logger.Warn("heartbeat scan: collectSessions failed", "err", err)
 		return
 	}
 
@@ -185,7 +185,7 @@ func (s *heartbeatScheduler) maybeFirePulse(key string, now time.Time, lastActiv
 	s.lastHBMtime[key] = hbMtime
 	s.mu.Unlock()
 
-	logger.Debug("heartbeat pulse fired", "sessionKey", key, "nextPulse", nextPulse)
+	logger.Info("heartbeat pulse fired", "sessionKey", key, "nextPulse", nextPulse)
 }
 
 // hbSessionKeyToDir converts a session key to its directory path.
