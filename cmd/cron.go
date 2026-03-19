@@ -221,21 +221,18 @@ func init() {
 // --- shared helpers ---
 
 var (
-	commonAgent             string
+	commonAgent       string
 	commonWakeSession string
-	commonSilent            bool
 )
 
 func addCommonJobFlags(cmd *cobra.Command) {
 	cmd.Flags().StringVar(&commonAgent, "agent", "", "Agent template name")
-	cmd.Flags().StringVar(&commonWakeSession, "wake-session", "", "Session to inject task into and wake for execution (default: main)")
-	cmd.Flags().BoolVar(&commonSilent, "silent", false, "Suppress result delivery")
+	cmd.Flags().StringVar(&commonWakeSession, "wake-session", "", "Session to receive execution result (omit for silent — no delivery)")
 }
 
 func applyCommonJobFlags(job *cronsvc.Job) {
 	job.Agent = strings.TrimSpace(commonAgent)
 	job.WakeSession = strings.TrimSpace(commonWakeSession)
-	job.Silent = commonSilent
 }
 
 func cronStorePath() (string, error) {
