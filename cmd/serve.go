@@ -155,7 +155,8 @@ func runServe(cmd *cobra.Command, args []string) error {
 
 	// Set default agent/sink factories: resolve fallback agent and sink per session key.
 	threadMgr.SetDefaultAgentFor(buildDefaultAgentFor(cfg))
-	threadMgr.SetDefaultSinkFor(buildDefaultSinkFor(chManager, cfg))
+	sessionsDir, _ := cfg.SessionsDir()
+	threadMgr.SetDefaultSinkFor(buildDefaultSinkFor(chManager, cfg, sessionsDir))
 
 	// Wire system prompt and context budget lookups for the web dashboard.
 	if ch, ok := chManager.Get("web"); ok {
@@ -217,8 +218,28 @@ func buildDefaultAgentFor(cfg *config.Config) func(string) string {
 	}
 }
 
+// readDiscordDMReplyTo reads {sessionDir}/channel.json and returns the discord_dm
+// reply_to value if present. Returns empty string if not found.
+func readDiscordDMReplyTo(sessionsDir, sessionKey string) string {
+	parts := strings.Split(sessionKey, ":")
+	sessionDir := filepath.Join(append([]string{sessionsDir}, parts...)...)
+	data, err := os.ReadFile(filepath.Join(sessionDir, "channel.json"))
+	if err != nil {
+		return ""
+	}
+	var routing struct {
+		DiscordDM *struct {
+			ReplyTo string `json:"reply_to"`
+		} `json:"discord_dm"`
+	}
+	if err := json.Unmarshal(data, &routing); err != nil || routing.DiscordDM == nil {
+		return ""
+	}
+	return routing.DiscordDM.ReplyTo
+}
+
 // buildDefaultSinkFor returns a factory that resolves the fallback sink for a given session key.
-func buildDefaultSinkFor(chMgr *channel.Manager, cfg *config.Config) func(string) thread.Sink {
+func buildDefaultSinkFor(chMgr *channel.Manager, cfg *config.Config, sessionsDir string) func(string) thread.Sink {
 	return func(sessionKey string) thread.Sink {
 		// telegram:{chatID} or telegram:{userID} → send to that chat.
 		if strings.HasPrefix(sessionKey, "telegram:") {
@@ -254,10 +275,14 @@ func buildDefaultSinkFor(chMgr *channel.Manager, cfg *config.Config) func(string
 			}
 		}
 
-		// discord:{channelID} → send to that channel.
+		// discord:{channelOrUserID} → check channel.json for DM routing, fallback to raw ID.
 		if strings.HasPrefix(sessionKey, "discord:") {
 			channelID := strings.TrimPrefix(sessionKey, "discord:")
 			if channelID != "" {
+				replyTo := channelID
+				if r := readDiscordDMReplyTo(sessionsDir, sessionKey); r != "" {
+					replyTo = r
+				}
 				return thread.Sink{
 					Label:      "your response will be sent to discord channel " + channelID,
 					Chunkable: true,
@@ -265,7 +290,7 @@ func buildDefaultSinkFor(chMgr *channel.Manager, cfg *config.Config) func(string
 						if strings.TrimSpace(response) == "" {
 							return nil
 						}
-						return chMgr.SendTo(ctx, "discord", response, channelID)
+						return chMgr.SendTo(ctx, "discord", response, replyTo)
 					},
 				}
 			}
