@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"path/filepath"
-	"strconv"
 	"strings"
 	"time"
 
@@ -146,7 +145,6 @@ func (c *CronChannel) buildMessage(job *cronpkg.Job) *Message {
 		metadata["agent"] = strings.TrimSpace(job.Agent)
 		metadata["task"] = strings.TrimSpace(job.Task)
 		metadata["wake_session"] = strings.TrimSpace(job.WakeSession)
-		metadata["silent"] = strconv.FormatBool(job.Silent)
 	}
 
 	return &Message{
@@ -175,7 +173,6 @@ func buildCronStartMessage(job *cronpkg.Job) string {
 		"task":         strings.TrimSpace(job.Task),
 		"agent":        strings.TrimSpace(job.Agent),
 		"wake_session": strings.TrimSpace(job.WakeSession),
-		"silent":       strconv.FormatBool(job.Silent),
 		"created_at":   job.CreatedAt.UTC().Format(time.RFC3339),
 	}, "scheduled cron task triggered")
 }
