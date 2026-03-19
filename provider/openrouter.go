@@ -140,21 +140,22 @@ var openRouterModels = map[string]openRouterModelMeta{
 		},
 		ProviderOrder: []string{"google-ai-studio"},
 	},
-	"openrouter/hunter-alpha": {
+	"xiaomi/mimo-v2-pro": {
 		ThinkingOpts: []oaioption.RequestOption{
 			oaioption.WithJSONSet("reasoning", map[string]any{"effort": "high"}),
 		},
-		ProviderOrder: []string{"Stealth"},
 	},
-	"openrouter/healer-alpha": {
-		ProviderOrder: []string{"Stealth"},
+	"xiaomi/mimo-v2-omni": {
+		ThinkingOpts: []oaioption.RequestOption{
+			oaioption.WithJSONSet("reasoning", map[string]any{"effort": "high"}),
+		},
 	},
 }
 
 func init() {
 	RegisterProvider("openrouter", ProviderRegistration{
-		Models:       []string{"moonshotai/kimi-k2.5", "anthropic/claude-sonnet-4.6", "anthropic/claude-opus-4.6", "z-ai/glm-5", "minimax/minimax-m2.5", "minimax/minimax-m2.7", "qwen/qwen3.5-35b-a3b", "google/gemini-3-flash-preview", "openrouter/hunter-alpha", "openrouter/healer-alpha"},
-		VisionModels: []string{"moonshotai/kimi-k2.5", "anthropic/claude-sonnet-4.6", "anthropic/claude-opus-4.6", "qwen/qwen3.5-35b-a3b", "google/gemini-3-flash-preview", "openrouter/healer-alpha"},
+		Models:       []string{"moonshotai/kimi-k2.5", "anthropic/claude-sonnet-4.6", "anthropic/claude-opus-4.6", "z-ai/glm-5", "minimax/minimax-m2.5", "minimax/minimax-m2.7", "qwen/qwen3.5-35b-a3b", "google/gemini-3-flash-preview", "xiaomi/mimo-v2-pro", "xiaomi/mimo-v2-omni"},
+		VisionModels: []string{"moonshotai/kimi-k2.5", "anthropic/claude-sonnet-4.6", "anthropic/claude-opus-4.6", "qwen/qwen3.5-35b-a3b", "google/gemini-3-flash-preview", "xiaomi/mimo-v2-pro", "xiaomi/mimo-v2-omni"},
 		ContextWindows: map[string]int{
 			"moonshotai/kimi-k2.5":          262144,
 			"anthropic/claude-sonnet-4.6":   1048576,
@@ -164,8 +165,8 @@ func init() {
 			"minimax/minimax-m2.7":          204800,
 			"qwen/qwen3.5-35b-a3b":         262144,
 			"google/gemini-3-flash-preview": 1048576,
-			"openrouter/hunter-alpha":       1048576,
-			"openrouter/healer-alpha":       262144,
+			"xiaomi/mimo-v2-pro":            1048576,
+			"xiaomi/mimo-v2-omni":           262144,
 		},
 		EnvKey:  "OPENROUTER_API_KEY",
 		EnvBase: "OPENROUTER_API_BASE",
