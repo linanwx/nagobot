@@ -16,6 +16,7 @@ type AgentDef struct {
 	Name        string // Callable name used by spawn_thread.agent
 	Description string // Short description shown in system prompt context
 	Specialty   string // Agent specialty declared in frontmatter (e.g. "chat", "toolcall")
+	Provider    string // Provider name declared in frontmatter (optional, used for model-pinned agents)
 	Path        string // Full path to the template file
 }
 
@@ -134,6 +135,7 @@ func loadAgentsFromDir(dir string, dest map[string]*AgentDef) {
 			Name:        name,
 			Description: strings.TrimSpace(meta.Description),
 			Specialty:   strings.TrimSpace(meta.Specialty),
+			Provider:    strings.TrimSpace(meta.Provider),
 			Path:        path,
 		}
 	}

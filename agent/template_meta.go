@@ -11,6 +11,7 @@ type TemplateMeta struct {
 	Name        string `yaml:"name"`
 	Description string `yaml:"description"`
 	Specialty   string `yaml:"specialty"`
+	Provider    string `yaml:"provider"`
 	Model       string `yaml:"model"` // deprecated: use Specialty; kept for backward compatibility
 }
 
