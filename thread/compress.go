@@ -297,19 +297,25 @@ func markHeartbeatTurns(messages []provider.Message) bool {
 	return modified
 }
 
-// isHeartbeatSkipTurn returns true if a heartbeat turn only called safe tools
-// (tools that don't produce user-visible effects).
+// isHeartbeatSkipTurn returns true if a heartbeat turn should be trimmed:
+// the turn called sleep_thread (meaning it was deliberately silent/suppressed)
+// AND did not produce real user-visible work (non-safe tools).
+// Turns that sent a message to the user (no sleep_thread, real output) are NOT trimmed.
 func isHeartbeatSkipTurn(turnMessages []provider.Message) bool {
+	hasSleepThread := false
+	hasRealWork := false
 	for i := range turnMessages {
 		m := &turnMessages[i]
 		if m.Role != "tool" {
 			continue
 		}
-		if !heartbeatSafeTools[m.Name] {
-			return false
+		if m.Name == "sleep_thread" {
+			hasSleepThread = true
+		} else if !heartbeatSafeTools[m.Name] {
+			hasRealWork = true
 		}
 	}
-	return true
+	return hasSleepThread && !hasRealWork
 }
 
 // computeToolCompressed returns the Compressed value for a tool message.
