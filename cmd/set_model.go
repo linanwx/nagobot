@@ -188,6 +188,24 @@ func listModelRouting(cfg *config.Config) error {
 		fmt.Printf("  %-20s %-20s %s\n", a.AgentName, specialty, routingLabel)
 	}
 
+	// Implicit specialty routing: model names that auto-route without config
+	fmt.Println("\nImplicit specialty routing (model name = specialty, no config needed):")
+	for _, prov := range provider.SupportedProviders() {
+		models := provider.SupportedModelsForProvider(prov)
+		for _, m := range models {
+			// Skip if already in explicit routing table
+			if _, ok := cfg.Thread.Models[m]; ok {
+				continue
+			}
+			ctx := provider.ContextWindowForModel(m)
+			if ctx > 0 {
+				fmt.Printf("  %-40s → %s / %s (%s)\n", m, prov, m, formatContextTokens(ctx))
+			} else {
+				fmt.Printf("  %-40s → %s / %s\n", m, prov, m)
+			}
+		}
+	}
+
 	// Available models per provider
 	fmt.Println("\nAvailable models:")
 	for _, prov := range provider.SupportedProviders() {
