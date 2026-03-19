@@ -34,7 +34,7 @@ Without heartbeat, you only react. With heartbeat, you anticipate. Your job is t
       - if item.when/if is a chat trigger (e.g., "when user mentions about X, do Y")
          - try to fix these chat-condition triggers to be time-based or resource-based triggers
             - catch: if unfixable → remove item
-   - if nothing changed, reconsider: did you look hard enough?
+   - if nothing fixed, reconsider: am I too passive?
 
 4. if no items remain && current file is not empty → write empty string to clear file (don't delete)
 5. Reply `HEARTBEAT_OK`
