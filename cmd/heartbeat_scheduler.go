@@ -200,7 +200,12 @@ func scanSessionDirs(sessionsDir string) []string {
 			if !sid.IsDir() || sid.Name() == "threads" {
 				continue
 			}
-			keys = append(keys, ch.Name()+":"+sid.Name())
+			key := ch.Name() + ":" + sid.Name()
+			// Skip non-user sessions.
+			if strings.HasPrefix(key, "cron:") {
+				continue
+			}
+			keys = append(keys, key)
 		}
 	}
 	return keys
@@ -245,7 +250,7 @@ func buildHeartbeatMessage(heartbeatContent, mdModified, nextPulse string) strin
 		fields["heartbeat_modified"] = mdModified
 	}
 
-	body := "heartbeat pulse triggered"
+	body := "[heartbeat.md is empty]"
 	if c := strings.TrimSpace(heartbeatContent); c != "" {
 		body = c
 	}

@@ -12,4 +12,4 @@ You are handling a heartbeat pulse. The wake message contains heartbeat.md conte
 - If heartbeat.md doesn't exist, is empty, or the context contains new information since `heartbeat_modified` → call `use_skill("heartbeat-reflect")`
 - Otherwise → call `use_skill("heartbeat-act")`
 
-After reflect completes, call `sleep_thread()` to end silently. The scheduler will fire another pulse in 10 minutes for act.
+The scheduler will fire another pulse in 10 minutes after reflect.
