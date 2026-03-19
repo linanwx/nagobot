@@ -3,7 +3,10 @@ package cmd
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"fmt"
+	"os"
+	"path/filepath"
 	"strings"
 
 	"github.com/linanwx/nagobot/channel"
@@ -79,6 +82,9 @@ func (d *Dispatcher) dispatch(ctx context.Context, ch channel.Channel, msg *chan
 	}
 
 	sessionKey := d.route(msg)
+	if sd, err := d.cfg.SessionsDir(); err == nil {
+		persistChannelRouting(sd, sessionKey, msg)
+	}
 	sink := d.buildSink(ch, msg)
 	agentName, vars := d.resolveAgentName(sessionKey, msg)
 	userMessage := d.preprocessMessage(msg)
@@ -306,6 +312,43 @@ func (d *Dispatcher) preprocessMessage(msg *channel.Message) string {
 // wakeSource returns the wake source for a channel.
 func (d *Dispatcher) wakeSource(ch channel.Channel) thread.WakeSource {
 	return thread.WakeSource(ch.Name())
+}
+
+// persistChannelRouting writes channel.json to the session directory for
+// channels that need routing metadata beyond what the session key provides
+// (e.g., Discord DM needs "dm:{userID}" to create a DM channel on send).
+func persistChannelRouting(sessionsDir, sessionKey string, msg *channel.Message) {
+	if msg == nil {
+		return
+	}
+	chatType := strings.TrimSpace(msg.Metadata["chat_type"])
+	if chatType != "dm" {
+		return
+	}
+	if !strings.HasPrefix(msg.ChannelID, "discord:") {
+		return
+	}
+	userID := strings.TrimSpace(msg.UserID)
+	if userID == "" {
+		return
+	}
+
+	parts := strings.Split(sessionKey, ":")
+	sessionDir := filepath.Join(append([]string{sessionsDir}, parts...)...)
+
+	data := map[string]any{
+		"discord_dm": map[string]string{
+			"channel":  "discord",
+			"reply_to": "dm:" + userID,
+			"user_id":  userID,
+		},
+	}
+	raw, err := json.MarshalIndent(data, "", "  ")
+	if err != nil {
+		return
+	}
+	_ = os.MkdirAll(sessionDir, 0755)
+	_ = os.WriteFile(filepath.Join(sessionDir, "channel.json"), raw, 0644)
 }
 
 // truncate shortens s to at most maxLen runes. It prefers cutting at a
