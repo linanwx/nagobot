@@ -254,3 +254,26 @@ func loadPostponeConfig(path string) map[string]string {
 	return m
 }
 
+// buildHeartbeatMessage constructs a heartbeat system message.
+// heartbeatContent is the body of heartbeat.md (empty string = default pulse text).
+// mdModified is the RFC3339 mtime of heartbeat.md (empty = omit field).
+// nextPulse is the RFC3339 time of the next scheduled pulse.
+func buildHeartbeatMessage(heartbeatContent, mdModified, nextPulse string) string {
+	fields := map[string]string{}
+	if nextPulse != "" {
+		fields["next_pulse"] = nextPulse
+	}
+	if mdModified != "" {
+		fields["heartbeat_modified"] = mdModified
+	}
+
+	body := "heartbeat pulse triggered"
+	if c := strings.TrimSpace(heartbeatContent); c != "" {
+		body = c
+	}
+
+	message := sysmsg.BuildSystemMessage("heartbeat", fields, body)
+	message += "\n\nYou must call use_skill(\"heartbeat-wake\") and follow its instructions."
+	return message
+}
+

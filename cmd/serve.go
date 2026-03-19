@@ -101,28 +101,16 @@ func runServe(cmd *cobra.Command, args []string) error {
 			}
 			enrichWithThreads(output, threadMgr.ListThreads())
 			return output, nil
-		case "heartbeat.reflect":
+		case "heartbeat.trigger":
 			var p struct {
 				Key string `json:"key"`
 			}
 			if err := json.Unmarshal(params, &p); err != nil || p.Key == "" {
-				return nil, fmt.Errorf("heartbeat.reflect requires {key}")
+				return nil, fmt.Errorf("heartbeat.trigger requires {key}")
 			}
 			threadMgr.Wake(p.Key, &thread.WakeMessage{
 				Source:  thread.WakeHeartbeat,
-				Message: reflectInstruction(),
-			})
-			return "ok", nil
-		case "heartbeat.wake":
-			var p struct {
-				Key string `json:"key"`
-			}
-			if err := json.Unmarshal(params, &p); err != nil || p.Key == "" {
-				return nil, fmt.Errorf("heartbeat.wake requires {key}")
-			}
-			threadMgr.Wake(p.Key, &thread.WakeMessage{
-				Source:  thread.WakeHeartbeat,
-				Message: wakeInstruction(),
+				Message: buildHeartbeatMessage("", "", time.Now().Add(30*time.Minute).Format(time.RFC3339)),
 			})
 			return "ok", nil
 		default:

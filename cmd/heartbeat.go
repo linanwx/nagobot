@@ -11,106 +11,88 @@ import (
 	"github.com/spf13/cobra"
 )
 
-func reflectInstruction() string {
-	return `You must call use_skill("heartbeat-reflect") and follow its instructions.`
-}
-
-func wakeInstruction() string {
-	return `You must call use_skill("heartbeat-wake") and follow its instructions.`
-}
-
 var heartbeatCmd = &cobra.Command{
 	Use:     "heartbeat",
 	Short:   "Heartbeat operations for user sessions",
 	GroupID: "internal",
 }
 
-// updateHeartbeatState atomically reads, merges, and writes system/heartbeat-state.json.
-// It sets state[field][key] = now and returns (filePath, timestamp, error).
-func updateHeartbeatState(field, key string) (string, string, error) {
-	cfg, err := config.Load()
-	if err != nil {
-		return "", "", fmt.Errorf("load config: %w", err)
-	}
-	workspace, err := cfg.WorkspacePath()
-	if err != nil {
-		return "", "", fmt.Errorf("workspace path: %w", err)
-	}
-
-	statePath := filepath.Join(workspace, "system", "heartbeat-state.json")
-
-	// Read existing state or start empty.
-	state := make(map[string]map[string]string)
-	if data, err := os.ReadFile(statePath); err == nil {
-		_ = json.Unmarshal(data, &state)
-	}
-
-	if state[field] == nil {
-		state[field] = make(map[string]string)
-	}
-	ts := time.Now().UTC().Format(time.RFC3339)
-	state[field][key] = ts
-
-	if err := os.MkdirAll(filepath.Dir(statePath), 0755); err != nil {
-		return "", "", fmt.Errorf("mkdir: %w", err)
-	}
-
-	data, err := json.MarshalIndent(state, "", "  ")
-	if err != nil {
-		return "", "", fmt.Errorf("marshal: %w", err)
-	}
-	tmp := statePath + ".tmp"
-	if err := os.WriteFile(tmp, data, 0644); err != nil {
-		return "", "", fmt.Errorf("write tmp: %w", err)
-	}
-	if err := os.Rename(tmp, statePath); err != nil {
-		return "", "", fmt.Errorf("rename: %w", err)
-	}
-
-	return statePath, ts, nil
-}
-
-var heartbeatReflectCmd = &cobra.Command{
-	Use:   "reflect <session-key>",
-	Short: "Trigger heartbeat reflection for a session",
+var heartbeatTriggerCmd = &cobra.Command{
+	Use:   "trigger <session-key>",
+	Short: "Manually trigger a heartbeat pulse for a session",
 	Args:  cobra.ExactArgs(1),
 	RunE: func(_ *cobra.Command, args []string) error {
 		key := args[0]
-		_, err := rpcCall("heartbeat.reflect", map[string]string{"key": key})
+		_, err := rpcCall("heartbeat.trigger", map[string]string{"key": key})
 		if err != nil {
-			return fmt.Errorf("heartbeat reflect: %w", err)
+			return fmt.Errorf("heartbeat trigger: %w", err)
 		}
-
-		filePath, ts, err := updateHeartbeatState("last_reflection", key)
-		if err != nil {
-			return fmt.Errorf("update heartbeat state: %w", err)
-		}
-
-		fmt.Printf("---\ntool: heartbeat\nstatus: ok\nsession: %s\nfile: %s\nupdated_field: last_reflection\ntimestamp: %s\n---\n\n", key, filePath, ts)
-		fmt.Printf("Reflection triggered for session %q. Timestamp updated automatically — do not write heartbeat-state.json manually.\n", key)
+		fmt.Printf("Heartbeat pulse triggered for session %q.\n", key)
 		return nil
 	},
 }
 
-var heartbeatWakeCmd = &cobra.Command{
-	Use:   "wake <session-key>",
-	Short: "Trigger heartbeat wake for a session",
-	Args:  cobra.ExactArgs(1),
+var heartbeatPostponeCmd = &cobra.Command{
+	Use:   "postpone <session-key> <duration>",
+	Short: "Postpone heartbeat for a session (e.g., 4h, 30m)",
+	Args:  cobra.ExactArgs(2),
 	RunE: func(_ *cobra.Command, args []string) error {
 		key := args[0]
-		_, err := rpcCall("heartbeat.wake", map[string]string{"key": key})
+		d, err := time.ParseDuration(args[1])
 		if err != nil {
-			return fmt.Errorf("heartbeat wake: %w", err)
+			return fmt.Errorf("invalid duration %q: %w", args[1], err)
+		}
+		if d <= 0 {
+			return fmt.Errorf("duration must be positive")
+		}
+		if d > 24*time.Hour {
+			return fmt.Errorf("duration must not exceed 24h")
 		}
 
-		fmt.Printf("---\ntool: heartbeat\nstatus: ok\nsession: %s\n---\n\n", key)
-		fmt.Printf("Wake triggered for session %q.\n", key)
+		cfg, err := config.Load()
+		if err != nil {
+			return fmt.Errorf("load config: %w", err)
+		}
+		workspace, err := cfg.WorkspacePath()
+		if err != nil {
+			return fmt.Errorf("workspace: %w", err)
+		}
+
+		postponePath := filepath.Join(workspace, "system", "heartbeat-postpone.json")
+
+		postpone := make(map[string]string)
+		if data, err := os.ReadFile(postponePath); err == nil {
+			_ = json.Unmarshal(data, &postpone)
+		}
+
+		until := time.Now().Add(d).UTC()
+		postpone[key] = until.Format(time.RFC3339)
+
+		now := time.Now()
+		for k, v := range postpone {
+			if t, err := time.Parse(time.RFC3339, v); err == nil && now.After(t) {
+				delete(postpone, k)
+			}
+		}
+
+		data, err := json.MarshalIndent(postpone, "", "  ")
+		if err != nil {
+			return fmt.Errorf("marshal: %w", err)
+		}
+		if err := os.MkdirAll(filepath.Dir(postponePath), 0755); err != nil {
+			return fmt.Errorf("mkdir: %w", err)
+		}
+		if err := os.WriteFile(postponePath, data, 0644); err != nil {
+			return fmt.Errorf("write: %w", err)
+		}
+
+		fmt.Printf("Heartbeat postponed for session %q until %s (%s from now).\n", key, until.Local().Format("15:04"), d)
 		return nil
 	},
 }
 
 func init() {
-	heartbeatCmd.AddCommand(heartbeatReflectCmd)
-	heartbeatCmd.AddCommand(heartbeatWakeCmd)
+	heartbeatCmd.AddCommand(heartbeatTriggerCmd)
+	heartbeatCmd.AddCommand(heartbeatPostponeCmd)
 	rootCmd.AddCommand(heartbeatCmd)
 }
