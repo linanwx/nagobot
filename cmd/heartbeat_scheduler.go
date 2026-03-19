@@ -1,7 +1,6 @@
 package cmd
 
 import (
-	"bytes"
 	"context"
 	"encoding/json"
 	"os"
@@ -17,29 +16,27 @@ import (
 )
 
 const (
-	hbScanInterval   = 30 * time.Second
-	hbQuietMin       = 10 * time.Minute // User must be quiet for at least this long.
-	hbPulseInterval  = 30 * time.Minute // Default minimum gap between pulses.
-	hbFastPulse      = 10 * time.Minute // Gap when heartbeat.md was modified last turn.
-	hbActivityWindow = 48 * time.Hour   // Only pulse sessions active within this window.
+	hbScanInterval  = 30 * time.Second
+	hbQuietMin      = 10 * time.Minute // User must be quiet for at least this long.
+	hbPulseInterval = 30 * time.Minute // Default minimum gap between pulses.
+	hbFastPulse     = 10 * time.Minute // Gap when heartbeat.md was modified last turn.
+	hbActivityWindow = 48 * time.Hour  // Only pulse sessions active within this window.
 )
 
 // heartbeatScheduler fires heartbeat pulses into user sessions on a fixed interval.
 type heartbeatScheduler struct {
-	mgr         *thread.Manager
-	cfgFn       func() *config.Config
-	sessionsDir string
+	mgr    *thread.Manager
+	cfgFn  func() *config.Config
 
 	mu          sync.Mutex
 	lastPulse   map[string]time.Time // sessionKey → last pulse time
 	lastHBMtime map[string]time.Time // sessionKey → heartbeat.md mtime at last pulse
 }
 
-func newHeartbeatScheduler(mgr *thread.Manager, cfgFn func() *config.Config, sessionsDir string) *heartbeatScheduler {
+func newHeartbeatScheduler(mgr *thread.Manager, cfgFn func() *config.Config) *heartbeatScheduler {
 	return &heartbeatScheduler{
 		mgr:         mgr,
 		cfgFn:       cfgFn,
-		sessionsDir: sessionsDir,
 		lastPulse:   make(map[string]time.Time),
 		lastHBMtime: make(map[string]time.Time),
 	}
@@ -68,65 +65,68 @@ func (s *heartbeatScheduler) scan(ctx context.Context) {
 
 	postponed := loadPostponeConfig(filepath.Join(workspace, "system", "heartbeat-postpone.json"))
 
-	// Collect candidate sessions + thread state in one pass.
-	threadList := s.mgr.ListThreads()
-	threadState := make(map[string]string, len(threadList)) // key → state
-	candidates := make(map[string]time.Time)
-
-	for _, ti := range threadList {
-		threadState[ti.SessionKey] = ti.State
-		if !ti.LastUserActiveAt.IsZero() {
-			candidates[ti.SessionKey] = ti.LastUserActiveAt
-		}
+	// Use the same session collection as list-sessions: loads session data,
+	// scans for real user-visible messages, applies UserOnly filter.
+	opts := listSessionsOpts{Days: 2, UserOnly: true}
+	sessions, err := collectSessions(cfg, opts)
+	if err != nil {
+		logger.Debug("heartbeat scan: collectSessions failed", "err", err)
+		return
 	}
 
-	// Add on-disk GC'd sessions not already in memory.
-	for _, key := range scanSessionDirs(s.sessionsDir) {
-		if _, ok := candidates[key]; ok {
-			continue
-		}
-		sessionDir := hbSessionKeyToDir(s.sessionsDir, key)
-		lastActive := scanLastUserActive(sessionDir)
-		if !lastActive.IsZero() && now.Sub(lastActive) <= hbActivityWindow {
-			candidates[key] = lastActive
-		}
-	}
+	// Enrich with live thread state (running/idle/pending).
+	enrichWithThreads(sessions, s.mgr.ListThreads())
 
 	// Clean up stale map entries.
+	activeKeys := make(map[string]bool, len(sessions.Sessions))
+	for _, se := range sessions.Sessions {
+		activeKeys[se.Key] = true
+	}
 	s.mu.Lock()
 	for key := range s.lastPulse {
-		if _, ok := candidates[key]; !ok {
+		if !activeKeys[key] {
 			delete(s.lastPulse, key)
 			delete(s.lastHBMtime, key)
 		}
 	}
 	s.mu.Unlock()
 
-	for key, lastActive := range candidates {
+	for _, se := range sessions.Sessions {
 		if ctx.Err() != nil {
 			return
 		}
+
+		// LastUserActiveAt is from session.jsonl scan (real user-visible messages).
+		if se.LastUserActiveAt == nil {
+			continue
+		}
+		lastActive, parseErr := time.Parse(time.RFC3339, *se.LastUserActiveAt)
+		if parseErr != nil {
+			continue
+		}
+
 		if now.Sub(lastActive) < hbQuietMin {
 			continue
 		}
 		if now.Sub(lastActive) > hbActivityWindow {
 			continue
 		}
-		if until, ok := postponed[key]; ok {
-			if t, err := time.Parse(time.RFC3339, until); err == nil && now.Before(t) {
+		if until, ok := postponed[se.Key]; ok {
+			if t, parseErr := time.Parse(time.RFC3339, until); parseErr == nil && now.Before(t) {
 				continue
 			}
 		}
-		if state := threadState[key]; state != "" && state != "idle" {
+		if se.IsRunning {
 			continue
 		}
 
-		s.maybeFirePulse(key, now, lastActive)
+		sessionsDir, _ := cfg.SessionsDir()
+		s.maybeFirePulse(se.Key, now, lastActive, sessionsDir)
 	}
 }
 
-func (s *heartbeatScheduler) maybeFirePulse(key string, now time.Time, lastActive time.Time) {
-	sessionDir := hbSessionKeyToDir(s.sessionsDir, key)
+func (s *heartbeatScheduler) maybeFirePulse(key string, now time.Time, lastActive time.Time, sessionsDir string) {
+	sessionDir := hbSessionKeyToDir(sessionsDir, key)
 	hbPath := filepath.Join(sessionDir, "heartbeat.md")
 	hbMtime := hbFileMtime(hbPath)
 
@@ -146,11 +146,9 @@ func (s *heartbeatScheduler) maybeFirePulse(key string, now time.Time, lastActiv
 		// Iterate to find the correct alignment point.
 		firstPulse := lastActive.Add(hbQuietMin)
 		if !firstPulse.Before(now) {
-			// First pulse hasn't happened yet.
 			lp = lastActive
 			interval = hbQuietMin
 		} else {
-			// Find the most recent scheduled pulse before now.
 			next := firstPulse
 			for next.Before(now) {
 				next = next.Add(hbPulseInterval)
@@ -194,67 +192,6 @@ func (s *heartbeatScheduler) maybeFirePulse(key string, now time.Time, lastActiv
 func hbSessionKeyToDir(sessionsDir, key string) string {
 	parts := strings.Split(key, ":")
 	return filepath.Join(append([]string{sessionsDir}, parts...)...)
-}
-
-// scanSessionDirs scans two levels under sessionsDir to find session directories.
-func scanSessionDirs(sessionsDir string) []string {
-	var keys []string
-	channels, err := os.ReadDir(sessionsDir)
-	if err != nil {
-		return nil
-	}
-	for _, ch := range channels {
-		if !ch.IsDir() || ch.Name() == "threads" {
-			continue
-		}
-		sessionIDs, err := os.ReadDir(filepath.Join(sessionsDir, ch.Name()))
-		if err != nil {
-			continue
-		}
-		for _, sid := range sessionIDs {
-			if !sid.IsDir() || sid.Name() == "threads" {
-				continue
-			}
-			key := ch.Name() + ":" + sid.Name()
-			// Skip non-user sessions.
-			if strings.HasPrefix(key, "cron:") {
-				continue
-			}
-			keys = append(keys, key)
-		}
-	}
-	return keys
-}
-
-// scanLastUserActive scans session.jsonl backwards for the last message
-// with a user-visible source (telegram, discord, cli, web, feishu).
-// Returns zero time if no user message is found.
-func scanLastUserActive(sessionDir string) time.Time {
-	path := filepath.Join(sessionDir, "session.jsonl")
-	data, err := os.ReadFile(path)
-	if err != nil {
-		return time.Time{}
-	}
-
-	// Scan backwards line by line for efficiency.
-	lines := bytes.Split(bytes.TrimSpace(data), []byte("\n"))
-	for i := len(lines) - 1; i >= 0; i-- {
-		line := bytes.TrimSpace(lines[i])
-		if len(line) == 0 {
-			continue
-		}
-		var msg struct {
-			Source    string    `json:"source"`
-			Timestamp time.Time `json:"timestamp"`
-		}
-		if err := json.Unmarshal(line, &msg); err != nil {
-			continue
-		}
-		if isRealUserSource(msg.Source) && !msg.Timestamp.IsZero() {
-			return msg.Timestamp
-		}
-	}
-	return time.Time{}
 }
 
 // hbFileMtime returns the modification time of a file, or zero if it doesn't exist.
