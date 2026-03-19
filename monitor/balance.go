@@ -202,7 +202,7 @@ func (b *OpenAIQuota) Check(ctx context.Context) (*BalanceInfo, error) {
 		} `json:"rate_limit"`
 		PlanType string `json:"plan_type"`
 		Credits  *struct {
-			Balance *float64 `json:"balance"`
+			Balance json.RawMessage `json:"balance"`
 		} `json:"credits"`
 	}
 	if err := json.NewDecoder(resp.Body).Decode(&data); err != nil {
@@ -237,11 +237,19 @@ func (b *OpenAIQuota) Check(ctx context.Context) (*BalanceInfo, error) {
 		}
 	}
 
-	if data.Credits != nil && data.Credits.Balance != nil {
+	if data.Credits != nil && len(data.Credits.Balance) > 0 && string(data.Credits.Balance) != "null" {
+		var bal float64
+		if err := json.Unmarshal(data.Credits.Balance, &bal); err != nil {
+			// Try parsing as string (OpenAI sometimes returns string instead of number).
+			var balStr string
+			if err2 := json.Unmarshal(data.Credits.Balance, &balStr); err2 == nil {
+				fmt.Sscanf(balStr, "%f", &bal)
+			}
+		}
 		info.Balances = append(info.Balances, BalanceEntry{
 			Currency: "credits",
-			Balance:  *data.Credits.Balance,
-			Detail:   fmt.Sprintf("$%.2f", *data.Credits.Balance),
+			Balance:  bal,
+			Detail:   fmt.Sprintf("$%.2f", bal),
 		})
 	}
 
