@@ -17,25 +17,22 @@ const (
 func defaultCronSeeds() []cronpkg.Job {
 	return []cronpkg.Job{
 		{
-			ID:     "heartbeat",
-			Expr:   "*/30 * * * *",
-			Task:   `You must call use_skill("heartbeat-dispatcher") and follow its instructions.`,
-			Agent:  "heartbeat",
-			Silent: true,
+			ID:    "heartbeat",
+			Expr:  "*/30 * * * *",
+			Task:  `You must call use_skill("heartbeat-dispatcher") and follow its instructions.`,
+			Agent: "heartbeat",
 		},
 		{
-			ID:     "tidyup",
-			Expr:   "0 4 * * *",
-			Task:   `You must call use_skill("tidyup-dispatcher") and follow its instructions.`,
-			Agent:  "tidyup",
-			Silent: true,
+			ID:    "tidyup",
+			Expr:  "0 4 * * *",
+			Task:  `You must call use_skill("tidyup-dispatcher") and follow its instructions.`,
+			Agent: "tidyup",
 		},
 		{
-			ID:     "session-summary",
-			Expr:   "0 */6 * * *",
-			Task:   `You must call use_skill("session-summary-dispatcher") and follow its instructions.`,
-			Agent:  "session-summary",
-			Silent: true,
+			ID:    "session-summary",
+			Expr:  "0 */6 * * *",
+			Task:  `You must call use_skill("session-summary-dispatcher") and follow its instructions.`,
+			Agent: "session-summary",
 		},
 	}
 }
