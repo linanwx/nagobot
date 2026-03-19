@@ -160,20 +160,22 @@ func collectSessions(cfg *config.Config, opts listSessionsOpts) (*listSessionsOu
 		if walkErr != nil || d.IsDir() || d.Name() != session.SessionFileName {
 			return nil
 		}
-		s, err := session.ReadFile(path)
-		if err != nil {
-			return nil
-		}
 		key := deriveSessionKey(sessionsDir, path)
 		total++
 
-		// Early exit for cron/threads (avoids expensive file reads below).
+		// Early exit for cron/threads — before any file I/O.
 		if opts.UserOnly && (strings.HasPrefix(key, "cron:") || strings.Contains(key, ":threads:")) {
 			return nil
 		}
 
-		updatedAt := s.UpdatedAt
+		// Lightweight time check — reads only last line, no full deserialization.
+		updatedAt, _ := session.ReadUpdatedAt(path)
 		if updatedAt.IsZero() || updatedAt.Before(cutoff) {
+			return nil
+		}
+
+		s, err := session.ReadFile(path)
+		if err != nil {
 			return nil
 		}
 
