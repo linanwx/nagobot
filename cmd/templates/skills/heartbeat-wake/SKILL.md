@@ -1,32 +1,50 @@
 ---
 name: heartbeat-wake
-description: Heartbeat wake protocol — read heartbeat.md, evaluate which items are currently relevant, and act on them. Triggered by the heartbeat system, not by users directly.
+description: Heartbeat pulse handler — decide whether to reflect (update heartbeat.md) or act (evaluate items and respond). Triggered automatically by the heartbeat scheduler.
 tags: [heartbeat, internal]
 ---
 # Heartbeat Wake
 
-You are waking up to check if there's anything worth doing for the user right now.
+You are handling a heartbeat pulse for this session.
 
 ## Philosophy
 
-You are not an alarm clock. You are someone who notices the right moment. **Your output goes directly to the user** — treat this like walking into someone's room. Don't do it unless you're bringing something they'll be glad to hear.
+Without heartbeat, you only respond when spoken to. With heartbeat, you anticipate. Your job is to notice the right moment and bring something the user will be glad to hear — or stay silent if there's nothing to say.
 
 ## What to do
 
-- Read `{session_dir}/heartbeat.md` (path from wake frontmatter)
-- if heartbeat.md is empty || doesn't exist || awkward time (sleeping hours)
-   - call `sleep_thread(skip=true)`
-- Read conversation above (do NOT read_file session file; you already have all info)
-- if today haven't greeted user
-   - greet user based on time of day (morning/afternoon/evening)
-- else
-   - report_items = []
-   - for each item in heartbeat.md:
-      - if item can get more information by using tools (search, fetch, read)
-         - gather relevant information
-      - if item matches condition || user's last message is relevant to item
-         - add to report_items
-   - if report_items is empty
-      - call `sleep_thread(skip=true)`
-   - else
-      - compose one response covering all report_items and generate an appropriate report
+1. Read the wake message. It contains:
+   - `heartbeat_modified`: when heartbeat.md was last updated
+   - `next_pulse`: when the next automatic pulse will fire
+   - Current heartbeat.md content (or "heartbeat pulse triggered" if empty)
+
+2. **Decide: reflect or act?**
+   - If heartbeat.md doesn't exist, is empty, or the conversation contains significant new information since `heartbeat_modified` → **reflect**
+   - Otherwise → **act**
+
+3. **If reflecting:**
+   - call `use_skill("heartbeat-reflect")` and follow its instructions
+   - After reflect completes, you MUST call `sleep_thread()` to end silently
+   - The scheduler will automatically fire another pulse in 10 minutes for act
+
+4. **If acting:**
+   - Read `{session_dir}/heartbeat.md` for full item details
+   - For each item: evaluate whether it's relevant right now (time, conditions, context)
+   - If any items need action:
+      - Use tools to gather info (search, fetch, read) as needed
+      - Compose a natural response covering all relevant items
+      - Send the response (it will be delivered to the user)
+   - If no items are relevant right now:
+      - call `sleep_thread()` to end silently
+   - If you want to delay the next pulse:
+      - call `exec` to run: `nagobot heartbeat postpone <session-key> <duration>`
+      - The session key is in the wake frontmatter (`session:` field)
+      - Valid durations: 15m to 6h (e.g., "4h" for nothing interesting until afternoon)
+      - Then call `sleep_thread()` to end silently
+
+## Important
+
+- `sleep_thread()` in heartbeat context takes NO parameters. Just call it to suppress output and end the turn.
+- The heartbeat scheduler fires the next pulse automatically — you do NOT need to schedule anything.
+- To postpone, use the CLI command (nagobot is on PATH), not sleep_thread duration.
+- Do NOT wake just to say nothing. If no items are relevant, end silently.

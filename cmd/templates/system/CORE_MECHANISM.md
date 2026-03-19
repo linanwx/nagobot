@@ -25,7 +25,7 @@ Messages from `cli` and `telegram` may include a sink override, which overrides 
 
 Each thread has a message queue. Wake messages are pushed into the queue, and the thread manager selects queued threads from all threads to run reasoning.
 
-An `Agent` is a system-prompt template. `soul` is the prompt template used for user conversations. Other agents, such as `general`, are more specialized prompt templates. Some tasks, such as heartbeat checks or scheduled cleanup jobs, also have their own agent template files.
+An `Agent` is a system-prompt template. `soul` is the prompt template used for user conversations. Other agents, such as `general`, are more specialized prompt templates. Some tasks, such as scheduled cleanup jobs, also have their own agent template files.
 
 A `Skill` is essentially a context-compression mechanism. The prompt includes only a small set of skill names and short descriptions, and the LLM loads full details and guidance through the `use_skill` method.
 

@@ -51,6 +51,8 @@ tool_call: sleep_thread(duration="30m", message="Check back on user", skip=false
 1. **Duration mode** (`skip=false`): Suppress output + schedule wake after duration. Use for "come back later" scenarios.
 2. **Skip mode** (`skip=true`): Suppress output only, no wake scheduled. Use when ignoring irrelevant messages in group chats.
 
+**Note:** When called during a heartbeat turn (source: `heartbeat`), `sleep_thread` ignores all parameters and acts as a simple terminate+suppress. The heartbeat scheduler handles the next pulse automatically.
+
 ### wake_thread
 
 Wake another thread by session key with an injected message. This is a versatile multi-purpose tool — use it to:
