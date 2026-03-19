@@ -23,8 +23,11 @@ var cliClientCmd = &cobra.Command{
 	RunE:  runCLIClient,
 }
 
+var cliMessageFlag string
+
 func init() {
 	rootCmd.AddCommand(cliClientCmd)
+	cliClientCmd.Flags().StringVarP(&cliMessageFlag, "message", "m", "", "Send a single message and exit (one-shot mode)")
 }
 
 // socketInbound mirrors channel.socketInbound for the client side.
@@ -44,6 +47,36 @@ func runCLIClient(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("cannot connect to daemon at %s: %w\nIs nagobot serve running?", socketPath, err)
 	}
 	defer conn.Close()
+
+	// One-shot mode: send message, wait for response, exit.
+	if cliMessageFlag != "" {
+		encoder := json.NewEncoder(conn)
+		if err := encoder.Encode(socketInbound{Type: "message", Text: cliMessageFlag}); err != nil {
+			return fmt.Errorf("failed to send message: %w", err)
+		}
+		decoder := json.NewDecoder(conn)
+		var lastContent string
+		for {
+			var msg channel.SocketOutbound
+			if err := decoder.Decode(&msg); err != nil {
+				break
+			}
+			switch msg.Type {
+			case "content":
+				if len(msg.Text) > len(lastContent) {
+					fmt.Print(msg.Text[len(lastContent):])
+				}
+				if msg.Final {
+					fmt.Println()
+					return nil
+				}
+				lastContent = msg.Text
+			case "error":
+				return fmt.Errorf("%s", msg.Text)
+			}
+		}
+		return nil
+	}
 
 	fmt.Println("Connected to nagobot daemon. Type 'exit' to quit.")
 
