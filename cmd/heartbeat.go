@@ -17,21 +17,6 @@ var heartbeatCmd = &cobra.Command{
 	GroupID: "internal",
 }
 
-var heartbeatTriggerCmd = &cobra.Command{
-	Use:   "trigger <session-key>",
-	Short: "Manually trigger a heartbeat pulse for a session",
-	Args:  cobra.ExactArgs(1),
-	RunE: func(_ *cobra.Command, args []string) error {
-		key := args[0]
-		_, err := rpcCall("heartbeat.trigger", map[string]string{"key": key})
-		if err != nil {
-			return fmt.Errorf("heartbeat trigger: %w", err)
-		}
-		fmt.Printf("Heartbeat pulse triggered for session %q.\n", key)
-		return nil
-	},
-}
-
 var heartbeatPostponeCmd = &cobra.Command{
 	Use:   "postpone <session-key> <duration>",
 	Short: "Postpone heartbeat for a session (e.g., 4h, 30m)",
@@ -92,7 +77,6 @@ var heartbeatPostponeCmd = &cobra.Command{
 }
 
 func init() {
-	heartbeatCmd.AddCommand(heartbeatTriggerCmd)
 	heartbeatCmd.AddCommand(heartbeatPostponeCmd)
 	rootCmd.AddCommand(heartbeatCmd)
 }
