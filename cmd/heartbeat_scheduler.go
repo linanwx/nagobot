@@ -1,6 +1,7 @@
 package cmd
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"os"
@@ -211,10 +212,33 @@ func scanSessionDirs(sessionsDir string) []string {
 	return keys
 }
 
-// scanLastUserActive uses session.jsonl mtime as approximation of last user activity.
+// scanLastUserActive scans session.jsonl backwards for the last message
+// with a user-visible source (telegram, discord, cli, web, feishu).
+// Returns zero time if no user message is found.
 func scanLastUserActive(sessionDir string) time.Time {
-	if fi, err := os.Stat(filepath.Join(sessionDir, "session.jsonl")); err == nil {
-		return fi.ModTime()
+	path := filepath.Join(sessionDir, "session.jsonl")
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return time.Time{}
+	}
+
+	// Scan backwards line by line for efficiency.
+	lines := bytes.Split(bytes.TrimSpace(data), []byte("\n"))
+	for i := len(lines) - 1; i >= 0; i-- {
+		line := bytes.TrimSpace(lines[i])
+		if len(line) == 0 {
+			continue
+		}
+		var msg struct {
+			Source    string    `json:"source"`
+			Timestamp time.Time `json:"timestamp"`
+		}
+		if err := json.Unmarshal(line, &msg); err != nil {
+			continue
+		}
+		if isRealUserSource(msg.Source) && !msg.Timestamp.IsZero() {
+			return msg.Timestamp
+		}
 	}
 	return time.Time{}
 }
