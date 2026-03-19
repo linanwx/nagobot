@@ -230,6 +230,24 @@ func ContextWindowForModel(modelType string) int {
 	return modelContextWindows[modelType]
 }
 
+// IsSupportedModel returns true if the model type is registered in any provider.
+func IsSupportedModel(modelType string) bool {
+	return supportedModelTypes[modelType]
+}
+
+// ProviderForModel returns the first provider that supports the given model type.
+// Returns empty string if no provider is found.
+func ProviderForModel(modelType string) string {
+	for provName, models := range providerModelTypes {
+		for _, m := range models {
+			if m == modelType {
+				return provName
+			}
+		}
+	}
+	return ""
+}
+
 // EffectiveContextWindow returns min(modelContextWindow, configuredWindow).
 // If the model context window is unknown (0), returns configuredWindow.
 func EffectiveContextWindow(modelType string, configuredWindow int) int {
