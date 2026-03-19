@@ -24,12 +24,13 @@ const (
 	heartbeatTrimThreshold = 100           // minimum content size to compress heartbeat results
 )
 
-// heartbeatSafeTools lists tools that don't constitute "real work" in a heartbeat turn.
-// If a heartbeat turn only calls these + sleep_thread(skip), the turn is noise.
+// heartbeatSafeTools lists tools that don't produce user-visible effects in a heartbeat turn.
+// If a heartbeat turn only calls these tools, the turn is noise and can be trimmed.
 var heartbeatSafeTools = map[string]bool{
 	"sleep_thread": true, // the skip/sleep action itself
 	"use_skill":    true, // loads skill instructions (read-only)
 	"read_file":    true, // reads heartbeat.md or config (read-only)
+	"write_file":   true, // writes heartbeat.md (internal bookkeeping, not user-visible)
 }
 
 // runCompressionScan scans idle threads and applies the appropriate compression tier:
@@ -267,14 +268,8 @@ func markHeartbeatTurns(messages []provider.Message) bool {
 			turnEnd++
 		}
 
-		shouldTrim := false
-		trimType := ""
-		if source == string(WakeHeartbeat) {
-			if isHeartbeatSkipTurn(messages[i:turnEnd]) {
-				shouldTrim = true
-				trimType = "skip"
-			}
-		}
+		shouldTrim := isHeartbeatSkipTurn(messages[i:turnEnd])
+		trimType := "heartbeat"
 
 		if !shouldTrim {
 			i = turnEnd
@@ -303,24 +298,18 @@ func markHeartbeatTurns(messages []provider.Message) bool {
 }
 
 // isHeartbeatSkipTurn returns true if a heartbeat turn only called safe tools
-// and ended with sleep_thread(skip=true).
+// (tools that don't produce user-visible effects).
 func isHeartbeatSkipTurn(turnMessages []provider.Message) bool {
-	hasSleepSkip := false
-	hasRealWork := false
-
 	for i := range turnMessages {
 		m := &turnMessages[i]
 		if m.Role != "tool" {
 			continue
 		}
-		if m.Name == "sleep_thread" && strings.Contains(m.Content, "mode: skip") {
-			hasSleepSkip = true
-		} else if !heartbeatSafeTools[m.Name] {
-			hasRealWork = true
+		if !heartbeatSafeTools[m.Name] {
+			return false
 		}
 	}
-
-	return hasSleepSkip && !hasRealWork
+	return true
 }
 
 // computeToolCompressed returns the Compressed value for a tool message.
