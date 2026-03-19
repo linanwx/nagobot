@@ -58,6 +58,10 @@ func runSetAgent(_ *cobra.Command, _ []string) error {
 	providerArg := strings.TrimSpace(setAgentProvider)
 	agentArg := strings.TrimSpace(setAgentName)
 
+	if providerArg != "" && modelArg == "" {
+		return fmt.Errorf("--provider requires --model")
+	}
+
 	// --provider/--model mode: auto-create agent.
 	if modelArg != "" {
 		if providerArg == "" {
