@@ -141,9 +141,13 @@ func (s *heartbeatScheduler) maybeFirePulse(key string, now time.Time, lastActiv
 		interval = hbFastPulse
 	}
 
-	// On restart (lp is zero), align to user's last active time.
+	// On restart (lp is zero), align to the most recent interval boundary
+	// from lastActive. e.g., lastActive=:20, interval=30m → boundaries are
+	// :50, 1:20, 1:50... If now=1:10, lp=:50, next pulse fires at 1:20.
 	if lp.IsZero() {
-		lp = lastActive
+		elapsed := now.Sub(lastActive)
+		periods := elapsed / interval
+		lp = lastActive.Add(periods * interval)
 	}
 	if now.Sub(lp) < interval {
 		return
