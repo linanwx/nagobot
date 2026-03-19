@@ -15,7 +15,7 @@ Without heartbeat, you only react. With heartbeat, you anticipate. Your job is t
 
 ## What to do
 
-1. Read `{session_dir}/heartbeat.md` (path from wake frontmatter)
+1. The current heartbeat.md content is already in the wake message above. Use it directly.
 2. Review conversation above (do NOT read_file session file; you already have all info)
    - Scan for: commitments, deadlines, recurring needs, time-sensitive events, advice, user concerns, anything user would appreciate remembering
 3. existing_items = items from heartbeat.md
