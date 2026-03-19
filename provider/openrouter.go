@@ -6,9 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"strings"
-	"time"
 
-	"github.com/linanwx/nagobot/logger"
 	openai "github.com/openai/openai-go/v3"
 	oaioption "github.com/openai/openai-go/v3/option"
 	"github.com/openai/openai-go/v3/shared"
@@ -178,38 +176,16 @@ func init() {
 
 // OpenRouterProvider implements the Provider interface for OpenRouter.
 type OpenRouterProvider struct {
-	apiKey      string
-	apiBase     string
-	modelName   string
-	modelType   string
-	maxTokens   int
-	temperature float64
-	client      openai.Client
+	sdkProviderBase
 }
 
 // newOpenRouterProvider creates a new OpenRouter provider.
 func newOpenRouterProvider(apiKey, apiBase, modelType, modelName string, maxTokens int, temperature float64) *OpenRouterProvider {
-	if modelName == "" {
-		modelName = modelType
-	}
-
-	baseURL := normalizeSDKBaseURL(apiBase, openRouterAPIBase, "/chat/completions")
-	client := openai.NewClient(
-		oaioption.WithAPIKey(apiKey),
-		oaioption.WithBaseURL(baseURL),
-		oaioption.WithHeader("HTTP-Referer", "https://github.com/linanwx/nagobot"),
-		oaioption.WithHeader("X-Title", "nagobot"),
-		oaioption.WithMaxRetries(sdkMaxRetries),
-	)
-
 	return &OpenRouterProvider{
-		apiKey:      apiKey,
-		apiBase:     baseURL,
-		modelName:   modelName,
-		modelType:   modelType,
-		maxTokens:   maxTokens,
-		temperature: temperature,
-		client:      client,
+		sdkProviderBase: newSDKProviderBase("openrouter", apiKey, apiBase, openRouterAPIBase, modelType, modelName, maxTokens, temperature,
+			oaioption.WithHeader("HTTP-Referer", "https://github.com/linanwx/nagobot"),
+			oaioption.WithHeader("X-Title", "nagobot"),
+		),
 	}
 }
 
@@ -335,39 +311,9 @@ func fromOpenAIChatToolCalls(calls []openai.ChatCompletionMessageToolCallUnion) 
 
 // Chat sends a chat completion request to OpenRouter.
 func (p *OpenRouterProvider) Chat(ctx context.Context, req *Request) (*Response, error) {
-	start := time.Now()
-	inputChars := inputChars(req.Messages)
-
-	messages, err := toOpenAIChatMessages(req.Messages, SupportsVision("openrouter", p.modelType))
-	if err != nil {
-		return nil, fmt.Errorf("failed to convert messages: %w", err)
-	}
-
 	meta := openRouterModels[p.modelType]
-	thinkingEnabled := len(meta.ThinkingOpts) > 0
-	logger.Info(
-		"openrouter request",
-		"provider", "openrouter",
-		"modelType", p.modelType,
-		"modelName", p.modelName,
-		"thinkingEnabled", thinkingEnabled,
-		"toolCount", len(req.Tools),
-		"inputChars", inputChars,
-	)
 
-	chatReq := openai.ChatCompletionNewParams{
-		Model:    shared.ChatModel(p.modelName),
-		Messages: messages,
-		Tools:    toOpenAIChatTools(req.Tools),
-	}
-	if p.maxTokens > 0 {
-		chatReq.MaxTokens = openai.Int(int64(p.maxTokens))
-	}
-	if p.temperature != 0 {
-		chatReq.Temperature = openai.Float(p.temperature)
-	}
-
-	requestOpts := []oaioption.RequestOption{}
+	var requestOpts []oaioption.RequestOption
 	requestOpts = append(requestOpts, meta.ThinkingOpts...)
 	if len(meta.ProviderOrder) > 0 {
 		requestOpts = append(requestOpts,
@@ -375,59 +321,10 @@ func (p *OpenRouterProvider) Chat(ctx context.Context, req *Request) (*Response,
 		)
 	}
 
-	chatResp, err := p.client.Chat.Completions.New(ctx, chatReq, requestOpts...)
-	if err != nil {
-		logger.Error("openrouter request send error", "provider", "openrouter", "err", err)
-		return nil, fmt.Errorf("request failed: %w", err)
-	}
-
-	if len(chatResp.Choices) == 0 {
-		logger.Error("openrouter no choices", "provider", "openrouter")
-		return nil, fmt.Errorf("no choices in response")
-	}
-
-	choice := chatResp.Choices[0]
-	toolCalls := fromOpenAIChatToolCalls(choice.Message.ToolCalls)
-	reasoningTokens := chatResp.Usage.CompletionTokensDetails.ReasoningTokens
-	rawMessage := choice.Message.RawJSON()
-	rawResponse := chatResp.RawJSON()
-	reasoningText := extractReasoningText(rawMessage)
-	reasoningDetails := extractReasoningDetails(rawMessage)
-	finalContent := choice.Message.Content
-	finalContent = resolveContentWithReasoningFallback(finalContent, reasoningText, "openrouter", toolCalls)
-
-	logger.Info(
-		"openrouter response",
-		"provider", "openrouter",
-		"modelType", p.modelType,
-		"modelName", p.modelName,
-		"finishReason", choice.FinishReason,
-		"reasoningInResponse", reasoningTokens > 0,
-		"hasToolCalls", len(toolCalls) > 0,
-		"toolCallCount", len(toolCalls),
-		"promptTokens", chatResp.Usage.PromptTokens,
-		"completionTokens", chatResp.Usage.CompletionTokens,
-		"reasoningTokens", reasoningTokens,
-		"totalTokens", chatResp.Usage.TotalTokens,
-		"outputChars", len(choice.Message.Content),
-		"latencyMs", time.Since(start).Milliseconds(),
-	)
-	logger.Debug(
-		"openrouter raw output",
-		"rawMessage", rawMessage,
-		"rawResponse", rawResponse,
-		"reasoningText", reasoningText,
-	)
-
-	return &Response{
-		Content:          finalContent,
-		ReasoningContent: reasoningText,
-		ReasoningDetails: reasoningDetails,
-		ToolCalls:        toolCalls,
-		Usage: Usage{
-			PromptTokens:     int(chatResp.Usage.PromptTokens),
-			CompletionTokens: int(chatResp.Usage.CompletionTokens),
-			TotalTokens:      int(chatResp.Usage.TotalTokens),
-		},
-	}, nil
+	return p.sdkChat(ctx, req, sdkChatConfig{
+		VisionCapable:         SupportsVision("openrouter", p.modelType),
+		RequestOpts:           requestOpts,
+		Temperature:           p.temperature,
+		ExtraReasoningDetails: true,
+	})
 }

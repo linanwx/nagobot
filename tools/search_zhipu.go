@@ -5,7 +5,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"io"
 	"net/http"
 )
 
@@ -55,14 +54,9 @@ func (p *ZhipuSearchProvider) Search(ctx context.Context, query string, maxResul
 	}
 	defer resp.Body.Close()
 
-	if resp.StatusCode != http.StatusOK {
-		body, _ := io.ReadAll(io.LimitReader(resp.Body, 1024))
-		return nil, fmt.Errorf("Zhipu API error: HTTP %d: %s", resp.StatusCode, string(body))
-	}
-
-	body, err := io.ReadAll(resp.Body)
+	body, err := readSearchResponse(resp, "Zhipu")
 	if err != nil {
-		return nil, fmt.Errorf("failed to read response: %w", err)
+		return nil, err
 	}
 
 	return parseZhipuResults(body, maxResults)

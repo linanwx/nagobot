@@ -3,14 +3,9 @@ package provider
 
 import (
 	"context"
-	"fmt"
 	"strings"
-	"time"
 
-	"github.com/linanwx/nagobot/logger"
-	openai "github.com/openai/openai-go/v3"
 	oaioption "github.com/openai/openai-go/v3/option"
-	"github.com/openai/openai-go/v3/shared"
 )
 
 const (
@@ -48,14 +43,7 @@ func init() {
 
 // MoonshotProvider implements the Provider interface for Moonshot native API.
 type MoonshotProvider struct {
-	providerName string
-	apiKey       string
-	apiBase      string
-	modelName    string
-	modelType    string
-	maxTokens    int
-	temperature  float64
-	client       openai.Client
+	sdkProviderBase
 }
 
 func moonshotRequestTemperature(modelType string, configured float64) (float64, bool) {
@@ -67,69 +55,14 @@ func moonshotRequestTemperature(modelType string, configured float64) (float64, 
 
 // newMoonshotProvider creates a new Moonshot provider.
 func newMoonshotProvider(providerName, apiKey, apiBase, defaultBase, modelType, modelName string, maxTokens int, temperature float64) *MoonshotProvider {
-	if modelName == "" {
-		modelName = modelType
-	}
-
-	baseURL := normalizeSDKBaseURL(apiBase, defaultBase, "/chat/completions")
-	client := openai.NewClient(
-		oaioption.WithAPIKey(apiKey),
-		oaioption.WithBaseURL(baseURL),
-		oaioption.WithMaxRetries(sdkMaxRetries),
-	)
-
 	return &MoonshotProvider{
-		providerName: providerName,
-		apiKey:       apiKey,
-		apiBase:      baseURL,
-		modelName:    modelName,
-		modelType:    modelType,
-		maxTokens:    maxTokens,
-		temperature:  temperature,
-		client:       client,
+		sdkProviderBase: newSDKProviderBase(providerName, apiKey, apiBase, defaultBase, modelType, modelName, maxTokens, temperature),
 	}
 }
 
 // Chat sends a chat completion request to Moonshot.
 func (p *MoonshotProvider) Chat(ctx context.Context, req *Request) (*Response, error) {
-	start := time.Now()
-	inputChars := inputChars(req.Messages)
-
-	messages, err := toOpenAIChatMessages(req.Messages, SupportsVision(p.providerName, p.modelType))
-	if err != nil {
-		return nil, fmt.Errorf("failed to convert messages: %w", err)
-	}
-
-	logger.Info(
-		"moonshot request",
-		"provider", p.providerName,
-		"modelType", p.modelType,
-		"modelName", p.modelName,
-		"toolCount", len(req.Tools),
-		"inputChars", inputChars,
-	)
-
-	chatReq := openai.ChatCompletionNewParams{
-		Model:    shared.ChatModel(p.modelName),
-		Messages: messages,
-		Tools:    toOpenAIChatTools(req.Tools),
-	}
-	if p.maxTokens > 0 {
-		chatReq.MaxTokens = openai.Int(int64(p.maxTokens))
-	}
 	requestTemp, forced := moonshotRequestTemperature(p.modelType, p.temperature)
-	if requestTemp != 0 {
-		chatReq.Temperature = openai.Float(requestTemp)
-	}
-	if forced && p.temperature != requestTemp {
-		logger.Warn(
-			"moonshot temperature adjusted for model constraints",
-			"provider", p.providerName,
-			"modelType", p.modelType,
-			"configuredTemperature", p.temperature,
-			"requestTemperature", requestTemp,
-		)
-	}
 
 	var requestOpts []oaioption.RequestOption
 	if strings.TrimSpace(p.modelType) == "kimi-k2.5" {
@@ -137,58 +70,11 @@ func (p *MoonshotProvider) Chat(ctx context.Context, req *Request) (*Response, e
 			oaioption.WithJSONSet("extra_body.chat_template_kwargs.thinking", true),
 		)
 	}
-	chatResp, err := p.client.Chat.Completions.New(ctx, chatReq, requestOpts...)
-	if err != nil {
-		logger.Error("moonshot request send error", "provider", p.providerName, "err", err)
-		return nil, fmt.Errorf("request failed: %w", err)
-	}
 
-	if len(chatResp.Choices) == 0 {
-		logger.Error("moonshot no choices", "provider", p.providerName)
-		return nil, fmt.Errorf("no choices in response")
-	}
-
-	choice := chatResp.Choices[0]
-	toolCalls := fromOpenAIChatToolCalls(choice.Message.ToolCalls)
-	reasoningTokens := chatResp.Usage.CompletionTokensDetails.ReasoningTokens
-	rawMessage := choice.Message.RawJSON()
-	rawResponse := chatResp.RawJSON()
-	reasoningText := extractReasoningText(rawMessage)
-	finalContent := choice.Message.Content
-	finalContent = resolveContentWithReasoningFallback(finalContent, reasoningText, "moonshot", toolCalls)
-
-	logger.Info(
-		"moonshot response",
-		"provider", p.providerName,
-		"modelType", p.modelType,
-		"modelName", p.modelName,
-		"finishReason", choice.FinishReason,
-		"reasoningInResponse", reasoningTokens > 0 || strings.TrimSpace(reasoningText) != "",
-		"hasToolCalls", len(toolCalls) > 0,
-		"toolCallCount", len(toolCalls),
-		"promptTokens", chatResp.Usage.PromptTokens,
-		"completionTokens", chatResp.Usage.CompletionTokens,
-		"reasoningTokens", reasoningTokens,
-		"totalTokens", chatResp.Usage.TotalTokens,
-		"outputChars", len(choice.Message.Content),
-		"latencyMs", time.Since(start).Milliseconds(),
-	)
-	logger.Debug(
-		"moonshot raw output",
-		"provider", p.providerName,
-		"rawMessage", rawMessage,
-		"rawResponse", rawResponse,
-		"reasoningText", reasoningText,
-	)
-
-	return &Response{
-		Content:          finalContent,
-		ReasoningContent: reasoningText,
-		ToolCalls:        toolCalls,
-		Usage: Usage{
-			PromptTokens:     int(chatResp.Usage.PromptTokens),
-			CompletionTokens: int(chatResp.Usage.CompletionTokens),
-			TotalTokens:      int(chatResp.Usage.TotalTokens),
-		},
-	}, nil
+	return p.sdkChat(ctx, req, sdkChatConfig{
+		VisionCapable: SupportsVision(p.providerName, p.modelType),
+		Temperature:   requestTemp,
+		Forced:        forced,
+		RequestOpts:   requestOpts,
+	})
 }

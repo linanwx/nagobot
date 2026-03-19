@@ -5,7 +5,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"io"
 	"net/http"
 	"strings"
 )
@@ -74,14 +73,9 @@ func (p *OpenSearchProvider) Search(ctx context.Context, query string, maxResult
 	}
 	defer resp.Body.Close()
 
-	if resp.StatusCode != http.StatusOK {
-		body, _ := io.ReadAll(io.LimitReader(resp.Body, 1024))
-		return nil, fmt.Errorf("OpenSearch API error: HTTP %d: %s", resp.StatusCode, string(body))
-	}
-
-	body, err := io.ReadAll(resp.Body)
+	body, err := readSearchResponse(resp, "OpenSearch")
 	if err != nil {
-		return nil, fmt.Errorf("failed to read response: %w", err)
+		return nil, err
 	}
 
 	return parseOpenSearchResults(body, maxResults)
