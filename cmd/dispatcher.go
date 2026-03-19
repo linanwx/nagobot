@@ -230,14 +230,10 @@ func (d *Dispatcher) buildCronSink(msg *channel.Message) thread.Sink {
 		return thread.Sink{}
 	}
 
-	silent := msg.Metadata["silent"] == "true"
 	reportTo := strings.TrimSpace(msg.Metadata["wake_session"])
-	if reportTo == "" {
-		reportTo = "cli"
-	}
 	jobID := strings.TrimSpace(msg.Metadata["job_id"])
 
-	if silent {
+	if reportTo == "" {
 		return thread.Sink{Label: "cron silent, result will not be delivered"}
 	}
 
