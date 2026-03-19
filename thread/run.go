@@ -353,14 +353,26 @@ func (t *Thread) resolvedModelConfig() *config.ModelConfig {
 	if cfg.ModelsFn != nil {
 		models = cfg.ModelsFn()
 	}
-	if len(models) == 0 {
-		return nil
+	// Explicit routing table lookup.
+	if len(models) > 0 {
+		if mc, ok := models[def.Specialty]; ok && mc != nil {
+			return mc
+		}
 	}
-	mc, ok := models[def.Specialty]
-	if !ok || mc == nil {
-		return nil
+	// Implicit: if specialty matches a registered model name, auto-route.
+	if provider.IsSupportedModel(def.Specialty) {
+		prov := def.Provider // from agent frontmatter
+		if prov == "" {
+			prov = provider.ProviderForModel(def.Specialty)
+		}
+		if prov != "" {
+			return &config.ModelConfig{
+				Provider:  prov,
+				ModelType: def.Specialty,
+			}
+		}
 	}
-	return mc
+	return nil
 }
 
 func noProviderMessage() string {
