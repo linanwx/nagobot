@@ -8,11 +8,11 @@ description: Use when the user wants to schedule recurring or one-time tasks, se
 
 1. **Add/update a recurring job**:
    ```
-   exec: {{WORKSPACE}}/bin/nagobot cron set-cron --id <id> --expr "<cron-expr>" --task "<task>" [--agent <name>] [--wake-session <key>] [--silent]
+   exec: {{WORKSPACE}}/bin/nagobot cron set-cron --id <id> --expr "<cron-expr>" --task "<task>" [--agent <name>] [--wake-session <key>]
    ```
 2. **Add/update a one-time job**:
    ```
-   exec: {{WORKSPACE}}/bin/nagobot cron set-at --id <id> --at "<RFC3339>" --task "<task>" [--agent <name>] [--wake-session <key>] [--silent]
+   exec: {{WORKSPACE}}/bin/nagobot cron set-at --id <id> --at "<RFC3339>" --task "<task>" [--agent <name>] [--wake-session <key>]
    ```
 3. **Remove jobs**:
    ```
@@ -32,8 +32,7 @@ Using the same `--id` with `set-cron` or `set-at` will update (upsert) the exist
 - `--at`: execution time in RFC3339, e.g. `"2026-02-07T18:30:00+08:00"` (required for set-at).
 - `--task`: detailed instructions injected into a newly created cron thread that wakes and executes the task. Include objective, scope, constraints, and expected output. ~100–800 characters recommended. Wrap in double quotes; escape inner double quotes with `\"`.
 - `--agent`: optional agent template name from `agents/*.md`.
-- `--wake-session`: session to receive the execution result. The result is injected into this session, waking it to run inference and deliver to the user. Defaults to `cli`. Use `telegram:<userID>` to target a specific Telegram user (e.g. `telegram:123456`).
-- `--silent`: suppress result delivery entirely.
+- `--wake-session`: session to receive the execution result. The result is injected into this session, waking it to run inference and deliver to the user. Defaults to `cli`. Use `telegram:<userID>` to target a specific Telegram user (e.g. `telegram:123456`). Omit `--wake-session` to make the job silent (no result delivery).
 
 ## Examples
 
@@ -44,7 +43,7 @@ Add a daily summary job at 09:00:
 
 Add a one-time cleanup job:
 ```
-{{WORKSPACE}}/bin/nagobot cron set-at --id one-shot-cleanup --at "2026-02-10T18:30:00+08:00" --task "Clean up stale temp artifacts under the project root. Remove only known temp outputs and cache leftovers, keep source files untouched. Output a short report of what was deleted." --agent GENERAL --silent
+{{WORKSPACE}}/bin/nagobot cron set-at --id one-shot-cleanup --at "2026-02-10T18:30:00+08:00" --task "Clean up stale temp artifacts under the project root. Remove only known temp outputs and cache leftovers, keep source files untouched. Output a short report of what was deleted." --agent GENERAL
 ```
 
 Update an existing job (same `--id` overwrites):
