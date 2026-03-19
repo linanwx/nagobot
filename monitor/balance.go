@@ -217,10 +217,15 @@ func (b *OpenAIQuota) Check(ctx context.Context) (*BalanceInfo, error) {
 			if hours == 0 {
 				hours = 3
 			}
+			detail := fmt.Sprintf("%.1f%% used", pw.UsedPercent)
+			if pw.ResetAt > 0 {
+				resetTime := time.Unix(pw.ResetAt, 0)
+				detail += fmt.Sprintf(", resets %s", resetTime.Local().Format("15:04"))
+			}
 			info.Balances = append(info.Balances, BalanceEntry{
 				Currency: fmt.Sprintf("%dh", hours),
 				Balance:  100 - pw.UsedPercent,
-				Detail:   fmt.Sprintf("%.1f%% used", pw.UsedPercent),
+				Detail:   detail,
 			})
 		}
 		if sw := data.RateLimit.SecondaryWindow; sw != nil {
@@ -229,10 +234,15 @@ func (b *OpenAIQuota) Check(ctx context.Context) (*BalanceInfo, error) {
 			if hours >= 168 {
 				label = "Week"
 			}
+			detail := fmt.Sprintf("%.1f%% used", sw.UsedPercent)
+			if sw.ResetAt > 0 {
+				resetTime := time.Unix(sw.ResetAt, 0)
+				detail += fmt.Sprintf(", resets %s", resetTime.Local().Format("Jan 2 15:04"))
+			}
 			info.Balances = append(info.Balances, BalanceEntry{
 				Currency: label,
 				Balance:  100 - sw.UsedPercent,
-				Detail:   fmt.Sprintf("%.1f%% used", sw.UsedPercent),
+				Detail:   detail,
 			})
 		}
 	}
