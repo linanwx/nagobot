@@ -30,17 +30,11 @@ Without heartbeat, you only react. With heartbeat, you anticipate. Your job is t
    - for each item in new_items:
       - if item not already in existing_items
          - add item
-   - if nothing changed, reconsider: did you look hard enough?
-
-
-   Condition fields are free-form: `when`, `if`, `created`, `reason`, `moved_on`, etc. `moved_on` is required. No checkboxes — items exist or they don't.
-
-   when/if is NOT a hook or chat trigger — it does not mean "when the user talks about X, take action." It means: reviewing the conversation from a few hours ago, or the current time meets the criteria, or proactively searching relevant resources — then take action.
-
    - for each item in existing_items:
-      - if item.when/if is a chat trigger (e.g., "when user talks about X, do Y")
-         - try to fix these chat-condition triggers
+      - if item.when/if is a chat trigger (e.g., "when user mentions about X, do Y")
+         - try to fix these chat-condition triggers to be time-based or resource-based triggers
             - catch: if unfixable → remove item
+   - if nothing changed, reconsider: did you look hard enough?
 
 4. if no items remain && current file is not empty → write empty string to clear file (don't delete)
 5. Reply `HEARTBEAT_OK`
@@ -74,6 +68,10 @@ Without heartbeat, you only react. With heartbeat, you anticipate. Your job is t
   moved_on: user hasn't mentioned outings recently
   reason: user seems to activate in the evenings
 ```
+
+Condition fields are free-form: `when`, `if`, `created`, `reason`, `moved_on`, etc. `moved_on` is required. No checkboxes — items exist or they don't.
+
+when/if is NOT a hook or chat trigger — it does not mean "when the user talks about X, take action." It means: reviewing the conversation from a few hours ago, or the current time meets the criteria, or proactively searching relevant resources — then take action.
 
 ## Rules
 
