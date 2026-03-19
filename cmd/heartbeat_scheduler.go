@@ -142,17 +142,21 @@ func (s *heartbeatScheduler) maybeFirePulse(key string, now time.Time, lastActiv
 	}
 
 	if lp.IsZero() {
-		if hbMtime.IsZero() {
-			// First-ever pulse (no heartbeat.md yet): fire after hbQuietMin.
-			// e.g., lastActive=:20 → first pulse at :30.
+		// Pulse schedule: lastActive+10m, +40m, +70m, ...
+		// Iterate to find the correct alignment point.
+		firstPulse := lastActive.Add(hbQuietMin)
+		if !firstPulse.Before(now) {
+			// First pulse hasn't happened yet.
 			lp = lastActive
 			interval = hbQuietMin
 		} else {
-			// Restart recovery (heartbeat.md exists): align to next interval boundary.
-			// e.g., lastActive=:20, interval=30m → :50, 1:20, 1:50...
-			elapsed := now.Sub(lastActive)
-			periods := elapsed / interval
-			lp = lastActive.Add(periods * interval)
+			// Find the most recent scheduled pulse before now.
+			next := firstPulse
+			for next.Before(now) {
+				next = next.Add(hbPulseInterval)
+			}
+			lp = next.Add(-hbPulseInterval)
+			interval = hbPulseInterval
 		}
 	}
 	if now.Sub(lp) < interval {
