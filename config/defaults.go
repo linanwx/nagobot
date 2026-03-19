@@ -17,12 +17,6 @@ const (
 func defaultCronSeeds() []cronpkg.Job {
 	return []cronpkg.Job{
 		{
-			ID:    "heartbeat",
-			Expr:  "*/30 * * * *",
-			Task:  `You must call use_skill("heartbeat-dispatcher") and follow its instructions.`,
-			Agent: "heartbeat",
-		},
-		{
 			ID:    "tidyup",
 			Expr:  "0 4 * * *",
 			Task:  `You must call use_skill("tidyup-dispatcher") and follow its instructions.`,
