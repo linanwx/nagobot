@@ -276,7 +276,7 @@ func buildHeartbeatMessage(heartbeatContent, mdModified, nextPulse string) strin
 
 	body := "[heartbeat.md is empty]"
 	if c := strings.TrimSpace(heartbeatContent); c != "" {
-		body = c
+		body = "## heartbeat.md\n\n" + c
 	}
 
 	message := sysmsg.BuildSystemMessage("heartbeat", fields, body)
