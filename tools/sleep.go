@@ -15,6 +15,7 @@ type ThreadSleeper interface {
 	SleepThread(duration time.Duration, message string) error
 	SetSuppressSink()
 	SetHaltLoop()
+	IsHeartbeatMode() bool
 }
 
 // SleepThreadTool lets the model sleep the current thread.
@@ -77,6 +78,16 @@ func (t *SleepThreadTool) Run(_ context.Context, args json.RawMessage) string {
 
 	if t.sleeper == nil {
 		return "Error: sleep not configured"
+	}
+
+	// Heartbeat mode: terminate and suppress, no scheduling needed.
+	if t.sleeper.IsHeartbeatMode() {
+		t.sleeper.SetSuppressSink()
+		t.sleeper.SetHaltLoop()
+		return toolResult("sleep_thread", map[string]any{
+			"mode": "heartbeat_terminate",
+		}, "Heartbeat turn terminated. Output suppressed. "+
+			"The heartbeat scheduler will fire the next pulse automatically.")
 	}
 
 	// Suppress sink delivery for this turn.
