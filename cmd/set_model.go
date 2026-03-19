@@ -188,20 +188,28 @@ func listModelRouting(cfg *config.Config) error {
 		fmt.Printf("  %-20s %-20s %s\n", a.AgentName, specialty, routingLabel)
 	}
 
-	// Implicit specialty routing: model names that auto-route without config
-	fmt.Println("\nImplicit specialty routing (model name = specialty, no config needed):")
+	// Implicit specialty routing: "provider/model" specialties that auto-route without config.
+	// Only shows providers with configured API keys.
+	fmt.Println("\nImplicit specialty routing (use as agent specialty, no config needed):")
 	for _, prov := range provider.SupportedProviders() {
+		pc := cfg.EnsureProviderConfigFor(prov)
+		hasKey := strings.TrimSpace(pc.APIKey) != ""
+		hasOAuth := prov == "openai" && cfg.Providers.OpenAIOAuth != nil && cfg.Providers.OpenAIOAuth.AccessToken != ""
+		if !hasKey && !hasOAuth {
+			continue // skip unconfigured providers
+		}
 		models := provider.SupportedModelsForProvider(prov)
 		for _, m := range models {
+			specialty := prov + "/" + m
 			// Skip if already in explicit routing table
-			if _, ok := cfg.Thread.Models[m]; ok {
+			if _, ok := cfg.Thread.Models[specialty]; ok {
 				continue
 			}
 			ctx := provider.ContextWindowForModel(m)
 			if ctx > 0 {
-				fmt.Printf("  %-40s → %s / %s (%s)\n", m, prov, m, formatContextTokens(ctx))
+				fmt.Printf("  %-40s → %s / %s (%s)\n", specialty, prov, m, formatContextTokens(ctx))
 			} else {
-				fmt.Printf("  %-40s → %s / %s\n", m, prov, m)
+				fmt.Printf("  %-40s → %s / %s\n", specialty, prov, m)
 			}
 		}
 	}

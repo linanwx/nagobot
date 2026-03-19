@@ -73,16 +73,23 @@ func runSetAgent(_ *cobra.Command, _ []string) error {
 		if err := provider.ValidateProviderModelType(providerArg, modelArg); err != nil {
 			return fmt.Errorf("invalid provider/model: %w", err)
 		}
+		pc := cfg.EnsureProviderConfigFor(providerArg)
+		hasKey := strings.TrimSpace(pc.APIKey) != ""
+		hasOAuth := providerArg == "openai" && cfg.Providers.OpenAIOAuth != nil && cfg.Providers.OpenAIOAuth.AccessToken != ""
+		if !hasKey && !hasOAuth {
+			return fmt.Errorf("provider %q has no API key configured.\nFix: nagobot set-provider-key --provider %s --api-key YOUR_KEY", providerArg, providerArg)
+		}
 		agentName, agentPath, err := createFixedAgent(cfg, providerArg, modelArg)
 		if err != nil {
 			return err
 		}
 		agentArg = agentName
 
+		specialty := providerArg + "/" + modelArg
 		fmt.Printf("---\ncommand: set-agent\nstatus: ok\nsession: %s\nagent: %s\nagent_path: %s\nspecialty: %s\nprovider: %s\nmodel: %s\n---\n\n",
-			session, agentName, agentPath, modelArg, providerArg, modelArg)
+			session, agentName, agentPath, specialty, providerArg, modelArg)
 		fmt.Printf("Created agent %q at %s\n", agentName, agentPath)
-		fmt.Printf("Specialty %q → %s / %s (implicit routing)\n", modelArg, providerArg, modelArg)
+		fmt.Printf("Specialty %q → %s / %s (implicit routing)\n", specialty, providerArg, modelArg)
 	}
 
 	if cfg.Channels == nil {
@@ -114,7 +121,9 @@ func runSetAgent(_ *cobra.Command, _ []string) error {
 }
 
 func createFixedAgent(cfg *config.Config, provName, modelType string) (name, path string, err error) {
-	slug := strings.ReplaceAll(modelType, "/", "-")
+	// Specialty = "provider/model" for unambiguous routing.
+	specialty := provName + "/" + modelType
+	slug := strings.ReplaceAll(specialty, "/", "-")
 	name = "fixed-to-" + slug
 
 	workspace, err := cfg.WorkspacePath()
@@ -126,14 +135,13 @@ func createFixedAgent(cfg *config.Config, provName, modelType string) (name, pat
 	content := fmt.Sprintf(`---
 name: %s
 specialty: %s
-provider: %s
 ---
 You are a member of the nagobot family. You are a helpful assistant.
 
 {{CORE_MECHANISM}}
 
 {{USER}}
-`, name, modelType, provName)
+`, name, specialty)
 
 	if err := os.MkdirAll(filepath.Dir(path), 0755); err != nil {
 		return "", "", fmt.Errorf("failed to create agents dir: %w", err)

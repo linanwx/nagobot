@@ -359,9 +359,16 @@ func (t *Thread) resolvedModelConfig() *config.ModelConfig {
 			return mc
 		}
 	}
-	// Implicit: if specialty matches a registered model name, auto-route.
+	// Implicit: specialty "provider/model" format → auto-route.
+	if prov, model, ok := strings.Cut(def.Specialty, "/"); ok && provider.IsSupportedModel(model) {
+		return &config.ModelConfig{
+			Provider:  prov,
+			ModelType: model,
+		}
+	}
+	// Implicit: bare model name with provider from frontmatter or registry lookup.
 	if provider.IsSupportedModel(def.Specialty) {
-		prov := def.Provider // from agent frontmatter
+		prov := def.Provider
 		if prov == "" {
 			prov = provider.ProviderForModel(def.Specialty)
 		}
