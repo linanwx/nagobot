@@ -20,6 +20,7 @@ func init() {
 	RegisterProvider("gemini", ProviderRegistration{
 		Models:       []string{"gemini-3-flash-preview"},
 		VisionModels: []string{"gemini-3-flash-preview"},
+		AudioModels:  []string{"gemini-3-flash-preview"},
 		ContextWindows: map[string]int{
 			"gemini-3-flash-preview": 1048576,
 		},
@@ -171,7 +172,7 @@ func (p *GeminiProvider) Chat(ctx context.Context, req *Request) (*Response, err
 		"inputChars", inputChars,
 	)
 
-	sysInstruction, contents, err := toGeminiContents(req.Messages, SupportsVision("gemini", p.modelType))
+	sysInstruction, contents, err := toGeminiContents(req.Messages, SupportsVision("gemini", p.modelType), SupportsAudio("gemini", p.modelType))
 	if err != nil {
 		return nil, fmt.Errorf("convert messages: %w", err)
 	}
@@ -469,7 +470,7 @@ func (p *GeminiProvider) parseResponse(resp gmResponse, start time.Time) (*Respo
 
 // toGeminiContents converts canonical Messages to Gemini API format.
 // Returns (systemInstruction, contents, error).
-func toGeminiContents(messages []Message, visionCapable bool) (*gmContent, []gmContent, error) {
+func toGeminiContents(messages []Message, visionCapable, audioCapable bool) (*gmContent, []gmContent, error) {
 	var sysInstruction *gmContent
 	var contents []gmContent
 	var pendingParts []gmPart
@@ -533,17 +534,23 @@ func toGeminiContents(messages []Message, visionCapable bool) (*gmContent, []gmC
 					Response: map[string]any{"result": cleanedText},
 				},
 			})
-			// Append images from media markers.
-			if visionCapable {
-				for _, marker := range markers {
-					b64, err := ReadFileAsBase64(marker.FilePath)
-					if err != nil {
-						continue
-					}
-					pendingParts = append(pendingParts, gmPart{
-						InlineData: &gmBlob{MimeType: marker.MimeType, Data: b64},
-					})
+			// Append media from markers (images if vision-capable, audio if audio-capable).
+			for _, marker := range markers {
+				isImage := strings.HasPrefix(marker.MimeType, "image/")
+				isAudio := strings.HasPrefix(marker.MimeType, "audio/")
+				if (isImage && !visionCapable) || (isAudio && !audioCapable) {
+					continue
 				}
+				if !isImage && !isAudio {
+					continue
+				}
+				b64, err := ReadFileAsBase64(marker.FilePath)
+				if err != nil {
+					continue
+				}
+				pendingParts = append(pendingParts, gmPart{
+					InlineData: &gmBlob{MimeType: marker.MimeType, Data: b64},
+				})
 			}
 
 		default:

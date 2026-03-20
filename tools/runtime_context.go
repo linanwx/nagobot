@@ -13,6 +13,7 @@ type RuntimeContext struct {
 	SessionKey     string
 	Workspace      string
 	SupportsVision bool
+	SupportsAudio  bool
 }
 
 // WithRuntimeContext injects tool runtime metadata into context.

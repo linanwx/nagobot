@@ -15,6 +15,7 @@ type ThreadSleeper interface {
 	SleepThread(duration time.Duration, message string) error
 	SetSuppressSink()
 	SetHaltLoop()
+	IsHeartbeatWake() bool
 }
 
 // SleepThreadTool lets the model sleep the current thread.
@@ -27,34 +28,27 @@ func NewSleepThreadTool(sleeper ThreadSleeper) *SleepThreadTool {
 	return &SleepThreadTool{sleeper: sleeper}
 }
 
-// Def returns the tool definition with full parameters (duration/message/skip).
+// Def returns the tool definition.
 func (t *SleepThreadTool) Def() provider.ToolDef {
 	return provider.ToolDef{
 		Type: "function",
 		Function: provider.FunctionDef{
 			Name: "sleep_thread",
-			Description: "Suppress output for the CURRENT turn and optionally schedule a future wake-up. " +
-				"Two modes: (1) sleep mode (default) — schedules an extra cron wake-up after the specified duration; " +
-				"(2) skip mode (skip=true) — suppresses output only, no wake-up scheduled. " +
-				"Use when: the message is not directed at you, someone else is talking in a group chat, " +
-				"the wake timing is wrong, or you need to pause before responding. " +
+			Description: "End the current turn silently. All output is suppressed — the user will not see this turn. " +
+				"Optionally schedule a one-time wake-up after a specified duration. " +
+				"Call with no arguments to simply end the turn. " +
 				"IMPORTANT: Only the current turn is suppressed. Future wakes from heartbeat, cron, or user messages " +
-				"are NOT affected — they still fire on their normal schedule. " +
-				"Sleep mode does NOT block other wakes; it only adds one extra wake-up at the specified time.",
+				"are NOT affected — they still fire on their normal schedule.",
 			Parameters: map[string]any{
 				"type": "object",
 				"properties": map[string]any{
 					"duration": map[string]any{
 						"type":        "string",
-						"description": "How long to sleep before waking (max 24h). Go duration format: \"30m\", \"2h\", \"1h30m\". Defaults to \"2m\" if omitted.",
+						"description": "How long to sleep before waking (max 24h). Go duration format: \"30m\", \"2h\", \"1h30m\". If omitted, no wake-up is scheduled.",
 					},
 					"message": map[string]any{
 						"type":        "string",
-						"description": "Optional memo to include when waking up, reminding yourself why you slept.",
-					},
-					"skip": map[string]any{
-						"type":        "boolean",
-						"description": "Set to true to suppress output without scheduling a wake-up. Use when the message is not directed at you, someone else is talking, or the wake timing is wrong.",
+						"description": "Optional memo to include when waking up, reminding yourself why you slept. Only used when duration is set.",
 					},
 				},
 			},
@@ -65,7 +59,6 @@ func (t *SleepThreadTool) Def() provider.ToolDef {
 type sleepThreadArgs struct {
 	Duration string `json:"duration"`
 	Message  string `json:"message"`
-	Skip     bool   `json:"skip"`
 }
 
 // Run executes the tool.
@@ -82,20 +75,23 @@ func (t *SleepThreadTool) Run(_ context.Context, args json.RawMessage) string {
 	// Suppress sink delivery for this turn.
 	t.sleeper.SetSuppressSink()
 
-	// Skip mode: suppress output only, no scheduled wake.
-	if a.Skip {
+	durationStr := strings.TrimSpace(a.Duration)
+
+	// No duration: just end the turn silently.
+	if durationStr == "" {
 		t.sleeper.SetHaltLoop()
 		return toolResult("sleep_thread", map[string]any{
-			"mode": "skip",
-		}, "WARNING: This tool call terminates the current reasoning loop immediately. "+
-			"No wake scheduled. All output for this turn is suppressed — the user will NOT receive any message. "+
-			"This does NOT affect future turns — heartbeat, cron, and user messages will still trigger normally.")
+			"mode": "silent_end",
+		}, "Turn ended silently. No wake scheduled. "+
+			"Future heartbeat, cron, and user messages still fire on their normal schedule.")
 	}
 
-	// Default duration: 2 minutes.
-	durationStr := strings.TrimSpace(a.Duration)
-	if durationStr == "" {
-		durationStr = "2m"
+	// Duration provided: schedule a wake-up.
+	// Reject during heartbeat turns — heartbeat scheduler handles its own timing.
+	if t.sleeper.IsHeartbeatWake() {
+		return "Error: duration parameter is not allowed during heartbeat turns. " +
+			"Call sleep_thread with no arguments to end the turn. " +
+			"The heartbeat scheduler manages wake timing automatically."
 	}
 
 	d, err := time.ParseDuration(durationStr)
@@ -121,57 +117,10 @@ func (t *SleepThreadTool) Run(_ context.Context, args json.RawMessage) string {
 	t.sleeper.SetHaltLoop()
 	wakeAt := time.Now().Add(d)
 	return toolResult("sleep_thread", map[string]any{
-		"mode":      "sleep",
-		"mechanism": "cron_scheduler",
-		"wake_at":   wakeAt.Format(time.RFC3339),
-		"duration":  durationStr,
-		"message":   message,
-	}, "WARNING: This tool call terminates the current reasoning loop immediately. "+
-		"All output for this turn is suppressed — the user will NOT receive any message. "+
-		"The cron scheduler will wake this thread at the specified time. "+
-		"This does NOT affect future turns — heartbeat, cron, and user messages will still trigger normally.")
-}
-
-// HeartbeatSleepTool is the sleep_thread replacement used during heartbeat turns.
-// No parameters — just terminate the turn and suppress output.
-type HeartbeatSleepTool struct {
-	suppressor HaltSuppressor
-}
-
-// HaltSuppressor is the minimal interface for heartbeat sleep: suppress + halt.
-type HaltSuppressor interface {
-	SetSuppressSink()
-	SetHaltLoop()
-}
-
-// NewHeartbeatSleepTool creates a heartbeat-only sleep_thread tool.
-func NewHeartbeatSleepTool(s HaltSuppressor) *HeartbeatSleepTool {
-	return &HeartbeatSleepTool{suppressor: s}
-}
-
-// Def returns the tool definition — no parameters, heartbeat-specific description.
-func (t *HeartbeatSleepTool) Def() provider.ToolDef {
-	return provider.ToolDef{
-		Type: "function",
-		Function: provider.FunctionDef{
-			Name: "sleep_thread",
-			Description: "End this heartbeat turn silently. Suppresses all output — the user will not see this turn. " +
-				"The heartbeat scheduler fires the next pulse automatically. " +
-				"Call with no arguments.",
-			Parameters: map[string]any{
-				"type":       "object",
-				"properties": map[string]any{},
-			},
-		},
-	}
-}
-
-// Run terminates the heartbeat turn. All arguments are ignored.
-func (t *HeartbeatSleepTool) Run(_ context.Context, _ json.RawMessage) string {
-	t.suppressor.SetSuppressSink()
-	t.suppressor.SetHaltLoop()
-	return toolResult("sleep_thread", map[string]any{
-		"mode": "heartbeat_terminate",
-	}, "Heartbeat turn terminated. Output suppressed. "+
-		"The heartbeat scheduler will fire the next pulse automatically.")
+		"mode":     "sleep",
+		"wake_at":  wakeAt.Format(time.RFC3339),
+		"duration": durationStr,
+		"message":  message,
+	}, "Turn ended silently. Wake scheduled at the specified time. "+
+		"Future heartbeat, cron, and user messages still fire on their normal schedule.")
 }

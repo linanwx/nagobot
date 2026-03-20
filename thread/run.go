@@ -56,6 +56,7 @@ func (t *Thread) run(ctx context.Context, userMessage string, sink Sink, injectF
 		SessionKey:     t.sessionKey,
 		Workspace:      cfg.Workspace,
 		SupportsVision: t.currentModelSupportsVision(),
+		SupportsAudio:  t.currentModelSupportsAudio(),
 	})
 	t.resetHaltLoop()
 	p := t.resolveProvider()
@@ -422,6 +423,15 @@ func (t *Thread) currentModelSupportsVision() bool {
 	}
 	cfg := t.cfg()
 	return provider.SupportsVision(cfg.ProviderName, cfg.ModelName)
+}
+
+func (t *Thread) currentModelSupportsAudio() bool {
+	mc := t.resolvedModelConfig()
+	if mc != nil {
+		return provider.SupportsAudio(mc.Provider, mc.ModelType)
+	}
+	cfg := t.cfg()
+	return provider.SupportsAudio(cfg.ProviderName, cfg.ModelName)
 }
 
 // resolveProvider returns the provider for the current agent's model type,

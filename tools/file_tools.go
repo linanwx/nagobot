@@ -38,6 +38,7 @@ func (t *ReadFileTool) Def() provider.ToolDef {
 			Name: "read_file",
 			Description: "Read a file. Automatically detects file type: text files are returned with line numbers " +
 				"and pagination, images are analyzed if the model supports vision or delegated to the imagereader agent, " +
+				"audio files are analyzed if the model supports audio or delegated to the audioreader agent, " +
 				"and binary files are rejected with an error. " +
 				"Use tail to read the last N lines of a text file (offset and limit are ignored when tail is set).",
 			Parameters: map[string]any{
@@ -108,6 +109,8 @@ func (t *ReadFileTool) run(ctx context.Context, args json.RawMessage) string {
 	switch fileType {
 	case FileTypeImage:
 		return t.handleImage(ctx, resolvedPath, mimeType, info.Size())
+	case FileTypeAudio:
+		return t.handleAudio(ctx, resolvedPath, mimeType, info.Size())
 	case FileTypeBinary:
 		return toolError("read_file", fmt.Sprintf("binary file (%s), cannot read as text: %s", mimeType, resolvedPath))
 	default:
@@ -125,6 +128,19 @@ func (t *ReadFileTool) handleImage(ctx context.Context, absPath, mimeType string
 			"This is an image file. You cannot view images directly. "+
 				"Use the spawn_thread tool to delegate to the 'imagereader' agent, "+
 				"passing the original user message as the task.")
+	}
+	return toolResult("read_file", fields, fmt.Sprintf("<<media:%s:%s>>", mimeType, absPath))
+}
+
+// handleAudio returns audio data for audio-capable models or delegation guidance.
+func (t *ReadFileTool) handleAudio(ctx context.Context, absPath, mimeType string, size int64) string {
+	fields := map[string]any{"path": absPath, "type": mimeType, "size": size}
+	rt := RuntimeContextFrom(ctx)
+	if !rt.SupportsAudio {
+		return toolResult("read_file", fields,
+			"This is an audio file. You cannot listen to audio directly. "+
+				"Use the spawn_thread tool to delegate to the 'audioreader' agent, "+
+				"passing the audio file path as the task.")
 	}
 	return toolResult("read_file", fields, fmt.Sprintf("<<media:%s:%s>>", mimeType, absPath))
 }

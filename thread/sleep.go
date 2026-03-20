@@ -28,6 +28,13 @@ func (t *Thread) SleepThread(duration time.Duration, message string) error {
 	return addJob(job)
 }
 
+// IsHeartbeatWake returns true if the current turn was triggered by a heartbeat.
+func (t *Thread) IsHeartbeatWake() bool {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	return t.lastWakeSource == WakeHeartbeat
+}
+
 // SetSuppressSink marks the current turn to skip sink delivery.
 func (t *Thread) SetSuppressSink() {
 	t.mu.Lock()

@@ -8,7 +8,6 @@ import (
 
 	"github.com/linanwx/nagobot/logger"
 	"github.com/linanwx/nagobot/provider"
-	"github.com/linanwx/nagobot/tools"
 	sysmsg "github.com/linanwx/nagobot/thread/msg"
 	"gopkg.in/yaml.v3"
 )
@@ -112,12 +111,6 @@ func (t *Thread) RunOnce(ctx context.Context) {
 	}
 	msg = t.tryMerge(msg)
 	t.lastWakeSource = msg.Source
-	// Register the correct sleep_thread tool for this wake's context.
-	if msg.Source == WakeHeartbeat {
-		t.tools.Register(tools.NewHeartbeatSleepTool(t))
-	} else {
-		t.tools.Register(tools.NewSleepThreadTool(t))
-	}
 	if name := strings.TrimSpace(msg.AgentName); name != "" {
 		a, err := t.cfg().Agents.New(name)
 		if err != nil {

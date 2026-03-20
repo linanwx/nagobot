@@ -96,7 +96,7 @@ func (p *ZhipuProvider) Chat(ctx context.Context, req *Request) (*Response, erro
 	start := time.Now()
 	inputChars := inputChars(req.Messages)
 
-	messages, err := toOpenAIChatMessages(req.Messages, false)
+	messages, err := toOpenAIChatMessages(req.Messages, false, false)
 	if err != nil {
 		return nil, fmt.Errorf("failed to convert messages: %w", err)
 	}

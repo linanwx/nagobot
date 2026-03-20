@@ -95,7 +95,7 @@ func (p *MoonshotProvider) Chat(ctx context.Context, req *Request) (*Response, e
 	start := time.Now()
 	inputChars := inputChars(req.Messages)
 
-	messages, err := toOpenAIChatMessages(req.Messages, SupportsVision(p.providerName, p.modelType))
+	messages, err := toOpenAIChatMessages(req.Messages, SupportsVision(p.providerName, p.modelType), false)
 	if err != nil {
 		return nil, fmt.Errorf("failed to convert messages: %w", err)
 	}

@@ -97,9 +97,16 @@ func (t *TelegramChannel) handleUpdate(ctx context.Context, b *bot.Bot, update *
 			}
 		}
 	case msg.Voice != nil:
-		metadata["media_summary"] = MediaSummary("voice",
-			"duration", fmtSeconds(msg.Voice.Duration),
-			"file_url", t.getFileURL(ctx, b, msg.Voice.FileID))
+		fileURL := t.getFileURL(ctx, b, msg.Voice.FileID)
+		if localPath := downloadMedia(t.mediaDir, fileURL); localPath != "" {
+			metadata["media_summary"] = MediaSummary("voice",
+				"audio_path", localPath,
+				"duration", fmtSeconds(msg.Voice.Duration))
+		} else {
+			metadata["media_summary"] = MediaSummary("voice",
+				"duration", fmtSeconds(msg.Voice.Duration),
+				"file_url", fileURL)
+		}
 		if text == "" {
 			text = msg.Caption
 		}
@@ -126,11 +133,19 @@ func (t *TelegramChannel) handleUpdate(ctx context.Context, b *bot.Bot, update *
 			text = "[Video note received]"
 		}
 	case msg.Audio != nil:
-		metadata["media_summary"] = MediaSummary("audio",
-			"file_name", msg.Audio.FileName,
-			"mime_type", msg.Audio.MimeType,
-			"duration", fmtSeconds(msg.Audio.Duration),
-			"file_url", t.getFileURL(ctx, b, msg.Audio.FileID))
+		fileURL := t.getFileURL(ctx, b, msg.Audio.FileID)
+		if localPath := downloadMedia(t.mediaDir, fileURL); localPath != "" {
+			metadata["media_summary"] = MediaSummary("audio",
+				"audio_path", localPath,
+				"file_name", msg.Audio.FileName,
+				"duration", fmtSeconds(msg.Audio.Duration))
+		} else {
+			metadata["media_summary"] = MediaSummary("audio",
+				"file_name", msg.Audio.FileName,
+				"mime_type", msg.Audio.MimeType,
+				"duration", fmtSeconds(msg.Audio.Duration),
+				"file_url", fileURL)
+		}
 		if text == "" {
 			text = msg.Caption
 		}

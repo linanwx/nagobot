@@ -14,6 +14,7 @@ type FileType int
 const (
 	FileTypeText   FileType = iota // Valid UTF-8 text
 	FileTypeImage                  // Recognized image format
+	FileTypeAudio                  // Recognized audio format
 	FileTypeBinary                 // Non-text, non-image binary
 )
 
@@ -23,6 +24,11 @@ func DetectFileType(path string) (FileType, string) {
 	// Try image detection first (extension + magic bytes).
 	if m := detectImageMime(path); m != "" {
 		return FileTypeImage, m
+	}
+
+	// Try audio detection (extension + magic bytes).
+	if m := detectAudioMime(path); m != "" {
+		return FileTypeAudio, m
 	}
 
 	// Read a sample to check if the file is valid UTF-8 text.
@@ -74,6 +80,70 @@ var imageExtensions = map[string]string{
 	".webp": "image/webp",
 	".bmp":  "image/bmp",
 	".svg":  "image/svg+xml",
+}
+
+// audioExtensions maps common audio file extensions to MIME types.
+var audioExtensions = map[string]string{
+	".ogg":  "audio/ogg",
+	".oga":  "audio/ogg",
+	".opus": "audio/ogg",
+	".mp3":  "audio/mpeg",
+	".wav":  "audio/wav",
+	".m4a":  "audio/mp4",
+	".flac": "audio/flac",
+	".aac":  "audio/aac",
+}
+
+// detectAudioMime returns the MIME type for an audio file, or empty string if not audio.
+func detectAudioMime(path string) string {
+	ext := strings.ToLower(filepath.Ext(path))
+	if m, ok := audioExtensions[ext]; ok {
+		return m
+	}
+	if m := mime.TypeByExtension(ext); strings.HasPrefix(m, "audio/") {
+		return m
+	}
+	return detectAudioMimeByMagic(path)
+}
+
+// detectAudioMimeByMagic reads the first bytes of a file to identify the audio format.
+func detectAudioMimeByMagic(path string) string {
+	f, err := os.Open(path)
+	if err != nil {
+		return ""
+	}
+	defer f.Close()
+
+	header := make([]byte, 12)
+	n, err := f.Read(header)
+	if err != nil || n < 4 {
+		return ""
+	}
+	header = header[:n]
+
+	// OGG: "OggS"
+	if n >= 4 && header[0] == 'O' && header[1] == 'g' && header[2] == 'g' && header[3] == 'S' {
+		return "audio/ogg"
+	}
+	// MP3: ID3 tag
+	if n >= 3 && header[0] == 'I' && header[1] == 'D' && header[2] == '3' {
+		return "audio/mpeg"
+	}
+	// MP3: sync word FF FB / FF FA / FF F3 / FF F2
+	if n >= 2 && header[0] == 0xFF && (header[1]&0xE0) == 0xE0 {
+		return "audio/mpeg"
+	}
+	// FLAC: "fLaC"
+	if n >= 4 && header[0] == 'f' && header[1] == 'L' && header[2] == 'a' && header[3] == 'C' {
+		return "audio/flac"
+	}
+	// RIFF/WAVE: "RIFF....WAVE"
+	if n >= 12 && header[0] == 'R' && header[1] == 'I' && header[2] == 'F' && header[3] == 'F' &&
+		header[8] == 'W' && header[9] == 'A' && header[10] == 'V' && header[11] == 'E' {
+		return "audio/wav"
+	}
+
+	return ""
 }
 
 // detectImageMimeByMagic reads the first bytes of a file to identify the image format.

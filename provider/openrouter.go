@@ -156,6 +156,7 @@ func init() {
 	RegisterProvider("openrouter", ProviderRegistration{
 		Models:       []string{"moonshotai/kimi-k2.5", "anthropic/claude-sonnet-4.6", "anthropic/claude-opus-4.6", "z-ai/glm-5", "minimax/minimax-m2.5", "minimax/minimax-m2.7", "qwen/qwen3.5-35b-a3b", "google/gemini-3-flash-preview", "xiaomi/mimo-v2-pro", "xiaomi/mimo-v2-omni"},
 		VisionModels: []string{"moonshotai/kimi-k2.5", "anthropic/claude-sonnet-4.6", "anthropic/claude-opus-4.6", "qwen/qwen3.5-35b-a3b", "google/gemini-3-flash-preview", "xiaomi/mimo-v2-pro", "xiaomi/mimo-v2-omni"},
+		AudioModels:  []string{"google/gemini-3-flash-preview", "xiaomi/mimo-v2-omni"},
 		ContextWindows: map[string]int{
 			"moonshotai/kimi-k2.5":          262144,
 			"anthropic/claude-sonnet-4.6":   1048576,
@@ -214,7 +215,29 @@ func newOpenRouterProvider(apiKey, apiBase, modelType, modelName string, maxToke
 }
 
 
-func toOpenAIChatMessages(messages []Message, visionCapable bool) ([]openai.ChatCompletionMessageParamUnion, error) {
+// applyCacheControlToSystemMessages converts system messages from plain string
+// to content-parts format with cache_control for OpenRouter/Anthropic prompt caching.
+func applyCacheControlToSystemMessages(messages []openai.ChatCompletionMessageParamUnion) {
+	for i := range messages {
+		sys := messages[i].OfSystem
+		if sys == nil {
+			continue
+		}
+		// Only convert string-content system messages.
+		text := sys.Content.OfString.Value
+		if text == "" {
+			continue
+		}
+		part := openai.ChatCompletionContentPartTextParam{Text: text}
+		part.SetExtraFields(map[string]any{
+			"cache_control": map[string]any{"type": "ephemeral"},
+		})
+		// Replace with a fresh system message using content-parts format.
+		messages[i] = openai.SystemMessage([]openai.ChatCompletionContentPartTextParam{part})
+	}
+}
+
+func toOpenAIChatMessages(messages []Message, visionCapable, audioCapable bool) ([]openai.ChatCompletionMessageParamUnion, error) {
 	result := make([]openai.ChatCompletionMessageParamUnion, 0, len(messages))
 
 	for _, m := range messages {
@@ -226,22 +249,44 @@ func toOpenAIChatMessages(messages []Message, visionCapable bool) ([]openai.Chat
 		case "tool":
 			cleanedText, markers := ParseMediaMarkers(m.Content)
 			result = append(result, openai.ToolMessage(cleanedText, m.ToolCallID))
-			// Chat Completions doesn't support images in tool messages.
-			// Inject a synthetic user message with the image as a workaround.
-			if visionCapable && len(markers) > 0 {
+			// Chat Completions doesn't support media in tool messages.
+			// Inject a synthetic user message with media content as a workaround.
+			if len(markers) > 0 {
 				var parts []openai.ChatCompletionContentPartUnionParam
 				for _, marker := range markers {
+					isImage := strings.HasPrefix(marker.MimeType, "image/")
+					isAudio := strings.HasPrefix(marker.MimeType, "audio/")
+					if (isImage && !visionCapable) || (isAudio && !audioCapable) {
+						continue
+					}
+					if !isImage && !isAudio {
+						continue
+					}
 					b64, err := ReadFileAsBase64(marker.FilePath)
 					if err != nil {
 						continue
 					}
-					parts = append(parts, openai.ChatCompletionContentPartUnionParam{
-						OfImageURL: &openai.ChatCompletionContentPartImageParam{
-							ImageURL: openai.ChatCompletionContentPartImageImageURLParam{
-								URL: "data:" + marker.MimeType + ";base64," + b64,
+					if isImage {
+						parts = append(parts, openai.ChatCompletionContentPartUnionParam{
+							OfImageURL: &openai.ChatCompletionContentPartImageParam{
+								ImageURL: openai.ChatCompletionContentPartImageImageURLParam{
+									URL: "data:" + marker.MimeType + ";base64," + b64,
+								},
 							},
-						},
-					})
+						})
+					} else if isAudio {
+						// OpenRouter input_audio format.
+						ext := strings.TrimPrefix(marker.MimeType, "audio/")
+						if ext == "mpeg" {
+							ext = "mp3"
+						}
+						parts = append(parts, openai.InputAudioContentPart(
+							openai.ChatCompletionContentPartInputAudioInputAudioParam{
+								Data:   b64,
+								Format: ext,
+							},
+						))
+					}
 				}
 				if len(parts) > 0 {
 					result = append(result, openai.ChatCompletionMessageParamUnion{
@@ -338,7 +383,7 @@ func (p *OpenRouterProvider) Chat(ctx context.Context, req *Request) (*Response,
 	start := time.Now()
 	inputChars := inputChars(req.Messages)
 
-	messages, err := toOpenAIChatMessages(req.Messages, SupportsVision("openrouter", p.modelType))
+	messages, err := toOpenAIChatMessages(req.Messages, SupportsVision("openrouter", p.modelType), SupportsAudio("openrouter", p.modelType))
 	if err != nil {
 		return nil, fmt.Errorf("failed to convert messages: %w", err)
 	}
@@ -384,6 +429,7 @@ func (p *OpenRouterProvider) Chat(ctx context.Context, req *Request) (*Response,
 			oaioption.WithJSONSet("cache_control", map[string]any{"type": "ephemeral"}),
 		)
 	}
+
 
 	chatResp, err := p.client.Chat.Completions.New(ctx, chatReq, requestOpts...)
 	if err != nil {

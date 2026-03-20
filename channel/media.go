@@ -57,9 +57,21 @@ func downloadMedia(mediaDir, url string) string {
 		ext = ".dat"
 	}
 
+	// Choose filename prefix based on content type.
+	prefix := "media"
+	ct := resp.Header.Get("Content-Type")
+	switch {
+	case strings.HasPrefix(ct, "image/"):
+		prefix = "img"
+	case strings.HasPrefix(ct, "audio/"):
+		prefix = "audio"
+	case strings.HasPrefix(ct, "video/"):
+		prefix = "video"
+	}
+
 	buf := make([]byte, 4)
 	rand.Read(buf)
-	fileName := fmt.Sprintf("img-%s-%s%s", time.Now().Format("20060102-150405"), hex.EncodeToString(buf), ext)
+	fileName := fmt.Sprintf("%s-%s-%s%s", prefix, time.Now().Format("20060102-150405"), hex.EncodeToString(buf), ext)
 	filePath := filepath.Join(mediaDir, fileName)
 
 	f, err := os.Create(filePath)
@@ -69,7 +81,8 @@ func downloadMedia(mediaDir, url string) string {
 	}
 	defer f.Close()
 
-	if _, err := io.Copy(f, resp.Body); err != nil {
+	const maxMediaSize = 20 << 20 // 20 MB
+	if _, err := io.Copy(f, io.LimitReader(resp.Body, maxMediaSize)); err != nil {
 		logger.Warn("failed to write media file", "path", filePath, "err", err)
 		os.Remove(filePath)
 		return ""
@@ -83,9 +96,11 @@ func extensionFromURL(url string) string {
 	if idx := strings.IndexByte(url, '?'); idx >= 0 {
 		url = url[:idx]
 	}
-	ext := filepath.Ext(url)
+	ext := strings.ToLower(filepath.Ext(url))
 	switch ext {
 	case ".jpg", ".jpeg", ".png", ".gif", ".webp", ".bmp":
+		return ext
+	case ".ogg", ".oga", ".mp3", ".wav", ".m4a", ".flac", ".aac", ".opus":
 		return ext
 	}
 	return ""
@@ -93,6 +108,7 @@ func extensionFromURL(url string) string {
 
 func extensionFromContentType(ct string) string {
 	switch {
+	// Image types.
 	case strings.HasPrefix(ct, "image/jpeg"):
 		return ".jpg"
 	case strings.HasPrefix(ct, "image/png"):
@@ -101,6 +117,19 @@ func extensionFromContentType(ct string) string {
 		return ".gif"
 	case strings.HasPrefix(ct, "image/webp"):
 		return ".webp"
+	// Audio types.
+	case strings.HasPrefix(ct, "audio/ogg"):
+		return ".ogg"
+	case strings.HasPrefix(ct, "audio/mpeg"):
+		return ".mp3"
+	case strings.HasPrefix(ct, "audio/mp4"), strings.HasPrefix(ct, "audio/m4a"):
+		return ".m4a"
+	case strings.HasPrefix(ct, "audio/wav"), strings.HasPrefix(ct, "audio/x-wav"):
+		return ".wav"
+	case strings.HasPrefix(ct, "audio/flac"):
+		return ".flac"
+	case strings.HasPrefix(ct, "audio/aac"):
+		return ".aac"
 	}
 	return ""
 }
