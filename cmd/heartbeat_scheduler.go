@@ -189,7 +189,7 @@ func (s *heartbeatScheduler) maybeFirePulse(key string, now time.Time, lastActiv
 		mdModified = hbMtime.UTC().Format(time.RFC3339)
 	}
 
-	message := buildHeartbeatMessage(content, mdModified, nextPulse)
+	message := buildHeartbeatMessage(content, mdModified, nextPulse, hbPath)
 
 	s.mgr.Wake(key, &thread.WakeMessage{
 		Source:  thread.WakeHeartbeat,
@@ -342,7 +342,7 @@ func loadPostponeConfig(path string) map[string]string {
 }
 
 // buildHeartbeatMessage constructs a heartbeat system message.
-func buildHeartbeatMessage(heartbeatContent, mdModified, nextPulse string) string {
+func buildHeartbeatMessage(heartbeatContent, mdModified, nextPulse, hbPath string) string {
 	fields := map[string]string{}
 	if nextPulse != "" {
 		fields["next_pulse"] = nextPulse
@@ -353,7 +353,9 @@ func buildHeartbeatMessage(heartbeatContent, mdModified, nextPulse string) strin
 
 	body := "[heartbeat.md is empty]"
 	if c := strings.TrimSpace(heartbeatContent); c != "" {
-		body = "## heartbeat.md\n\n" + c
+		body = "## " + hbPath + "\n\n" + c
+	} else if hbPath != "" {
+		body = "[" + hbPath + " is empty]"
 	}
 
 	message := sysmsg.BuildSystemMessage("heartbeat", fields, body)
