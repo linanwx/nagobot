@@ -124,7 +124,7 @@ func runKeywordSearch(args []string) error {
 			return nil
 		}
 		dir := filepath.Dir(path)
-		key := deriveSessionKey(sessionsDir, path)
+		key := session.DeriveKeyFromPath(path)
 
 		if searchMemorySession != "" && key != searchMemorySession {
 			return nil

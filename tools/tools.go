@@ -275,9 +275,12 @@ func formatArgsReadable(args json.RawMessage) string {
 }
 
 func randomHex(n int) string {
+	if n <= 0 {
+		return ""
+	}
 	buf := make([]byte, n)
 	if _, err := rand.Read(buf); err != nil {
-		return fmt.Sprintf("%d", time.Now().UnixNano()%1000000)
+		return ""
 	}
 	return hex.EncodeToString(buf)
 }

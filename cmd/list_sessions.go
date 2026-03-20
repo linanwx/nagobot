@@ -160,7 +160,7 @@ func collectSessions(cfg *config.Config, opts listSessionsOpts) (*listSessionsOu
 		if walkErr != nil || d.IsDir() || d.Name() != session.SessionFileName {
 			return nil
 		}
-		key := deriveSessionKey(sessionsDir, path)
+		key := session.DeriveKeyFromPath(path)
 		total++
 
 		// Early exit for cron/threads — before any file I/O.
@@ -287,19 +287,6 @@ func enrichWithThreads(output *listSessionsOutput, threads []msg.ThreadInfo) {
 			output.Sessions[i].IsRunning = true
 		}
 	}
-}
-
-// deriveSessionKey reconstructs a session key from filesystem path.
-// sessions/telegram/12345/session.jsonl -> telegram:12345
-func deriveSessionKey(root, path string) string {
-	rel, err := filepath.Rel(root, path)
-	if err != nil {
-		return ""
-	}
-	// Remove trailing /session.jsonl
-	rel = filepath.Dir(rel)
-	parts := strings.Split(filepath.ToSlash(rel), "/")
-	return strings.Join(parts, ":")
 }
 
 // isRealUserSource returns true if the source is a real user channel.
