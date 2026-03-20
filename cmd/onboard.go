@@ -426,6 +426,9 @@ func buildModelOptions(providerName string) []huh.Option[string] {
 		if provider.SupportsVision(providerName, m) {
 			label += " [vision]"
 		}
+		if provider.SupportsAudio(providerName, m) {
+			label += " [audio]"
+		}
 		options = append(options, huh.NewOption(label, m))
 	}
 	return options
