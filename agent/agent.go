@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -217,8 +218,16 @@ func buildSessionsSummary(workspace string) string {
 	cutoff := time.Now().AddDate(0, 0, -7)
 	sessionsDir := filepath.Join(workspace, "sessions")
 
+	// Sort keys for deterministic output (required for prompt caching).
+	keys := make([]string, 0, len(summaries))
+	for key := range summaries {
+		keys = append(keys, key)
+	}
+	sort.Strings(keys)
+
 	var sb strings.Builder
-	for key, e := range summaries {
+	for _, key := range keys {
+		e := summaries[key]
 		if strings.TrimSpace(e.Summary) == "" {
 			continue
 		}
