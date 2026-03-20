@@ -60,6 +60,16 @@ Tools implement `Def() ToolDef` + `Run(ctx, args) string`. Registered in a `Regi
 
 `sleep_thread` has a **heartbeat mode**: when `IsHeartbeatMode()` is true (wake source is `WakeHeartbeat`), all params are ignored — it just terminates and suppresses output. No cron job scheduled. The heartbeat scheduler handles the next pulse.
 
+### Audio Support
+
+Audio recognition follows the same pattern as vision: `AudioModels` registered per provider, `SupportsAudio()` capability check, `<<media:audio/ogg:path>>` markers, and `audioreader` agent delegation for non-audio models.
+
+- **Channel layer**: Telegram Voice/Audio and Discord audio attachments are downloaded to `{workspace}/media/` (same `downloadMedia()` as images).
+- **Tool layer**: `DetectFileType` recognizes `FileTypeAudio` via extension + magic bytes. `handleAudio()` returns media marker if `SupportsAudio`, otherwise guides LLM to delegate to `audioreader`.
+- **Provider layer**: OpenRouter sends audio markers as `input_audio` content parts. Gemini uses generic `inlineData`. Non-audio providers skip audio markers.
+- **Token estimation**: `EstimateAudioTokens()` uses file size + bitrate heuristic, ~32 tokens/sec.
+- **audioreader agent**: `specialty: audio`, configured during `onboard` (same flow as imagereader specialty routing).
+
 ### Sessions (`session/`)
 
 Conversation history persisted as `{sessionsDir}/{sessionKey}/session.jsonl`. Auto-sanitized on save. Context pressure hooks trigger compression when token budget is exceeded.

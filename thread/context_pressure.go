@@ -101,10 +101,14 @@ func EstimateMessageTokens(message provider.Message) int {
 		tokens += EstimateTextTokens(call.Function.Arguments)
 	}
 
-	// Estimate image tokens from <<media:mime:path>> markers.
+	// Estimate media tokens from <<media:mime:path>> markers.
 	if _, markers := provider.ParseMediaMarkers(message.Content); len(markers) > 0 {
 		for _, m := range markers {
-			tokens += provider.EstimateImageTokens(m.FilePath)
+			if strings.HasPrefix(m.MimeType, "audio/") {
+				tokens += provider.EstimateAudioTokens(m.FilePath)
+			} else {
+				tokens += provider.EstimateImageTokens(m.FilePath)
+			}
 		}
 	}
 

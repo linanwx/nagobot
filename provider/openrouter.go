@@ -215,27 +215,7 @@ func newOpenRouterProvider(apiKey, apiBase, modelType, modelName string, maxToke
 }
 
 
-// applyCacheControlToSystemMessages converts system messages from plain string
-// to content-parts format with cache_control for OpenRouter/Anthropic prompt caching.
-func applyCacheControlToSystemMessages(messages []openai.ChatCompletionMessageParamUnion) {
-	for i := range messages {
-		sys := messages[i].OfSystem
-		if sys == nil {
-			continue
-		}
-		// Only convert string-content system messages.
-		text := sys.Content.OfString.Value
-		if text == "" {
-			continue
-		}
-		part := openai.ChatCompletionContentPartTextParam{Text: text}
-		part.SetExtraFields(map[string]any{
-			"cache_control": map[string]any{"type": "ephemeral"},
-		})
-		// Replace with a fresh system message using content-parts format.
-		messages[i] = openai.SystemMessage([]openai.ChatCompletionContentPartTextParam{part})
-	}
-}
+
 
 func toOpenAIChatMessages(messages []Message, visionCapable, audioCapable bool) ([]openai.ChatCompletionMessageParamUnion, error) {
 	result := make([]openai.ChatCompletionMessageParamUnion, 0, len(messages))
