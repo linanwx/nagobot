@@ -28,8 +28,24 @@ func NewSleepThreadTool(sleeper ThreadSleeper) *SleepThreadTool {
 	return &SleepThreadTool{sleeper: sleeper}
 }
 
-// Def returns the tool definition.
+// Def returns the tool definition. In heartbeat mode, returns a simplified
+// definition with no parameters — just terminate and suppress.
 func (t *SleepThreadTool) Def() provider.ToolDef {
+	if t.sleeper != nil && t.sleeper.IsHeartbeatMode() {
+		return provider.ToolDef{
+			Type: "function",
+			Function: provider.FunctionDef{
+				Name: "sleep_thread",
+				Description: "End this heartbeat turn silently. Suppresses all output — the user will not see this turn. " +
+					"The heartbeat scheduler fires the next pulse automatically. " +
+					"Call with no arguments.",
+				Parameters: map[string]any{
+					"type":       "object",
+					"properties": map[string]any{},
+				},
+			},
+		}
+	}
 	return provider.ToolDef{
 		Type: "function",
 		Function: provider.FunctionDef{
