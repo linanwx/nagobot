@@ -105,6 +105,7 @@ func (r *Runner) RunWithMessages(ctx context.Context, messages []provider.Messag
 		r.totalUsage.PromptTokens += resp.Usage.PromptTokens
 		r.totalUsage.CompletionTokens += resp.Usage.CompletionTokens
 		r.totalUsage.TotalTokens += resp.Usage.TotalTokens
+		r.totalUsage.CachedTokens += resp.Usage.CachedTokens
 		if resp.Quota != nil {
 			r.lastQuota = resp.Quota
 		}
