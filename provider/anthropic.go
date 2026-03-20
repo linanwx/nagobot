@@ -221,6 +221,12 @@ func toAnthropicTools(tools []ToolDef) []anthropic.ToolUnionParam {
 
 		result = append(result, anthropic.ToolUnionParam{OfTool: &tool})
 	}
+	// Set cache_control on the last tool to cache the full tools + system prefix.
+	if n := len(result); n > 0 {
+		if t := result[n-1].OfTool; t != nil {
+			t.CacheControl = anthropic.NewCacheControlEphemeralParam()
+		}
+	}
 	return result
 }
 
@@ -354,7 +360,10 @@ func (p *AnthropicProvider) Chat(ctx context.Context, req *Request) (*Response, 
 		Tools:     tools,
 	}
 	if systemPrompt != "" {
-		params.System = []anthropic.TextBlockParam{{Text: systemPrompt}}
+		params.System = []anthropic.TextBlockParam{{
+			Text:         systemPrompt,
+			CacheControl: anthropic.NewCacheControlEphemeralParam(),
+		}}
 	}
 	if thinkingEnabled {
 		if budget, ok := anthropicThinkingBudget(maxTokens); ok {
@@ -446,6 +455,8 @@ func (p *AnthropicProvider) Chat(ctx context.Context, req *Request) (*Response, 
 		"toolCallCount", len(toolCalls),
 		"promptTokens", messageResp.Usage.InputTokens,
 		"completionTokens", messageResp.Usage.OutputTokens,
+		"cacheCreationTokens", messageResp.Usage.CacheCreationInputTokens,
+		"cacheReadTokens", messageResp.Usage.CacheReadInputTokens,
 		"totalTokens", messageResp.Usage.InputTokens+messageResp.Usage.OutputTokens,
 		"outputChars", len(content),
 		"latencyMs", time.Since(start).Milliseconds(),
