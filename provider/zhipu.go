@@ -174,6 +174,7 @@ func (p *ZhipuProvider) Chat(ctx context.Context, req *Request) (*Response, erro
 		"promptTokens", chatResp.Usage.PromptTokens,
 		"completionTokens", chatResp.Usage.CompletionTokens,
 		"reasoningTokens", reasoningTokens,
+		"cachedTokens", chatResp.Usage.PromptTokensDetails.CachedTokens,
 		"totalTokens", chatResp.Usage.TotalTokens,
 		"outputChars", len(choice.Message.Content),
 		"latencyMs", time.Since(start).Milliseconds(),
@@ -187,6 +188,7 @@ func (p *ZhipuProvider) Chat(ctx context.Context, req *Request) (*Response, erro
 			PromptTokens:     int(chatResp.Usage.PromptTokens),
 			CompletionTokens: int(chatResp.Usage.CompletionTokens),
 			TotalTokens:      int(chatResp.Usage.TotalTokens),
+			CachedTokens:     int(chatResp.Usage.PromptTokensDetails.CachedTokens),
 		},
 	}, nil
 }

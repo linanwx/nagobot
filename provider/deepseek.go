@@ -299,6 +299,7 @@ func (p *DeepSeekProvider) chatSync(ctx context.Context, dsReq dsRequest, start 
 			PromptTokens:     u.PromptTokens,
 			CompletionTokens: u.CompletionTokens,
 			TotalTokens:      u.TotalTokens,
+			CachedTokens:     u.PromptCacheHitTokens,
 		},
 	}, nil
 }
@@ -433,6 +434,8 @@ func (p *DeepSeekProvider) chatStream(ctx context.Context, req *Request, dsReq d
 		"completionTokens", usage.CompletionTokens,
 		"reasoningTokens", usage.CompletionTokensDetails.ReasoningTokens,
 		"totalTokens", usage.TotalTokens,
+		"promptCacheHitTokens", usage.PromptCacheHitTokens,
+		"promptCacheMissTokens", usage.PromptCacheMissTokens,
 		"outputChars", len(finalContent),
 		"latencyMs", time.Since(start).Milliseconds(),
 	)
@@ -445,6 +448,7 @@ func (p *DeepSeekProvider) chatStream(ctx context.Context, req *Request, dsReq d
 			PromptTokens:     usage.PromptTokens,
 			CompletionTokens: usage.CompletionTokens,
 			TotalTokens:      usage.TotalTokens,
+			CachedTokens:     usage.PromptCacheHitTokens,
 		},
 	}, nil
 }

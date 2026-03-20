@@ -466,6 +466,7 @@ func (p *OpenRouterProvider) Chat(ctx context.Context, req *Request) (*Response,
 			PromptTokens:     int(chatResp.Usage.PromptTokens),
 			CompletionTokens: int(chatResp.Usage.CompletionTokens),
 			TotalTokens:      int(chatResp.Usage.TotalTokens),
+			CachedTokens:     int(cachedTokens),
 		},
 	}, nil
 }

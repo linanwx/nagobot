@@ -471,6 +471,7 @@ func (p *AnthropicProvider) Chat(ctx context.Context, req *Request) (*Response, 
 			PromptTokens:     int(messageResp.Usage.InputTokens),
 			CompletionTokens: int(messageResp.Usage.OutputTokens),
 			TotalTokens:      int(messageResp.Usage.InputTokens + messageResp.Usage.OutputTokens),
+			CachedTokens:     int(messageResp.Usage.CacheReadInputTokens),
 		},
 	}, nil
 }

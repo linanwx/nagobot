@@ -411,6 +411,7 @@ func (t *Thread) recordTurn(metrics *ExecMetrics, providerName, modelName, agent
 		PromptTokens:     usage.PromptTokens,
 		CompletionTokens: usage.CompletionTokens,
 		TotalTokens:      usage.TotalTokens,
+		CachedTokens:     usage.CachedTokens,
 		Error:            isError,
 	})
 }

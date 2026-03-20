@@ -30,6 +30,7 @@ type TurnRecord struct {
 	PromptTokens     int       `json:"promptTokens"`
 	CompletionTokens int       `json:"completionTokens"`
 	TotalTokens      int       `json:"totalTokens"`
+	CachedTokens     int       `json:"cachedTokens,omitempty"`
 	Error            bool      `json:"error,omitempty"`
 }
 

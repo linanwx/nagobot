@@ -222,6 +222,7 @@ func (p *MinimaxProvider) Chat(ctx context.Context, req *Request) (*Response, er
 		"promptTokens", chatResp.Usage.PromptTokens,
 		"completionTokens", chatResp.Usage.CompletionTokens,
 		"reasoningTokens", reasoningTokens,
+		"cachedTokens", chatResp.Usage.PromptTokensDetails.CachedTokens,
 		"totalTokens", chatResp.Usage.TotalTokens,
 		"outputChars", len(choice.Message.Content),
 		"reasoningChars", len(reasoningText),
@@ -242,6 +243,7 @@ func (p *MinimaxProvider) Chat(ctx context.Context, req *Request) (*Response, er
 			PromptTokens:     int(chatResp.Usage.PromptTokens),
 			CompletionTokens: int(chatResp.Usage.CompletionTokens),
 			TotalTokens:      int(chatResp.Usage.TotalTokens),
+			CachedTokens:     int(chatResp.Usage.PromptTokensDetails.CachedTokens),
 		},
 	}, nil
 }

@@ -1,6 +1,7 @@
 package monitor
 
 import (
+	"fmt"
 	"sort"
 	"time"
 )
@@ -41,9 +42,12 @@ type MetricsSummary struct {
 
 // ProviderStats groups metrics by provider with model breakdown.
 type ProviderStats struct {
-	Turns    int                    `json:"turns" yaml:"turns"`
-	AvgDurMs int64                  `json:"avgDurationMs" yaml:"avgDurationMs"`
-	Models   map[string]*GroupStats `json:"models,omitempty" yaml:"models,omitempty"`
+	Turns        int                    `json:"turns" yaml:"turns"`
+	AvgDurMs     int64                  `json:"avgDurationMs" yaml:"avgDurationMs"`
+	PromptTokens int                    `json:"promptTokens" yaml:"promptTokens"`
+	CachedTokens int                    `json:"cachedTokens" yaml:"cachedTokens"`
+	CacheHitRate string                 `json:"cacheHitRate" yaml:"cacheHitRate"`
+	Models       map[string]*GroupStats `json:"models,omitempty" yaml:"models,omitempty"`
 }
 
 // GroupStats holds aggregated metrics for a group.
@@ -86,6 +90,8 @@ func Query(store *Store, window Window) *MetricsSummary {
 		}
 		ps.Turns++
 		ps.AvgDurMs += r.DurationMs
+		ps.PromptTokens += r.PromptTokens
+		ps.CachedTokens += r.CachedTokens
 		ms, ok := ps.Models[r.Model]
 		if !ok {
 			ms = &GroupStats{}
@@ -130,6 +136,11 @@ func Query(store *Store, window Window) *MetricsSummary {
 	for _, ps := range summary.ByProvider {
 		if ps.Turns > 0 {
 			ps.AvgDurMs /= int64(ps.Turns)
+		}
+		if ps.PromptTokens > 0 {
+			ps.CacheHitRate = fmt.Sprintf("%.1f%%", float64(ps.CachedTokens)/float64(ps.PromptTokens)*100)
+		} else {
+			ps.CacheHitRate = "0.0%"
 		}
 		for _, ms := range ps.Models {
 			if ms.Turns > 0 {
