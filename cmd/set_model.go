@@ -73,6 +73,10 @@ func runSetModel(_ *cobra.Command, _ []string) error {
 		return fmt.Errorf("--type or --default is required.\nFix: nagobot set-model --type <model_type> --provider <name> --model <model>\n     nagobot set-model --default --provider <name> --model <model>\nUse --list to see available model types and current routing.")
 	}
 
+	if modelType == "default" {
+		return fmt.Errorf("use --default flag instead of --type default.\nFix: nagobot set-model --default --provider <name> --model <model>")
+	}
+
 	// --clear: remove routing for this model type
 	if setModelClear {
 		if cfg.Thread.Models != nil {
