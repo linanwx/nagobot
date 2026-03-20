@@ -241,9 +241,7 @@ func runContextBrowse(_ []string) error {
 	}
 
 	// Build session directory path.
-	parts := strings.Split(sessionKey, ":")
-	dirParts := append([]string{sessionsDir}, parts...)
-	sessionDir := filepath.Join(dirParts...)
+	sessionDir := session.SessionDir(sessionsDir, sessionKey)
 
 	merged := mergeSessionMessages(sessionDir)
 	if len(merged) == 0 {

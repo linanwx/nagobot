@@ -182,3 +182,23 @@ func DeriveKeyFromPath(path string) string {
 	}
 	return base
 }
+
+// SessionDir returns the on-disk directory for a session key, applying
+// the same normalisation and path-segment sanitisation as Manager.sessionPath.
+// This is the safe way to convert a session key to a filesystem path.
+func SessionDir(sessionsDir, key string) string {
+	key = normalizeSessionKey(key)
+	parts := strings.Split(key, ":")
+	cleanParts := make([]string, 0, len(parts))
+	for _, p := range parts {
+		segment := sanitizePathSegment(p)
+		if segment == "" {
+			continue
+		}
+		cleanParts = append(cleanParts, segment)
+	}
+	if len(cleanParts) == 0 {
+		cleanParts = append(cleanParts, "cli")
+	}
+	return filepath.Join(append([]string{sessionsDir}, cleanParts...)...)
+}

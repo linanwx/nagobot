@@ -11,6 +11,7 @@ import (
 
 	"github.com/linanwx/nagobot/config"
 	"github.com/linanwx/nagobot/logger"
+	"github.com/linanwx/nagobot/session"
 	"github.com/linanwx/nagobot/thread"
 	sysmsg "github.com/linanwx/nagobot/thread/msg"
 )
@@ -190,8 +191,7 @@ func (s *heartbeatScheduler) maybeFirePulse(key string, now time.Time, lastActiv
 
 // hbSessionKeyToDir converts a session key to its directory path.
 func hbSessionKeyToDir(sessionsDir, key string) string {
-	parts := strings.Split(key, ":")
-	return filepath.Join(append([]string{sessionsDir}, parts...)...)
+	return session.SessionDir(sessionsDir, key)
 }
 
 // hbFileMtime returns the modification time of a file, or zero if it doesn't exist.

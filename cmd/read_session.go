@@ -119,10 +119,7 @@ func runReadSession(_ *cobra.Command, args []string) error {
 // loadSessionMessages reads a session JSONL file and returns raw messages + total count.
 func loadSessionMessages(workspace, key string) ([]provider.Message, int, error) {
 	sessionsDir := filepath.Join(workspace, "sessions")
-	parts := strings.Split(key, ":")
-	pathParts := append([]string{sessionsDir}, parts...)
-	pathParts = append(pathParts, session.SessionFileName)
-	sessionPath := filepath.Join(pathParts...)
+	sessionPath := filepath.Join(session.SessionDir(sessionsDir, key), session.SessionFileName)
 
 	s, err := session.ReadFile(sessionPath)
 	if err != nil {

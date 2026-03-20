@@ -449,12 +449,7 @@ func parseKeyFromPath(urlPath, prefix string) string {
 // the sessions directory (path traversal protection).
 func (w *WebChannel) resolveSessionFile(key, filename string) string {
 	sessionsDir := filepath.Join(w.workspace, sessionsDirName)
-	keyPath := strings.ReplaceAll(key, ":", string(filepath.Separator))
-	resolved := filepath.Clean(filepath.Join(sessionsDir, keyPath, filename))
-	// Ensure the resolved path stays within the sessions directory.
-	if !strings.HasPrefix(resolved, filepath.Clean(sessionsDir)+string(filepath.Separator)) {
-		return ""
-	}
+	resolved := filepath.Join(session.SessionDir(sessionsDir, key), filename)
 	return resolved
 }
 

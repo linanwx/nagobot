@@ -15,6 +15,7 @@ import (
 	"github.com/linanwx/nagobot/channel"
 	"github.com/linanwx/nagobot/config"
 	"github.com/linanwx/nagobot/logger"
+	"github.com/linanwx/nagobot/session"
 	"github.com/linanwx/nagobot/thread"
 	"github.com/linanwx/nagobot/tools"
 	"github.com/spf13/cobra"
@@ -204,8 +205,7 @@ func buildDefaultAgentFor(cfg *config.Config) func(string) string {
 // readDiscordDMReplyTo reads {sessionDir}/channel.json and returns the discord_dm
 // reply_to value if present. Returns empty string if not found.
 func readDiscordDMReplyTo(sessionsDir, sessionKey string) string {
-	parts := strings.Split(sessionKey, ":")
-	sessionDir := filepath.Join(append([]string{sessionsDir}, parts...)...)
+	sessionDir := session.SessionDir(sessionsDir, sessionKey)
 	data, err := os.ReadFile(filepath.Join(sessionDir, "channel.json"))
 	if err != nil {
 		return ""
