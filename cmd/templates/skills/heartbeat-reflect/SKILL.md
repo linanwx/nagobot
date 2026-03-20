@@ -62,10 +62,6 @@ Without heartbeat, you only react. With heartbeat, you anticipate. Your job is t
   reason: user seems to activate in the evenings
 ```
 
-Condition fields are free-form: `when`, `if`, `created`, `reason`, `moved_on`, etc. `moved_on` is required. No checkboxes — items exist or they don't.
-
-when/if is NOT a hook or chat trigger — it does not mean "when the user talks about X, take action." It means: reviewing the conversation from a few hours ago, or the current time meets the criteria, or proactively searching relevant resources — then take action.
-
 ## Rules
 
 - Only touch `heartbeat.md`, no other files
