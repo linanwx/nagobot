@@ -47,17 +47,19 @@ var heartbeatPostponeCmd = &cobra.Command{
 
 		postponePath := filepath.Join(workspace, "system", "heartbeat-postpone.json")
 
-		postpone := make(map[string]string)
+		postpone := make(map[string]postponeEntry)
 		if data, err := os.ReadFile(postponePath); err == nil {
 			_ = json.Unmarshal(data, &postpone)
 		}
 
-		until := time.Now().Add(d).UTC()
-		postpone[key] = until.Format(time.RFC3339)
+		now := time.Now().UTC()
+		postpone[key] = postponeEntry{
+			Until:     now.Add(d).Format(time.RFC3339),
+			CreatedAt: now.Format(time.RFC3339),
+		}
 
-		now := time.Now()
 		for k, v := range postpone {
-			if t, err := time.Parse(time.RFC3339, v); err == nil && now.After(t) {
+			if t, err := time.Parse(time.RFC3339, v.Until); err == nil && now.After(t) {
 				delete(postpone, k)
 			}
 		}
@@ -73,7 +75,7 @@ var heartbeatPostponeCmd = &cobra.Command{
 			return fmt.Errorf("write: %w", err)
 		}
 
-		fmt.Printf("Heartbeat postponed for session %q until %s (%s from now).\n", key, until.Local().Format("15:04"), d)
+		fmt.Printf("Heartbeat postponed for session %q until %s (%s from now).\n", key, now.Add(d).Local().Format("15:04"), d)
 		return nil
 	},
 }

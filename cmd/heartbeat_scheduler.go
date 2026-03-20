@@ -119,9 +119,11 @@ func (s *heartbeatScheduler) scan(ctx context.Context) {
 			logger.Debug("heartbeat skip: inactive >48h", "key", se.Key)
 			continue
 		}
-		if until, ok := postponed[se.Key]; ok {
-			if t, parseErr := time.Parse(time.RFC3339, until); parseErr == nil && now.Before(t) {
-				logger.Debug("heartbeat skip: postponed", "key", se.Key, "until", until)
+		if entry, ok := postponed[se.Key]; ok {
+			untilT, _ := time.Parse(time.RFC3339, entry.Until)
+			createdT, _ := time.Parse(time.RFC3339, entry.CreatedAt)
+			if now.Before(untilT) && !lastActive.After(createdT) {
+				logger.Debug("heartbeat skip: postponed", "key", se.Key, "until", entry.Until)
 				continue
 			}
 		}
@@ -252,10 +254,12 @@ func (s *heartbeatScheduler) Status() []hbStatusEntry {
 			entries = append(entries, e)
 			continue
 		}
-		if until, ok := postponed[se.Key]; ok {
-			if t, parseErr := time.Parse(time.RFC3339, until); parseErr == nil && now.Before(t) {
-				e.Status = fmt.Sprintf("postponed until %s", t.Local().Format("15:04"))
-				e.NextPulse = t.Local().Format("15:04")
+		if entry, ok := postponed[se.Key]; ok {
+			untilT, _ := time.Parse(time.RFC3339, entry.Until)
+			createdT, _ := time.Parse(time.RFC3339, entry.CreatedAt)
+			if now.Before(untilT) && !lastActive.After(createdT) {
+				e.Status = fmt.Sprintf("postponed until %s", untilT.Local().Format("15:04"))
+				e.NextPulse = untilT.Local().Format("15:04")
 				entries = append(entries, e)
 				continue
 			}
@@ -328,13 +332,19 @@ func hbFileMtime(path string) time.Time {
 	return time.Time{}
 }
 
-// loadPostponeConfig reads heartbeat-postpone.json: map of sessionKey → RFC3339 until time.
-func loadPostponeConfig(path string) map[string]string {
+// postponeEntry represents a heartbeat postpone with expiry and creation time.
+type postponeEntry struct {
+	Until     string `json:"until"`
+	CreatedAt string `json:"created_at"`
+}
+
+// loadPostponeConfig reads heartbeat-postpone.json.
+func loadPostponeConfig(path string) map[string]postponeEntry {
 	data, err := os.ReadFile(path)
 	if err != nil {
 		return nil
 	}
-	var m map[string]string
+	var m map[string]postponeEntry
 	if err := json.Unmarshal(data, &m); err != nil {
 		return nil
 	}
