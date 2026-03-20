@@ -40,13 +40,15 @@ Key: `resolveProvider()` calls `ProviderFactory.Create()` each time (not cached)
 
 Wake payloads use YAML frontmatter + markdown body with per-source visibility:
 - User messages (telegram/discord/cli/etc): `visibility: user-visible`
-- System messages (child_completed/cron/sleep/etc): `visibility: assistant-only`
+- System messages (child_completed/cron/sleep/heartbeat/etc): `visibility: assistant-only`
 
 Action hints for assistant-only sources explicitly tell the AI to include content in its response.
 
 ### Agent Templates (`agent/`)
 
 Agents are markdown templates in `{workspace}/agents/{name}.md` with `{{PLACEHOLDER}}` syntax. Variables set via `agent.Set(key, value)` before `Build()`. Runtime vars (TIME, TOOLS, SKILLS, USER) are set per-turn in `thread/run.go`.
+
+**Important**: `{{WORKSPACE}}` is resolved in `agent.Build()` only — skills loaded via `use_skill` do NOT get `{{WORKSPACE}}` replaced. Skills must use `nagobot` (on PATH) for CLI calls, not `{{WORKSPACE}}/bin/nagobot`.
 
 ### Provider Layer (`provider/`)
 
@@ -56,9 +58,73 @@ Each provider implements `Provider.Chat(ctx, *Request) (*Response, error)`. The 
 
 Tools implement `Def() ToolDef` + `Run(ctx, args) string`. Registered in a `Registry`, cloned per-thread. Search and fetch tools use `SearchProvider`/`FetchProvider` interfaces with runtime `Available()` checks.
 
+`sleep_thread` has a **heartbeat mode**: when `IsHeartbeatMode()` is true (wake source is `WakeHeartbeat`), all params are ignored — it just terminates and suppresses output. No cron job scheduled. The heartbeat scheduler handles the next pulse.
+
 ### Sessions (`session/`)
 
 Conversation history persisted as `{sessionsDir}/{sessionKey}/session.jsonl`. Auto-sanitized on save. Context pressure hooks trigger compression when token budget is exceeded.
+
+## Session vs Thread — Critical Distinction
+
+**Session** = persistent on-disk data (`session.jsonl`, `heartbeat.md`). Survives restarts, lives indefinitely.
+
+**Thread** = transient in-memory execution unit. Created by `Manager.NewThread()`, GC'd after 3h idle. `NewThread()` initializes `lastUserActiveAt = time.Now()` — this is NOT a reliable indicator of when the user was actually last active. For accurate user activity timestamps, always scan `session.jsonl` (via `collectSessions` or `isRealUserSource`), not in-memory thread state.
+
+**Rule**: Any scheduling or timing logic (heartbeat, compression eligibility) that needs `lastUserActiveAt` for sessions that may have been GC'd MUST read from `session.jsonl`, not from `Thread.lastUserActiveAt`. Threads are ephemeral — their state is lost on GC and reset on recreation.
+
+## Heartbeat System (`cmd/heartbeat_scheduler.go`)
+
+The heartbeat makes the bot proactive — monitoring conversations and acting on items between user interactions.
+
+### Architecture
+
+A Go goroutine (`heartbeatScheduler`) scans every 30s and fires heartbeat pulses into user sessions. NOT a cron job — the old cron-based dispatcher was removed.
+
+Three skills collaborate:
+- **heartbeat-wake**: thin router — decides reflect or act based on `heartbeat_modified` timestamp
+- **heartbeat-reflect**: silent — reviews conversation, updates `heartbeat.md`, calls `sleep_thread()`
+- **heartbeat-act**: visible — evaluates items, sends message to user if relevant, or `sleep_thread()`
+
+### Timing
+
+- **Quiet threshold**: 10 min after last user-visible message (`hbQuietMin`)
+- **Pulse interval**: 30 min (`hbPulseInterval`), or 10 min if `heartbeat.md` was modified (`hbFastPulse`)
+- **Activity window**: 48h — stops pulsing if no user-visible activity within 48h
+- **Schedule**: `lastActive+10m, +40m, +70m, ...` (10 min first pulse, then 30 min gaps)
+
+### Critical Implementation Details
+
+**`lastPulse` persistence**: The computed alignment `lp` is stored in `lastPulse[key]` immediately after first computation. Without this, `lp` was recomputed every 30s scan and drifted forward — the scheduler could never catch up to fire. This was a critical bug.
+
+**User activity source**: The scheduler uses `collectSessions()` (scans `session.jsonl` for `isRealUserSource`) to get accurate `lastUserActiveAt`. It does NOT use `Thread.lastUserActiveAt` because threads initialize this to `time.Now()` on creation, which would make heartbeat-created threads appear "just active."
+
+**`heartbeat status` RPC**: The CLI command calls `heartbeat.status` RPC which reads the scheduler's actual in-memory state (`lastPulse`, `lastHBMtime`, computed intervals). It does NOT compute independently — it reflects real scheduler state.
+
+### CLI Commands
+
+- `nagobot heartbeat status` — show real next pulse times from live scheduler (via RPC)
+- `nagobot heartbeat postpone <session-key> <duration>` — delay pulses for a session
+
+## Compression (`thread/compress.go`)
+
+### Tier 1 — Mechanical (idle ≥5 min, always runs)
+
+- Tool result compression (use_skill → header-only if outdated/old)
+- Wake payload compression (strip redundant YAML fields)
+- Body compression (large assistant-only content → head+tail)
+- **Heartbeat turn trim**: marks entire heartbeat turns for removal if `isHeartbeatSkipTurn` returns true:
+  - Requires `sleep_thread` was called (turn was deliberately silent)
+  - AND no non-safe tools were called (safe: `sleep_thread`, `use_skill`, `read_file`, `write_file`)
+  - Turns that sent a message to the user (no sleep_thread) are PRESERVED
+- Reasoning trim (>2h old reasoning content excluded at send-time)
+
+### Tier 2 — AI-driven (idle ≥30 min, tokens >65%)
+
+Wakes thread with `WakeCompression` source, loads `context-ops` skill to summarize.
+
+### Source Matching
+
+Heartbeat source matching uses `strings.HasPrefix(source, "heartbeat")` to cover both new (`"heartbeat"`) and old (`"heartbeat_reflect"`, `"heartbeat_wake"`) source strings in existing sessions.
 
 ## Key Patterns
 
@@ -66,7 +132,18 @@ Conversation history persisted as `{sessionsDir}/{sessionKey}/session.jsonl`. Au
 - **Per-wake sink**: Each WakeMessage carries its own Sink callback for response delivery. Zero Sink falls back to thread default.
 - **Agent override**: `WakeMessage.AgentName` overrides the thread's agent for that turn only.
 - **Async child threads**: `SpawnChild()` is fully async. Child completion wakes parent via Sink → Enqueue.
-- **Template workspace**: Canonical templates live in `cmd/templates/`. `onboard --sync` copies to `~/.nagobot/workspace/`. Never edit workspace files directly.
+- **Template workspace**: Canonical templates live in `cmd/templates/`. `onboard --sync` copies to `~/.nagobot/workspace/`. `cleanAndCopyEmbeddedDir` removes deleted templates. Never edit workspace files directly.
+- **Default cron seeds**: Only `tidyup` (4am daily) + `session-summary` (every 6h). Heartbeat is NOT a cron job.
+
+## Common Pitfalls
+
+- **Don't trust `Thread.lastUserActiveAt` for scheduling**: It's initialized to `time.Now()` on thread creation, not actual user activity. Use `collectSessions()` → `LastUserActiveAt` from `session.jsonl` scan.
+- **Don't use `logger.Debug` for things you need to see**: Heartbeat scheduler activity, error conditions — use `Info` or `Warn`. Debug is invisible at default log level.
+- **In-memory state is lost on restart**: `lastPulse`, `lastHBMtime` maps reset to empty. The alignment algorithm must handle cold start correctly. Any computed state that affects future behavior must be persisted immediately, not deferred until "success."
+- **`collectSessions` loads full session data**: Every call parses entire `session.jsonl` for all matching sessions. Don't call it in tight loops. The scheduler calls it every 30s — acceptable for small deployments.
+- **`{{WORKSPACE}}` doesn't resolve in skills**: Only in agent templates (`agent.Build()`). Skills loaded via `use_skill` see `{{WORKSPACE}}` as a literal string. Use `nagobot` CLI (on PATH) instead.
+- **Heartbeat turns suppress via LLM, not code**: The old `WakeHeartbeatReflect` had code-level `SetSuppressSink()`. Now both reflect and act use `WakeHeartbeat` — suppression relies on the LLM calling `sleep_thread()`. If the LLM forgets, output leaks to the user.
+- **`applyDefaults()` only adds, never prunes**: If a cron seed is removed from `defaultCronSeeds()`, old entries in `config.yaml` persist. Manual cleanup may be needed after upgrades.
 
 ## Deployment
 
