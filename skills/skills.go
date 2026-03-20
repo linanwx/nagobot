@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 	"sync"
 
@@ -57,9 +58,14 @@ func (r *Registry) Get(name string) (*Skill, bool) {
 func (r *Registry) List() []*Skill {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
-	skills := make([]*Skill, 0, len(r.skills))
-	for _, s := range r.skills {
-		skills = append(skills, s)
+	names := make([]string, 0, len(r.skills))
+	for name := range r.skills {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	skills := make([]*Skill, 0, len(names))
+	for _, name := range names {
+		skills = append(skills, r.skills[name])
 	}
 	return skills
 }
@@ -361,7 +367,7 @@ func (r *Registry) BuildPromptSection() string {
 	return sb.String()
 }
 
-// SkillNames returns the slugs of all registered skills.
+// SkillNames returns the slugs of all registered skills in sorted order.
 func (r *Registry) SkillNames() []string {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
@@ -369,6 +375,7 @@ func (r *Registry) SkillNames() []string {
 	for name := range r.skills {
 		names = append(names, name)
 	}
+	sort.Strings(names)
 	return names
 }
 

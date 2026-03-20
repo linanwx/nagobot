@@ -374,7 +374,11 @@ func (p *OpenRouterProvider) Chat(ctx context.Context, req *Request) (*Response,
 			oaioption.WithJSONSet("provider.order", meta.ProviderOrder),
 		)
 	}
-	// Enable prompt caching for Anthropic models (requires explicit cache_control).
+	// Enable prompt caching for Anthropic models.
+	// OpenRouter auto-places the cache breakpoint at the last cacheable block,
+	// caching the full prefix (tools + system + conversation history).
+	// Requires deterministic serialization — tools (tools.Defs), skills (skills.List),
+	// and session summaries (buildSessionsSummary) must be sorted.
 	if strings.HasPrefix(p.modelType, "anthropic/") {
 		requestOpts = append(requestOpts,
 			oaioption.WithJSONSet("cache_control", map[string]any{"type": "ephemeral"}),

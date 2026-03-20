@@ -130,11 +130,18 @@ func (r *Registry) Get(name string) (Tool, bool) {
 	return t, ok
 }
 
-// Defs returns all tool definitions.
+// Defs returns all tool definitions in deterministic (sorted) order.
+// Sorted order is required for prompt caching — the cache prefix
+// includes tools, and non-deterministic ordering causes cache misses.
 func (r *Registry) Defs() []provider.ToolDef {
-	defs := make([]provider.ToolDef, 0, len(r.tools))
-	for _, t := range r.tools {
-		defs = append(defs, t.Def())
+	names := make([]string, 0, len(r.tools))
+	for name := range r.tools {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	defs := make([]provider.ToolDef, 0, len(names))
+	for _, name := range names {
+		defs = append(defs, r.tools[name].Def())
 	}
 	return defs
 }
