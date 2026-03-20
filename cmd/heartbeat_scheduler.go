@@ -3,6 +3,7 @@ package cmd
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -164,6 +165,10 @@ func (s *heartbeatScheduler) maybeFirePulse(key string, now time.Time, lastActiv
 			lp = next.Add(-hbPulseInterval)
 			interval = hbPulseInterval
 		}
+		// Persist computed lp so subsequent scans don't re-compute and drift.
+		s.mu.Lock()
+		s.lastPulse[key] = lp
+		s.mu.Unlock()
 	}
 	if now.Sub(lp) < interval {
 		logger.Debug("heartbeat skip: interval not reached", "key", key,
@@ -197,6 +202,116 @@ func (s *heartbeatScheduler) maybeFirePulse(key string, now time.Time, lastActiv
 	s.mu.Unlock()
 
 	logger.Info("heartbeat pulse fired", "sessionKey", key, "nextPulse", nextPulse)
+}
+
+// hbStatusEntry represents one session's heartbeat status.
+type hbStatusEntry struct {
+	Key          string `json:"key"`
+	LastActive   string `json:"last_active"`
+	NextPulse    string `json:"next_pulse"`
+	Status       string `json:"status"`
+	HasHeartbeat bool   `json:"has_heartbeat"`
+}
+
+// Status returns the real heartbeat state for all eligible sessions,
+// using the scheduler's actual in-memory lastPulse/lastHBMtime.
+func (s *heartbeatScheduler) Status() []hbStatusEntry {
+	now := time.Now()
+	cfg := s.cfgFn()
+	workspace, _ := cfg.WorkspacePath()
+	postponed := loadPostponeConfig(filepath.Join(workspace, "system", "heartbeat-postpone.json"))
+
+	opts := listSessionsOpts{Days: 2, UserOnly: true}
+	sessions, err := collectSessions(cfg, opts)
+	if err != nil {
+		return nil
+	}
+
+	sessionsDir, _ := cfg.SessionsDir()
+	var entries []hbStatusEntry
+
+	for _, se := range sessions.Sessions {
+		if se.LastUserActiveAt == nil {
+			continue
+		}
+		lastActive, parseErr := time.Parse(time.RFC3339, *se.LastUserActiveAt)
+		if parseErr != nil {
+			continue
+		}
+
+		e := hbStatusEntry{
+			Key:          se.Key,
+			LastActive:   lastActive.Local().Format("15:04"),
+			HasHeartbeat: se.HasHeartbeat,
+		}
+
+		if now.Sub(lastActive) > hbActivityWindow {
+			e.Status = "inactive (>48h)"
+			e.NextPulse = "-"
+			entries = append(entries, e)
+			continue
+		}
+		if until, ok := postponed[se.Key]; ok {
+			if t, parseErr := time.Parse(time.RFC3339, until); parseErr == nil && now.Before(t) {
+				e.Status = fmt.Sprintf("postponed until %s", t.Local().Format("15:04"))
+				e.NextPulse = t.Local().Format("15:04")
+				entries = append(entries, e)
+				continue
+			}
+		}
+		if now.Sub(lastActive) < hbQuietMin {
+			e.Status = "user active"
+			e.NextPulse = lastActive.Add(hbQuietMin).Local().Format("15:04")
+			entries = append(entries, e)
+			continue
+		}
+		if se.IsRunning {
+			e.Status = "thread running"
+			e.NextPulse = "-"
+			entries = append(entries, e)
+			continue
+		}
+
+		// Compute next pulse using real scheduler state.
+		sessionDir := hbSessionKeyToDir(sessionsDir, se.Key)
+		hbPath := filepath.Join(sessionDir, "heartbeat.md")
+		hbMtime := hbFileMtime(hbPath)
+
+		s.mu.Lock()
+		prevMtime := s.lastHBMtime[se.Key]
+		lp := s.lastPulse[se.Key]
+		s.mu.Unlock()
+
+		interval := hbPulseInterval
+		if !prevMtime.IsZero() && !hbMtime.IsZero() && hbMtime.After(prevMtime) {
+			interval = hbFastPulse
+		}
+
+		if lp.IsZero() {
+			firstPulse := lastActive.Add(hbQuietMin)
+			if !firstPulse.Before(now) {
+				lp = lastActive
+				interval = hbQuietMin
+			} else {
+				next := firstPulse
+				for next.Before(now) {
+					next = next.Add(hbPulseInterval)
+				}
+				lp = next.Add(-hbPulseInterval)
+				interval = hbPulseInterval
+			}
+		}
+
+		nextPulse := lp.Add(interval)
+		e.NextPulse = nextPulse.Local().Format("15:04:05")
+		if now.Before(nextPulse) {
+			e.Status = fmt.Sprintf("waiting (%s)", (nextPulse.Sub(now)).Round(time.Second))
+		} else {
+			e.Status = "due now"
+		}
+		entries = append(entries, e)
+	}
+	return entries
 }
 
 // hbSessionKeyToDir converts a session key to its directory path.

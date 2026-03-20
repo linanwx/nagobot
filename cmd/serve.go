@@ -81,6 +81,12 @@ func runServe(cmd *cobra.Command, args []string) error {
 	socketCh := channel.NewSocketChannel(socketPath)
 	chManager.Register(socketCh)
 
+	// Heartbeat scheduler (created early so RPC can reference it).
+	hbScheduler := newHeartbeatScheduler(threadMgr, func() *config.Config {
+		c, _ := config.Load()
+		return c
+	})
+
 	// Wire RPC handler so CLI commands can query the running serve process.
 	socketCh.SetRPCHandler(func(method string, params json.RawMessage) (any, error) {
 		switch method {
@@ -90,7 +96,6 @@ func runServe(cmd *cobra.Command, args []string) error {
 			if p.Days == 0 {
 				p.Days = 2
 			}
-			// Reload config to respect hot-reload changes.
 			latestCfg, err := config.Load()
 			if err != nil {
 				return nil, fmt.Errorf("load config: %w", err)
@@ -101,6 +106,8 @@ func runServe(cmd *cobra.Command, args []string) error {
 			}
 			enrichWithThreads(output, threadMgr.ListThreads())
 			return output, nil
+		case "heartbeat.status":
+			return hbScheduler.Status(), nil
 		default:
 			return nil, fmt.Errorf("unknown method: %s", method)
 		}
@@ -171,11 +178,7 @@ func runServe(cmd *cobra.Command, args []string) error {
 	// Start thread manager run loop in background.
 	go threadMgr.Run(ctx)
 
-	// Start heartbeat scheduler.
-	hbScheduler := newHeartbeatScheduler(threadMgr, func() *config.Config {
-		c, _ := config.Load()
-		return c
-	})
+	// Start heartbeat scheduler (created above near RPC handler).
 	go hbScheduler.run(ctx)
 
 	// Dispatcher reads from channels and dispatches to threads.
