@@ -7,7 +7,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/linanwx/nagobot/logger"
 	"github.com/linanwx/nagobot/provider"
 )
 
@@ -16,7 +15,6 @@ type ThreadSleeper interface {
 	SleepThread(duration time.Duration, message string) error
 	SetSuppressSink()
 	SetHaltLoop()
-	IsHeartbeatMode() bool
 }
 
 // SleepThreadTool lets the model sleep the current thread.
@@ -29,26 +27,8 @@ func NewSleepThreadTool(sleeper ThreadSleeper) *SleepThreadTool {
 	return &SleepThreadTool{sleeper: sleeper}
 }
 
-// Def returns the tool definition. In heartbeat mode, returns a simplified
-// definition with no parameters — just terminate and suppress.
+// Def returns the tool definition with full parameters (duration/message/skip).
 func (t *SleepThreadTool) Def() provider.ToolDef {
-	isHB := t.sleeper != nil && t.sleeper.IsHeartbeatMode()
-	logger.Info("sleep_thread Def()", "isHeartbeatMode", isHB)
-	if isHB {
-		return provider.ToolDef{
-			Type: "function",
-			Function: provider.FunctionDef{
-				Name: "sleep_thread",
-				Description: "End this heartbeat turn silently. Suppresses all output — the user will not see this turn. " +
-					"The heartbeat scheduler fires the next pulse automatically. " +
-					"Call with no arguments.",
-				Parameters: map[string]any{
-					"type":       "object",
-					"properties": map[string]any{},
-				},
-			},
-		}
-	}
 	return provider.ToolDef{
 		Type: "function",
 		Function: provider.FunctionDef{
@@ -92,18 +72,6 @@ type sleepThreadArgs struct {
 func (t *SleepThreadTool) Run(_ context.Context, args json.RawMessage) string {
 	if t.sleeper == nil {
 		return "Error: sleep not configured"
-	}
-
-	// Heartbeat mode: terminate and suppress, no scheduling needed.
-	// Check BEFORE parseArgs — LLM may pass stale params from session history
-	// that fail deserialization (e.g. skip:"true" instead of skip:true).
-	if t.sleeper.IsHeartbeatMode() {
-		t.sleeper.SetSuppressSink()
-		t.sleeper.SetHaltLoop()
-		return toolResult("sleep_thread", map[string]any{
-			"mode": "heartbeat_terminate",
-		}, "Heartbeat turn terminated. Output suppressed. "+
-			"The heartbeat scheduler will fire the next pulse automatically.")
 	}
 
 	var a sleepThreadArgs
@@ -162,4 +130,48 @@ func (t *SleepThreadTool) Run(_ context.Context, args json.RawMessage) string {
 		"All output for this turn is suppressed — the user will NOT receive any message. "+
 		"The cron scheduler will wake this thread at the specified time. "+
 		"This does NOT affect future turns — heartbeat, cron, and user messages will still trigger normally.")
+}
+
+// HeartbeatSleepTool is the sleep_thread replacement used during heartbeat turns.
+// No parameters — just terminate the turn and suppress output.
+type HeartbeatSleepTool struct {
+	suppressor HaltSuppressor
+}
+
+// HaltSuppressor is the minimal interface for heartbeat sleep: suppress + halt.
+type HaltSuppressor interface {
+	SetSuppressSink()
+	SetHaltLoop()
+}
+
+// NewHeartbeatSleepTool creates a heartbeat-only sleep_thread tool.
+func NewHeartbeatSleepTool(s HaltSuppressor) *HeartbeatSleepTool {
+	return &HeartbeatSleepTool{suppressor: s}
+}
+
+// Def returns the tool definition — no parameters, heartbeat-specific description.
+func (t *HeartbeatSleepTool) Def() provider.ToolDef {
+	return provider.ToolDef{
+		Type: "function",
+		Function: provider.FunctionDef{
+			Name: "sleep_thread",
+			Description: "End this heartbeat turn silently. Suppresses all output — the user will not see this turn. " +
+				"The heartbeat scheduler fires the next pulse automatically. " +
+				"Call with no arguments.",
+			Parameters: map[string]any{
+				"type":       "object",
+				"properties": map[string]any{},
+			},
+		},
+	}
+}
+
+// Run terminates the heartbeat turn. All arguments are ignored.
+func (t *HeartbeatSleepTool) Run(_ context.Context, _ json.RawMessage) string {
+	t.suppressor.SetSuppressSink()
+	t.suppressor.SetHaltLoop()
+	return toolResult("sleep_thread", map[string]any{
+		"mode": "heartbeat_terminate",
+	}, "Heartbeat turn terminated. Output suppressed. "+
+		"The heartbeat scheduler will fire the next pulse automatically.")
 }
