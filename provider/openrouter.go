@@ -374,6 +374,12 @@ func (p *OpenRouterProvider) Chat(ctx context.Context, req *Request) (*Response,
 			oaioption.WithJSONSet("provider.order", meta.ProviderOrder),
 		)
 	}
+	// Enable prompt caching for Anthropic models (requires explicit cache_control).
+	if strings.HasPrefix(p.modelType, "anthropic/") {
+		requestOpts = append(requestOpts,
+			oaioption.WithJSONSet("cache_control", map[string]any{"type": "ephemeral"}),
+		)
+	}
 
 	chatResp, err := p.client.Chat.Completions.New(ctx, chatReq, requestOpts...)
 	if err != nil {
@@ -396,6 +402,7 @@ func (p *OpenRouterProvider) Chat(ctx context.Context, req *Request) (*Response,
 	finalContent := choice.Message.Content
 	finalContent = resolveContentWithReasoningFallback(finalContent, reasoningText, "openrouter", toolCalls)
 
+	cachedTokens := chatResp.Usage.PromptTokensDetails.CachedTokens
 	logger.Info(
 		"openrouter response",
 		"provider", "openrouter",
@@ -408,6 +415,7 @@ func (p *OpenRouterProvider) Chat(ctx context.Context, req *Request) (*Response,
 		"promptTokens", chatResp.Usage.PromptTokens,
 		"completionTokens", chatResp.Usage.CompletionTokens,
 		"reasoningTokens", reasoningTokens,
+		"cachedTokens", cachedTokens,
 		"totalTokens", chatResp.Usage.TotalTokens,
 		"outputChars", len(choice.Message.Content),
 		"latencyMs", time.Since(start).Milliseconds(),
