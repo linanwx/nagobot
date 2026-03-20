@@ -15,45 +15,86 @@ import (
 	"github.com/spf13/cobra"
 )
 
+var updatePre bool
+
 var updateCmd = &cobra.Command{
 	Use:   "update",
 	Short: "Update nagobot to the latest version",
 	Long: `Check for the latest release on GitHub and update the binary in place.
+
+By default only stable (non-pre-release) versions are considered.
+Use --pre to include pre-release versions.
 
 After replacing the binary the running service is automatically restarted.`,
 	RunE: runUpdate,
 }
 
 func init() {
+	updateCmd.Flags().BoolVar(&updatePre, "pre", false, "Include pre-release versions")
 	rootCmd.AddCommand(updateCmd)
 }
 
 type ghRelease struct {
-	TagName string `json:"tag_name"`
+	TagName    string `json:"tag_name"`
+	Prerelease bool   `json:"prerelease"`
+	Draft      bool   `json:"draft"`
+}
+
+// fetchLatestVersion returns the tag name of the target release.
+// When pre is false, it uses /releases/latest (stable only).
+// When pre is true, it lists releases and picks the first non-draft entry.
+func fetchLatestVersion(pre bool) (string, error) {
+	if !pre {
+		resp, err := http.Get("https://api.github.com/repos/linanwx/nagobot/releases/latest")
+		if err != nil {
+			return "", fmt.Errorf("cannot reach GitHub API: %w", err)
+		}
+		defer resp.Body.Close()
+
+		if resp.StatusCode != http.StatusOK {
+			return "", fmt.Errorf("GitHub API returned %s", resp.Status)
+		}
+
+		var rel ghRelease
+		if err := json.NewDecoder(resp.Body).Decode(&rel); err != nil {
+			return "", fmt.Errorf("cannot parse release info: %w", err)
+		}
+		if rel.TagName == "" {
+			return "", fmt.Errorf("no stable release found")
+		}
+		return rel.TagName, nil
+	}
+
+	// --pre: list all releases and pick the first non-draft.
+	resp, err := http.Get("https://api.github.com/repos/linanwx/nagobot/releases?per_page=10")
+	if err != nil {
+		return "", fmt.Errorf("cannot reach GitHub API: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return "", fmt.Errorf("GitHub API returned %s", resp.Status)
+	}
+
+	var releases []ghRelease
+	if err := json.NewDecoder(resp.Body).Decode(&releases); err != nil {
+		return "", fmt.Errorf("cannot parse releases: %w", err)
+	}
+
+	for _, r := range releases {
+		if !r.Draft {
+			return r.TagName, nil
+		}
+	}
+	return "", fmt.Errorf("no release found")
 }
 
 func runUpdate(cmd *cobra.Command, args []string) error {
 	fmt.Printf("Current version: %s\n", Version)
 
-	// Fetch latest release.
-	resp, err := http.Get("https://api.github.com/repos/linanwx/nagobot/releases/latest")
+	latest, err := fetchLatestVersion(updatePre)
 	if err != nil {
-		return fmt.Errorf("cannot reach GitHub API: %w", err)
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		return fmt.Errorf("GitHub API returned %s", resp.Status)
-	}
-
-	var release ghRelease
-	if err := json.NewDecoder(resp.Body).Decode(&release); err != nil {
-		return fmt.Errorf("cannot parse release info: %w", err)
-	}
-
-	latest := release.TagName
-	if latest == "" {
-		return fmt.Errorf("no release found")
+		return err
 	}
 
 	if strings.TrimPrefix(latest, "v") == strings.TrimPrefix(Version, "v") {

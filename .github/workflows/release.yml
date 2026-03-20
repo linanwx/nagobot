@@ -36,7 +36,7 @@ jobs:
           sha256sum nagobot-* > checksums.txt
 
       - name: Create Release
-        run: gh release create "${{ github.ref_name }}" nagobot-* checksums.txt --generate-notes
+        run: gh release create "${{ github.ref_name }}" nagobot-* checksums.txt --generate-notes --prerelease
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 

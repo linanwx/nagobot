@@ -46,7 +46,7 @@ Action hints for assistant-only sources explicitly tell the AI to include conten
 
 ### Agent Templates (`agent/`)
 
-Agents are markdown templates in `{workspace}/agents/{name}.md` with `{{PLACEHOLDER}}` syntax. Variables set via `agent.Set(key, value)` before `Build()`. Runtime vars (TIME, TOOLS, SKILLS, USER) are set per-turn in `thread/run.go`.
+Agents are markdown templates in `{workspace}/agents/{name}.md` with `{{PLACEHOLDER}}` syntax. Variables set via `agent.Set(key, value)` before `Build()`. Runtime vars (TOOLS, SKILLS, USER) are set per-turn in `thread/run.go`. `{{DATE}}` and `{{CALENDAR}}` are auto-resolved in `agent.Build()` at day-level granularity (no minutes/seconds).
 
 **Important**: `{{WORKSPACE}}` is resolved in `agent.Build()` only — skills loaded via `use_skill` do NOT get `{{WORKSPACE}}` replaced. Skills must use `nagobot` (on PATH) for CLI calls, not `{{WORKSPACE}}/bin/nagobot`.
 
