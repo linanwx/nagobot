@@ -87,16 +87,13 @@ type sleepThreadArgs struct {
 
 // Run executes the tool.
 func (t *SleepThreadTool) Run(_ context.Context, args json.RawMessage) string {
-	var a sleepThreadArgs
-	if errMsg := parseArgs(args, &a); errMsg != "" {
-		return errMsg
-	}
-
 	if t.sleeper == nil {
 		return "Error: sleep not configured"
 	}
 
 	// Heartbeat mode: terminate and suppress, no scheduling needed.
+	// Check BEFORE parseArgs — LLM may pass stale params from session history
+	// that fail deserialization (e.g. skip:"true" instead of skip:true).
 	if t.sleeper.IsHeartbeatMode() {
 		t.sleeper.SetSuppressSink()
 		t.sleeper.SetHaltLoop()
@@ -104,6 +101,11 @@ func (t *SleepThreadTool) Run(_ context.Context, args json.RawMessage) string {
 			"mode": "heartbeat_terminate",
 		}, "Heartbeat turn terminated. Output suppressed. "+
 			"The heartbeat scheduler will fire the next pulse automatically.")
+	}
+
+	var a sleepThreadArgs
+	if errMsg := parseArgs(args, &a); errMsg != "" {
+		return errMsg
 	}
 
 	// Suppress sink delivery for this turn.
