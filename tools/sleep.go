@@ -7,6 +7,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/linanwx/nagobot/logger"
 	"github.com/linanwx/nagobot/provider"
 )
 
@@ -31,7 +32,9 @@ func NewSleepThreadTool(sleeper ThreadSleeper) *SleepThreadTool {
 // Def returns the tool definition. In heartbeat mode, returns a simplified
 // definition with no parameters — just terminate and suppress.
 func (t *SleepThreadTool) Def() provider.ToolDef {
-	if t.sleeper != nil && t.sleeper.IsHeartbeatMode() {
+	isHB := t.sleeper != nil && t.sleeper.IsHeartbeatMode()
+	logger.Info("sleep_thread Def()", "isHeartbeatMode", isHB)
+	if isHB {
 		return provider.ToolDef{
 			Type: "function",
 			Function: provider.FunctionDef{
