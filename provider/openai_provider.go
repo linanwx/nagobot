@@ -144,6 +144,7 @@ func (p *OpenAIProvider) Chat(ctx context.Context, req *Request) (*Response, err
 		"toolCallCount", len(resp.ToolCalls),
 		"promptTokens", resp.Usage.PromptTokens,
 		"completionTokens", resp.Usage.CompletionTokens,
+		"cachedTokens", resp.Usage.CachedTokens,
 		"totalTokens", resp.Usage.TotalTokens,
 		"outputChars", len(resp.Content),
 		"latencyMs", time.Since(start).Milliseconds(),
@@ -315,9 +316,12 @@ func (p *OpenAIProvider) parseSSEStream(httpResp *http.Response) (*Response, err
 			Item     map[string]any `json:"item,omitempty"`
 			Response struct {
 				Usage struct {
-					InputTokens  int `json:"input_tokens"`
-					OutputTokens int `json:"output_tokens"`
-					TotalTokens  int `json:"total_tokens"`
+					InputTokens        int `json:"input_tokens"`
+					OutputTokens       int `json:"output_tokens"`
+					TotalTokens        int `json:"total_tokens"`
+					InputTokensDetails struct {
+						CachedTokens int `json:"cached_tokens"`
+					} `json:"input_tokens_details"`
 				} `json:"usage"`
 				Error *responsesAPIError `json:"error,omitempty"`
 			} `json:"response,omitempty"`
@@ -335,6 +339,7 @@ func (p *OpenAIProvider) parseSSEStream(httpResp *http.Response) (*Response, err
 				PromptTokens:     event.Response.Usage.InputTokens,
 				CompletionTokens: event.Response.Usage.OutputTokens,
 				TotalTokens:      event.Response.Usage.TotalTokens,
+				CachedTokens:     event.Response.Usage.InputTokensDetails.CachedTokens,
 			}
 
 		case "response.failed":
