@@ -35,6 +35,10 @@ Without heartbeat, you only react. With heartbeat, you anticipate. Your job is t
          - try to fix these chat-condition triggers to be time-based or resource-based triggers
             - catch: if unfixable → remove item
    - if nothing fixed, reconsider: am I too passive?
+   - if you want to delay the next pulse:
+      - call `exec` to run: `nagobot heartbeat postpone <session-key> <duration>`
+      - The session key is in the wake frontmatter (`session:` field)
+      - Valid durations: 15m to 6h (e.g., "4h" for nothing interesting until afternoon)
 
 4. if no items remain && current file is not empty → write empty string to clear file (don't delete)
 5. Call `sleep_thread()` — this ends the turn silently. Do NOT reply with text.
