@@ -156,9 +156,8 @@ func runOnboard(cmd *cobra.Command, _ []string) error {
 				return err
 			}
 			if useDefault {
-				modelOverrides[g.ModelType] = &config.ModelConfig{
-					Provider: selectedProvider, ModelType: selectedModel,
-				}
+				// Don't write explicit entry — let it fall through to outer default.
+				// This way, changing the default later automatically applies here too.
 				continue
 			}
 		} else {
@@ -183,9 +182,7 @@ func runOnboard(cmd *cobra.Command, _ []string) error {
 				continue
 			}
 			if choice == "default" {
-				modelOverrides[g.ModelType] = &config.ModelConfig{
-					Provider: selectedProvider, ModelType: selectedModel,
-				}
+				// Don't write explicit entry — let it fall through to outer default.
 				continue
 			}
 		}
@@ -315,12 +312,9 @@ func runOnboard(cmd *cobra.Command, _ []string) error {
 	}
 	cfg.SetProvider(selectedProvider)
 	cfg.SetModelType(selectedModel)
-	if cfg.Thread.Models == nil {
-		cfg.Thread.Models = make(map[string]*config.ModelConfig)
-	}
-	for k, v := range modelOverrides {
-		cfg.Thread.Models[k] = v
-	}
+	// Replace models map entirely — specialties that chose "use default" are
+	// intentionally absent, so stale entries from previous onboard runs get cleaned up.
+	cfg.Thread.Models = modelOverrides
 
 	if configureTG {
 		cfg.Channels.Telegram.Token = strings.TrimSpace(tgToken)
