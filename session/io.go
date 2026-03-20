@@ -161,6 +161,25 @@ func ReadUpdatedAt(path string) (time.Time, error) {
 // SessionFileName is the canonical session file name.
 const SessionFileName = "session.jsonl"
 
+// SessionDir returns the on-disk directory for a session key.
+// Applies the same normalization and sanitization as Manager.sessionPath.
+func SessionDir(sessionsDir, key string) string {
+	key = normalizeSessionKey(key)
+	parts := strings.Split(key, ":")
+	cleanParts := make([]string, 0, len(parts))
+	for _, p := range parts {
+		segment := sanitizePathSegment(p)
+		if segment == "" {
+			continue
+		}
+		cleanParts = append(cleanParts, segment)
+	}
+	if len(cleanParts) == 0 {
+		cleanParts = append(cleanParts, "cli")
+	}
+	return filepath.Join(append([]string{sessionsDir}, cleanParts...)...)
+}
+
 // DeriveKeyFromPath extracts a session key from a file path.
 // Given ".../sessions/telegram/12345/session.jsonl", returns "telegram:12345".
 // Falls back to the parent directory name if "sessions" is not in the path.

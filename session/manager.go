@@ -198,21 +198,7 @@ func (m *Manager) Append(key string, msgs ...provider.Message) error {
 }
 
 func (m *Manager) sessionPath(key string) string {
-	key = normalizeSessionKey(key)
-	parts := strings.Split(key, ":")
-	cleanParts := make([]string, 0, len(parts)+1)
-	for _, p := range parts {
-		segment := sanitizePathSegment(p)
-		if segment == "" {
-			continue
-		}
-		cleanParts = append(cleanParts, segment)
-	}
-	if len(cleanParts) == 0 {
-		cleanParts = append(cleanParts, "cli")
-	}
-	cleanParts = append(cleanParts, SessionFileName)
-	return filepath.Join(append([]string{m.sessionsDir}, cleanParts...)...)
+	return filepath.Join(SessionDir(m.sessionsDir, key), SessionFileName)
 }
 
 // PathForKey returns the on-disk session file path for a session key.

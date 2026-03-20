@@ -12,6 +12,7 @@ import (
 	"github.com/linanwx/nagobot/channel"
 	"github.com/linanwx/nagobot/config"
 	"github.com/linanwx/nagobot/logger"
+	"github.com/linanwx/nagobot/session"
 	"github.com/linanwx/nagobot/thread"
 	sysmsg "github.com/linanwx/nagobot/thread/msg"
 )
@@ -329,8 +330,7 @@ func persistChannelRouting(sessionsDir, sessionKey string, msg *channel.Message)
 		return
 	}
 
-	parts := strings.Split(sessionKey, ":")
-	sessionDir := filepath.Join(append([]string{sessionsDir}, parts...)...)
+	sessionDir := session.SessionDir(sessionsDir, sessionKey)
 
 	data := map[string]any{
 		"discord_dm": map[string]string{
