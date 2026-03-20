@@ -220,7 +220,16 @@ func (b *OpenAIQuota) Check(ctx context.Context) (*BalanceInfo, error) {
 			detail := fmt.Sprintf("%.1f%% used", pw.UsedPercent)
 			if pw.ResetAt > 0 {
 				resetTime := time.Unix(pw.ResetAt, 0)
-				detail += fmt.Sprintf(", resets %s", resetTime.Local().Format("15:04"))
+				remaining := time.Until(resetTime)
+				elapsed := time.Duration(pw.LimitWindowSeconds)*time.Second - remaining
+				elapsedPct := float64(elapsed) / float64(time.Duration(pw.LimitWindowSeconds)*time.Second) * 100
+				if elapsedPct < 0 {
+					elapsedPct = 0
+				}
+				detail += fmt.Sprintf(", resets %s, %s left, %.0f%% elapsed",
+					resetTime.Local().Format("15:04"),
+					formatDuration(remaining),
+					elapsedPct)
 			}
 			info.Balances = append(info.Balances, BalanceEntry{
 				Currency: fmt.Sprintf("%dh", hours),
@@ -237,7 +246,16 @@ func (b *OpenAIQuota) Check(ctx context.Context) (*BalanceInfo, error) {
 			detail := fmt.Sprintf("%.1f%% used", sw.UsedPercent)
 			if sw.ResetAt > 0 {
 				resetTime := time.Unix(sw.ResetAt, 0)
-				detail += fmt.Sprintf(", resets %s", resetTime.Local().Format("Jan 2 15:04"))
+				remaining := time.Until(resetTime)
+				elapsed := time.Duration(sw.LimitWindowSeconds)*time.Second - remaining
+				elapsedPct := float64(elapsed) / float64(time.Duration(sw.LimitWindowSeconds)*time.Second) * 100
+				if elapsedPct < 0 {
+					elapsedPct = 0
+				}
+				detail += fmt.Sprintf(", resets %s, %s left, %.0f%% elapsed",
+					resetTime.Local().Format("Jan 2 15:04"),
+					formatDuration(remaining),
+					elapsedPct)
 			}
 			info.Balances = append(info.Balances, BalanceEntry{
 				Currency: label,
@@ -271,6 +289,29 @@ func (b *OpenAIQuota) Check(ctx context.Context) (*BalanceInfo, error) {
 	}
 
 	return info, nil
+}
+
+func formatDuration(d time.Duration) string {
+	if d <= 0 {
+		return "0m"
+	}
+	d = d.Round(time.Minute)
+	days := int(d.Hours()) / 24
+	hours := int(d.Hours()) % 24
+	mins := int(d.Minutes()) % 60
+	if days > 0 {
+		if hours > 0 {
+			return fmt.Sprintf("%dd%dh", days, hours)
+		}
+		return fmt.Sprintf("%dd", days)
+	}
+	if hours > 0 {
+		if mins > 0 {
+			return fmt.Sprintf("%dh%dm", hours, mins)
+		}
+		return fmt.Sprintf("%dh", hours)
+	}
+	return fmt.Sprintf("%dm", mins)
 }
 
 // CheckAllBalances queries all available balance checkers.
