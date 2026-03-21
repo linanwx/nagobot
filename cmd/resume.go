@@ -36,6 +36,11 @@ func resumeInterruptedSessions(sessionsDir string, mgr *thread.Manager) {
 			return nil
 		}
 
+		// Skip sessions that already have an active thread (user interacted during startup delay).
+		if mgr.HasThread(key) {
+			return nil
+		}
+
 		// Layer 2: timestamp filter — read only the last message's timestamp.
 		lastMsg, err := session.ReadLastMessage(path)
 		if err != nil {
