@@ -179,16 +179,21 @@ func runServe(cmd *cobra.Command, args []string) error {
 	// Start thread manager run loop in background.
 	go threadMgr.Run(ctx)
 
-	// Resume interrupted sessions after a delay to let channels stabilize.
+	// Resume interrupted sessions: scan immediately, send wakes after 15s delay
+	// to let channels stabilize (so defaultSink can deliver).
 	go func() {
+		sessionsDir, err := cfg.SessionsDir()
+		if err != nil {
+			logger.Error("resume: failed to get sessions dir", "err", err)
+			return
+		}
+		candidates := scanInterruptedSessions(sessionsDir)
+		if len(candidates) == 0 {
+			return
+		}
 		select {
 		case <-time.After(15 * time.Second):
-			sessionsDir, err := cfg.SessionsDir()
-			if err != nil {
-				logger.Error("resume: failed to get sessions dir", "err", err)
-				return
-			}
-			resumeInterruptedSessions(sessionsDir, threadMgr)
+			sendResumeWakes(threadMgr, candidates)
 		case <-ctx.Done():
 		}
 	}()

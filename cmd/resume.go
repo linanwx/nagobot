@@ -18,13 +18,19 @@ const resumeMaxAge = 10 * time.Minute
 // persistent delivery (defaultSink can reach the user after restart).
 var resumableChannelPrefixes = []string{"telegram:", "discord:", "feishu:"}
 
-// resumeInterruptedSessions scans sessions on disk and wakes any that were
-// interrupted mid-execution within resumeMaxAge.
-func resumeInterruptedSessions(sessionsDir string, mgr *thread.Manager) {
-	cutoff := time.Now().Add(-resumeMaxAge)
-	var resumed int
+// resumeCandidate holds the data needed to wake an interrupted session.
+type resumeCandidate struct {
+	key  string
+	body string
+}
 
-	err := filepath.WalkDir(sessionsDir, func(path string, d fs.DirEntry, walkErr error) error {
+// scanInterruptedSessions identifies sessions that were interrupted mid-execution.
+// This is a pure read operation — no wakes are sent.
+func scanInterruptedSessions(sessionsDir string) []resumeCandidate {
+	cutoff := time.Now().Add(-resumeMaxAge)
+	var candidates []resumeCandidate
+
+	_ = filepath.WalkDir(sessionsDir, func(path string, d fs.DirEntry, walkErr error) error {
 		if walkErr != nil || d.IsDir() || d.Name() != session.SessionFileName {
 			return nil
 		}
@@ -33,11 +39,6 @@ func resumeInterruptedSessions(sessionsDir string, mgr *thread.Manager) {
 
 		// Layer 1: prefix filter — only telegram/discord/feishu, no child threads.
 		if !isResumableSessionKey(key) {
-			return nil
-		}
-
-		// Skip sessions that already have an active thread (user interacted during startup delay).
-		if mgr.HasThread(key) {
 			return nil
 		}
 
@@ -70,30 +71,33 @@ func resumeInterruptedSessions(sessionsDir string, mgr *thread.Manager) {
 		body := ""
 		if ok {
 			body = origMsg.Content
-			// Truncate to avoid bloating the wake payload.
 			if len(body) > 1000 {
 				body = body[:1000] + "\n... (truncated)"
 			}
 		}
 
-		logger.Info("resuming interrupted session",
+		logger.Info("found interrupted session",
 			"sessionKey", key,
 			"lastRole", lastMsg.Role,
 			"lastTimestamp", lastMsg.Timestamp.Format(time.RFC3339),
 		)
-
-		mgr.Wake(key, &thread.WakeMessage{
-			Source:  thread.WakeResume,
-			Message: body,
-		})
-		resumed++
+		candidates = append(candidates, resumeCandidate{key: key, body: body})
 		return nil
 	})
-	if err != nil {
-		logger.Error("resume scan failed", "err", err)
+	return candidates
+}
+
+// sendResumeWakes fires resume wakes for the given candidates.
+func sendResumeWakes(mgr *thread.Manager, candidates []resumeCandidate) {
+	for _, c := range candidates {
+		logger.Info("resuming interrupted session", "sessionKey", c.key)
+		mgr.Wake(c.key, &thread.WakeMessage{
+			Source:  thread.WakeResume,
+			Message: c.body,
+		})
 	}
-	if resumed > 0 {
-		logger.Info("resume scan complete", "resumed", resumed)
+	if len(candidates) > 0 {
+		logger.Info("resume complete", "count", len(candidates))
 	}
 }
 
