@@ -49,6 +49,21 @@ func (c *CronChannel) SetDirectWake(fn func(sessionKey string, source msg.WakeSo
 	c.onDirectWake = fn
 }
 
+// FindJob looks up a cron job by ID. Returns zero Job and false if the
+// scheduler hasn't started or the job doesn't exist.
+func (c *CronChannel) FindJob(id string) (cronpkg.Job, bool) {
+	if c.scheduler == nil {
+		// Scheduler not started yet; check seed jobs as fallback.
+		for _, j := range c.seedJobs {
+			if j.ID == id {
+				return j, true
+			}
+		}
+		return cronpkg.Job{}, false
+	}
+	return c.scheduler.FindJob(id)
+}
+
 // AddJob delegates to the underlying scheduler.
 func (c *CronChannel) AddJob(job cronpkg.Job) error {
 	if c.scheduler == nil {

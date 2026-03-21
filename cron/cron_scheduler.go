@@ -108,6 +108,21 @@ func (s *Scheduler) AddJob(job Job) error {
 	return nil
 }
 
+// FindJob returns the job with the given ID from the persisted store or seed jobs.
+func (s *Scheduler) FindJob(id string) (Job, bool) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if j, ok := s.jobs[id]; ok {
+		return j, true
+	}
+	for _, j := range s.seedJobs {
+		if j.ID == id {
+			return j, true
+		}
+	}
+	return Job{}, false
+}
+
 func (s *Scheduler) Stop() {
 	s.mu.Lock()
 	s.resetLocked()
