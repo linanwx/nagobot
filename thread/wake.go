@@ -147,7 +147,14 @@ func (t *Thread) RunOnce(ctx context.Context) {
 	prov, mod := t.resolvedProviderModel()
 	modelLabel := prov + "/" + mod
 	sessionDir := t.mgr.SessionDir(t.sessionKey)
-	userMessage := buildWakePayload(msg.Source, msg.Message, t.id, t.sessionKey, sessionDir, deliveryLabel, modelLabel, loc)
+	// Resolve agent name for the wake payload.
+	agentName := ""
+	t.mu.Lock()
+	if t.Agent != nil {
+		agentName = t.Agent.Name
+	}
+	t.mu.Unlock()
+	userMessage := buildWakePayload(msg.Source, msg.Message, t.id, t.sessionKey, sessionDir, deliveryLabel, modelLabel, agentName, loc)
 
 	// Build injection function: between tool iterations, drain inbox for
 	// mergeable user messages and inject them into the LLM conversation.
@@ -159,7 +166,7 @@ func (t *Thread) RunOnce(ctx context.Context) {
 			select {
 			case next := <-t.inbox:
 				if canMerge(msg, next) {
-					payload := buildWakePayload(next.Source, next.Message, t.id, t.sessionKey, sessionDir, deliveryLabel, modelLabel, loc)
+					payload := buildWakePayload(next.Source, next.Message, t.id, t.sessionKey, sessionDir, deliveryLabel, modelLabel, agentName, loc)
 					if payload != "" {
 						injected = append(injected, provider.UserMessage(payload))
 						logger.Info("injected mid-execution message",
@@ -196,7 +203,7 @@ func (t *Thread) RunOnce(ctx context.Context) {
 // buildWakePayload constructs the user message from a wake source and message.
 // Uses YAML frontmatter + markdown body so the AI knows the wake context
 // and which content the user can see vs assistant-only.
-func buildWakePayload(source WakeSource, message, threadID, sessionKey, sessionDir, deliveryLabel, model string, loc *time.Location) string {
+func buildWakePayload(source WakeSource, message, threadID, sessionKey, sessionDir, deliveryLabel, model, agent string, loc *time.Location) string {
 	message = strings.TrimSpace(message)
 	if message == "" {
 		return ""
@@ -219,6 +226,7 @@ func buildWakePayload(source WakeSource, message, threadID, sessionKey, sessionD
 		SessionDir: sessionDir,
 		Time:       fmt.Sprintf("%s (%s, %s, UTC%s)", now.Format(time.RFC3339), now.Weekday(), now.Location(), now.Format("-07:00")),
 		Model:      model,
+		Agent:      agent,
 		Delivery:   delivery,
 		Visibility: messageVisibility(source),
 	}
@@ -245,6 +253,7 @@ type wakeHeader struct {
 	SessionDir string `yaml:"session_dir,omitempty"`
 	Time       string `yaml:"time"`
 	Model      string `yaml:"model,omitempty"`
+	Agent      string `yaml:"agent,omitempty"`
 	Delivery   string `yaml:"delivery"`
 	Visibility string `yaml:"visibility"`
 	Action     string `yaml:"action,omitempty"`
