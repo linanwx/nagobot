@@ -489,21 +489,19 @@ func (w *WebChannel) handleSessions(rw http.ResponseWriter, r *http.Request) {
 
 		key := session.DeriveKeyFromPath(path)
 
-		// Skip cron and thread sessions — they should not appear in the heartbeat panel.
-		if strings.HasPrefix(key, "cron:") || strings.Contains(key, ":threads:") {
-			return nil
-		}
-
 		lineCount := countLines(path)
 		updatedAt, _ := session.ReadUpdatedAt(path)
 
-		// Check for heartbeat.md in the same directory, only for recent sessions (2-day window).
-		hbPath := filepath.Join(filepath.Dir(path), "heartbeat.md")
+		// Check for heartbeat.md — only for non-cron/thread sessions active within 2 days.
 		hasHB := false
-		hbCutoff := time.Now().AddDate(0, 0, -2)
-		if updatedAt.After(hbCutoff) {
-			if fi, err := os.Stat(hbPath); err == nil && fi.Size() > 0 {
-				hasHB = true
+		isCronOrThread := strings.HasPrefix(key, "cron:") || strings.Contains(key, ":threads:")
+		if !isCronOrThread {
+			hbPath := filepath.Join(filepath.Dir(path), "heartbeat.md")
+			hbCutoff := time.Now().AddDate(0, 0, -2)
+			if updatedAt.After(hbCutoff) {
+				if fi, err := os.Stat(hbPath); err == nil && fi.Size() > 0 {
+					hasHB = true
+				}
 			}
 		}
 
