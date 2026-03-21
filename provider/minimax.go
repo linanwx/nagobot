@@ -245,5 +245,7 @@ func (p *MinimaxProvider) Chat(ctx context.Context, req *Request) (*Response, er
 			TotalTokens:      int(chatResp.Usage.TotalTokens),
 			CachedTokens:     int(chatResp.Usage.PromptTokensDetails.CachedTokens),
 		},
+		ProviderLabel: p.providerName,
+		ModelLabel:    p.modelName,
 	}, nil
 }

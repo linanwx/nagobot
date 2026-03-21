@@ -468,5 +468,7 @@ func (p *OpenRouterProvider) Chat(ctx context.Context, req *Request) (*Response,
 			TotalTokens:      int(chatResp.Usage.TotalTokens),
 			CachedTokens:     int(cachedTokens),
 		},
+		ProviderLabel: "openrouter",
+		ModelLabel:    p.modelName,
 	}, nil
 }

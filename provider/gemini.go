@@ -381,6 +381,8 @@ func (p *GeminiProvider) chatStream(ctx context.Context, req *Request, gmReq gmR
 			CompletionTokens: usage.CandidatesTokenCount,
 			TotalTokens:      usage.TotalTokenCount,
 		},
+		ProviderLabel: "gemini",
+		ModelLabel:    p.modelName,
 	}, nil
 }
 
@@ -462,6 +464,8 @@ func (p *GeminiProvider) parseResponse(resp gmResponse, start time.Time) (*Respo
 			CompletionTokens: usage.CandidatesTokenCount,
 			TotalTokens:      usage.TotalTokenCount,
 		},
+		ProviderLabel: "gemini",
+		ModelLabel:    p.modelName,
 	}, nil
 }
 

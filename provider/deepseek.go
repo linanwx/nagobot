@@ -301,6 +301,8 @@ func (p *DeepSeekProvider) chatSync(ctx context.Context, dsReq dsRequest, start 
 			TotalTokens:      u.TotalTokens,
 			CachedTokens:     u.PromptCacheHitTokens,
 		},
+		ProviderLabel: "deepseek",
+		ModelLabel:    p.modelName,
 	}, nil
 }
 
@@ -450,6 +452,8 @@ func (p *DeepSeekProvider) chatStream(ctx context.Context, req *Request, dsReq d
 			TotalTokens:      usage.TotalTokens,
 			CachedTokens:     usage.PromptCacheHitTokens,
 		},
+		ProviderLabel: "deepseek",
+		ModelLabel:    p.modelName,
 	}, nil
 }
 

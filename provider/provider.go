@@ -91,6 +91,8 @@ type Response struct {
 	ToolCalls        []ToolCall      // tool calls (if any)
 	Usage            Usage           // token usage
 	Quota            *Quota          // rate-limit quota (optional, provider-specific)
+	ProviderLabel    string          // effective provider name for metrics (e.g. "openai" vs "openai-oauth")
+	ModelLabel       string          // effective model name for metrics
 }
 
 // HasToolCalls returns true if the response contains tool calls.

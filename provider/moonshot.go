@@ -192,5 +192,7 @@ func (p *MoonshotProvider) Chat(ctx context.Context, req *Request) (*Response, e
 			TotalTokens:      int(chatResp.Usage.TotalTokens),
 			CachedTokens:     int(chatResp.Usage.PromptTokensDetails.CachedTokens),
 		},
+		ProviderLabel: p.providerName,
+		ModelLabel:    p.modelName,
 	}, nil
 }

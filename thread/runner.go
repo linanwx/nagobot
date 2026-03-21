@@ -25,6 +25,8 @@ type Runner struct {
 	onChatEnd       func()             // optional: called after each provider.Chat() returns
 	onFinalResponse func(string)       // optional: called with the final response content (no tool calls) before return
 	shouldHalt      func() bool        // optional: if true, stop loop after current tool calls
+	providerLabel   string             // effective provider name from last response
+	modelLabel      string             // effective model name from last response
 }
 
 // OnMessage sets a callback invoked for each intermediate message
@@ -55,6 +57,12 @@ func (r *Runner) TotalUsage() provider.Usage { return r.totalUsage }
 
 // LastQuota returns the last non-nil quota snapshot from provider responses.
 func (r *Runner) LastQuota() *provider.Quota { return r.lastQuota }
+
+// ProviderLabel returns the effective provider name from the last response.
+func (r *Runner) ProviderLabel() string { return r.providerLabel }
+
+// ModelLabel returns the effective model name from the last response.
+func (r *Runner) ModelLabel() string { return r.modelLabel }
 
 // NewRunner creates a new Runner. Pass a non-nil ExecMetrics to enable
 // real-time metrics collection visible to other threads.
@@ -106,6 +114,8 @@ func (r *Runner) RunWithMessages(ctx context.Context, messages []provider.Messag
 		r.totalUsage.CompletionTokens += resp.Usage.CompletionTokens
 		r.totalUsage.TotalTokens += resp.Usage.TotalTokens
 		r.totalUsage.CachedTokens += resp.Usage.CachedTokens
+		r.providerLabel = resp.ProviderLabel
+		r.modelLabel = resp.ModelLabel
 		if resp.Quota != nil {
 			r.lastQuota = resp.Quota
 		}

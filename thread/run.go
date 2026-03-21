@@ -64,14 +64,17 @@ func (t *Thread) run(ctx context.Context, userMessage string, sink Sink, injectF
 		return noProviderMessage(), nil
 	}
 
-	response, intermediates, usage, _, err := t.executeRunner(ctx, runCtx, p, metrics, messages, sink, injectFn)
+	response, intermediates, usage, _, providerLabel, modelLabel, err := t.executeRunner(ctx, runCtx, p, metrics, messages, sink, injectFn)
 	if err != nil {
 		t.recordTurn(metrics, "", "", "", usage, true)
 		return "", err
 	}
 
 	t.persistTurnMessages(cfg, sess, intermediates, wakeSource)
-	providerName, modelName := t.resolvedProviderModel()
+	providerName, modelName := providerLabel, modelLabel
+	if providerName == "" || modelName == "" {
+		providerName, modelName = t.resolvedProviderModel()
+	}
 	agentName := ""
 	t.mu.Lock()
 	if t.Agent != nil {
@@ -171,8 +174,7 @@ func (t *Thread) buildMessageHistory(systemPrompt, userMessage string, sess *ses
 }
 
 // executeRunner runs the agentic loop with streaming and message callbacks.
-func (t *Thread) executeRunner(ctx, runCtx context.Context, p provider.Provider, metrics *ExecMetrics, messages []provider.Message, sink Sink, injectFn func() []provider.Message) (string, []provider.Message, provider.Usage, *provider.Quota, error) {
-	var intermediates []provider.Message
+func (t *Thread) executeRunner(ctx, runCtx context.Context, p provider.Provider, metrics *ExecMetrics, messages []provider.Message, sink Sink, injectFn func() []provider.Message) (response string, intermediates []provider.Message, usage provider.Usage, quota *provider.Quota, providerLabel string, modelLabel string, err error) {
 	contextWindowTokens, _ := t.contextBudget()
 	maxCompletionTokens := t.cfg().MaxCompletionTokens
 	loopBudget := int(float64(contextWindowTokens-maxCompletionTokens) * 0.9)
@@ -234,13 +236,15 @@ func (t *Thread) executeRunner(ctx, runCtx context.Context, p provider.Provider,
 	})
 
 	runner.OnIterationEnd(injectFn)
-	response, err := runner.RunWithMessages(runCtx, messages)
-	usage := runner.TotalUsage()
+	response, err = runner.RunWithMessages(runCtx, messages)
+	usage = runner.TotalUsage()
+	providerLabel = runner.ProviderLabel()
+	modelLabel = runner.ModelLabel()
 	if err != nil {
-		return "", nil, usage, nil, err
+		return "", nil, usage, nil, "", "", err
 	}
 
-	return response, intermediates, usage, runner.LastQuota(), nil
+	return response, intermediates, usage, runner.LastQuota(), providerLabel, modelLabel, nil
 }
 
 // persistTurnMessages saves all turn messages (intermediates + final response) to the session.

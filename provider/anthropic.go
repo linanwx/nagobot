@@ -473,5 +473,7 @@ func (p *AnthropicProvider) Chat(ctx context.Context, req *Request) (*Response, 
 			TotalTokens:      int(messageResp.Usage.InputTokens + messageResp.Usage.OutputTokens),
 			CachedTokens:     int(messageResp.Usage.CacheReadInputTokens),
 		},
+		ProviderLabel: "anthropic",
+		ModelLabel:    p.modelName,
 	}, nil
 }

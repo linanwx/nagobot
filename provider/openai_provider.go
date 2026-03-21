@@ -135,9 +135,15 @@ func (p *OpenAIProvider) Chat(ctx context.Context, req *Request) (*Response, err
 		resp.Quota = extractQuota(httpResp.Header)
 	}
 
+	resp.ProviderLabel = "openai"
+	resp.ModelLabel = p.modelName
+	if p.accountID != "" {
+		resp.ProviderLabel = "openai-oauth"
+	}
+
 	logger.Info(
 		"openai response",
-		"provider", "openai",
+		"provider", resp.ProviderLabel,
 		"modelType", p.modelType,
 		"modelName", p.modelName,
 		"hasToolCalls", len(resp.ToolCalls) > 0,
