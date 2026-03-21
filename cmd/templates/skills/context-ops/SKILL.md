@@ -13,12 +13,13 @@ Compress the current session to free up token budget while preserving continuity
 1. Determine `session_file`:
    - First choice: use the path from the Context Pressure Notice.
    - Fallback: `{{WORKSPACE}}/sessions/cli/session.jsonl`.
-2. Write a compressed summary of the conversation so far (see guidance below) to `{{WORKSPACE}}/.tmp/compressed.txt` with `write_file`.
-3. Run:
+2. Generate a unique temp file path: `{{WORKSPACE}}/.tmp/compressed-<UNIQUE>.txt` where `<UNIQUE>` is derived from the session key (replace `:` and `/` with `-`). This prevents race conditions when multiple sessions compress concurrently.
+3. Write a compressed summary of the conversation so far (see guidance below) to the unique temp file with `write_file`.
+4. Run:
    ```
-   {{WORKSPACE}}/bin/nagobot compress-session <session_file> {{WORKSPACE}}/.tmp/compressed.txt
+   {{WORKSPACE}}/bin/nagobot compress-session <session_file> <temp_file>
    ```
-4. Continue the original task.
+5. Continue the original task.
 
 ### Compression Guidance
 
