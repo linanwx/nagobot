@@ -114,11 +114,22 @@ func (t *WebSearchTool) Run(ctx context.Context, args json.RawMessage) string {
 		return toolError("web_search", fmt.Sprintf("%v", err))
 	}
 
-	return toolResult("web_search", map[string]any{
+	fields := map[string]any{
 		"query":   a.Query,
 		"source":  source,
 		"results": len(results),
-	}, FormatSearchResults(a.Query, results))
+	}
+	var others []string
+	for name, prov := range t.providers {
+		if name != source && prov.Available() {
+			others = append(others, name)
+		}
+	}
+	if len(others) > 0 {
+		sort.Strings(others)
+		fields["available_sources"] = strings.Join(others, ", ")
+	}
+	return toolResult("web_search", fields, FormatSearchResults(a.Query, results))
 }
 
 // webFetchCache is a simple in-memory cache for fetched page content.
