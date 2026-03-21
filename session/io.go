@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"bytes"
 	"encoding/json"
+	"fmt"
 	"io"
 	"os"
 	"path/filepath"
@@ -156,6 +157,55 @@ func ReadUpdatedAt(path string) (time.Time, error) {
 		return time.Time{}, nil // malformed last line
 	}
 	return m.Timestamp, nil
+}
+
+// ReadLastMessage reads the last valid message from a session JSONL file
+// without loading the entire file. Reads up to maxLineSize bytes from the
+// tail and parses backwards to find the last complete JSON line.
+// Returns an error if the file is empty or contains no valid messages.
+func ReadLastMessage(path string) (provider.Message, error) {
+	f, err := os.Open(path)
+	if err != nil {
+		return provider.Message{}, err
+	}
+	defer f.Close()
+
+	fi, err := f.Stat()
+	if err != nil {
+		return provider.Message{}, err
+	}
+	if fi.Size() == 0 {
+		return provider.Message{}, fmt.Errorf("empty session file")
+	}
+
+	readSize := fi.Size()
+	if readSize > maxLineSize {
+		readSize = maxLineSize
+	}
+	buf := make([]byte, readSize)
+	if _, err := f.ReadAt(buf, fi.Size()-readSize); err != nil && err != io.EOF {
+		return provider.Message{}, err
+	}
+
+	// Try lines from the end until we find a valid JSON message.
+	buf = bytes.TrimRight(buf, "\n\r")
+	for len(buf) > 0 {
+		line := buf
+		if idx := bytes.LastIndexByte(buf, '\n'); idx >= 0 {
+			line = buf[idx+1:]
+			buf = buf[:idx]
+		} else {
+			buf = nil // last attempt
+		}
+		if len(line) == 0 {
+			continue
+		}
+		var m provider.Message
+		if err := json.Unmarshal(line, &m); err == nil && m.Role != "" {
+			return m, nil
+		}
+	}
+	return provider.Message{}, fmt.Errorf("no valid message found")
 }
 
 // SessionFileName is the canonical session file name.
