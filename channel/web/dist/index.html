@@ -224,8 +224,7 @@
 
       .session-group-header {
         display: flex;
-        flex-wrap: wrap;
-        align-items: center;
+        align-items: flex-start;
         gap: 4px;
         padding: 4px 6px;
         cursor: pointer;
@@ -243,16 +242,23 @@
       }
 
       .session-group-arrow {
-        font-size: 7px;
+        font-size: 11px;
         color: var(--text-tertiary);
-        transition: transform 0.15s;
         flex-shrink: 0;
-        width: 10px;
+        width: 14px;
         text-align: center;
+        line-height: 1.4;
       }
 
-      .session-group.collapsed .session-group-arrow {
-        transform: rotate(-90deg);
+      .session-group-content {
+        flex: 1;
+        min-width: 0;
+      }
+
+      .session-group-title-row {
+        display: flex;
+        align-items: center;
+        gap: 4px;
       }
 
       .session-group-name {
@@ -316,8 +322,7 @@
 
       .session-item {
         display: flex;
-        flex-wrap: wrap;
-        align-items: center;
+        align-items: flex-start;
         gap: 4px;
         padding: 4px 6px;
         margin-bottom: 1px;
@@ -333,6 +338,22 @@
 
       .session-item.active {
         background: var(--bg-elevated);
+      }
+
+      .session-item-spacer {
+        width: 14px;
+        flex-shrink: 0;
+      }
+
+      .session-item-content {
+        flex: 1;
+        min-width: 0;
+      }
+
+      .session-item-title-row {
+        display: flex;
+        align-items: center;
+        gap: 4px;
       }
       .header-btn.hb-active {
         color: var(--accent-red);
@@ -359,13 +380,11 @@
       }
 
       .session-summary {
-        width: 100%;
         font-size: 9px;
         color: var(--text-tertiary);
         overflow: hidden;
         text-overflow: ellipsis;
         white-space: nowrap;
-        padding-left: 0;
         line-height: 1.3;
       }
 
@@ -1789,16 +1808,20 @@
 
         const arrow = document.createElement("span");
         arrow.className = "session-group-arrow";
-        arrow.textContent = "\u25BC";
+        arrow.textContent = isCollapsed ? "+" : "\u2212";
+
+        const contentEl = document.createElement("div");
+        contentEl.className = "session-group-content";
+
+        // Title row: name + meta
+        const titleRow = document.createElement("div");
+        titleRow.className = "session-group-title-row";
 
         const nameEl = document.createElement("span");
         nameEl.className = "session-group-name";
         nameEl.textContent = name;
+        titleRow.appendChild(nameEl);
 
-        header.appendChild(arrow);
-        header.appendChild(nameEl);
-
-        // Meta: show session stats if this node is also a session, else show child count
         const metaEl = document.createElement("span");
         metaEl.className = "session-group-meta";
 
@@ -1822,39 +1845,41 @@
           metaEl.appendChild(timeEl);
         }
 
-        header.appendChild(metaEl);
+        titleRow.appendChild(metaEl);
+        contentEl.appendChild(titleRow);
 
+        // Summary row
         if (hasSession && node.session.summary) {
-          const summaryEl = document.createElement("span");
+          const summaryEl = document.createElement("div");
           summaryEl.className = "session-summary";
           summaryEl.textContent = node.session.summary;
           summaryEl.title = node.session.summary;
-          header.appendChild(summaryEl);
+          contentEl.appendChild(summaryEl);
         }
 
+        header.appendChild(arrow);
+        header.appendChild(contentEl);
+
         // Click: select session on first click, toggle collapse on second click or arrow
+        function toggleCollapse() {
+          if (collapsedPaths.has(path)) {
+            collapsedPaths.delete(path);
+          } else {
+            collapsedPaths.add(path);
+          }
+          group.classList.toggle("collapsed");
+          arrow.textContent = collapsedPaths.has(path) ? "+" : "\u2212";
+        }
         header.addEventListener("click", (e) => {
           const clickedArrow = e.target === arrow;
           if (hasSession && !clickedArrow) {
             if (currentSession === node.session.key) {
-              // Already selected — toggle collapse
-              if (collapsedPaths.has(path)) {
-                collapsedPaths.delete(path);
-              } else {
-                collapsedPaths.add(path);
-              }
-              group.classList.toggle("collapsed");
+              toggleCollapse();
             } else {
-              // First click — just select, don't change collapse state
               selectSession(node.session.key);
             }
           } else {
-            if (collapsedPaths.has(path)) {
-              collapsedPaths.delete(path);
-            } else {
-              collapsedPaths.add(path);
-            }
-            group.classList.toggle("collapsed");
+            toggleCollapse();
           }
         });
 
@@ -1876,16 +1901,23 @@
         item.setAttribute("tabindex", "0");
         item.setAttribute("aria-label", "Session " + s.key);
 
-        // Spacer matching the arrow width in group headers for alignment.
+        // Spacer matching the +/- arrow width in group headers.
         const spacer = document.createElement("span");
-        spacer.style.width = "10px";
-        spacer.style.flexShrink = "0";
+        spacer.className = "session-item-spacer";
         item.appendChild(spacer);
+
+        const contentEl = document.createElement("div");
+        contentEl.className = "session-item-content";
+
+        // Title row: key + meta
+        const titleRow = document.createElement("div");
+        titleRow.className = "session-item-title-row";
 
         const keyEl = document.createElement("span");
         keyEl.className = "session-key";
         keyEl.textContent = displayName || s.key;
         keyEl.title = s.key;
+        titleRow.appendChild(keyEl);
 
         const metaEl = document.createElement("span");
         metaEl.className = "session-meta";
@@ -1902,16 +1934,19 @@
         timeEl.textContent = timeAgo(s.updated_at);
         metaEl.appendChild(timeEl);
 
-        item.appendChild(keyEl);
-        item.appendChild(metaEl);
+        titleRow.appendChild(metaEl);
+        contentEl.appendChild(titleRow);
 
+        // Summary row
         if (s.summary) {
-          const summaryEl = document.createElement("span");
+          const summaryEl = document.createElement("div");
           summaryEl.className = "session-summary";
           summaryEl.textContent = s.summary;
           summaryEl.title = s.summary;
-          item.appendChild(summaryEl);
+          contentEl.appendChild(summaryEl);
         }
+
+        item.appendChild(contentEl);
 
         item.addEventListener("click", () => selectSession(s.key));
         item.addEventListener("keydown", (e) => {
