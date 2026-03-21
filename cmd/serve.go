@@ -14,9 +14,11 @@ import (
 
 	"github.com/linanwx/nagobot/channel"
 	"github.com/linanwx/nagobot/config"
+	cronpkg "github.com/linanwx/nagobot/cron"
 	"github.com/linanwx/nagobot/logger"
 	"github.com/linanwx/nagobot/session"
 	"github.com/linanwx/nagobot/thread"
+	sysmsg "github.com/linanwx/nagobot/thread/msg"
 	"github.com/linanwx/nagobot/tools"
 	"github.com/spf13/cobra"
 )
@@ -140,7 +142,10 @@ func runServe(cmd *cobra.Command, args []string) error {
 	// Set default agent/sink factories: resolve fallback agent and sink per session key.
 	threadMgr.SetDefaultAgentFor(buildDefaultAgentFor(cfg))
 	sessionsDir, _ := cfg.SessionsDir()
-	threadMgr.SetDefaultSinkFor(buildDefaultSinkFor(chManager, cfg, sessionsDir))
+	threadMgr.SetDefaultSinkFor(buildDefaultSinkFor(chManager, cfg, sessionsDir,
+		func(key string, msg *thread.WakeMessage) { threadMgr.Wake(key, msg) },
+		cronCh.FindJob,
+	))
 
 	// Wire system prompt and context budget lookups for the web dashboard.
 	if ch, ok := chManager.Get("web"); ok {
@@ -244,8 +249,56 @@ func readDiscordDMReplyTo(sessionsDir, sessionKey string) string {
 }
 
 // buildDefaultSinkFor returns a factory that resolves the fallback sink for a given session key.
-func buildDefaultSinkFor(chMgr *channel.Manager, cfg *config.Config, sessionsDir string) func(string) thread.Sink {
+func buildDefaultSinkFor(chMgr *channel.Manager, cfg *config.Config, sessionsDir string, wakeFn func(string, *thread.WakeMessage), cronJobFn func(string) (cronpkg.Job, bool)) func(string) thread.Sink {
 	return func(sessionKey string) thread.Sink {
+		// Child threads: route response back to parent thread.
+		if idx := strings.Index(sessionKey, ":threads:"); idx >= 0 {
+			parentKey := sessionKey[:idx]
+			return thread.Sink{
+				Label: "your response will be forwarded to parent thread " + parentKey,
+				Send: func(ctx context.Context, response string) error {
+					if strings.TrimSpace(response) == "" {
+						return nil
+					}
+					wakeMsg := sysmsg.BuildSystemMessage("child_completed", map[string]string{
+						"child_session": sessionKey,
+					}, strings.TrimSpace(response))
+					wakeFn(parentKey, &thread.WakeMessage{
+						Source:  thread.WakeChildCompleted,
+						Message: wakeMsg,
+					})
+					return nil
+				},
+			}
+		}
+
+		// Cron jobs: route result to the configured wake_session.
+		if strings.HasPrefix(sessionKey, "cron:") {
+			jobID := strings.TrimPrefix(sessionKey, "cron:")
+			if cronJobFn != nil {
+				if job, ok := cronJobFn(jobID); ok && strings.TrimSpace(job.WakeSession) != "" {
+					reportTo := strings.TrimSpace(job.WakeSession)
+					return thread.Sink{
+						Label: "your task will be injected into session " + reportTo + " which will wake, execute, and deliver the result to the user",
+						Send: func(ctx context.Context, response string) error {
+							if strings.TrimSpace(response) == "" {
+								return nil
+							}
+							wakeMsg := sysmsg.BuildSystemMessage("cron_completed", map[string]string{
+								"id": jobID,
+							}, strings.TrimSpace(response))
+							wakeFn(reportTo, &thread.WakeMessage{
+								Source:  thread.WakeCronFinished,
+								Message: wakeMsg,
+							})
+							return nil
+						},
+					}
+				}
+			}
+			return thread.Sink{Label: "cron silent, result will not be delivered"}
+		}
+
 		// telegram:{chatID} or telegram:{userID} → send to that chat.
 		if strings.HasPrefix(sessionKey, "telegram:") {
 			userID := strings.TrimPrefix(sessionKey, "telegram:")
