@@ -64,13 +64,24 @@ func (t *Thread) run(ctx context.Context, userMessage string, sink Sink, injectF
 		return noProviderMessage(), nil
 	}
 
-	response, intermediates, usage, _, providerLabel, modelLabel, err := t.executeRunner(ctx, runCtx, p, metrics, messages, sink, injectFn)
+	// Incremental persistence: save each message as it arrives during the agentic loop.
+	var persistMsg func(m provider.Message)
+	if sess != nil {
+		persistMsg = func(m provider.Message) {
+			if wakeSource != "" {
+				m.Source = wakeSource
+			}
+			if err := cfg.Sessions.Append(t.sessionKey, m); err != nil {
+				logger.Warn("incremental save failed", "key", t.sessionKey, "err", err)
+			}
+		}
+	}
+
+	response, _, usage, _, providerLabel, modelLabel, err := t.executeRunner(ctx, runCtx, p, metrics, messages, sink, injectFn, persistMsg)
 	if err != nil {
 		t.recordTurn(metrics, "", "", "", usage, true)
 		return "", err
 	}
-
-	t.persistTurnMessages(cfg, sess, intermediates, wakeSource)
 	providerName, modelName := providerLabel, modelLabel
 	if providerName == "" || modelName == "" {
 		providerName, modelName = t.resolvedProviderModel()
@@ -174,7 +185,7 @@ func (t *Thread) buildMessageHistory(systemPrompt, userMessage string, sess *ses
 }
 
 // executeRunner runs the agentic loop with streaming and message callbacks.
-func (t *Thread) executeRunner(ctx, runCtx context.Context, p provider.Provider, metrics *ExecMetrics, messages []provider.Message, sink Sink, injectFn func() []provider.Message) (response string, intermediates []provider.Message, usage provider.Usage, quota *provider.Quota, providerLabel string, modelLabel string, err error) {
+func (t *Thread) executeRunner(ctx, runCtx context.Context, p provider.Provider, metrics *ExecMetrics, messages []provider.Message, sink Sink, injectFn func() []provider.Message, persistMsg func(provider.Message)) (response string, intermediates []provider.Message, usage provider.Usage, quota *provider.Quota, providerLabel string, modelLabel string, err error) {
 	contextWindowTokens, _ := t.contextBudget()
 	maxCompletionTokens := t.cfg().MaxCompletionTokens
 	loopBudget := int(float64(contextWindowTokens-maxCompletionTokens) * 0.9)
@@ -210,6 +221,10 @@ func (t *Thread) executeRunner(ctx, runCtx context.Context, p provider.Provider,
 
 	runner.OnMessage(func(m provider.Message) {
 		intermediates = append(intermediates, m)
+		// Incremental persistence: save each message to disk as it arrives.
+		if persistMsg != nil {
+			persistMsg(m)
+		}
 		// Deliver intermediate assistant content (with tool_calls) to user in real time.
 		// Final response delivery is handled by onFinalResponse — only intermediate
 		// messages (those with tool_calls) are delivered here to avoid double delivery.
@@ -245,25 +260,6 @@ func (t *Thread) executeRunner(ctx, runCtx context.Context, p provider.Provider,
 	}
 
 	return response, intermediates, usage, runner.LastQuota(), providerLabel, modelLabel, nil
-}
-
-// persistTurnMessages saves all turn messages (intermediates + final response) to the session.
-// Both paths (normal and halt) emit all messages via onMessage into intermediates,
-// so this function simply persists them as-is.
-func (t *Thread) persistTurnMessages(cfg *ThreadConfig, sess *session.Session, intermediates []provider.Message, wakeSource string) {
-	if sess == nil {
-		return
-	}
-	toAppend := make([]provider.Message, len(intermediates))
-	copy(toAppend, intermediates)
-	if wakeSource != "" {
-		for i := range toAppend {
-			toAppend[i].Source = wakeSource
-		}
-	}
-	if err := cfg.Sessions.Append(t.sessionKey, toAppend...); err != nil {
-		logger.Warn("failed to save session", "key", t.sessionKey, "err", err)
-	}
 }
 
 // buildUserSection resolves the per-session USER.md into a formatted section.

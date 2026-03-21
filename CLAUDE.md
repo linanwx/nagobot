@@ -58,7 +58,7 @@ Each provider implements `Provider.Chat(ctx, *Request) (*Response, error)`. The 
 
 Tools implement `Def() ToolDef` + `Run(ctx, args) string`. Registered in a `Registry`, cloned per-thread. Search and fetch tools use `SearchProvider`/`FetchProvider` interfaces with runtime `Available()` checks.
 
-`sleep_thread` has a **heartbeat mode**: when `IsHeartbeatMode()` is true (wake source is `WakeHeartbeat`), all params are ignored — it just terminates and suppresses output. No cron job scheduled. The heartbeat scheduler handles the next pulse.
+`sleep_thread` is a unified tool registered at thread level. No args = end turn silently; `duration` param = schedule a cron wake-up. During heartbeat turns, passing `duration` is rejected — the heartbeat scheduler manages its own timing. The tool checks `IsHeartbeatWake()` at runtime, not via separate tool definitions (important: a single tool definition keeps the tools array stable for prompt caching).
 
 ### Audio Support
 
@@ -144,6 +144,8 @@ Heartbeat source matching uses `strings.HasPrefix(source, "heartbeat")` to cover
 - **Async child threads**: `SpawnChild()` is fully async. Child completion wakes parent via Sink → Enqueue.
 - **Template workspace**: Canonical templates live in `cmd/templates/`. `onboard --sync` copies to `~/.nagobot/workspace/`. `cleanAndCopyEmbeddedDir` removes deleted templates. Never edit workspace files directly.
 - **Default cron seeds**: Only `tidyup` (4am daily) + `session-summary` (every 6h). Heartbeat is NOT a cron job.
+- **Prompt caching requires deterministic serialization**: All LLM providers use prefix-based prompt caching (tools → system → messages). Go map iteration is non-deterministic, so any map-derived output that ends up in the LLM request MUST be sorted. Currently sorted: `tools.Registry.Defs()`, `skills.Registry.List()`, `skills.Registry.SkillNames()`, `agent.buildSessionsSummary()`. When adding new map-iterated content to the system prompt or tools array, always sort the output.
+- **Cache monitoring**: `provider.Usage.CachedTokens` flows through `Runner.totalUsage` → `monitor.TurnRecord` → `nagobot monitor --metrics` (per-provider `cacheHitRate`). All providers fill this field from their respective API response (OpenRouter/Moonshot/Zhipu/Minimax: `PromptTokensDetails.CachedTokens`; DeepSeek: `PromptCacheHitTokens`; Anthropic: `CacheReadInputTokens`; OpenAI/Gemini: not available).
 
 ## Common Pitfalls
 
