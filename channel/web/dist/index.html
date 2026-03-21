@@ -318,22 +318,21 @@
         display: flex;
         flex-wrap: wrap;
         align-items: center;
-        justify-content: space-between;
-        padding: 4px 6px 4px 20px;
-        margin: 1px 0;
+        gap: 4px;
+        padding: 4px 6px;
+        margin-bottom: 1px;
         border-radius: 4px;
         cursor: pointer;
         transition: background 0.12s;
-        border-left: 2px solid transparent;
+        user-select: none;
       }
 
       .session-item:hover {
-        background: var(--bg-elevated);
+        background: rgba(52, 211, 153, 0.08);
       }
 
       .session-item.active {
         background: var(--bg-elevated);
-        border-left-color: var(--accent-green);
       }
       .header-btn.hb-active {
         color: var(--accent-red);
@@ -345,12 +344,18 @@
 
       .session-key {
         font-size: 11px;
-        color: var(--text-primary);
+        font-weight: 600;
+        color: var(--text-secondary);
+        font-family: var(--font-sans);
         overflow: hidden;
         text-overflow: ellipsis;
         white-space: nowrap;
         flex: 1;
         min-width: 0;
+      }
+
+      .session-item.active .session-key {
+        color: var(--accent-green);
       }
 
       .session-summary {
@@ -369,7 +374,6 @@
         align-items: center;
         gap: 5px;
         flex-shrink: 0;
-        margin-left: 6px;
       }
 
       .session-count {
@@ -1871,6 +1875,12 @@
         item.setAttribute("role", "button");
         item.setAttribute("tabindex", "0");
         item.setAttribute("aria-label", "Session " + s.key);
+
+        // Spacer matching the arrow width in group headers for alignment.
+        const spacer = document.createElement("span");
+        spacer.style.width = "10px";
+        spacer.style.flexShrink = "0";
+        item.appendChild(spacer);
 
         const keyEl = document.createElement("span");
         keyEl.className = "session-key";
