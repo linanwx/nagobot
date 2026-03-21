@@ -179,6 +179,20 @@ func runServe(cmd *cobra.Command, args []string) error {
 	// Start thread manager run loop in background.
 	go threadMgr.Run(ctx)
 
+	// Resume interrupted sessions after a delay to let channels stabilize.
+	go func() {
+		select {
+		case <-time.After(15 * time.Second):
+			sessionsDir, err := cfg.SessionsDir()
+			if err != nil {
+				logger.Error("resume: failed to get sessions dir", "err", err)
+				return
+			}
+			resumeInterruptedSessions(sessionsDir, threadMgr)
+		case <-ctx.Done():
+		}
+	}()
+
 	// Start heartbeat scheduler (created above near RPC handler).
 	go hbScheduler.run(ctx)
 
