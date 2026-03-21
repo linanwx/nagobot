@@ -282,6 +282,8 @@ func wakeActionHint(source WakeSource) string {
 		return "Automated background maintenance. Execute the compression skill immediately. Do not produce user-facing content."
 	case WakeHeartbeat:
 		return "Heartbeat pulse. Load the heartbeat-wake skill and follow its instructions."
+	case WakeResume:
+		return "The system restarted while your previous turn was in progress. The original request is included below. Continue processing where you left off. If you believe the request is no longer relevant, call sleep_thread to skip."
 	default:
 		return "Process this wake message and continue."
 	}
