@@ -77,6 +77,15 @@ func TestIsIncompleteSession(t *testing.T) {
 			},
 			want: false,
 		},
+		{
+			name: "ends with sleep_thread — deliberate completion, not interrupted",
+			messages: []provider.Message{
+				{Role: "user", Content: "hello", Timestamp: now},
+				{Role: "assistant", Content: "", ToolCalls: []provider.ToolCall{{ID: "tc1", Type: "function", Function: provider.FunctionCall{Name: "sleep_thread"}}}, Timestamp: now},
+				{Role: "tool", ToolCallID: "tc1", Name: "sleep_thread", Content: "ok", Timestamp: now},
+			},
+			want: false,
+		},
 	}
 
 	for _, tt := range tests {

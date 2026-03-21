@@ -127,6 +127,11 @@ func isIncompleteSession(messages []provider.Message) bool {
 	if last.Role == "assistant" && len(last.ToolCalls) == 0 {
 		return false
 	}
+	// A turn ending with sleep_thread is a deliberate completion (e.g., heartbeat,
+	// compression, or a resume that the LLM chose to skip). Not an interruption.
+	if last.Role == "tool" && last.Name == "sleep_thread" {
+		return false
+	}
 	return true
 }
 
