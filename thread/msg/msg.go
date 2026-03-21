@@ -134,6 +134,7 @@ const (
 	WakeExternal       WakeSource = "external"
 	WakeCompression      WakeSource = "compression"
 	WakeHeartbeat WakeSource = "heartbeat"
+	WakeResume    WakeSource = "resume"
 )
 
 // IsUserVisibleSource reports whether the given source represents a real
