@@ -52,8 +52,11 @@ type ProviderStats struct {
 
 // GroupStats holds aggregated metrics for a group.
 type GroupStats struct {
-	Turns    int   `json:"turns" yaml:"turns"`
-	AvgDurMs int64 `json:"avgDurationMs" yaml:"avgDurationMs"`
+	Turns        int    `json:"turns" yaml:"turns"`
+	AvgDurMs     int64  `json:"avgDurationMs" yaml:"avgDurationMs"`
+	PromptTokens int    `json:"promptTokens" yaml:"promptTokens"`
+	CachedTokens int    `json:"cachedTokens" yaml:"cachedTokens"`
+	CacheHitRate string `json:"cacheHitRate" yaml:"cacheHitRate"`
 }
 
 // Query aggregates turn records for the given time window.
@@ -99,6 +102,8 @@ func Query(store *Store, window Window) *MetricsSummary {
 		}
 		ms.Turns++
 		ms.AvgDurMs += r.DurationMs
+		ms.PromptTokens += r.PromptTokens
+		ms.CachedTokens += r.CachedTokens
 
 		// By agent
 		if r.Agent != "" {
@@ -109,6 +114,8 @@ func Query(store *Store, window Window) *MetricsSummary {
 			}
 			as.Turns++
 			as.AvgDurMs += r.DurationMs
+			as.PromptTokens += r.PromptTokens
+			as.CachedTokens += r.CachedTokens
 		}
 
 		// By session
@@ -120,6 +127,8 @@ func Query(store *Store, window Window) *MetricsSummary {
 			}
 			ss.Turns++
 			ss.AvgDurMs += r.DurationMs
+			ss.PromptTokens += r.PromptTokens
+			ss.CachedTokens += r.CachedTokens
 		}
 	}
 
@@ -132,31 +141,31 @@ func Query(store *Store, window Window) *MetricsSummary {
 		summary.ErrorRate = float64(errorCount) / float64(len(records)) * 100
 	}
 
-	// Convert accumulated durations to averages
+	// Convert accumulated durations to averages and compute cache hit rates.
+	finalizeGroup := func(g *GroupStats) {
+		if g.Turns > 0 {
+			g.AvgDurMs /= int64(g.Turns)
+		}
+		if g.PromptTokens > 0 {
+			g.CacheHitRate = fmt.Sprintf("%.1f%%", float64(g.CachedTokens)/float64(g.PromptTokens)*100)
+		}
+	}
 	for _, ps := range summary.ByProvider {
 		if ps.Turns > 0 {
 			ps.AvgDurMs /= int64(ps.Turns)
 		}
 		if ps.PromptTokens > 0 {
 			ps.CacheHitRate = fmt.Sprintf("%.1f%%", float64(ps.CachedTokens)/float64(ps.PromptTokens)*100)
-		} else {
-			ps.CacheHitRate = "0.0%"
 		}
 		for _, ms := range ps.Models {
-			if ms.Turns > 0 {
-				ms.AvgDurMs /= int64(ms.Turns)
-			}
+			finalizeGroup(ms)
 		}
 	}
 	for _, as := range summary.ByAgent {
-		if as.Turns > 0 {
-			as.AvgDurMs /= int64(as.Turns)
-		}
+		finalizeGroup(as)
 	}
 	for _, ss := range summary.BySession {
-		if ss.Turns > 0 {
-			ss.AvgDurMs /= int64(ss.Turns)
-		}
+		finalizeGroup(ss)
 	}
 
 	// Remove empty maps
