@@ -17,7 +17,9 @@ Without heartbeat, you only react. With heartbeat, you anticipate. Your job is t
 
 1. The current heartbeat.md content is already in the wake message above. Use it directly.
 2. Review conversation above (do NOT read_file session file; you already have all info)
-   - Scan for: anything user would appreciate further actions
+   - Scan for anything you can help with in the background:
+     - You offered help but didn't follow through, even if they didn't respond
+     - Weather/news/traffic/interests they may care about
 3. existing_items = items from heartbeat.md
    new_items = items found in conversation
    cron_items = `nagobot cron list` (check if needed)
