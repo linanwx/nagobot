@@ -269,13 +269,13 @@ func wakeActionHint(source WakeSource) string {
 	case WakeChildTask:
 		return "A parent thread delegated a task to you. Execute this task and output the result."
 	case WakeChildCompleted:
-		return "A child thread completed. The content is ONLY visible to you. The user cannot see it. Include the complete result in your response."
+		return "A child thread completed. The content is ONLY visible to you. The user cannot see it. React accordingly and be friendly."
 	case WakeSleepCompleted:
 		return "Your sleep timer expired. The message is system context only. Resume your session."
 	case WakeCron:
 		return "A scheduled cron task has started. Execute it based on the provided job context."
 	case WakeCronFinished:
-		return "A cron task finished. The content is ONLY visible to you. Summarize and deliver the result to the user."
+		return "A cron task finished. The content is ONLY visible to you. React accordingly and be friendly."
 	case WakeExternal:
 		return "Process this external wake message. The content is only visible to you."
 	case WakeCompression:

@@ -52,16 +52,6 @@ Without heartbeat, you only react. With heartbeat, you anticipate. Your job is t
   created: 2026-03-10
   moved_on: user hasn't mentioned emails for over a week
   reason: user mentioned wanting to stay on top of emails
-
-- Remind about quarterly report deadline
-  created: 2026-03-08
-  moved_on: after 2026-03-20 (deadline passed) or user confirms submission
-  reason: user mentioned a quarterly report due on March 20
-
-- Remind user to bring an umbrella
-  created: 2026-03-11
-  moved_on: user hasn't mentioned outings recently
-  reason: user seems to activate in the evenings
 ```
 
 ## Rules
