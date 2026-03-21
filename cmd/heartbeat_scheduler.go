@@ -369,6 +369,6 @@ func buildHeartbeatMessage(heartbeatContent, mdModified, nextPulse, hbPath strin
 	}
 
 	message := sysmsg.BuildSystemMessage("heartbeat", fields, body)
-	message += "\n\nYou must call use_skill(\"heartbeat-wake\") and follow its instructions."
+	message += "\n\nYou must call use_skill(\"heartbeat-wake\") and follow its instructions. use_skill function can not skip."
 	return message
 }
