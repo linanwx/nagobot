@@ -16,12 +16,13 @@ const resumeMaxAge = 1 * time.Hour
 
 // resumableChannelPrefixes are session key prefixes for channels with
 // persistent delivery (defaultSink can reach the user after restart).
-var resumableChannelPrefixes = []string{"telegram:", "discord:", "feishu:"}
+var resumableChannelPrefixes = []string{"telegram:", "discord:", "feishu:", "cron:"}
 
 // resumeCandidate holds the data needed to wake an interrupted session.
 type resumeCandidate struct {
-	key  string
-	body string
+	key   string
+	body  string
+	agent string
 }
 
 // scanInterruptedSessions identifies sessions that were interrupted mid-execution.
@@ -37,7 +38,7 @@ func scanInterruptedSessions(sessionsDir string) []resumeCandidate {
 
 		key := session.DeriveKeyFromPath(path)
 
-		// Layer 1: prefix filter — only telegram/discord/feishu, no child threads.
+		// Layer 1: prefix filter — resumable channels + their child threads.
 		if !isResumableSessionKey(key) {
 			return nil
 		}
@@ -76,12 +77,16 @@ func scanInterruptedSessions(sessionsDir string) []resumeCandidate {
 			}
 		}
 
+		// Extract agent from the first non-resume user message.
+		agent := extractAgentFromSession(sess.Messages)
+
 		logger.Info("found interrupted session",
 			"sessionKey", key,
 			"lastRole", lastMsg.Role,
 			"lastTimestamp", lastMsg.Timestamp.Format(time.RFC3339),
+			"agent", agent,
 		)
-		candidates = append(candidates, resumeCandidate{key: key, body: body})
+		candidates = append(candidates, resumeCandidate{key: key, body: body, agent: agent})
 		return nil
 	})
 	return candidates
@@ -90,10 +95,11 @@ func scanInterruptedSessions(sessionsDir string) []resumeCandidate {
 // sendResumeWakes fires resume wakes for the given candidates.
 func sendResumeWakes(mgr *thread.Manager, candidates []resumeCandidate) {
 	for _, c := range candidates {
-		logger.Info("resuming interrupted session", "sessionKey", c.key)
+		logger.Info("resuming interrupted session", "sessionKey", c.key, "agent", c.agent)
 		mgr.Wake(c.key, &thread.WakeMessage{
-			Source:  thread.WakeResume,
-			Message: c.body,
+			Source:    thread.WakeResume,
+			Message:   c.body,
+			AgentName: c.agent,
 		})
 	}
 	if len(candidates) > 0 {
@@ -102,14 +108,14 @@ func sendResumeWakes(mgr *thread.Manager, candidates []resumeCandidate) {
 }
 
 // isResumableSessionKey returns true if the session key belongs to a channel
-// with persistent delivery and is not a child thread.
+// with persistent delivery. For child threads, checks the parent key.
 func isResumableSessionKey(key string) bool {
-	// Exclude child threads (e.g., "telegram:123:threads:abc").
-	if strings.Contains(key, ":threads:") {
-		return false
+	checkKey := key
+	if idx := strings.Index(key, ":threads:"); idx >= 0 {
+		checkKey = key[:idx]
 	}
 	for _, prefix := range resumableChannelPrefixes {
-		if strings.HasPrefix(key, prefix) {
+		if strings.HasPrefix(checkKey, prefix) {
 			return true
 		}
 	}
@@ -135,12 +141,28 @@ func isIncompleteSession(messages []provider.Message) bool {
 	return true
 }
 
-// findLastUserMessage scans backwards for the last role=user message.
+// findLastUserMessage scans backwards for the last role=user message,
+// skipping resume-source messages to find the original request.
 func findLastUserMessage(messages []provider.Message) (provider.Message, bool) {
 	for i := len(messages) - 1; i >= 0; i-- {
-		if messages[i].Role == "user" {
+		if messages[i].Role == "user" && messages[i].Source != "resume" {
 			return messages[i], true
 		}
 	}
 	return provider.Message{}, false
+}
+
+// extractAgentFromSession finds the first non-resume user message and extracts
+// the agent name from its YAML frontmatter. Returns "" if not found.
+func extractAgentFromSession(messages []provider.Message) string {
+	for _, m := range messages {
+		if m.Role == "user" && m.Source != "resume" {
+			yamlBlock, _, ok := thread.SplitFrontmatter(m.Content)
+			if ok {
+				return thread.ExtractFrontmatterValue(yamlBlock, "agent")
+			}
+			return ""
+		}
+	}
+	return ""
 }

@@ -377,7 +377,7 @@ func computeWakeCompressed(m *provider.Message) string {
 	trimmedYAML := strings.Join(kept, "\n")
 
 	// Check whether body needs compression: only when actually trimmable.
-	visibility := extractFrontmatterValue(yamlBlock, "visibility")
+	visibility := ExtractFrontmatterValue(yamlBlock, "visibility")
 	bodyTrimmable := visibility == "assistant-only" &&
 		len(body) > softTrimHeadChars+softTrimTailChars &&
 		!strings.Contains(body, "<<media:")
@@ -427,8 +427,8 @@ func SplitFrontmatter(content string) (yamlBlock, body string, ok bool) {
 	return
 }
 
-// extractFrontmatterValue extracts a scalar value from a raw YAML block by key name.
-func extractFrontmatterValue(yamlBlock, key string) string {
+// ExtractFrontmatterValue extracts a scalar value from a raw YAML block by key name.
+func ExtractFrontmatterValue(yamlBlock, key string) string {
 	for _, line := range strings.Split(yamlBlock, "\n") {
 		parts := strings.SplitN(line, ":", 2)
 		if len(parts) == 2 && strings.TrimSpace(parts[0]) == key {

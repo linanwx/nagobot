@@ -46,9 +46,6 @@ func TestIsIncompleteSession(t *testing.T) {
 		},
 		{
 			name: "ends with user after sanitize drops empty assistant — incomplete",
-			// Input is already sanitized (as from ReadFile): assistant with
-			// unanswered tool_calls gets stripped to empty and dropped.
-			// After sanitize: [user] — incomplete.
 			messages: []provider.Message{
 				{Role: "user", Content: "do something", Timestamp: now},
 			},
@@ -56,8 +53,6 @@ func TestIsIncompleteSession(t *testing.T) {
 		},
 		{
 			name: "partial tool results after sanitize — ends with tool, incomplete",
-			// After sanitize: assistant keeps only tc1 (answered), tc2 stripped.
-			// Sequence: [user, assistant(tc1), tool(tc1)] — ends with tool.
 			messages: []provider.Message{
 				{Role: "user", Content: "do two things", Timestamp: now},
 				{Role: "assistant", Content: "", ToolCalls: []provider.ToolCall{
@@ -124,6 +119,33 @@ func TestFindLastUserMessage(t *testing.T) {
 			t.Fatal("expected ok=false")
 		}
 	})
+
+	t.Run("skips resume messages", func(t *testing.T) {
+		msgs := []provider.Message{
+			{Role: "user", Content: "original request", Source: "telegram", Timestamp: now},
+			{Role: "assistant", Content: "partial", Timestamp: now},
+			{Role: "user", Content: "resume msg 1", Source: "resume", Timestamp: now},
+			{Role: "assistant", Content: "", ToolCalls: []provider.ToolCall{{ID: "tc1", Type: "function", Function: provider.FunctionCall{Name: "sleep_thread"}}}, Timestamp: now},
+			{Role: "tool", ToolCallID: "tc1", Name: "sleep_thread", Content: "ok", Timestamp: now},
+			{Role: "user", Content: "resume msg 2", Source: "resume", Timestamp: now},
+			{Role: "assistant", Content: "", ToolCalls: []provider.ToolCall{{ID: "tc2", Type: "function", Function: provider.FunctionCall{Name: "sleep_thread"}}}, Timestamp: now},
+			{Role: "tool", ToolCallID: "tc2", Name: "sleep_thread", Content: "ok", Timestamp: now},
+		}
+		msg, ok := findLastUserMessage(msgs)
+		if !ok || msg.Content != "original request" {
+			t.Fatalf("expected 'original request', got %q ok=%v", msg.Content, ok)
+		}
+	})
+
+	t.Run("all messages are resume — returns false", func(t *testing.T) {
+		msgs := []provider.Message{
+			{Role: "user", Content: "resume only", Source: "resume", Timestamp: now},
+		}
+		_, ok := findLastUserMessage(msgs)
+		if ok {
+			t.Fatal("expected ok=false when all user messages are resume")
+		}
+	})
 }
 
 func TestIsResumableSessionKey(t *testing.T) {
@@ -134,9 +156,14 @@ func TestIsResumableSessionKey(t *testing.T) {
 		{"telegram:123", true},
 		{"discord:456", true},
 		{"feishu:789", true},
+		{"cron:tidyup", true},
+		{"cron:daily-news", true},
+		{"telegram:123:threads:2026-03-21-abc", true},
+		{"discord:456:threads:2026-03-21-def", true},
+		{"cron:tidyup:threads:2026-03-21-ghi", true},
 		{"cli", false},
-		{"cron:tidyup", false},
-		{"telegram:123:threads:abc", false},
+		{"cli:threads:2026-03-21-abc", false},
+		{"web:main", false},
 	}
 	for _, tt := range tests {
 		t.Run(tt.key, func(t *testing.T) {
@@ -145,4 +172,47 @@ func TestIsResumableSessionKey(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestExtractAgentFromSession(t *testing.T) {
+	t.Run("extracts agent from YAML frontmatter", func(t *testing.T) {
+		msgs := []provider.Message{
+			{Role: "user", Content: "---\nsource: child_task\nagent: imagereader\n---\n\nAnalyze this image", Source: "child_task"},
+		}
+		got := extractAgentFromSession(msgs)
+		if got != "imagereader" {
+			t.Errorf("expected 'imagereader', got %q", got)
+		}
+	})
+
+	t.Run("skips resume messages", func(t *testing.T) {
+		msgs := []provider.Message{
+			{Role: "user", Content: "---\nsource: telegram\nagent: soul\n---\n\nhello", Source: "telegram"},
+			{Role: "user", Content: "---\nsource: resume\nagent: soul\n---\n\nresume content", Source: "resume"},
+		}
+		got := extractAgentFromSession(msgs)
+		if got != "soul" {
+			t.Errorf("expected 'soul', got %q", got)
+		}
+	})
+
+	t.Run("no agent field — returns empty", func(t *testing.T) {
+		msgs := []provider.Message{
+			{Role: "user", Content: "---\nsource: telegram\n---\n\nhello", Source: "telegram"},
+		}
+		got := extractAgentFromSession(msgs)
+		if got != "" {
+			t.Errorf("expected empty, got %q", got)
+		}
+	})
+
+	t.Run("no YAML frontmatter — returns empty", func(t *testing.T) {
+		msgs := []provider.Message{
+			{Role: "user", Content: "plain text message", Source: "telegram"},
+		}
+		got := extractAgentFromSession(msgs)
+		if got != "" {
+			t.Errorf("expected empty, got %q", got)
+		}
+	})
 }
