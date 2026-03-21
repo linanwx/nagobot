@@ -12,7 +12,7 @@ import (
 	"github.com/linanwx/nagobot/thread"
 )
 
-const resumeMaxAge = 10 * time.Minute
+const resumeMaxAge = 1 * time.Hour
 
 // resumableChannelPrefixes are session key prefixes for channels with
 // persistent delivery (defaultSink can reach the user after restart).
