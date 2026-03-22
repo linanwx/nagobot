@@ -75,8 +75,21 @@ def cmd_format_response(args):
     # Time / Weather / Location
     time_of_day = state.get("time_of_day", "Unknown")
     weather = state.get("weather", "Unknown")
-    location = state.get("location", "Unknown")
-    lines.append(f"> 🕐 {time_of_day} · {weather} · {location}")
+    global_location = state.get("global_location", state.get("location", "Unknown"))
+
+    # Determine if all players are at the same location
+    player_locations = {}
+    for pname, player in players.items():
+        player_locations[pname] = player.get("location", global_location)
+    unique_locations = set(player_locations.values()) if player_locations else {global_location}
+
+    if len(unique_locations) <= 1:
+        # All players at same location — show as team location
+        team_loc = unique_locations.pop() if unique_locations else global_location
+        lines.append(f"> 🕐 {time_of_day} · {weather} · {team_loc}")
+    else:
+        # Players scattered — show header without location, list per-player below
+        lines.append(f"> 🕐 {time_of_day} · {weather}")
 
     # Quest
     quest = state.get("quest", "")
@@ -98,6 +111,10 @@ def cmd_format_response(args):
 
         id_tag = f" [<@{discord_id}>]" if discord_id else ""
         lines.append(f"> 👤 {character} ({pname}){id_tag}")
+        # Show per-player location when players are scattered
+        if len(unique_locations) > 1:
+            ploc = player_locations.get(pname, global_location)
+            lines.append(f"> 📍 {ploc}")
         lines.append(f"> ❤️ {hp}/{max_hp} · ☢️ {rads} · 🍖 {hunger} · 💰 {caps} · ⚡ {ap}")
 
         # Inventory

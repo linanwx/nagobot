@@ -72,11 +72,23 @@ def ok(msg=None, **extra):
 # ---------------------------------------------------------------------------
 
 def load_state():
-    """Load game state from JSON file."""
+    """Load game state from JSON file. Auto-migrates old saves."""
     if not os.path.exists(STATE_FILE):
         return None
     with open(STATE_FILE, "r", encoding="utf-8") as f:
-        return json.load(f)
+        state = json.load(f)
+    _migrate_location(state)
+    return state
+
+
+def _migrate_location(state):
+    """Migrate old saves: 'location' -> 'global_location' + per-player locations."""
+    if "location" in state and "global_location" not in state:
+        state["global_location"] = state.pop("location")
+        gl = state["global_location"]
+        for player in state.get("players", {}).values():
+            if "location" not in player:
+                player["location"] = gl
 
 
 def save_state(state):

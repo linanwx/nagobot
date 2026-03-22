@@ -25,7 +25,7 @@ def cmd_init(args):
         "chapter": 1,
         "chapter_title": "Leaving the Vault",
         "chapter_start_turn": 0,
-        "location": "Vault 111",
+        "global_location": "Vault 111",
         "turn": 0,
         "time_of_day": "Early Morning",
         "weather": "Clear",
@@ -133,9 +133,15 @@ def cmd_set(args):
                           hint="exploration: free roam, time advances with 'turn'. combat: round-based, auto-enters when enemies added.")
         state["turn_actions"] = {}
 
-    old = state.get(field)
-    state[field] = value
+    # 'location' maps to 'global_location' and syncs all players
+    state_field = "global_location" if field == "location" else field
+    old = state.get(state_field)
+    state[state_field] = value
     _log(state, f"{field}: {old} → {value}")
+
+    if field == "location":
+        for player in state.get("players", {}).values():
+            player["location"] = value
 
     # Track when chapter changes for encounter safe_turns
     if field == "chapter":
@@ -144,6 +150,8 @@ def cmd_set(args):
     save_state(state)
 
     result = {"field": field, "old_value": old, "new_value": value}
+    if field == "location":
+        result["synced_players"] = list(state.get("players", {}).keys())
     if field == "chapter":
         players = list(state.get("players", {}).keys())
         player_skills = {}
@@ -173,6 +181,82 @@ def cmd_set(args):
             )
 
     ok(f"Set {field}", **result)
+
+
+# ---------------------------------------------------------------------------
+# Location (per-player)
+# ---------------------------------------------------------------------------
+
+def cmd_location(args):
+    """View or set a player's location."""
+    state = require_state()
+    if not state:
+        return
+
+    players = state.get("players", {})
+    name = args.player
+    new_loc = " ".join(args.new_location) if args.new_location else None
+
+    if not name:
+        # No args: show all player locations
+        locations = {}
+        for pname, player in players.items():
+            locations[pname] = player.get("location", state.get("global_location", "Unknown"))
+        ok("Player locations", global_location=state.get("global_location", "Unknown"),
+           players=locations)
+        return
+
+    player = players.get(name)
+    if not player:
+        available = list(players.keys())
+        return error(f"Player not found: {name}", available_players=available)
+
+    if not new_loc:
+        # Show single player location
+        loc = player.get("location", state.get("global_location", "Unknown"))
+        ok(f"{name} is at {loc}", player=name, location=loc)
+        return
+
+    # Move player to new location
+    old_loc = player.get("location", state.get("global_location", "Unknown"))
+    player["location"] = new_loc
+    _log(state, f"{name} moved: {old_loc} → {new_loc}")
+    save_state(state)
+    ok(f"Moved {name}", player=name, old_location=old_loc, new_location=new_loc)
+
+
+def cmd_move_team(args):
+    """Move all players to a location (updates global_location too)."""
+    state = require_state()
+    if not state:
+        return
+
+    new_loc = " ".join(args.location)
+    old_loc = state.get("global_location", "Unknown")
+    state["global_location"] = new_loc
+    moved = []
+    for pname, player in state.get("players", {}).items():
+        player["location"] = new_loc
+        moved.append(pname)
+    _log(state, f"team moved: {old_loc} → {new_loc}")
+    save_state(state)
+
+    result = {"old_location": old_loc, "new_location": new_loc, "moved_players": moved}
+
+    # Treasure roll on location change
+    if old_loc != new_loc:
+        treasure_roll = random.randint(1, 6)
+        result["treasure_roll"] = treasure_roll
+        if treasure_roll == 1:
+            result["treasure_found"] = True
+            result["treasure_prompt"] = (
+                "A locked container was discovered at this location! "
+                "Players must pass a Lockpick or Hacking check to open it. "
+                "If opened, use 'loot' to generate its contents. "
+                "Narrate the container — chained footlocker, sealed wall safe, locked ammo crate, etc."
+            )
+
+    ok(f"Team moved to {new_loc}", **result)
 
 
 # ---------------------------------------------------------------------------

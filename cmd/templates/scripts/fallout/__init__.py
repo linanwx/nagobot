@@ -6,7 +6,7 @@ import sys
 
 from .dice import cmd_roll, cmd_check, cmd_damage, cmd_initiative
 from .player import cmd_add_player, cmd_remove_player, cmd_hurt, cmd_heal, cmd_rads, cmd_caps, cmd_ap, cmd_inventory, cmd_skill_up
-from .world import cmd_init, cmd_status, cmd_set, cmd_turn
+from .world import cmd_init, cmd_status, cmd_set, cmd_turn, cmd_location, cmd_move_team
 from .items import cmd_use_item, cmd_effect, cmd_rest, cmd_recover
 from .events import cmd_loot, cmd_trade, cmd_npc_gen
 from .enemy import cmd_enemy_add, cmd_enemy_hurt, cmd_enemy_attack
@@ -44,6 +44,13 @@ def build_parser():
     p.add_argument("value", nargs="+")
 
     _sub(sub, "turn", cmd_turn)
+
+    p = _sub(sub, "location", cmd_location)
+    p.add_argument("player", nargs="?", default=None)
+    p.add_argument("new_location", nargs="*")
+
+    p = _sub(sub, "move-team", cmd_move_team)
+    p.add_argument("location", nargs="+")
 
     # -- Player --
     p = _sub(sub, "add-player", cmd_add_player)

@@ -70,6 +70,7 @@ def cmd_add_player(args):
         "status_effects": [],
         "kills": 0,
         "quests_completed": 0,
+        "location": state.get("global_location", "Unknown"),
     }
 
     state["players"][name] = player
