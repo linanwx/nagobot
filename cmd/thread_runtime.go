@@ -185,7 +185,6 @@ func buildThreadManager(cfg *config.Config, enableSessions bool) (*thread.Manage
 		BuiltinSkillsDir:    builtinSkillsDir,
 		SessionsDir:         sessionsDir,
 		ContextWindowTokens:  cfg.GetContextWindowTokens(),
-		ContextWarnRatio:     cfg.GetContextWarnRatio(),
 		MaxCompletionTokens:  cfg.Thread.MaxTokens,
 		Sessions:            sessions,
 		HealthChannelsFn:    healthChannelsFn,

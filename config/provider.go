@@ -94,14 +94,6 @@ func (c *Config) GetContextWindowTokens() int {
 	return c.Thread.ContextWindowTokens
 }
 
-// GetContextWarnRatio returns the configured context pressure warning ratio.
-func (c *Config) GetContextWarnRatio() float64 {
-	if c == nil {
-		return 0
-	}
-	return c.Thread.ContextWarnRatio
-}
-
 // GetWebAddr returns the configured web channel listen address.
 func (c *Config) GetWebAddr() string {
 	if c == nil || c.Channels == nil || c.Channels.Web == nil {
