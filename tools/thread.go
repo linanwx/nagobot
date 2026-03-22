@@ -101,8 +101,8 @@ func (t *SpawnThreadTool) run(ctx context.Context, args json.RawMessage) string 
 
 	// Truncate task preview to keep tool output readable.
 	taskPreview := strings.TrimSpace(a.Task)
-	if len(taskPreview) > 200 {
-		taskPreview = taskPreview[:200] + "..."
+	if runes := []rune(taskPreview); len(runes) > 200 {
+		taskPreview = string(runes[:200]) + "..."
 	}
 
 	fields := map[string]any{

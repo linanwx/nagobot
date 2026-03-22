@@ -72,8 +72,8 @@ func scanInterruptedSessions(sessionsDir string) []resumeCandidate {
 		body := ""
 		if ok {
 			body = origMsg.Content
-			if len(body) > 1000 {
-				body = body[:1000] + "\n... (truncated)"
+			if runes := []rune(body); len(runes) > 1000 {
+				body = string(runes[:1000]) + "\n... (truncated)"
 			}
 		}
 

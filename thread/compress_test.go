@@ -409,3 +409,91 @@ func TestSoftTrimWithHint_SkipWhenNotSmallEnough(t *testing.T) {
 		t.Errorf("compressed result should be at least 5%% smaller: got %d, original %d", len(result2), len(bigContent))
 	}
 }
+
+func TestRuneHeadTail(t *testing.T) {
+	// ASCII: runeHead/runeTail should behave like byte slicing.
+	s := "abcdefghij"
+	if got := runeHead(s, 5); got != "abcde" {
+		t.Errorf("runeHead ASCII: got %q, want %q", got, "abcde")
+	}
+	if got := runeTail(s, 5); got != "fghij" {
+		t.Errorf("runeTail ASCII: got %q, want %q", got, "fghij")
+	}
+
+	// CJK: each character is 3 bytes. runeHead/runeTail must not split them.
+	cjk := "你好世界测试一二三四" // 10 CJK runes, 30 bytes
+	if got := runeHead(cjk, 5); got != "你好世界测" {
+		t.Errorf("runeHead CJK: got %q, want %q", got, "你好世界测")
+	}
+	if got := runeTail(cjk, 5); got != "试一二三四" {
+		t.Errorf("runeTail CJK: got %q, want %q", got, "试一二三四")
+	}
+
+	// Edge: n >= len(runes) returns original string.
+	if got := runeHead(cjk, 100); got != cjk {
+		t.Errorf("runeHead overflow: got %q, want %q", got, cjk)
+	}
+	if got := runeTail(cjk, 100); got != cjk {
+		t.Errorf("runeTail overflow: got %q, want %q", got, cjk)
+	}
+}
+
+func TestSoftTrimWithHint_CJK(t *testing.T) {
+	// Build content with CJK characters well above threshold.
+	// Each CJK char = 1 rune = 3 bytes. 5000 runes = 15000 bytes.
+	cjkContent := strings.Repeat("中", 5000)
+	result := softTrimWithHint(cjkContent, "web_fetch", "msg-cjk")
+	if result == "" {
+		t.Fatal("soft trim should compress large CJK content")
+	}
+
+	// Verify head and tail are valid UTF-8 by checking they contain the expected CJK chars.
+	// Head should be exactly softTrimHeadRunes CJK chars.
+	expectedHead := strings.Repeat("中", softTrimHeadRunes)
+	if !strings.Contains(result, expectedHead) {
+		t.Error("compressed result should contain head with exactly softTrimHeadRunes CJK chars")
+	}
+	// Tail should be exactly softTrimTailRunes CJK chars.
+	expectedTail := strings.Repeat("中", softTrimTailRunes)
+	if !strings.Contains(result, expectedTail) {
+		t.Error("compressed result should contain tail with exactly softTrimTailRunes CJK chars")
+	}
+}
+
+func TestComputeWakeCompressed_CJK(t *testing.T) {
+	// Build a wake message with a large CJK body that should trigger body compression.
+	// Need body > softTrimHeadRunes + softTrimTailRunes runes and visibility: assistant-only.
+	body := strings.Repeat("汉", 5000) // 5000 CJK runes
+	content := "---\nsource: child_completed\nthread: t-1\nsession: s-1\ndelivery: d-1\ntime: \"2026-03-06T10:00:00+08:00\"\nvisibility: assistant-only\naction: hint\n---\n" + body
+
+	m := &provider.Message{Content: content, ID: "msg-wake-cjk"}
+	result := computeWakeCompressed(m)
+	if result == "" {
+		t.Fatal("expected compression for large CJK wake body")
+	}
+	if !strings.Contains(result, "compressed: true") {
+		t.Fatal("expected body compression marker")
+	}
+
+	// Verify the compressed body contains valid CJK head and tail.
+	expectedHead := strings.Repeat("汉", softTrimHeadRunes)
+	if !strings.Contains(result, expectedHead) {
+		t.Error("compressed wake body should contain head with softTrimHeadRunes CJK chars")
+	}
+	expectedTail := strings.Repeat("汉", softTrimTailRunes)
+	if !strings.Contains(result, expectedTail) {
+		t.Error("compressed wake body should contain tail with softTrimTailRunes CJK chars")
+	}
+}
+
+func TestRuneLen(t *testing.T) {
+	if got := runeLen("hello"); got != 5 {
+		t.Errorf("runeLen ASCII: got %d, want 5", got)
+	}
+	if got := runeLen("你好"); got != 2 {
+		t.Errorf("runeLen CJK: got %d, want 2", got)
+	}
+	if got := runeLen(""); got != 0 {
+		t.Errorf("runeLen empty: got %d, want 0", got)
+	}
+}

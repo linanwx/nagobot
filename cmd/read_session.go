@@ -164,8 +164,9 @@ func truncateContent(s string, maxLen int) (string, int) {
 	s = strings.TrimSpace(s)
 	// Collapse newlines for compact display.
 	s = strings.ReplaceAll(s, "\n", " ")
-	if len(s) > maxLen {
-		return s[:maxLen] + "...", len(s) - maxLen
+	runes := []rune(s)
+	if len(runes) > maxLen {
+		return string(runes[:maxLen]) + "...", len(runes) - maxLen
 	}
 	return s, 0
 }
