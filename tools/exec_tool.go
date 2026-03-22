@@ -197,7 +197,6 @@ func (t *ExecTool) run(ctx context.Context, a execArgs, timeout int) string {
 	}
 
 	fields := map[string]any{
-		"command": a.Command,
 		"workdir": cmd.Dir,
 	}
 	if err != nil {
