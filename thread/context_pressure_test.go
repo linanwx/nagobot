@@ -33,24 +33,23 @@ func TestComputeContextThresholds(t *testing.T) {
 }
 
 func TestPressureStatus(t *testing.T) {
+	ct := ComputeContextThresholds(200000) // WarnToken=40000, Tier2Token=72000
 	tests := []struct {
-		name          string
-		usedTokens    int
-		contextWindow int
-		warnToken     int
-		want          string
+		name       string
+		usedTokens int
+		want       string
 	}{
-		{"ok - plenty of room", 50000, 200000, 40000, "ok"},
-		{"warning - within tier2 zone", 140000, 200000, 40000, "warning"},
-		{"pressure - remaining below warnToken", 170000, 200000, 40000, "pressure"},
-		{"pressure - remaining exactly zero", 200000, 200000, 40000, "pressure"},
+		{"ok - plenty of room", 50000, "ok"},
+		{"warning - within tier2 zone", 140000, "warning"},
+		{"pressure - remaining below warnToken", 170000, "pressure"},
+		{"pressure - remaining exactly zero", 200000, "pressure"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got := PressureStatus(tt.usedTokens, tt.contextWindow, tt.warnToken)
+			got := PressureStatus(tt.usedTokens, ct)
 			if got != tt.want {
-				t.Errorf("PressureStatus(%d, %d, %d) = %q, want %q",
-					tt.usedTokens, tt.contextWindow, tt.warnToken, got, tt.want)
+				t.Errorf("PressureStatus(%d, ct) = %q, want %q",
+					tt.usedTokens, got, tt.want)
 			}
 		})
 	}

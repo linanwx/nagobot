@@ -74,16 +74,15 @@ func (t *Thread) contextBudget() ContextThresholds {
 }
 
 // PressureStatus returns "ok", "warning", or "pressure" based on token usage.
-func PressureStatus(usedTokens, contextWindow, warnToken int) string {
-	if contextWindow <= 0 {
+func PressureStatus(usedTokens int, ct ContextThresholds) string {
+	if ct.ContextWindow <= 0 {
 		return "ok"
 	}
-	remaining := contextWindow - usedTokens
-	if remaining < warnToken {
+	remaining := ct.ContextWindow - usedTokens
+	if remaining < ct.WarnToken {
 		return "pressure"
 	}
-	tier2Token := int(float64(warnToken) * tier2Multiplier)
-	if remaining < tier2Token {
+	if remaining < ct.Tier2Token {
 		return "warning"
 	}
 	return "ok"

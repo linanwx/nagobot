@@ -117,7 +117,7 @@ func runSessionStats(_ *cobra.Command, args []string) error {
 	ct := thread.ComputeContextThresholds(contextWindow)
 	usageRatio := float64(compressedTokens) / float64(contextWindow)
 
-	status := thread.PressureStatus(compressedTokens, contextWindow, ct.WarnToken)
+	status := thread.PressureStatus(compressedTokens, ct)
 
 	// Find top 3 longest messages (by token count, using compressed view).
 	type indexedMsg struct {

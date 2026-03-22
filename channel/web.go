@@ -105,7 +105,7 @@ func (w *WebChannel) SetSystemPromptFn(fn func(string) (string, bool)) {
 }
 
 // SetContextBudgetFn sets a callback that returns the effective context window
-// and warn ratio for a given session key from the thread runtime.
+// and warn token for a given session key from the thread runtime.
 func (w *WebChannel) SetContextBudgetFn(fn func(string) (int, int, bool)) {
 	w.contextBudgetFn = fn
 }
@@ -739,12 +739,10 @@ func (w *WebChannel) handleSessionStats(rw http.ResponseWriter, key string) {
 
 	// Try to get context window from thread runtime; fall back to global config.
 	var contextWindow int
-	var warnToken int
 	var isRuntime bool
 	if w.contextBudgetFn != nil {
-		if tw, wt, ok := w.contextBudgetFn(key); ok {
+		if tw, _, ok := w.contextBudgetFn(key); ok {
 			contextWindow = tw
-			warnToken = wt
 			isRuntime = true
 		}
 	}
@@ -754,15 +752,14 @@ func (w *WebChannel) handleSessionStats(rw http.ResponseWriter, key string) {
 			cfg = config.DefaultConfig()
 		}
 		contextWindow = provider.EffectiveContextWindow(cfg.GetModelName(), cfg.GetContextWindowTokens())
-		ct := thread.ComputeContextThresholds(contextWindow)
-		warnToken = ct.WarnToken
 	}
+	ct := thread.ComputeContextThresholds(contextWindow)
 
 	var usagePercent float64
-	if contextWindow > 0 {
-		usagePercent = float64(compressedTokens) / float64(contextWindow) * 100
+	if ct.ContextWindow > 0 {
+		usagePercent = float64(compressedTokens) / float64(ct.ContextWindow) * 100
 	}
-	status := thread.PressureStatus(compressedTokens, contextWindow, warnToken)
+	status := thread.PressureStatus(compressedTokens, ct)
 
 	rw.Header().Set("Content-Type", "application/json")
 	_ = json.NewEncoder(rw).Encode(sessionStatsResponse{
