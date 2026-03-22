@@ -252,6 +252,16 @@ func buildWakePayload(source WakeSource, message, threadID, sessionKey, sessionD
 	if hint := wakeActionHint(source); hint != "" {
 		header.Action = hint
 	}
+	// For user-visible sources (telegram, discord, etc.) that may contain media,
+	// include the current model's multimodal capabilities so the LLM knows what it can do.
+	if sysmsg.IsUserVisibleSource(source) && model != "" {
+		if prov, mod, ok := strings.Cut(model, "/"); ok {
+			v := provider.SupportsVision(prov, mod)
+			a := provider.SupportsAudio(prov, mod)
+			header.SupportsVision = &v
+			header.SupportsAudio = &a
+		}
+	}
 
 	yamlBytes, _ := yaml.Marshal(header)
 
@@ -266,16 +276,18 @@ func buildWakePayload(source WakeSource, message, threadID, sessionKey, sessionD
 
 // wakeHeader is the YAML frontmatter for wake messages.
 type wakeHeader struct {
-	Source     string `yaml:"source"`
-	Thread     string `yaml:"thread"`
-	Session    string `yaml:"session"`
-	SessionDir string `yaml:"session_dir,omitempty"`
-	Time       string `yaml:"time"`
-	Model      string `yaml:"model,omitempty"`
-	Agent      string `yaml:"agent,omitempty"`
-	Delivery   string `yaml:"delivery"`
-	Visibility string `yaml:"visibility"`
-	Action     string `yaml:"action,omitempty"`
+	Source         string `yaml:"source"`
+	Thread         string `yaml:"thread"`
+	Session        string `yaml:"session"`
+	SessionDir     string `yaml:"session_dir,omitempty"`
+	Time           string `yaml:"time"`
+	Model          string `yaml:"model,omitempty"`
+	Agent          string `yaml:"agent,omitempty"`
+	Delivery       string `yaml:"delivery"`
+	Visibility     string `yaml:"visibility"`
+	Action         string `yaml:"action,omitempty"`
+	SupportsVision *bool  `yaml:"supports_vision,omitempty"`
+	SupportsAudio  *bool  `yaml:"supports_audio,omitempty"`
 }
 
 // messageVisibility returns the visibility label for a wake source.
