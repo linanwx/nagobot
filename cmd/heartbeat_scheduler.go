@@ -154,20 +154,7 @@ func (s *heartbeatScheduler) maybeFirePulse(key string, now time.Time, lastActiv
 	}
 
 	if lp.IsZero() {
-		// Pulse schedule: lastActive+10m, +40m, +70m, ...
-		// Iterate to find the correct alignment point.
-		firstPulse := lastActive.Add(hbQuietMin)
-		if !firstPulse.Before(now) {
-			lp = lastActive
-			interval = hbQuietMin
-		} else {
-			next := firstPulse
-			for next.Before(now) {
-				next = next.Add(hbPulseInterval)
-			}
-			lp = next.Add(-hbPulseInterval)
-			interval = hbPulseInterval
-		}
+		lp, interval = coldStartAlignment(lastActive, now)
 		// Persist computed lp so subsequent scans don't re-compute and drift.
 		s.mu.Lock()
 		s.lastPulse[key] = lp
@@ -293,18 +280,7 @@ func (s *heartbeatScheduler) Status() []hbStatusEntry {
 		}
 
 		if lp.IsZero() {
-			firstPulse := lastActive.Add(hbQuietMin)
-			if !firstPulse.Before(now) {
-				lp = lastActive
-				interval = hbQuietMin
-			} else {
-				next := firstPulse
-				for next.Before(now) {
-					next = next.Add(hbPulseInterval)
-				}
-				lp = next.Add(-hbPulseInterval)
-				interval = hbPulseInterval
-			}
+			lp, interval = coldStartAlignment(lastActive, now)
 		}
 
 		nextPulse := lp.Add(interval)
@@ -317,6 +293,28 @@ func (s *heartbeatScheduler) Status() []hbStatusEntry {
 		entries = append(entries, e)
 	}
 	return entries
+}
+
+// coldStartAlignment computes the initial lp and interval on cold start
+// (no prior pulse recorded). The pulse timeline is:
+//   lastActive+10m, +40m, +70m, ...
+//
+// If the first pulse (lastActive+10m) hasn't arrived yet, wait for it.
+// If it has arrived (or any subsequent pulse is due), set lp so the
+// fire check (now-lp >= interval) passes immediately — missed pulses
+// are not backfilled, but the current due pulse fires right away.
+func coldStartAlignment(lastActive, now time.Time) (lp time.Time, interval time.Duration) {
+	firstPulse := lastActive.Add(hbQuietMin)
+	if now.Before(firstPulse) {
+		return lastActive, hbQuietMin
+	}
+	// First pulse is due. Use O(1) arithmetic to find how many full
+	// intervals have elapsed since firstPulse, then set lp so that
+	// lp + interval <= now (making the fire check pass).
+	elapsed := now.Sub(firstPulse)
+	n := elapsed / hbPulseInterval // number of complete intervals past firstPulse
+	lp = firstPulse.Add(n * hbPulseInterval).Add(-hbPulseInterval)
+	return lp, hbPulseInterval
 }
 
 // hbSessionKeyToDir converts a session key to its directory path.
