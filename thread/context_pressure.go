@@ -1,6 +1,7 @@
 package thread
 
 import (
+	"context"
 	"fmt"
 	"strings"
 	"sync"
@@ -166,34 +167,34 @@ func EstimateMessagesTokens(messages []provider.Message) int {
 }
 
 func (t *Thread) contextPressureHook() turnHook {
-	return func(ctx turnContext) []string {
-		if strings.TrimSpace(ctx.SessionPath) == "" {
+	return func(ctx context.Context, tc turnContext) []string {
+		if strings.TrimSpace(tc.SessionPath) == "" {
 			return nil
 		}
-		if ctx.ContextWindowTokens <= 0 || ctx.WarnToken <= 0 {
-			return nil
-		}
-
-		threshold := ctx.ContextWindowTokens - ctx.WarnToken
-		if ctx.RequestEstimatedTokens < threshold {
+		if tc.ContextWindowTokens <= 0 || tc.WarnToken <= 0 {
 			return nil
 		}
 
-		usageRatio := float64(ctx.RequestEstimatedTokens) / float64(ctx.ContextWindowTokens)
+		threshold := tc.ContextWindowTokens - tc.WarnToken
+		if tc.RequestEstimatedTokens < threshold {
+			return nil
+		}
+
+		usageRatio := float64(tc.RequestEstimatedTokens) / float64(tc.ContextWindowTokens)
 		notice := t.buildCompressionNotice(
-			ctx.RequestEstimatedTokens,
-			ctx.ContextWindowTokens,
+			tc.RequestEstimatedTokens,
+			tc.ContextWindowTokens,
 			usageRatio,
-			ctx.SessionPath,
+			tc.SessionPath,
 		)
 
 		logger.Info(
 			"context threshold reached, compression reminder injected into current turn",
-			"threadID", ctx.ThreadID,
-			"sessionKey", ctx.SessionKey,
-			"sessionPath", ctx.SessionPath,
-			"requestEstimatedTokens", ctx.RequestEstimatedTokens,
-			"contextWindowTokens", ctx.ContextWindowTokens,
+			"threadID", tc.ThreadID,
+			"sessionKey", tc.SessionKey,
+			"sessionPath", tc.SessionPath,
+			"requestEstimatedTokens", tc.RequestEstimatedTokens,
+			"contextWindowTokens", tc.ContextWindowTokens,
 			"thresholdTokens", threshold,
 		)
 		return []string{notice}

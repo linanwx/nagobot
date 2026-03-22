@@ -27,7 +27,7 @@ func (t *Thread) run(ctx context.Context, userMessage string, sink Sink, injectF
 	cfg := t.cfg()
 	systemPrompt := t.buildSystemPrompt()
 	sess := t.loadSession()
-	messages, turnUserMessages := t.buildMessageHistory(systemPrompt, userMessage, sess)
+	messages, turnUserMessages := t.buildMessageHistory(ctx, systemPrompt, userMessage, sess)
 
 	// Write-ahead: persist user messages before LLM call so they survive a crash.
 	if sess != nil {
@@ -121,7 +121,7 @@ func (t *Thread) buildSystemPrompt() string {
 // buildMessageHistory assembles the full message list for the LLM request,
 // including system prompt, session history, user message, and hook injections.
 // Returns the full messages slice and the turn-specific user messages (for write-ahead).
-func (t *Thread) buildMessageHistory(systemPrompt, userMessage string, sess *session.Session) ([]provider.Message, []provider.Message) {
+func (t *Thread) buildMessageHistory(ctx context.Context, systemPrompt, userMessage string, sess *session.Session) ([]provider.Message, []provider.Message) {
 	messages := make([]provider.Message, 0, 2)
 	messages = append(messages, provider.SystemMessage(systemPrompt))
 
@@ -162,7 +162,7 @@ func (t *Thread) buildMessageHistory(systemPrompt, userMessage string, sess *ses
 	)
 
 	sessionPath, _ := t.sessionFilePath() // ok ignored: empty path is acceptable for hooks
-	hookInjections := t.runHooks(turnContext{
+	hookInjections := t.runHooks(ctx, turnContext{
 		ThreadID:               t.id,
 		SessionKey:             t.sessionKey,
 		SessionPath:            sessionPath,
