@@ -14,6 +14,7 @@ import (
 type BalanceEntry struct {
 	Currency string  `json:"currency" yaml:"currency"`
 	Balance  float64 `json:"balance" yaml:"balance"`
+	Limit    float64 `json:"limit,omitempty" yaml:"limit,omitempty"` // total quota (e.g. 100 for percentage-based)
 	Detail   string  `json:"detail,omitempty" yaml:"detail,omitempty"`
 }
 
@@ -218,23 +219,18 @@ func (b *OpenAIQuota) Check(ctx context.Context) (*BalanceInfo, error) {
 			if hours == 0 {
 				hours = 3
 			}
-			detail := fmt.Sprintf("%.1f%% used", pw.UsedPercent)
+			detail := fmt.Sprintf("%.0f%% used", pw.UsedPercent)
 			if pw.ResetAt > 0 {
 				resetTime := time.Unix(pw.ResetAt, 0)
 				remaining := time.Until(resetTime)
-				elapsed := time.Duration(pw.LimitWindowSeconds)*time.Second - remaining
-				elapsedPct := float64(elapsed) / float64(time.Duration(pw.LimitWindowSeconds)*time.Second) * 100
-				if elapsedPct < 0 {
-					elapsedPct = 0
-				}
-				detail += fmt.Sprintf(", resets %s, %s left, %.0f%% elapsed",
+				detail += fmt.Sprintf(", resets %s, %s left",
 					resetTime.Local().Format("15:04"),
-					formatDuration(remaining),
-					elapsedPct)
+					formatDuration(remaining))
 			}
 			info.Balances = append(info.Balances, BalanceEntry{
 				Currency: fmt.Sprintf("%dh", hours),
 				Balance:  100 - pw.UsedPercent,
+				Limit:    100,
 				Detail:   detail,
 			})
 		}
@@ -244,23 +240,18 @@ func (b *OpenAIQuota) Check(ctx context.Context) (*BalanceInfo, error) {
 			if hours >= 168 {
 				label = "Week"
 			}
-			detail := fmt.Sprintf("%.1f%% used", sw.UsedPercent)
+			detail := fmt.Sprintf("%.0f%% used", sw.UsedPercent)
 			if sw.ResetAt > 0 {
 				resetTime := time.Unix(sw.ResetAt, 0)
 				remaining := time.Until(resetTime)
-				elapsed := time.Duration(sw.LimitWindowSeconds)*time.Second - remaining
-				elapsedPct := float64(elapsed) / float64(time.Duration(sw.LimitWindowSeconds)*time.Second) * 100
-				if elapsedPct < 0 {
-					elapsedPct = 0
-				}
-				detail += fmt.Sprintf(", resets %s, %s left, %.0f%% elapsed",
+				detail += fmt.Sprintf(", resets %s, %s left",
 					resetTime.Local().Format("Jan 2 15:04"),
-					formatDuration(remaining),
-					elapsedPct)
+					formatDuration(remaining))
 			}
 			info.Balances = append(info.Balances, BalanceEntry{
 				Currency: label,
 				Balance:  100 - sw.UsedPercent,
+				Limit:    100,
 				Detail:   detail,
 			})
 		}

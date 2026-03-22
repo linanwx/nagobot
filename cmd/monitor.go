@@ -110,7 +110,14 @@ func showBalance(cfg *config.Config) error {
 			continue
 		}
 		for _, b := range r.Balances {
-			if b.Detail != "" {
+			if b.Limit > 0 {
+				// Quota-based display: "provider  window  remaining/limit remaining  (detail)"
+				if b.Detail != "" {
+					fmt.Printf("  %-16s %-6s %.0f/%.0f remaining  (%s)\n", r.Provider, b.Currency, b.Balance, b.Limit, b.Detail)
+				} else {
+					fmt.Printf("  %-16s %-6s %.0f/%.0f remaining\n", r.Provider, b.Currency, b.Balance, b.Limit)
+				}
+			} else if b.Detail != "" {
 				fmt.Printf("  %-16s %.4f %s  (%s)\n", r.Provider, b.Balance, b.Currency, b.Detail)
 			} else {
 				fmt.Printf("  %-16s %.4f %s\n", r.Provider, b.Balance, b.Currency)
