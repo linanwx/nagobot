@@ -113,13 +113,23 @@ func EstimateTextTokens(text string) int {
 
 // EstimateMessageTokens returns a tiktoken-based token estimate for a single message.
 // Includes image token estimation for <<media:...>> markers.
+// When ReasoningTrimmed is set, reasoning is excluded (cleared at send time).
+// When ReasoningTokens is available (from provider API), it's used instead of estimation.
 func EstimateMessageTokens(message provider.Message) int {
 	tokens := 6 // Base per-message structure overhead.
 	tokens += EstimateTextTokens(message.Role)
 	tokens += EstimateTextTokens(message.Content)
-	tokens += EstimateTextTokens(message.ReasoningContent)
-	if len(message.ReasoningDetails) > 0 {
-		tokens += len(message.ReasoningDetails) / 3
+	// Reasoning estimation: skip if trimmed (reasoning cleared at send time),
+	// use precise API value if available, otherwise fall back to estimation.
+	if !message.ReasoningTrimmed {
+		if message.ReasoningTokens > 0 {
+			tokens += message.ReasoningTokens
+		} else {
+			tokens += EstimateTextTokens(message.ReasoningContent)
+			if len(message.ReasoningDetails) > 0 {
+				tokens += len(message.ReasoningDetails) / 3
+			}
+		}
 	}
 	tokens += EstimateTextTokens(message.ToolCallID)
 	tokens += EstimateTextTokens(message.Name)

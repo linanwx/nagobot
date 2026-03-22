@@ -47,6 +47,7 @@ type Message struct {
 	Timestamp        time.Time  `json:"timestamp,omitempty"`         // when message was created
 	Compressed       string     `json:"compressed,omitempty"`        // compressed version of content
 	ReasoningTrimmed bool       `json:"reasoning_trimmed,omitempty"` // Tier 1 flag: reasoning marked for send-time exclusion (original data preserved)
+	ReasoningTokens  int        `json:"reasoning_tokens,omitempty"`  // precise reasoning token count from provider API
 	HeartbeatTrim    bool       `json:"heartbeat_trim,omitempty"`    // Tier 1 flag: heartbeat turn marked for send-time removal
 	Source           string     `json:"source,omitempty"`            // wake source that triggered this message
 }
@@ -106,6 +107,7 @@ type Usage struct {
 	CompletionTokens int `json:"completion_tokens"`
 	TotalTokens      int `json:"total_tokens"`
 	CachedTokens     int `json:"cached_tokens,omitempty"`
+	ReasoningTokens  int `json:"reasoning_tokens,omitempty"`
 }
 
 // ToolDef defines a tool for the LLM (OpenAI function calling format).

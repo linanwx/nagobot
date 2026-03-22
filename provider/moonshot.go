@@ -191,6 +191,7 @@ func (p *MoonshotProvider) Chat(ctx context.Context, req *Request) (*Response, e
 			CompletionTokens: int(chatResp.Usage.CompletionTokens),
 			TotalTokens:      int(chatResp.Usage.TotalTokens),
 			CachedTokens:     int(chatResp.Usage.PromptTokensDetails.CachedTokens),
+			ReasoningTokens:  int(reasoningTokens),
 		},
 		ProviderLabel: p.providerName,
 		ModelLabel:    p.modelName,

@@ -114,17 +114,23 @@ func (r *Runner) RunWithMessages(ctx context.Context, messages []provider.Messag
 		r.totalUsage.CompletionTokens += resp.Usage.CompletionTokens
 		r.totalUsage.TotalTokens += resp.Usage.TotalTokens
 		r.totalUsage.CachedTokens += resp.Usage.CachedTokens
+		r.totalUsage.ReasoningTokens += resp.Usage.ReasoningTokens
 		r.providerLabel = resp.ProviderLabel
 		r.modelLabel = resp.ModelLabel
 		if resp.Quota != nil {
 			r.lastQuota = resp.Quota
 		}
 
+		// Log estimation accuracy for calibration.
+		r.logEstimationAccuracy(messages, resp)
+
 		if !resp.HasToolCalls() {
 			// Emit final response via onMessage — symmetric with the tool-calls path,
 			// so intermediates always contains the complete message set.
 			if r.onMessage != nil {
-				r.onMessage(provider.AssistantMessageWithTools(resp.Content, resp.ReasoningContent, resp.ReasoningDetails, nil))
+				msg := provider.AssistantMessageWithTools(resp.Content, resp.ReasoningContent, resp.ReasoningDetails, nil)
+				msg.ReasoningTokens = resp.Usage.ReasoningTokens
+				r.onMessage(msg)
 			}
 			if r.onFinalResponse != nil {
 				r.onFinalResponse(resp.Content)
@@ -133,6 +139,7 @@ func (r *Runner) RunWithMessages(ctx context.Context, messages []provider.Messag
 		}
 
 		assistantMsg := provider.AssistantMessageWithTools(resp.Content, resp.ReasoningContent, resp.ReasoningDetails, resp.ToolCalls)
+		assistantMsg.ReasoningTokens = resp.Usage.ReasoningTokens
 		messages = append(messages, assistantMsg)
 		if r.onMessage != nil {
 			r.onMessage(assistantMsg)
@@ -253,6 +260,43 @@ func (r *Runner) trimLoopMessages(messages []provider.Message) []provider.Messag
 	)
 
 	return result
+}
+
+// logEstimationAccuracy logs the delta between our token estimation and the
+// provider's actual token counts. Used for calibrating estimation accuracy.
+func (r *Runner) logEstimationAccuracy(messages []provider.Message, resp *provider.Response) {
+	actual := resp.Usage
+
+	// Prompt estimation: compare our estimate vs API's actual count.
+	estimatedPrompt := EstimateMessagesTokens(messages)
+	promptDelta := ""
+	if actual.PromptTokens > 0 {
+		pct := float64(estimatedPrompt-actual.PromptTokens) / float64(actual.PromptTokens) * 100
+		promptDelta = fmt.Sprintf("%+.1f%%", pct)
+	}
+
+	// Reasoning estimation: compare len()/3 vs API's reasoning tokens.
+	estimatedReasoning := 0
+	if len(resp.ReasoningDetails) > 0 {
+		estimatedReasoning = len(resp.ReasoningDetails) / 3
+	} else if resp.ReasoningContent != "" {
+		estimatedReasoning = EstimateTextTokens(resp.ReasoningContent)
+	}
+	reasoningDelta := "N/A"
+	if actual.ReasoningTokens > 0 && estimatedReasoning > 0 {
+		pct := float64(estimatedReasoning-actual.ReasoningTokens) / float64(actual.ReasoningTokens) * 100
+		reasoningDelta = fmt.Sprintf("%+.1f%%", pct)
+	}
+
+	logger.Info("token_estimate",
+		"prompt_estimated", estimatedPrompt,
+		"prompt_actual", actual.PromptTokens,
+		"prompt_delta", promptDelta,
+		"reasoning_estimated", estimatedReasoning,
+		"reasoning_actual", actual.ReasoningTokens,
+		"reasoning_delta", reasoningDelta,
+		"completion_actual", actual.CompletionTokens,
+	)
 }
 
 // truncateStr returns the first n characters of s, appending "..." if truncated.
