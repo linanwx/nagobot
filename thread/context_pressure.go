@@ -66,10 +66,11 @@ func (t *Thread) sessionFilePath() (string, bool) {
 	return cfg.Sessions.PathForKey(key), true
 }
 
-func (t *Thread) contextBudget() (tokens int, warnRatio float64) {
+func (t *Thread) contextBudget() ContextThresholds {
 	cfg := t.cfg()
 	_, modelName := t.resolvedProviderModel()
-	return provider.EffectiveContextWindow(modelName, cfg.ContextWindowTokens), cfg.ContextWarnRatio
+	contextWindow := provider.EffectiveContextWindow(modelName, cfg.ContextWindowTokens)
+	return ComputeContextThresholds(contextWindow)
 }
 
 // PressureStatus returns "ok", "warning", or "pressure" based on token usage.
@@ -160,14 +161,11 @@ func (t *Thread) contextPressureHook() turnHook {
 		if strings.TrimSpace(ctx.SessionPath) == "" {
 			return nil
 		}
-		if ctx.ContextWindowTokens <= 0 {
+		if ctx.ContextWindowTokens <= 0 || ctx.WarnToken <= 0 {
 			return nil
 		}
 
-		threshold := int(float64(ctx.ContextWindowTokens) * ctx.ContextWarnRatio)
-		if threshold <= 0 {
-			threshold = ctx.ContextWindowTokens
-		}
+		threshold := ctx.ContextWindowTokens - ctx.WarnToken
 		if ctx.RequestEstimatedTokens < threshold {
 			return nil
 		}

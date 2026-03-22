@@ -125,7 +125,8 @@ func (t *Thread) buildMessageHistory(systemPrompt, userMessage string, sess *ses
 	messages := make([]provider.Message, 0, 2)
 	messages = append(messages, provider.SystemMessage(systemPrompt))
 
-	contextWindowTokens, contextWarnRatio := t.contextBudget()
+	ct := t.contextBudget()
+	contextWindowTokens := ct.ContextWindow
 
 	// Compute precise session budget by subtracting known overhead from context window.
 	systemPromptTokens := EstimateMessageTokens(messages[0])
@@ -157,7 +158,7 @@ func (t *Thread) buildMessageHistory(systemPrompt, userMessage string, sess *ses
 		"sessionEstimatedTokens", sessionEstimatedTokens,
 		"requestEstimatedTokens", requestEstimatedTokens,
 		"contextWindowTokens", contextWindowTokens,
-		"contextWarnRatio", contextWarnRatio,
+		"warnToken", ct.WarnToken,
 	)
 
 	sessionPath, _ := t.sessionFilePath() // ok ignored: empty path is acceptable for hooks
@@ -169,7 +170,7 @@ func (t *Thread) buildMessageHistory(systemPrompt, userMessage string, sess *ses
 		SessionEstimatedTokens: sessionEstimatedTokens,
 		RequestEstimatedTokens: requestEstimatedTokens,
 		ContextWindowTokens:    contextWindowTokens,
-		ContextWarnRatio:       contextWarnRatio,
+		WarnToken:              ct.WarnToken,
 	})
 	for _, injection := range hookInjections {
 		trimmed := strings.TrimSpace(injection)
@@ -186,7 +187,7 @@ func (t *Thread) buildMessageHistory(systemPrompt, userMessage string, sess *ses
 
 // executeRunner runs the agentic loop with streaming and message callbacks.
 func (t *Thread) executeRunner(ctx, runCtx context.Context, p provider.Provider, metrics *ExecMetrics, messages []provider.Message, sink Sink, injectFn func() []provider.Message, persistMsg func(provider.Message)) (response string, intermediates []provider.Message, usage provider.Usage, quota *provider.Quota, providerLabel string, modelLabel string, err error) {
-	contextWindowTokens, _ := t.contextBudget()
+	contextWindowTokens := t.contextBudget().ContextWindow
 	maxCompletionTokens := t.cfg().MaxCompletionTokens
 	loopBudget := int(float64(contextWindowTokens-maxCompletionTokens) * 0.9)
 	if loopBudget < 0 {

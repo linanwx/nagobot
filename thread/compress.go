@@ -121,7 +121,8 @@ func (m *Manager) tryTier2Compress(sessionKey string) {
 	}
 	_, modelName := t.resolvedProviderModel()
 	effectiveWindow := provider.EffectiveContextWindow(modelName, cfg.ContextWindowTokens)
-	threshold := int(float64(effectiveWindow) * tier2TokenRatio)
+	ct := ComputeContextThresholds(effectiveWindow)
+	threshold := effectiveWindow - ct.Tier2Token
 	if tokens < threshold {
 		m.mu.Unlock()
 		return

@@ -15,7 +15,7 @@ type turnContext struct {
 	SessionEstimatedTokens int
 	RequestEstimatedTokens int
 	ContextWindowTokens    int
-	ContextWarnRatio       float64
+	WarnToken              int
 }
 
 // registerHook adds a hook for this thread.
