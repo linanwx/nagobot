@@ -18,30 +18,52 @@ import (
 )
 
 const (
-	hbScanInterval  = 30 * time.Second
-	hbQuietMin      = 10 * time.Minute // User must be quiet for at least this long.
-	hbPulseInterval = 30 * time.Minute // Default minimum gap between pulses.
-	hbFastPulse     = 10 * time.Minute // Gap when heartbeat.md was modified last turn.
-	hbActivityWindow = 48 * time.Hour  // Only pulse sessions active within this window.
+	hbScanInterval   = 30 * time.Second
+	hbQuietMin       = 10 * time.Minute // User must be quiet for at least this long.
+	hbPulseInterval  = 30 * time.Minute // Default gap between pulses.
+	hbFastPulse      = 10 * time.Minute // Gap when heartbeat.md was modified last turn.
+	hbActivityWindow = 48 * time.Hour   // Only pulse sessions active within this window.
 )
 
-// heartbeatScheduler fires heartbeat pulses into user sessions on a fixed interval.
-type heartbeatScheduler struct {
-	mgr    *thread.Manager
-	cfgFn  func() *config.Config
+// hbSessionState holds persisted per-session heartbeat state.
+type hbSessionState struct {
+	LastPulse   time.Time `json:"last_pulse"`
+	LastHBMtime time.Time `json:"last_hbm_time"`
+}
 
-	mu          sync.Mutex
-	lastPulse   map[string]time.Time // sessionKey → last pulse time
-	lastHBMtime map[string]time.Time // sessionKey → heartbeat.md mtime at last pulse
+// heartbeatScheduler fires heartbeat pulses into user sessions.
+//
+// Trigger timeline is aligned to user's last message:
+//
+//	lastActive+10m, +40m, +70m, ... (normal, 30m interval)
+//	lastActive+10m, +20m, +30m, ... (fast, 10m interval when heartbeat.md modified)
+//
+// lastPulse is persisted to disk and only used to prevent duplicate firing
+// within the same cycle. It does NOT determine the trigger schedule.
+type heartbeatScheduler struct {
+	mgr   *thread.Manager
+	cfgFn func() *config.Config
+
+	mu       sync.Mutex
+	sessions map[string]*hbSessionState // sessionKey → state
+
+	statePath string // path to heartbeat-state.json
 }
 
 func newHeartbeatScheduler(mgr *thread.Manager, cfgFn func() *config.Config) *heartbeatScheduler {
-	return &heartbeatScheduler{
-		mgr:         mgr,
-		cfgFn:       cfgFn,
-		lastPulse:   make(map[string]time.Time),
-		lastHBMtime: make(map[string]time.Time),
+	s := &heartbeatScheduler{
+		mgr:      mgr,
+		cfgFn:    cfgFn,
+		sessions: make(map[string]*hbSessionState),
 	}
+	// Load persisted state.
+	if cfg := cfgFn(); cfg != nil {
+		if workspace, err := cfg.WorkspacePath(); err == nil {
+			s.statePath = filepath.Join(workspace, "system", "heartbeat-state.json")
+			s.loadState()
+		}
+	}
+	return s
 }
 
 func (s *heartbeatScheduler) run(ctx context.Context) {
@@ -57,6 +79,40 @@ func (s *heartbeatScheduler) run(ctx context.Context) {
 	}
 }
 
+// loadState reads persisted state from disk.
+func (s *heartbeatScheduler) loadState() {
+	if s.statePath == "" {
+		return
+	}
+	data, err := os.ReadFile(s.statePath)
+	if err != nil {
+		return
+	}
+	var m map[string]*hbSessionState
+	if err := json.Unmarshal(data, &m); err != nil {
+		return
+	}
+	s.mu.Lock()
+	s.sessions = m
+	s.mu.Unlock()
+}
+
+// saveState writes state to disk.
+func (s *heartbeatScheduler) saveState() {
+	if s.statePath == "" {
+		return
+	}
+	s.mu.Lock()
+	data, err := json.Marshal(s.sessions)
+	s.mu.Unlock()
+	if err != nil {
+		return
+	}
+	dir := filepath.Dir(s.statePath)
+	os.MkdirAll(dir, 0o755)
+	os.WriteFile(s.statePath, data, 0o644)
+}
+
 func (s *heartbeatScheduler) scan(ctx context.Context) {
 	now := time.Now()
 	logger.Debug("heartbeat scan started")
@@ -66,10 +122,11 @@ func (s *heartbeatScheduler) scan(ctx context.Context) {
 		return
 	}
 
+	// Update statePath in case workspace changed.
+	s.statePath = filepath.Join(workspace, "system", "heartbeat-state.json")
+
 	postponed := loadPostponeConfig(filepath.Join(workspace, "system", "heartbeat-postpone.json"))
 
-	// Use the same session collection as list-sessions: loads session data,
-	// scans for real user-visible messages, applies UserOnly filter.
 	opts := listSessionsOpts{Days: 2, UserOnly: true}
 	sessions, err := collectSessions(cfg, opts)
 	if err != nil {
@@ -78,19 +135,17 @@ func (s *heartbeatScheduler) scan(ctx context.Context) {
 	}
 	logger.Debug("heartbeat scan: found sessions", "count", len(sessions.Sessions))
 
-	// Enrich with live thread state (running/idle/pending).
 	enrichWithThreads(sessions, s.mgr.ListThreads())
 
-	// Clean up stale map entries.
+	// Clean up stale entries.
 	activeKeys := make(map[string]bool, len(sessions.Sessions))
 	for _, se := range sessions.Sessions {
 		activeKeys[se.Key] = true
 	}
 	s.mu.Lock()
-	for key := range s.lastPulse {
+	for key := range s.sessions {
 		if !activeKeys[key] {
-			delete(s.lastPulse, key)
-			delete(s.lastHBMtime, key)
+			delete(s.sessions, key)
 		}
 	}
 	s.mu.Unlock()
@@ -100,7 +155,6 @@ func (s *heartbeatScheduler) scan(ctx context.Context) {
 			return
 		}
 
-		// LastUserActiveAt is from session.jsonl scan (real user-visible messages).
 		if se.LastUserActiveAt == nil {
 			logger.Debug("heartbeat skip: no user activity", "key", se.Key)
 			continue
@@ -143,8 +197,13 @@ func (s *heartbeatScheduler) maybeFirePulse(key string, now time.Time, lastActiv
 	hbMtime := hbFileMtime(hbPath)
 
 	s.mu.Lock()
-	prevMtime := s.lastHBMtime[key]
-	lp := s.lastPulse[key]
+	st := s.sessions[key]
+	if st == nil {
+		st = &hbSessionState{}
+		s.sessions[key] = st
+	}
+	lastPulse := st.LastPulse
+	prevMtime := st.LastHBMtime
 	s.mu.Unlock()
 
 	// Determine interval: fast if heartbeat.md was modified since last pulse.
@@ -153,30 +212,21 @@ func (s *heartbeatScheduler) maybeFirePulse(key string, now time.Time, lastActiv
 		interval = hbFastPulse
 	}
 
-	if lp.IsZero() {
-		// Pulse schedule: lastActive+10m, +40m, +70m, ...
-		// Iterate to find the correct alignment point.
-		firstPulse := lastActive.Add(hbQuietMin)
-		if !firstPulse.Before(now) {
-			lp = lastActive
-			interval = hbQuietMin
-		} else {
-			next := firstPulse
-			for next.Before(now) {
-				next = next.Add(hbPulseInterval)
-			}
-			lp = next.Add(-hbPulseInterval)
-			interval = hbPulseInterval
-		}
-		// Persist computed lp so subsequent scans don't re-compute and drift.
-		s.mu.Lock()
-		s.lastPulse[key] = lp
-		s.mu.Unlock()
+	// Find the latest trigger point on the timeline that is <= now.
+	trigger := latestDueTrigger(lastActive, interval, now)
+	if trigger.IsZero() {
+		// First pulse not yet due (quiet < hbQuietMin — should be caught earlier).
+		return
 	}
-	if now.Sub(lp) < interval {
-		logger.Debug("heartbeat skip: interval not reached", "key", key,
-			"lp", lp.Format(time.RFC3339), "interval", interval,
-			"wait", (interval - now.Sub(lp)).Round(time.Second))
+
+	// Only fire if this trigger point hasn't been fired yet.
+	if !trigger.After(lastPulse) {
+		nextTrigger := trigger.Add(interval)
+		logger.Debug("heartbeat skip: already fired this cycle", "key", key,
+			"trigger", trigger.Format(time.RFC3339),
+			"lastPulse", lastPulse.Format(time.RFC3339),
+			"next", nextTrigger.Format(time.RFC3339),
+			"wait", nextTrigger.Sub(now).Round(time.Second))
 		return
 	}
 
@@ -186,7 +236,8 @@ func (s *heartbeatScheduler) maybeFirePulse(key string, now time.Time, lastActiv
 		content = strings.TrimSpace(string(data))
 	}
 
-	nextPulse := now.Add(interval).UTC().Format(time.RFC3339)
+	nextTrigger := trigger.Add(interval)
+	nextPulse := nextTrigger.UTC().Format(time.RFC3339)
 	mdModified := ""
 	if !hbMtime.IsZero() {
 		mdModified = hbMtime.UTC().Format(time.RFC3339)
@@ -199,12 +250,27 @@ func (s *heartbeatScheduler) maybeFirePulse(key string, now time.Time, lastActiv
 		Message: message,
 	})
 
+	// Update state and persist.
 	s.mu.Lock()
-	s.lastPulse[key] = now
-	s.lastHBMtime[key] = hbMtime
+	st.LastPulse = now
+	st.LastHBMtime = hbMtime
 	s.mu.Unlock()
+	s.saveState()
 
-	logger.Info("heartbeat pulse fired", "sessionKey", key, "nextPulse", nextPulse)
+	logger.Info("heartbeat pulse fired", "sessionKey", key, "trigger", trigger.Format(time.RFC3339), "nextPulse", nextPulse)
+}
+
+// latestDueTrigger returns the latest trigger point on the timeline
+// (lastActive+10m, +10m+interval, +10m+2*interval, ...) that is <= now.
+// Returns zero time if no trigger point is due yet.
+func latestDueTrigger(lastActive time.Time, interval time.Duration, now time.Time) time.Time {
+	firstPulse := lastActive.Add(hbQuietMin)
+	if now.Before(firstPulse) {
+		return time.Time{}
+	}
+	elapsed := now.Sub(firstPulse)
+	n := int(elapsed / interval)
+	return firstPulse.Add(time.Duration(n) * interval)
 }
 
 // hbStatusEntry represents one session's heartbeat status.
@@ -216,8 +282,7 @@ type hbStatusEntry struct {
 	HasHeartbeat bool   `json:"has_heartbeat"`
 }
 
-// Status returns the real heartbeat state for all eligible sessions,
-// using the scheduler's actual in-memory lastPulse/lastHBMtime.
+// Status returns the real heartbeat state for all eligible sessions.
 func (s *heartbeatScheduler) Status() []hbStatusEntry {
 	now := time.Now()
 	cfg := s.cfgFn()
@@ -277,14 +342,17 @@ func (s *heartbeatScheduler) Status() []hbStatusEntry {
 			continue
 		}
 
-		// Compute next pulse using real scheduler state.
+		// Compute next pulse using persisted state.
 		sessionDir := hbSessionKeyToDir(sessionsDir, se.Key)
 		hbPath := filepath.Join(sessionDir, "heartbeat.md")
 		hbMtime := hbFileMtime(hbPath)
 
 		s.mu.Lock()
-		prevMtime := s.lastHBMtime[se.Key]
-		lp := s.lastPulse[se.Key]
+		var lastPulse, prevMtime time.Time
+		if st := s.sessions[se.Key]; st != nil {
+			lastPulse = st.LastPulse
+			prevMtime = st.LastHBMtime
+		}
 		s.mu.Unlock()
 
 		interval := hbPulseInterval
@@ -292,27 +360,21 @@ func (s *heartbeatScheduler) Status() []hbStatusEntry {
 			interval = hbFastPulse
 		}
 
-		if lp.IsZero() {
-			firstPulse := lastActive.Add(hbQuietMin)
-			if !firstPulse.Before(now) {
-				lp = lastActive
-				interval = hbQuietMin
-			} else {
-				next := firstPulse
-				for next.Before(now) {
-					next = next.Add(hbPulseInterval)
-				}
-				lp = next.Add(-hbPulseInterval)
-				interval = hbPulseInterval
-			}
+		trigger := latestDueTrigger(lastActive, interval, now)
+		if trigger.IsZero() {
+			e.Status = "user active"
+			e.NextPulse = lastActive.Add(hbQuietMin).Local().Format("15:04")
+			entries = append(entries, e)
+			continue
 		}
 
-		nextPulse := lp.Add(interval)
-		e.NextPulse = nextPulse.Local().Format("15:04:05")
-		if now.Before(nextPulse) {
-			e.Status = fmt.Sprintf("waiting (%s)", (nextPulse.Sub(now)).Round(time.Second))
-		} else {
+		if trigger.After(lastPulse) {
 			e.Status = "due now"
+			e.NextPulse = now.Local().Format("15:04:05")
+		} else {
+			nextTrigger := trigger.Add(interval)
+			e.NextPulse = nextTrigger.Local().Format("15:04:05")
+			e.Status = fmt.Sprintf("waiting (%s)", nextTrigger.Sub(now).Round(time.Second))
 		}
 		entries = append(entries, e)
 	}
