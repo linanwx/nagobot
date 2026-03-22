@@ -55,7 +55,7 @@ type WebChannel struct {
 	stopOnce sync.Once
 
 	systemPromptFn  func(string) (string, bool)
-	contextBudgetFn func(string) (int, float64, bool)
+	contextBudgetFn func(string) (int, int, bool)
 }
 
 type wsClient struct {
@@ -106,7 +106,7 @@ func (w *WebChannel) SetSystemPromptFn(fn func(string) (string, bool)) {
 
 // SetContextBudgetFn sets a callback that returns the effective context window
 // and warn ratio for a given session key from the thread runtime.
-func (w *WebChannel) SetContextBudgetFn(fn func(string) (int, float64, bool)) {
+func (w *WebChannel) SetContextBudgetFn(fn func(string) (int, int, bool)) {
 	w.contextBudgetFn = fn
 }
 
@@ -739,12 +739,12 @@ func (w *WebChannel) handleSessionStats(rw http.ResponseWriter, key string) {
 
 	// Try to get context window from thread runtime; fall back to global config.
 	var contextWindow int
-	var warnRatio float64
+	var warnToken int
 	var isRuntime bool
 	if w.contextBudgetFn != nil {
-		if tw, wr, ok := w.contextBudgetFn(key); ok {
+		if tw, wt, ok := w.contextBudgetFn(key); ok {
 			contextWindow = tw
-			warnRatio = wr
+			warnToken = wt
 			isRuntime = true
 		}
 	}
@@ -754,14 +754,15 @@ func (w *WebChannel) handleSessionStats(rw http.ResponseWriter, key string) {
 			cfg = config.DefaultConfig()
 		}
 		contextWindow = provider.EffectiveContextWindow(cfg.GetModelName(), cfg.GetContextWindowTokens())
-		warnRatio = cfg.GetContextWarnRatio()
+		ct := thread.ComputeContextThresholds(contextWindow)
+		warnToken = ct.WarnToken
 	}
 
-	var usageRatio float64
+	var usagePercent float64
 	if contextWindow > 0 {
-		usageRatio = float64(compressedTokens) / float64(contextWindow)
+		usagePercent = float64(compressedTokens) / float64(contextWindow) * 100
 	}
-	status := thread.PressureStatus(usageRatio, warnRatio)
+	status := thread.PressureStatus(compressedTokens, contextWindow, warnToken)
 
 	rw.Header().Set("Content-Type", "application/json")
 	_ = json.NewEncoder(rw).Encode(sessionStatsResponse{
@@ -774,7 +775,7 @@ func (w *WebChannel) handleSessionStats(rw http.ResponseWriter, key string) {
 		CompressedTokens:    compressedTokens,
 		TokensSaved:         rawTokens - compressedTokens,
 		ContextWindowTokens: contextWindow,
-		UsagePercent:        usageRatio * 100,
+		UsagePercent:        usagePercent,
 		PressureStatus:      status,
 		IsRuntime:           isRuntime,
 		TokenBreakdown: &tokenBreakdown{
