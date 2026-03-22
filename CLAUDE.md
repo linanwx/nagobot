@@ -104,11 +104,13 @@ Three skills collaborate:
 
 ### Critical Implementation Details
 
-**`lastPulse` persistence**: The computed alignment `lp` is stored in `lastPulse[key]` immediately after first computation. Without this, `lp` was recomputed every 30s scan and drifted forward — the scheduler could never catch up to fire. This was a critical bug.
+**Trigger timeline**: The pulse schedule is derived from `lastActive` (user's last message), NOT from `lastPulse`. `latestDueTrigger(lastActive, interval, now)` computes trigger points: `lastActive+10m, +40m, +70m, ...`. A pulse fires only when the latest trigger point > `lastPulse`. This means `lastPulse` is purely a dedup guard — it prevents re-firing within the same cycle but never determines when the next pulse should be.
+
+**State persistence**: `lastPulse` and `lastHBMtime` are persisted to `{workspace}/system/heartbeat-state.json`. State survives restarts — no cold-start alignment logic needed.
 
 **User activity source**: The scheduler uses `collectSessions()` (scans `session.jsonl` for `isRealUserSource`) to get accurate `lastUserActiveAt`. It does NOT use `Thread.lastUserActiveAt` because threads initialize this to `time.Now()` on creation, which would make heartbeat-created threads appear "just active."
 
-**`heartbeat status` RPC**: The CLI command calls `heartbeat.status` RPC which reads the scheduler's actual in-memory state (`lastPulse`, `lastHBMtime`, computed intervals). It does NOT compute independently — it reflects real scheduler state.
+**`heartbeat status` RPC**: The CLI command calls `heartbeat.status` RPC which reads the scheduler's persisted state (`lastPulse`, `lastHBMtime`, computed intervals). It does NOT compute independently — it reflects real scheduler state.
 
 ### CLI Commands
 
@@ -151,7 +153,7 @@ Heartbeat source matching uses `strings.HasPrefix(source, "heartbeat")` to cover
 
 - **Don't trust `Thread.lastUserActiveAt` for scheduling**: It's initialized to `time.Now()` on thread creation, not actual user activity. Use `collectSessions()` → `LastUserActiveAt` from `session.jsonl` scan.
 - **Don't use `logger.Debug` for things you need to see**: Heartbeat scheduler activity, error conditions — use `Info` or `Warn`. Debug is invisible at default log level.
-- **In-memory state is lost on restart**: `lastPulse`, `lastHBMtime` maps reset to empty. The alignment algorithm must handle cold start correctly. Any computed state that affects future behavior must be persisted immediately, not deferred until "success."
+- **Heartbeat state is persisted**: `lastPulse`, `lastHBMtime` are saved to `heartbeat-state.json` after each pulse. Restarts reload this state — no cold-start special-casing needed.
 - **`collectSessions` loads full session data**: Every call parses entire `session.jsonl` for all matching sessions. Don't call it in tight loops. The scheduler calls it every 30s — acceptable for small deployments.
 - **`{{WORKSPACE}}` doesn't resolve in skills**: Only in agent templates (`agent.Build()`). Skills loaded via `use_skill` see `{{WORKSPACE}}` as a literal string. Use `nagobot` CLI (on PATH) instead.
 - **Heartbeat turns suppress via LLM, not code**: The old `WakeHeartbeatReflect` had code-level `SetSuppressSink()`. Now both reflect and act use `WakeHeartbeat` — suppression relies on the LLM calling `sleep_thread()`. If the LLM forgets, output leaks to the user.
