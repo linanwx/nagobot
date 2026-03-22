@@ -27,7 +27,7 @@ var skillSearchCmd = &cobra.Command{
 
 var skillInstallCmd = &cobra.Command{
 	Use:   "install <slug>",
-	Short: "Install a skill from ClawHub or Smithery",
+	Short: "Install a skill from ClawHub or skills.sh",
 	Args:  cobra.ExactArgs(1),
 	RunE:  runSkillInstall,
 }
@@ -54,7 +54,7 @@ var skillUpdateCmd = &cobra.Command{
 
 func init() {
 	skillInstallCmd.Flags().Bool("force", false, "Force install even if skill already exists")
-	skillInstallCmd.Flags().String("source", "", "Install source: clawhub (default) or smithery")
+	skillInstallCmd.Flags().String("source", "", "Install source: clawhub (default) or skills.sh")
 
 	skillCmd.AddCommand(skillSearchCmd, skillInstallCmd, skillRemoveCmd, skillListCmd, skillUpdateCmd)
 	rootCmd.AddCommand(skillCmd)
@@ -125,12 +125,12 @@ func runSkillInstall(cmd *cobra.Command, args []string) error {
 	}
 
 	switch strings.ToLower(source) {
-	case "smithery":
-		return installFromSmithery(slug, skillsDir, force, installed, workspace)
+	case "skills.sh":
+		return installFromSkillsSh(slug, skillsDir, force, installed, workspace)
 	case "", "clawhub":
 		return installFromClawHub(slug, skillsDir, force, installed, workspace, cfg)
 	default:
-		return fmt.Errorf("unknown source %q (supported: clawhub, smithery)", source)
+		return fmt.Errorf("unknown source %q (supported: clawhub, skills.sh)", source)
 	}
 }
 
@@ -161,10 +161,10 @@ func installFromClawHub(slug, skillsDir string, force bool, installed *skills.In
 	return nil
 }
 
-func installFromSmithery(qualifiedName, skillsDir string, force bool, installed *skills.InstalledSkills, workspace string) error {
-	// For Smithery, the slug is a qualified name like "anthropics/webapp-testing".
-	// The local skill name is the short slug (last component).
-	parts := strings.Split(qualifiedName, "/")
+func installFromSkillsSh(slug, skillsDir string, force bool, installed *skills.InstalledSkills, workspace string) error {
+	// For skills.sh, the slug can be "owner/repo", "owner/repo/skillId", or just "skillId".
+	// The local skill name is the skillId resolved from the registry.
+	parts := strings.Split(slug, "/")
 	localName := parts[len(parts)-1]
 
 	existingDir := filepath.Join(skillsDir, localName)
@@ -177,20 +177,20 @@ func installFromSmithery(qualifiedName, skillsDir string, force bool, installed 
 		return nil
 	}
 
-	client := skills.NewSmitheryClient()
-	fmt.Printf("Installing %s from Smithery (%s)...\n", qualifiedName, client.BaseURL)
+	client := skills.NewSkillsShClient()
+	fmt.Printf("Installing %s from skills.sh (%s)...\n", slug, client.BaseURL)
 
-	skillName, err := client.Install(qualifiedName, skillsDir)
+	skillName, err := client.Install(slug, skillsDir)
 	if err != nil {
 		return fmt.Errorf("install failed: %w", err)
 	}
 
-	installed.Track(skillName, "smithery:"+client.BaseURL)
+	installed.Track(skillName, "skills.sh:"+client.BaseURL)
 	if err := installed.Save(workspace); err != nil {
 		return fmt.Errorf("cannot save tracking: %w", err)
 	}
 
-	fmt.Printf("Installed %s (as %s).\n", qualifiedName, skillName)
+	fmt.Printf("Installed %s (as %s).\n", slug, skillName)
 	return nil
 }
 
