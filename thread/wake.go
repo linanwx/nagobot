@@ -120,6 +120,25 @@ func (t *Thread) RunOnce(ctx context.Context) {
 			t.Agent = a
 			t.mu.Unlock()
 		}
+	} else if fn := t.cfg().DefaultAgentFor; fn != nil {
+		// No explicit agent override in the wake message — check if the default
+		// agent for this session has changed (hot-reload from set-agent).
+		if newAgent := fn(t.sessionKey); newAgent != "" {
+			t.mu.Lock()
+			currentName := ""
+			if t.Agent != nil {
+				currentName = t.Agent.Name
+			}
+			t.mu.Unlock()
+			if newAgent != currentName {
+				if a, err := t.cfg().Agents.New(newAgent); err == nil {
+					t.mu.Lock()
+					t.Agent = a
+					t.mu.Unlock()
+					logger.Info("agent hot-reloaded", "sessionKey", t.sessionKey, "from", currentName, "to", newAgent)
+				}
+			}
+		}
 	}
 	for k, v := range msg.Vars {
 		t.Set(k, v)
