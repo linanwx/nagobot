@@ -9,10 +9,10 @@ func TestColdStartAlignment(t *testing.T) {
 	base := time.Date(2025, 1, 1, 12, 0, 0, 0, time.UTC)
 
 	tests := []struct {
-		name       string
-		nowOffset  time.Duration
-		wantFire   bool // should now.Sub(lp) >= interval?
-		wantIntv   time.Duration
+		name      string
+		nowOffset time.Duration
+		wantFire  bool // should now.Sub(lp) >= interval?
+		wantIntv  time.Duration
 	}{
 		{
 			name:      "not quiet enough (5m)",
@@ -27,15 +27,15 @@ func TestColdStartAlignment(t *testing.T) {
 			wantIntv:  hbPulseInterval,
 		},
 		{
-			name:      "just past first pulse (11m) - the bug scenario",
+			name:      "just past first pulse (11m) - wait for +40m",
 			nowOffset: 11 * time.Minute,
-			wantFire:  true,
+			wantFire:  false,
 			wantIntv:  hbPulseInterval,
 		},
 		{
-			name:      "between first and second pulse (25m)",
+			name:      "between first and second pulse (25m) - wait for +40m",
 			nowOffset: 25 * time.Minute,
-			wantFire:  true,
+			wantFire:  false,
 			wantIntv:  hbPulseInterval,
 		},
 		{
@@ -45,9 +45,9 @@ func TestColdStartAlignment(t *testing.T) {
 			wantIntv:  hbPulseInterval,
 		},
 		{
-			name:      "just past second pulse (41m)",
+			name:      "just past second pulse (41m) - wait for +70m",
 			nowOffset: 41 * time.Minute,
-			wantFire:  true,
+			wantFire:  false,
 			wantIntv:  hbPulseInterval,
 		},
 		{
@@ -57,9 +57,9 @@ func TestColdStartAlignment(t *testing.T) {
 			wantIntv:  hbPulseInterval,
 		},
 		{
-			name:      "long idle 7 days",
+			name:      "long idle 7 days - wait for next aligned point",
 			nowOffset: 7 * 24 * time.Hour,
-			wantFire:  true,
+			wantFire:  false,
 			wantIntv:  hbPulseInterval,
 		},
 	}

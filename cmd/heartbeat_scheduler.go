@@ -300,21 +300,23 @@ func (s *heartbeatScheduler) Status() []hbStatusEntry {
 //   lastActive+10m, +40m, +70m, ...
 //
 // If the first pulse (lastActive+10m) hasn't arrived yet, wait for it.
-// If it has arrived (or any subsequent pulse is due), set lp so the
-// fire check (now-lp >= interval) passes immediately — missed pulses
-// are not backfilled, but the current due pulse fires right away.
+// Otherwise, find the next pulse point >= now and set lp so the fire
+// check triggers exactly at that point. Missed pulses are skipped.
 func coldStartAlignment(lastActive, now time.Time) (lp time.Time, interval time.Duration) {
 	firstPulse := lastActive.Add(hbQuietMin)
 	if now.Before(firstPulse) {
 		return lastActive, hbQuietMin
 	}
-	// First pulse is due. Use O(1) arithmetic to find how many full
-	// intervals have elapsed since firstPulse, then set lp so that
-	// lp + interval <= now (making the fire check pass).
+	// Find next pulse point >= now using O(1) arithmetic.
 	elapsed := now.Sub(firstPulse)
-	n := elapsed / hbPulseInterval // number of complete intervals past firstPulse
-	lp = firstPulse.Add(n * hbPulseInterval).Add(-hbPulseInterval)
-	return lp, hbPulseInterval
+	n := elapsed / hbPulseInterval
+	candidate := firstPulse.Add(n * hbPulseInterval)
+	if candidate.Before(now) {
+		candidate = candidate.Add(hbPulseInterval)
+	}
+	// candidate is the next pulse point >= now; set lp one interval before
+	// so the fire check (now-lp >= interval) passes exactly at candidate.
+	return candidate.Add(-hbPulseInterval), hbPulseInterval
 }
 
 // hbSessionKeyToDir converts a session key to its directory path.
