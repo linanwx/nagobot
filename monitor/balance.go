@@ -314,6 +314,199 @@ func formatDuration(d time.Duration) string {
 	return fmt.Sprintf("%dm", mins)
 }
 
+// --- Moonshot ---
+
+// MoonshotBalance checks balance via GET /v1/users/me/balance.
+type MoonshotBalance struct {
+	Name  string // e.g. "moonshot-cn" or "moonshot-global"
+	Base  string // e.g. "https://api.moonshot.cn/v1" or "https://api.moonshot.ai/v1"
+	KeyFn func() string
+}
+
+func (b *MoonshotBalance) Provider() string { return b.Name }
+func (b *MoonshotBalance) Available() bool  { return b.KeyFn != nil && b.KeyFn() != "" }
+
+func (b *MoonshotBalance) Check(ctx context.Context) (*BalanceInfo, error) {
+	key := b.KeyFn()
+	if key == "" {
+		return &BalanceInfo{Provider: b.Name, Error: "no API key configured"}, nil
+	}
+
+	req, err := http.NewRequestWithContext(ctx, "GET", b.Base+"/users/me/balance", nil)
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Set("Authorization", "Bearer "+key)
+
+	client := &http.Client{Timeout: 10 * time.Second}
+	resp, err := client.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("%s balance request failed: %w", b.Name, err)
+	}
+	defer resp.Body.Close()
+
+	body, _ := io.ReadAll(resp.Body)
+	if resp.StatusCode != 200 {
+		return nil, fmt.Errorf("%s balance: HTTP %d: %s", b.Name, resp.StatusCode, string(body))
+	}
+
+	var result struct {
+		Data struct {
+			AvailableBalance float64 `json:"available_balance"`
+			VoucherBalance   float64 `json:"voucher_balance"`
+			CashBalance      float64 `json:"cash_balance"`
+		} `json:"data"`
+	}
+	if err := json.Unmarshal(body, &result); err != nil {
+		return nil, fmt.Errorf("%s balance: parse error: %w", b.Name, err)
+	}
+
+	return &BalanceInfo{
+		Provider:  b.Name,
+		Available: true,
+		Balances: []BalanceEntry{{
+			Currency: "CNY",
+			Balance:  result.Data.AvailableBalance,
+			Detail:   fmt.Sprintf("voucher=%.2f cash=%.2f", result.Data.VoucherBalance, result.Data.CashBalance),
+		}},
+	}, nil
+}
+
+// --- Zhipu ---
+
+// ZhipuBalance checks balance via the web dashboard API.
+type ZhipuBalance struct {
+	KeyFn func() string
+}
+
+func (b *ZhipuBalance) Provider() string { return "zhipu-cn" }
+func (b *ZhipuBalance) Available() bool  { return b.KeyFn != nil && b.KeyFn() != "" }
+
+func (b *ZhipuBalance) Check(ctx context.Context) (*BalanceInfo, error) {
+	key := b.KeyFn()
+	if key == "" {
+		return &BalanceInfo{Provider: "zhipu-cn", Error: "no API key configured"}, nil
+	}
+
+	req, err := http.NewRequestWithContext(ctx, "GET", "https://open.bigmodel.cn/api/biz/account/query-customer-account-report", nil)
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Set("Authorization", "Bearer "+key)
+
+	client := &http.Client{Timeout: 10 * time.Second}
+	resp, err := client.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("zhipu balance request failed: %w", err)
+	}
+	defer resp.Body.Close()
+
+	body, _ := io.ReadAll(resp.Body)
+	if resp.StatusCode != 200 {
+		return nil, fmt.Errorf("zhipu balance: HTTP %d: %s", resp.StatusCode, string(body))
+	}
+
+	var result struct {
+		Success bool `json:"success"`
+		Data    struct {
+			AvailableBalance float64 `json:"availableBalance"`
+			RechargeAmount   float64 `json:"rechargeAmount"`
+			GiveAmount       float64 `json:"giveAmount"`
+			TotalSpendAmount float64 `json:"totalSpendAmount"`
+		} `json:"data"`
+	}
+	if err := json.Unmarshal(body, &result); err != nil {
+		return nil, fmt.Errorf("zhipu balance: parse error: %w", err)
+	}
+	if !result.Success {
+		return &BalanceInfo{Provider: "zhipu-cn", Error: "API returned success=false"}, nil
+	}
+
+	d := result.Data
+	return &BalanceInfo{
+		Provider:  "zhipu-cn",
+		Available: true,
+		Balances: []BalanceEntry{{
+			Currency: "CNY",
+			Balance:  d.AvailableBalance,
+			Detail:   fmt.Sprintf("recharged=%.2f gifted=%.2f spent=%.2f", d.RechargeAmount, d.GiveAmount, d.TotalSpendAmount),
+		}},
+	}, nil
+}
+
+// --- Anthropic (rate-limit from cached response headers) ---
+
+// AnthropicRateLimit reports the last-known rate-limit info.
+// Data must be fed externally via SetLast (from provider response headers).
+type AnthropicRateLimit struct {
+	KeyFn  func() string
+	LastFn func() *AnthropicLimits // returns cached limits, or nil
+}
+
+// AnthropicLimits holds rate-limit header values from a recent API response.
+type AnthropicLimits struct {
+	RequestsLimit     int       `json:"requests_limit"`
+	RequestsRemaining int       `json:"requests_remaining"`
+	TokensLimit       int       `json:"tokens_limit"`
+	TokensRemaining   int       `json:"tokens_remaining"`
+	InputLimit        int       `json:"input_limit"`
+	InputRemaining    int       `json:"input_remaining"`
+	OutputLimit       int       `json:"output_limit"`
+	OutputRemaining   int       `json:"output_remaining"`
+	UpdatedAt         time.Time `json:"updated_at"`
+}
+
+func (b *AnthropicRateLimit) Provider() string { return "anthropic" }
+func (b *AnthropicRateLimit) Available() bool  { return b.KeyFn != nil && b.KeyFn() != "" }
+
+func (b *AnthropicRateLimit) Check(_ context.Context) (*BalanceInfo, error) {
+	key := b.KeyFn()
+	if key == "" {
+		return &BalanceInfo{Provider: "anthropic", Error: "no API key configured"}, nil
+	}
+
+	info := &BalanceInfo{Provider: "anthropic", Available: true}
+
+	if b.LastFn == nil {
+		info.Error = "no balance API — rate-limit data available after first LLM call"
+		return info, nil
+	}
+	last := b.LastFn()
+	if last == nil {
+		info.Error = "no balance API — rate-limit data available after first LLM call"
+		return info, nil
+	}
+
+	age := time.Since(last.UpdatedAt)
+	ageStr := formatDuration(age)
+
+	info.Balances = []BalanceEntry{
+		{Currency: "req", Balance: float64(last.RequestsRemaining), Detail: fmt.Sprintf("%d/%d remaining (%s ago)", last.RequestsRemaining, last.RequestsLimit, ageStr)},
+		{Currency: "tok", Balance: float64(last.TokensRemaining), Detail: fmt.Sprintf("%d/%d remaining (%s ago)", last.TokensRemaining, last.TokensLimit, ageStr)},
+	}
+	return info, nil
+}
+
+// --- Unsupported providers ---
+
+// UnsupportedBalance reports that a provider has no balance API.
+type UnsupportedBalance struct {
+	Name   string
+	Reason string
+	KeyFn  func() string
+}
+
+func (b *UnsupportedBalance) Provider() string { return b.Name }
+func (b *UnsupportedBalance) Available() bool  { return b.KeyFn != nil && b.KeyFn() != "" }
+
+func (b *UnsupportedBalance) Check(_ context.Context) (*BalanceInfo, error) {
+	return &BalanceInfo{
+		Provider:  b.Name,
+		Available: false,
+		Error:     b.Reason,
+	}, nil
+}
+
 // CheckAllBalances queries all available balance checkers.
 func CheckAllBalances(ctx context.Context, checkers []BalanceChecker) []BalanceInfo {
 	var results []BalanceInfo

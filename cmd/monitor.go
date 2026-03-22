@@ -12,6 +12,7 @@ import (
 
 	"github.com/linanwx/nagobot/config"
 	"github.com/linanwx/nagobot/monitor"
+	"github.com/linanwx/nagobot/provider"
 )
 
 var monitorCmd = &cobra.Command{
@@ -93,7 +94,7 @@ func showBalance(cfg *config.Config) error {
 			}
 		}
 		if len(filtered) == 0 {
-			return fmt.Errorf("balance checking not supported for provider %q. Supported: openrouter, deepseek, openai", monitorProvider)
+			return fmt.Errorf("unknown provider %q", monitorProvider)
 		}
 		checkers = filtered
 	}
@@ -160,32 +161,52 @@ func showCompression(cfg *config.Config) error {
 }
 
 func buildBalanceCheckers(cfg *config.Config, metricsDir string) []monitor.BalanceChecker {
-	return []monitor.BalanceChecker{
-		&monitor.OpenRouterBalance{
-			KeyFn: func() string {
-				if pc := cfg.Providers.GetProviderConfig("openrouter"); pc != nil {
-					return pc.APIKey
-				}
-				return ""
-			},
-		},
-		&monitor.DeepSeekBalance{
-			KeyFn: func() string {
-				if pc := cfg.Providers.GetProviderConfig("deepseek"); pc != nil {
-					return pc.APIKey
-				}
-				return ""
-			},
-		},
-		func() monitor.BalanceChecker {
-		cfg, _ := config.Load()
-		if cfg != nil && cfg.Providers.OpenAIOAuth != nil {
-			return &monitor.OpenAIQuota{
-				AccessToken: cfg.Providers.OpenAIOAuth.AccessToken,
-				AccountID:   cfg.Providers.OpenAIOAuth.AccountID,
+	keyFn := func(name string) func() string {
+		return func() string {
+			if pc := cfg.Providers.GetProviderConfig(name); pc != nil {
+				return pc.APIKey
 			}
+			return ""
 		}
-		return &monitor.OpenAIQuota{}
-	}(),
+	}
+
+	return []monitor.BalanceChecker{
+		func() monitor.BalanceChecker {
+			cfg, _ := config.Load()
+			if cfg != nil && cfg.Providers.OpenAIOAuth != nil {
+				return &monitor.OpenAIQuota{
+					AccessToken: cfg.Providers.OpenAIOAuth.AccessToken,
+					AccountID:   cfg.Providers.OpenAIOAuth.AccountID,
+				}
+			}
+			return &monitor.OpenAIQuota{}
+		}(),
+		&monitor.OpenRouterBalance{KeyFn: keyFn("openrouter")},
+		&monitor.AnthropicRateLimit{
+			KeyFn: keyFn("anthropic"),
+			LastFn: func() *monitor.AnthropicLimits {
+				rl := provider.GetAnthropicRateLimits()
+				if rl == nil {
+					return nil
+				}
+				return &monitor.AnthropicLimits{
+					RequestsLimit:     rl.RequestsLimit,
+					RequestsRemaining: rl.RequestsRemaining,
+					TokensLimit:       rl.TokensLimit,
+					TokensRemaining:   rl.TokensRemaining,
+					InputLimit:        rl.InputLimit,
+					InputRemaining:    rl.InputRemaining,
+					OutputLimit:       rl.OutputLimit,
+					OutputRemaining:   rl.OutputRemaining,
+					UpdatedAt:         rl.UpdatedAt,
+				}
+			},
+		},
+		&monitor.DeepSeekBalance{KeyFn: keyFn("deepseek")},
+		&monitor.MoonshotBalance{Name: "moonshot-cn", Base: "https://api.moonshot.cn/v1", KeyFn: keyFn("moonshot-cn")},
+		&monitor.MoonshotBalance{Name: "moonshot-global", Base: "https://api.moonshot.ai/v1", KeyFn: keyFn("moonshot-global")},
+		&monitor.ZhipuBalance{KeyFn: keyFn("zhipu-cn")},
+		&monitor.UnsupportedBalance{Name: "gemini", Reason: "no balance API (free tier, RPD/TPM limits only)", KeyFn: keyFn("gemini")},
+		&monitor.UnsupportedBalance{Name: "minimax-cn", Reason: "no balance API (pay-as-you-go; coding plan keys can use /coding_plan/remains)", KeyFn: keyFn("minimax-cn")},
 	}
 }

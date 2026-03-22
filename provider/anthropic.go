@@ -5,7 +5,10 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"net/http"
+	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	anthropic "github.com/anthropics/anthropic-sdk-go"
@@ -16,6 +19,61 @@ import (
 const (
 	anthropicAPIBase = "https://api.anthropic.com"
 )
+
+// anthropicRateLimitCache stores the latest rate-limit headers from Anthropic responses.
+// Package-level because AnthropicProvider instances are recreated per request (hot-reload).
+var (
+	anthropicRateLimitMu    sync.RWMutex
+	anthropicRateLimitCache *AnthropicRateLimits
+)
+
+// AnthropicRateLimits holds cached rate-limit header values.
+type AnthropicRateLimits struct {
+	RequestsLimit     int       `json:"requests_limit"`
+	RequestsRemaining int       `json:"requests_remaining"`
+	TokensLimit       int       `json:"tokens_limit"`
+	TokensRemaining   int       `json:"tokens_remaining"`
+	InputLimit        int       `json:"input_limit"`
+	InputRemaining    int       `json:"input_remaining"`
+	OutputLimit       int       `json:"output_limit"`
+	OutputRemaining   int       `json:"output_remaining"`
+	UpdatedAt         time.Time `json:"updated_at"`
+}
+
+// GetAnthropicRateLimits returns the latest cached rate-limit info, or nil.
+func GetAnthropicRateLimits() *AnthropicRateLimits {
+	anthropicRateLimitMu.RLock()
+	defer anthropicRateLimitMu.RUnlock()
+	if anthropicRateLimitCache == nil {
+		return nil
+	}
+	cp := *anthropicRateLimitCache
+	return &cp
+}
+
+func anthropicRateLimitMiddleware(req *http.Request, next aoption.MiddlewareNext) (*http.Response, error) {
+	resp, err := next(req)
+	if err != nil || resp == nil {
+		return resp, err
+	}
+	// Extract rate-limit headers.
+	rl := &AnthropicRateLimits{UpdatedAt: time.Now()}
+	rl.RequestsLimit, _ = strconv.Atoi(resp.Header.Get("anthropic-ratelimit-requests-limit"))
+	rl.RequestsRemaining, _ = strconv.Atoi(resp.Header.Get("anthropic-ratelimit-requests-remaining"))
+	rl.TokensLimit, _ = strconv.Atoi(resp.Header.Get("anthropic-ratelimit-tokens-limit"))
+	rl.TokensRemaining, _ = strconv.Atoi(resp.Header.Get("anthropic-ratelimit-tokens-remaining"))
+	rl.InputLimit, _ = strconv.Atoi(resp.Header.Get("anthropic-ratelimit-input-tokens-limit"))
+	rl.InputRemaining, _ = strconv.Atoi(resp.Header.Get("anthropic-ratelimit-input-tokens-remaining"))
+	rl.OutputLimit, _ = strconv.Atoi(resp.Header.Get("anthropic-ratelimit-output-tokens-limit"))
+	rl.OutputRemaining, _ = strconv.Atoi(resp.Header.Get("anthropic-ratelimit-output-tokens-remaining"))
+	// Only cache if we got meaningful data (headers present on /v1/messages responses).
+	if rl.RequestsLimit > 0 || rl.TokensLimit > 0 {
+		anthropicRateLimitMu.Lock()
+		anthropicRateLimitCache = rl
+		anthropicRateLimitMu.Unlock()
+	}
+	return resp, err
+}
 
 func init() {
 	RegisterProvider("anthropic", ProviderRegistration{
@@ -92,6 +150,7 @@ func newAnthropicProvider(apiKey, apiBase, modelType, modelName string, maxToken
 		aoption.WithAPIKey(apiKey),
 		aoption.WithBaseURL(baseURL),
 		aoption.WithMaxRetries(sdkMaxRetries),
+		aoption.WithMiddleware(anthropicRateLimitMiddleware),
 	)
 
 	return &AnthropicProvider{
