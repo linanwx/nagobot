@@ -7,11 +7,13 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 
 	"github.com/linanwx/nagobot/channel"
 	"github.com/linanwx/nagobot/config"
 	"github.com/linanwx/nagobot/logger"
+	"github.com/linanwx/nagobot/media"
 	"github.com/linanwx/nagobot/session"
 	"github.com/linanwx/nagobot/thread"
 	sysmsg "github.com/linanwx/nagobot/thread/msg"
@@ -20,10 +22,11 @@ import (
 // Dispatcher routes channel messages to threads. It is the bridge between
 // the channel layer (pure I/O) and the thread layer (async execution).
 type Dispatcher struct {
-	channels *channel.Manager
-	threads  *thread.Manager
-	cfg      *config.Config
-	ctx      context.Context
+	channels  *channel.Manager
+	threads   *thread.Manager
+	cfg       *config.Config
+	ctx       context.Context
+	previewer media.Previewer
 }
 
 // NewDispatcher creates a new dispatcher.
@@ -33,9 +36,16 @@ func NewDispatcher(
 	cfg *config.Config,
 ) *Dispatcher {
 	return &Dispatcher{
-		channels: channels,
-		threads:  threads,
-		cfg:      cfg,
+		channels:  channels,
+		threads:   threads,
+		cfg:       cfg,
+		previewer: media.NewPreviewer(func() *config.Config {
+			cfg, err := config.Load()
+			if err != nil {
+				return nil
+			}
+			return cfg
+		}),
 	}
 }
 
@@ -279,11 +289,19 @@ func (d *Dispatcher) resolveAgentName(sessionKey string, msg *channel.Message) (
 	return agentName, vars
 }
 
-// preprocessMessage prepends media summary and sender name to the user message.
+// preprocessMessage prepends media summary, previews, and sender name to the user message.
 func (d *Dispatcher) preprocessMessage(msg *channel.Message) string {
 	text := msg.Text
-	if summary := msg.Metadata["media_summary"]; summary != "" {
-		text = summary + "\n\n" + text
+
+	mediaSummary := msg.Metadata["media_summary"]
+	if mediaSummary != "" {
+		// Generate fast media previews for downloaded media files.
+		previews := d.generateMediaPreviews(mediaSummary)
+		if previews != "" {
+			text = previews + "\n\n" + mediaSummary + "\n\n" + text
+		} else {
+			text = mediaSummary + "\n\n" + text
+		}
 	}
 
 	// Prepend quoted reply context so the AI knows what message was replied to.
@@ -304,6 +322,54 @@ func (d *Dispatcher) preprocessMessage(msg *channel.Message) string {
 	}
 
 	return text
+}
+
+// mediaPathRe matches "image_path: /path" or "audio_path: /path" lines in media summaries.
+var mediaPathRe = regexp.MustCompile(`(?m)^(image_path|audio_path):\s*(.+)$`)
+
+// generateMediaPreviews extracts media file paths from a media summary string,
+// calls the previewer for each, and returns formatted preview tags.
+// Returns empty string if no previews were generated or previewer is nil.
+func (d *Dispatcher) generateMediaPreviews(mediaSummary string) string {
+	if d.previewer == nil {
+		return ""
+	}
+
+	matches := mediaPathRe.FindAllStringSubmatch(mediaSummary, -1)
+	if len(matches) == 0 {
+		return ""
+	}
+
+	var previews []string
+	for _, m := range matches {
+		pathType := m[1] // "image_path" or "audio_path"
+		filePath := strings.TrimSpace(m[2])
+		if filePath == "" {
+			continue
+		}
+
+		mediaType := media.MediaTypeImage
+		if pathType == "audio_path" {
+			mediaType = media.MediaTypeAudio
+		}
+
+		description, err := d.previewer.Preview(d.ctx, filePath, mediaType)
+		if err != nil {
+			logger.Error("media preview failed",
+				"file", filePath,
+				"mediaType", pathType,
+				"err", err,
+			)
+			previews = append(previews, media.FormatPreviewError(err, mediaType))
+			continue
+		}
+		previews = append(previews, media.FormatPreviewTag(description, mediaType))
+	}
+
+	if len(previews) == 0 {
+		return ""
+	}
+	return strings.Join(previews, "\n")
 }
 
 // wakeSource returns the wake source for a channel.

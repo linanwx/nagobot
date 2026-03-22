@@ -150,6 +150,12 @@ func (f *Factory) resolveProviderModel(cfg *config.Config, providerName, modelTy
 	return providerName, modelType, nil
 }
 
+// ProviderKeyAvailable reports whether the given provider has an API key
+// configured (env variable, OAuth token, or static config key).
+func ProviderKeyAvailable(cfg *config.Config, providerName string) bool {
+	return providerAPIKey(cfg, providerName) != ""
+}
+
 func providerAPIKey(cfg *config.Config, providerName string) string {
 	reg, ok := providerRegistry[providerName]
 	if !ok {
@@ -229,4 +235,20 @@ func providerConfigFor(cfg *config.Config, providerName string) *config.Provider
 		return nil
 	}
 	return cfg.Providers.GetProviderConfig(providerName)
+}
+
+// GetProviderRegistration returns the registration for a provider by name.
+func GetProviderRegistration(name string) (ProviderRegistration, bool) {
+	reg, ok := providerRegistry[name]
+	return reg, ok
+}
+
+// ProviderAPIKeyForPreview returns the API key for a provider (exported for media preview).
+func ProviderAPIKeyForPreview(cfg *config.Config, providerName string) string {
+	return providerAPIKey(cfg, providerName)
+}
+
+// ProviderAPIBaseForPreview returns the API base for a provider (exported for media preview).
+func ProviderAPIBaseForPreview(cfg *config.Config, providerName string) string {
+	return providerAPIBase(cfg, providerName)
 }

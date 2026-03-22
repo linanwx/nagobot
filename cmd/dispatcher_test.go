@@ -1,10 +1,13 @@
 package cmd
 
 import (
+	"context"
+	"fmt"
 	"strings"
 	"testing"
 
 	"github.com/linanwx/nagobot/channel"
+	"github.com/linanwx/nagobot/media"
 )
 
 func TestPreprocessMessage_ReplyContext(t *testing.T) {
@@ -120,5 +123,144 @@ func TestTruncate_NoTruncationNeeded(t *testing.T) {
 	got := truncate(input, 500)
 	if got != input {
 		t.Errorf("should not truncate short messages, got %q", got)
+	}
+}
+
+// testPreviewer implements media.Previewer for testing.
+type testPreviewer struct {
+	results map[string]string // filePath -> description
+	errs    map[string]error  // filePath -> error
+}
+
+func (p *testPreviewer) Preview(_ context.Context, filePath string, _ media.MediaType) (string, error) {
+	if err, ok := p.errs[filePath]; ok {
+		return "", err
+	}
+	if desc, ok := p.results[filePath]; ok {
+		return desc, nil
+	}
+	return "", fmt.Errorf("unexpected file: %s", filePath)
+}
+
+func TestGenerateMediaPreviews_ImagePath(t *testing.T) {
+	d := &Dispatcher{
+		previewer: &testPreviewer{
+			results: map[string]string{
+				"/tmp/media/img-20260322-120000-abcd.jpg": "A cat sitting on a keyboard",
+			},
+		},
+	}
+	summary := "[Media: photo]\nimage_path: /tmp/media/img-20260322-120000-abcd.jpg"
+	got := d.generateMediaPreviews(summary)
+	if !strings.Contains(got, "media_preview") {
+		t.Errorf("expected media_preview tag, got: %s", got)
+	}
+	if !strings.Contains(got, "A cat sitting on a keyboard") {
+		t.Errorf("expected preview description, got: %s", got)
+	}
+}
+
+func TestGenerateMediaPreviews_AudioPath(t *testing.T) {
+	d := &Dispatcher{
+		previewer: &testPreviewer{
+			results: map[string]string{
+				"/tmp/media/audio-20260322-120000-abcd.ogg": "Hello, can you help me?",
+			},
+		},
+	}
+	summary := "[Media: voice]\naudio_path: /tmp/media/audio-20260322-120000-abcd.ogg\nduration: 5s"
+	got := d.generateMediaPreviews(summary)
+	if !strings.Contains(got, "audio_preview") {
+		t.Errorf("expected audio_preview tag, got: %s", got)
+	}
+	if !strings.Contains(got, "Hello, can you help me?") {
+		t.Errorf("expected transcription, got: %s", got)
+	}
+}
+
+func TestGenerateMediaPreviews_PreviewError(t *testing.T) {
+	d := &Dispatcher{
+		previewer: &testPreviewer{
+			errs: map[string]error{
+				"/tmp/media/img.jpg": fmt.Errorf("timeout"),
+			},
+		},
+	}
+	summary := "[Media: photo]\nimage_path: /tmp/media/img.jpg"
+	got := d.generateMediaPreviews(summary)
+	if !strings.Contains(got, "media_preview failed") {
+		t.Errorf("expected error tag, got: %s", got)
+	}
+	if !strings.Contains(got, "timeout") {
+		t.Errorf("expected error message, got: %s", got)
+	}
+}
+
+func TestGenerateMediaPreviews_NoMediaPaths(t *testing.T) {
+	d := &Dispatcher{
+		previewer: &testPreviewer{},
+	}
+	// Summary without image_path or audio_path
+	summary := "[Media: sticker]\nemoji: 😀\nsticker_set: MyStickers"
+	got := d.generateMediaPreviews(summary)
+	if got != "" {
+		t.Errorf("expected empty string for non-media summary, got: %s", got)
+	}
+}
+
+func TestGenerateMediaPreviews_NilPreviewer(t *testing.T) {
+	d := &Dispatcher{previewer: nil}
+	got := d.generateMediaPreviews("[Media: photo]\nimage_path: /tmp/photo.jpg")
+	if got != "" {
+		t.Errorf("expected empty string for nil previewer, got: %s", got)
+	}
+}
+
+func TestGenerateMediaPreviews_MultipleMedia(t *testing.T) {
+	d := &Dispatcher{
+		previewer: &testPreviewer{
+			results: map[string]string{
+				"/tmp/media/img1.jpg":   "First image",
+				"/tmp/media/audio1.ogg": "Audio content",
+			},
+		},
+	}
+	summary := "[Media: photo]\nimage_path: /tmp/media/img1.jpg\n\n[Media: voice]\naudio_path: /tmp/media/audio1.ogg"
+	got := d.generateMediaPreviews(summary)
+	if !strings.Contains(got, "media_preview") {
+		t.Errorf("expected media_preview tag, got: %s", got)
+	}
+	if !strings.Contains(got, "audio_preview") {
+		t.Errorf("expected audio_preview tag, got: %s", got)
+	}
+}
+
+func TestPreprocessMessage_WithMediaPreview(t *testing.T) {
+	d := &Dispatcher{
+		previewer: &testPreviewer{
+			results: map[string]string{
+				"/tmp/media/img.jpg": "A code screenshot",
+			},
+		},
+	}
+	msg := &channel.Message{
+		Text: "What's this?",
+		Metadata: map[string]string{
+			"media_summary": "[Media: photo]\nimage_path: /tmp/media/img.jpg",
+		},
+	}
+	got := d.preprocessMessage(msg)
+	// Order: preview, then media_summary, then text
+	previewIdx := strings.Index(got, "media_preview")
+	summaryIdx := strings.Index(got, "[Media: photo]")
+	textIdx := strings.Index(got, "What's this?")
+	if previewIdx < 0 || summaryIdx < 0 || textIdx < 0 {
+		t.Fatalf("missing expected content: %s", got)
+	}
+	if previewIdx >= summaryIdx {
+		t.Errorf("preview should come before media_summary")
+	}
+	if summaryIdx >= textIdx {
+		t.Errorf("media_summary should come before user text")
 	}
 }
