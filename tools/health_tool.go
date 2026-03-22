@@ -40,6 +40,7 @@ type HealthTool struct {
 	Workspace     string
 	SessionsRoot  string
 	SkillsRoot    string
+	LogsDir       string // Log files directory (e.g. ~/.nagobot/logs)
 	ProviderName  string // Fallback; overridden by CtxFn if set.
 	ModelName     string // Fallback; overridden by CtxFn if set.
 	ChannelsFn    func() *HealthChannelsInfo
@@ -123,6 +124,7 @@ func (t *HealthTool) run(ctx context.Context, args json.RawMessage) string {
 		SessionKey:     runtimeCtx.SessionKey,
 		SessionFile:    runtimeCtx.SessionFile,
 		Channels:       t.channels(),
+		LogsDir:        t.LogsDir,
 		IncludeTree:    true,
 		TreeDepth:      treeDepth,
 		TreeMaxEntries: treeMaxEntries,

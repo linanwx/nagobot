@@ -22,6 +22,7 @@ type Snapshot struct {
 	Sessions      *SessionsInfo  `json:"sessions,omitempty" yaml:"sessions,omitempty"`
 	Channels      *ChannelsInfo   `json:"channels,omitempty" yaml:"channels,omitempty"`
 	Cron          *CronInfo      `json:"cron,omitempty" yaml:"cron,omitempty"`
+	LogHealth     *LogHealth       `json:"logHealth,omitempty" yaml:"log_health,omitempty"`
 	AllThreads []msg.ThreadInfo `json:"allThreads,omitempty" yaml:"all_threads,omitempty"`
 	WorkspaceTree *WorkspaceTree  `json:"workspaceTree,omitempty" yaml:"workspace_tree,omitempty"`
 }
@@ -67,6 +68,7 @@ type Options struct {
 	SessionFile string
 
 	Channels *ChannelsInfo
+	LogsDir  string
 
 	IncludeTree    bool
 	TreeDepth      int
@@ -80,6 +82,7 @@ func (o Options) normalize() Options {
 	o.ThreadID = strings.TrimSpace(o.ThreadID)
 	o.SessionKey = strings.TrimSpace(o.SessionKey)
 	o.SessionFile = strings.TrimSpace(o.SessionFile)
+	o.LogsDir = strings.TrimSpace(o.LogsDir)
 	return o
 }
 
@@ -176,4 +179,12 @@ type DiscordInfo struct {
 // WebInfo contains Web channel config.
 type WebInfo struct {
 	Addr string `json:"addr,omitempty" yaml:"addr,omitempty"`
+}
+
+// LogHealth contains log file health indicators (warn/error counts from last 24h).
+type LogHealth struct {
+	WarnCount      int      `json:"warnCount" yaml:"warn_count"`
+	ErrorCount     int      `json:"errorCount" yaml:"error_count"`
+	RecentWarnings []string `json:"recentWarnings,omitempty" yaml:"recent_warnings,omitempty"`
+	RecentErrors   []string `json:"recentErrors,omitempty" yaml:"recent_errors,omitempty"`
 }

@@ -79,6 +79,10 @@ func Collect(ctx context.Context, opts Options) Snapshot {
 		s.Channels = opts.Channels
 	}
 
+	if opts.LogsDir != "" && ctx.Err() == nil {
+		s.LogHealth = scanLogs(opts.LogsDir)
+	}
+
 	if opts.IncludeTree && opts.Workspace != "" && ctx.Err() == nil {
 		s.WorkspaceTree = buildWorkspaceTree(ctx, opts.Workspace, opts.TreeDepth, opts.TreeMaxEntries)
 	}

@@ -95,6 +95,7 @@ type DefaultToolsConfig struct {
 	FetchProviders      map[string]FetchProvider
 	RestrictToWorkspace bool
 	Skills              SkillProvider
+	LogsDir             string // Log files directory for health diagnostics
 }
 
 // NewRegistry creates a new tool registry.
@@ -206,7 +207,7 @@ func (r *Registry) RegisterDefaultTools(workspace string, cfg DefaultToolsConfig
 	r.Register(&GlobTool{workspace: workspace})
 	r.Register(&EditFileTool{workspace: workspace})
 	r.Register(NewExecTool(workspace, cfg.ExecTimeout, cfg.RestrictToWorkspace))
-	r.Register(&HealthTool{Workspace: workspace})
+	r.Register(&HealthTool{Workspace: workspace, LogsDir: cfg.LogsDir})
 	r.Register(&WebSearchTool{defaultMaxResults: cfg.WebSearchMaxResults, providers: cfg.SearchProviders})
 	r.Register(&WebFetchTool{providers: cfg.FetchProviders})
 	if cfg.Skills != nil {

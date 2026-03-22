@@ -124,6 +124,11 @@ func buildThreadManager(cfg *config.Config, enableSessions bool) (*thread.Manage
 	metricsStore := monitor.NewStore(metricsDir)
 	metricsStore.Rotate()
 
+	var logsDir string
+	if cd, err := config.ConfigDir(); err == nil {
+		logsDir = filepath.Join(cd, "logs")
+	}
+
 	toolRegistry.RegisterDefaultTools(workspace, tools.DefaultToolsConfig{
 		ExecTimeout:         cfg.GetExecTimeout(),
 		WebSearchMaxResults: cfg.GetWebSearchMaxResults(),
@@ -131,6 +136,7 @@ func buildThreadManager(cfg *config.Config, enableSessions bool) (*thread.Manage
 		FetchProviders:      fetchProviders,
 		RestrictToWorkspace: cfg.GetExecRestrictToWorkspace(),
 		Skills:              skillRegistry,
+		LogsDir:             logsDir,
 	})
 
 	agentRegistry := agent.NewRegistry(workspace)

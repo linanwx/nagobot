@@ -486,10 +486,16 @@ func (t *Thread) buildTools() *tools.Registry {
 		providerName, modelName = mc.Provider, mc.ModelType
 	}
 
+	var logsDir string
+	if cd, err := config.ConfigDir(); err == nil {
+		logsDir = filepath.Join(cd, "logs")
+	}
+
 	reg.Register(&tools.HealthTool{
 		Workspace:    cfg.Workspace,
 		SessionsRoot: cfg.SessionsDir,
 		SkillsRoot:   cfg.SkillsDir,
+		LogsDir:      logsDir,
 		ProviderName: providerName,
 		ModelName:    modelName,
 		ChannelsFn:   cfg.HealthChannelsFn,
