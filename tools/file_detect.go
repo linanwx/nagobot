@@ -51,7 +51,12 @@ func DetectFileType(path string) (FileType, string) {
 			return FileTypeBinary, "application/octet-stream"
 		}
 	}
-	if !utf8.Valid(sample) {
+	// Trim trailing incomplete UTF-8 sequence that may result from fixed-size read.
+	validSample := sample
+	for len(validSample) > 0 && !utf8.Valid(validSample) {
+		validSample = validSample[:len(validSample)-1]
+	}
+	if len(validSample) == 0 {
 		return FileTypeBinary, "application/octet-stream"
 	}
 
