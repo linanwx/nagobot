@@ -28,6 +28,32 @@ func getCodec() tokenizer.Codec {
 	return tiktokenCodec
 }
 
+// tier2Multiplier scales WarnToken to get the Tier 2 threshold.
+const tier2Multiplier = 1.8
+
+// ContextThresholds holds computed context pressure thresholds.
+type ContextThresholds struct {
+	ContextWindow int // effective context window (tokens)
+	WarnToken     int // Tier 3: context pressure hook fires when remaining < WarnToken
+	Tier2Token    int // Tier 2: AI compression fires when remaining < Tier2Token
+}
+
+// ComputeContextThresholds calculates context thresholds from contextWindow.
+func ComputeContextThresholds(contextWindow int) ContextThresholds {
+	if contextWindow <= 0 {
+		return ContextThresholds{}
+	}
+	warnToken := contextWindow / 5
+	if warnToken > 50000 {
+		warnToken = 50000
+	}
+	return ContextThresholds{
+		ContextWindow: contextWindow,
+		WarnToken:     warnToken,
+		Tier2Token:    int(float64(warnToken) * tier2Multiplier),
+	}
+}
+
 func (t *Thread) sessionFilePath() (string, bool) {
 	cfg := t.cfg()
 	if cfg.Sessions == nil {
@@ -40,18 +66,23 @@ func (t *Thread) sessionFilePath() (string, bool) {
 	return cfg.Sessions.PathForKey(key), true
 }
 
-func (t *Thread) contextBudget() (tokens int, warnRatio float64) {
+func (t *Thread) contextBudget() ContextThresholds {
 	cfg := t.cfg()
 	_, modelName := t.resolvedProviderModel()
-	return provider.EffectiveContextWindow(modelName, cfg.ContextWindowTokens), cfg.ContextWarnRatio
+	contextWindow := provider.EffectiveContextWindow(modelName, cfg.ContextWindowTokens)
+	return ComputeContextThresholds(contextWindow)
 }
 
-// PressureStatus returns "ok", "warning", or "pressure" based on usage ratio.
-func PressureStatus(usageRatio, warnRatio float64) string {
-	if usageRatio >= warnRatio {
+// PressureStatus returns "ok", "warning", or "pressure" based on token usage.
+func PressureStatus(usedTokens int, ct ContextThresholds) string {
+	if ct.ContextWindow <= 0 {
+		return "ok"
+	}
+	remaining := ct.ContextWindow - usedTokens
+	if remaining < ct.WarnToken {
 		return "pressure"
 	}
-	if usageRatio >= warnRatio*0.8 {
+	if remaining < ct.Tier2Token {
 		return "warning"
 	}
 	return "ok"
@@ -129,14 +160,11 @@ func (t *Thread) contextPressureHook() turnHook {
 		if strings.TrimSpace(ctx.SessionPath) == "" {
 			return nil
 		}
-		if ctx.ContextWindowTokens <= 0 {
+		if ctx.ContextWindowTokens <= 0 || ctx.WarnToken <= 0 {
 			return nil
 		}
 
-		threshold := int(float64(ctx.ContextWindowTokens) * ctx.ContextWarnRatio)
-		if threshold <= 0 {
-			threshold = ctx.ContextWindowTokens
-		}
+		threshold := ctx.ContextWindowTokens - ctx.WarnToken
 		if ctx.RequestEstimatedTokens < threshold {
 			return nil
 		}

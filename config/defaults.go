@@ -8,7 +8,6 @@ const (
 	defaultMaxTokens           = 8192
 	defaultTemperature         = 1.0
 	defaultContextWindowTokens = 200000
-	defaultContextWarnRatio    = 0.8
 	defaultWebAddr             = "127.0.0.1:8080"
 	defaultSkillHubURL         = "https://clawhub.ai"
 )
@@ -41,7 +40,6 @@ func DefaultConfig() *Config {
 			MaxTokens:           defaultMaxTokens,
 			Temperature:         defaultTemperature,
 			ContextWindowTokens: defaultContextWindowTokens,
-			ContextWarnRatio:    defaultContextWarnRatio,
 		},
 		Providers: ProvidersConfig{
 			DeepSeek: &ProviderConfig{
@@ -97,11 +95,6 @@ func (c *Config) applyDefaults() bool {
 		c.Thread.ContextWindowTokens = defaultContextWindowTokens
 		changed = true
 	}
-	if c.Thread.ContextWarnRatio <= 0 || c.Thread.ContextWarnRatio >= 1 {
-		c.Thread.ContextWarnRatio = defaultContextWarnRatio
-		changed = true
-	}
-
 	if c.Channels == nil {
 		c.Channels = &ChannelsConfig{}
 		changed = true

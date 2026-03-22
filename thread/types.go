@@ -61,9 +61,8 @@ const (
 	// Tier 1: mechanical tool-result compression (idle ≥5 min, no token threshold)
 	tier1IdleMin = 5 * time.Minute
 
-	// Tier 2: AI-driven silent compression (idle ≥30 min, >65% tokens)
-	tier2IdleMin    = 30 * time.Minute
-	tier2TokenRatio = 0.65
+	// Tier 2: AI-driven silent compression (idle ≥30 min, remaining < Tier2Token)
+	tier2IdleMin = 30 * time.Minute
 )
 
 // ThreadConfig contains shared dependencies for creating threads.
@@ -79,7 +78,6 @@ type ThreadConfig struct {
 	BuiltinSkillsDir    string
 	SessionsDir         string
 	ContextWindowTokens  int
-	ContextWarnRatio     float64
 	MaxCompletionTokens  int
 	Sessions            *session.Manager
 	DefaultSinkFor      func(sessionKey string) Sink

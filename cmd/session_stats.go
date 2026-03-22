@@ -40,7 +40,7 @@ type sessionStatsOutput struct {
 	TokensSaved         int               `json:"tokens_saved"`
 	ContextWindowTokens int               `json:"context_window_tokens"`
 	UsageRatio          float64           `json:"usage_ratio"`
-	WarnRatio           float64           `json:"warn_ratio"`
+	WarnToken           int               `json:"warn_token"`
 	PressureStatus      string            `json:"pressure_status"`
 	LongestMessages     []longestMsgEntry `json:"longest_messages"`
 }
@@ -114,10 +114,10 @@ func runSessionStats(_ *cobra.Command, args []string) error {
 
 	// Use the resolved model for context window, not the global default.
 	contextWindow := resolution.ResolvedCtxWindow
-	warnRatio := cfg.GetContextWarnRatio()
+	ct := thread.ComputeContextThresholds(contextWindow)
 	usageRatio := float64(compressedTokens) / float64(contextWindow)
 
-	status := thread.PressureStatus(usageRatio, warnRatio)
+	status := thread.PressureStatus(compressedTokens, ct)
 
 	// Find top 3 longest messages (by token count, using compressed view).
 	type indexedMsg struct {
@@ -166,7 +166,7 @@ func runSessionStats(_ *cobra.Command, args []string) error {
 		TokensSaved:         rawTokens - compressedTokens,
 		ContextWindowTokens: contextWindow,
 		UsageRatio:          usageRatio,
-		WarnRatio:           warnRatio,
+		WarnToken:           ct.WarnToken,
 		PressureStatus:      status,
 		LongestMessages:     longest,
 	}
