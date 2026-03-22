@@ -124,6 +124,12 @@ func (t *ReadFileTool) handleImage(ctx context.Context, absPath, mimeType string
 	fields := map[string]any{"path": absPath, "type": mimeType, "size": size}
 	rt := RuntimeContextFrom(ctx)
 	if !rt.SupportsVision {
+		if !rt.ImageReaderConfigured {
+			return toolResult("read_file", fields,
+				"This is an image file. Your current model does not support vision, "+
+					"and the 'imagereader' agent is not configured. "+
+					"To enable image reading, configure a vision-capable model or set up an imagereader agent.")
+		}
 		return toolResult("read_file", fields,
 			"This is an image file. You cannot view images directly. "+
 				"Use the spawn_thread tool to delegate to the 'imagereader' agent, "+
@@ -137,6 +143,12 @@ func (t *ReadFileTool) handleAudio(ctx context.Context, absPath, mimeType string
 	fields := map[string]any{"path": absPath, "type": mimeType, "size": size}
 	rt := RuntimeContextFrom(ctx)
 	if !rt.SupportsAudio {
+		if !rt.AudioReaderConfigured {
+			return toolResult("read_file", fields,
+				"This is an audio file. Your current model does not support audio, "+
+					"and the 'audioreader' agent is not configured. "+
+					"To enable audio reading, configure an audio-capable model or set up an audioreader agent.")
+		}
 		return toolResult("read_file", fields,
 			"This is an audio file. You cannot listen to audio directly. "+
 				"Use the spawn_thread tool to delegate to the 'audioreader' agent, "+

@@ -53,10 +53,12 @@ func (t *Thread) run(ctx context.Context, userMessage string, sink Sink, injectF
 	}()
 
 	runCtx := tools.WithRuntimeContext(ctx, tools.RuntimeContext{
-		SessionKey:     t.sessionKey,
-		Workspace:      cfg.Workspace,
-		SupportsVision: t.currentModelSupportsVision(),
-		SupportsAudio:  t.currentModelSupportsAudio(),
+		SessionKey:            t.sessionKey,
+		Workspace:             cfg.Workspace,
+		SupportsVision:        t.currentModelSupportsVision(),
+		SupportsAudio:         t.currentModelSupportsAudio(),
+		ImageReaderConfigured: cfg.Agents != nil && cfg.Agents.Def("imagereader") != nil,
+		AudioReaderConfigured: cfg.Agents != nil && cfg.Agents.Def("audioreader") != nil,
 	})
 	t.resetHaltLoop()
 	p := t.resolveProvider()
