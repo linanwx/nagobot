@@ -12,7 +12,6 @@ import (
 
 	"github.com/linanwx/nagobot/config"
 	"github.com/linanwx/nagobot/monitor"
-	"github.com/linanwx/nagobot/provider"
 )
 
 var monitorCmd = &cobra.Command{
@@ -182,26 +181,7 @@ func buildBalanceCheckers(cfg *config.Config, metricsDir string) []monitor.Balan
 			return &monitor.OpenAIQuota{}
 		}(),
 		&monitor.OpenRouterBalance{KeyFn: keyFn("openrouter")},
-		&monitor.AnthropicRateLimit{
-			KeyFn: keyFn("anthropic"),
-			LastFn: func() *monitor.AnthropicLimits {
-				rl := provider.GetAnthropicRateLimits()
-				if rl == nil {
-					return nil
-				}
-				return &monitor.AnthropicLimits{
-					RequestsLimit:     rl.RequestsLimit,
-					RequestsRemaining: rl.RequestsRemaining,
-					TokensLimit:       rl.TokensLimit,
-					TokensRemaining:   rl.TokensRemaining,
-					InputLimit:        rl.InputLimit,
-					InputRemaining:    rl.InputRemaining,
-					OutputLimit:       rl.OutputLimit,
-					OutputRemaining:   rl.OutputRemaining,
-					UpdatedAt:         rl.UpdatedAt,
-				}
-			},
-		},
+		&monitor.AnthropicBalance{KeyFn: keyFn("anthropic")},
 		&monitor.DeepSeekBalance{KeyFn: keyFn("deepseek")},
 		&monitor.MoonshotBalance{Name: "moonshot-cn", Base: "https://api.moonshot.cn/v1", KeyFn: keyFn("moonshot-cn")},
 		&monitor.MoonshotBalance{Name: "moonshot-global", Base: "https://api.moonshot.ai/v1", KeyFn: keyFn("moonshot-global")},
