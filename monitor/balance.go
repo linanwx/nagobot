@@ -6,8 +6,12 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"os"
+	"path/filepath"
 	"strings"
 	"time"
+
+	"github.com/linanwx/nagobot/logger"
 )
 
 // BalanceEntry holds a single currency balance.
@@ -553,4 +557,68 @@ func CheckAllBalances(ctx context.Context, checkers []BalanceChecker) []BalanceI
 		results = append(results, *info)
 	}
 	return results
+}
+
+// BalanceCache is the on-disk format for cached balance results.
+type BalanceCache struct {
+	Entries   []BalanceInfo `json:"entries"`
+	UpdatedAt time.Time    `json:"updated_at"`
+}
+
+// SaveBalance writes balance results to a JSON cache file.
+func SaveBalance(path string, entries []BalanceInfo) error {
+	if err := os.MkdirAll(filepath.Dir(path), 0755); err != nil {
+		return fmt.Errorf("create cache dir: %w", err)
+	}
+	cache := BalanceCache{
+		Entries:   entries,
+		UpdatedAt: time.Now(),
+	}
+	data, err := json.MarshalIndent(cache, "", "  ")
+	if err != nil {
+		return fmt.Errorf("marshal balance cache: %w", err)
+	}
+	return os.WriteFile(path, data, 0644)
+}
+
+// LoadBalance reads cached balance results and the last update time.
+func LoadBalance(path string) ([]BalanceInfo, time.Time, error) {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return nil, time.Time{}, err
+	}
+	var cache BalanceCache
+	if err := json.Unmarshal(data, &cache); err != nil {
+		return nil, time.Time{}, fmt.Errorf("parse balance cache: %w", err)
+	}
+	return cache.Entries, cache.UpdatedAt, nil
+}
+
+// RunBalancePoller periodically queries all balance checkers and saves results to cachePath.
+func RunBalancePoller(ctx context.Context, interval time.Duration, cachePath string, checkers []BalanceChecker) {
+	// Run immediately on start.
+	pollBalances(ctx, cachePath, checkers)
+
+	ticker := time.NewTicker(interval)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			pollBalances(ctx, cachePath, checkers)
+		}
+	}
+}
+
+func pollBalances(ctx context.Context, cachePath string, checkers []BalanceChecker) {
+	queryCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
+	defer cancel()
+
+	results := CheckAllBalances(queryCtx, checkers)
+	if err := SaveBalance(cachePath, results); err != nil {
+		logger.Warn("balance poller: failed to save cache", "err", err)
+	} else {
+		logger.Debug("balance poller: cache updated", "path", cachePath, "entries", len(results))
+	}
 }

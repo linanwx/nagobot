@@ -16,6 +16,7 @@ import (
 	"github.com/linanwx/nagobot/config"
 	cronpkg "github.com/linanwx/nagobot/cron"
 	"github.com/linanwx/nagobot/logger"
+	"github.com/linanwx/nagobot/monitor"
 	"github.com/linanwx/nagobot/session"
 	"github.com/linanwx/nagobot/thread"
 	sysmsg "github.com/linanwx/nagobot/thread/msg"
@@ -205,6 +206,12 @@ func runServe(cmd *cobra.Command, args []string) error {
 
 	// Start heartbeat scheduler (created above near RPC handler).
 	go hbScheduler.run(ctx)
+
+	// Start background balance poller.
+	balanceCachePath := filepath.Join(workspace, "system", "balance-cache.json")
+	metricsDir := filepath.Join(workspace, "metrics")
+	balanceCheckers := buildBalanceCheckers(cfg, metricsDir)
+	go monitor.RunBalancePoller(ctx, 5*time.Minute, balanceCachePath, balanceCheckers)
 
 	// Dispatcher reads from channels and dispatches to threads.
 	dispatcher := NewDispatcher(chManager, threadMgr, cfg)
