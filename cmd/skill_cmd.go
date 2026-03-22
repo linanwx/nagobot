@@ -27,7 +27,7 @@ var skillSearchCmd = &cobra.Command{
 
 var skillInstallCmd = &cobra.Command{
 	Use:   "install <slug>",
-	Short: "Install a skill from ClawHub",
+	Short: "Install a skill from ClawHub or Smithery",
 	Args:  cobra.ExactArgs(1),
 	RunE:  runSkillInstall,
 }
@@ -54,6 +54,7 @@ var skillUpdateCmd = &cobra.Command{
 
 func init() {
 	skillInstallCmd.Flags().Bool("force", false, "Force install even if skill already exists")
+	skillInstallCmd.Flags().String("source", "", "Install source: clawhub (default) or smithery")
 
 	skillCmd.AddCommand(skillSearchCmd, skillInstallCmd, skillRemoveCmd, skillListCmd, skillUpdateCmd)
 	rootCmd.AddCommand(skillCmd)
@@ -104,6 +105,7 @@ func runSkillSearch(cmd *cobra.Command, args []string) error {
 func runSkillInstall(cmd *cobra.Command, args []string) error {
 	slug := args[0]
 	force, _ := cmd.Flags().GetBool("force")
+	source, _ := cmd.Flags().GetString("source")
 
 	cfg, err := config.Load()
 	if err != nil {
@@ -122,6 +124,17 @@ func runSkillInstall(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("cannot load tracking: %w", err)
 	}
 
+	switch strings.ToLower(source) {
+	case "smithery":
+		return installFromSmithery(slug, skillsDir, force, installed, workspace)
+	case "", "clawhub":
+		return installFromClawHub(slug, skillsDir, force, installed, workspace, cfg)
+	default:
+		return fmt.Errorf("unknown source %q (supported: clawhub, smithery)", source)
+	}
+}
+
+func installFromClawHub(slug, skillsDir string, force bool, installed *skills.InstalledSkills, workspace string, cfg *config.Config) error {
 	existingDir := filepath.Join(skillsDir, slug)
 	if _, statErr := os.Stat(existingDir); statErr == nil && !force {
 		if meta, tracked := installed.IsTracked(slug); tracked {
@@ -145,6 +158,39 @@ func runSkillInstall(cmd *cobra.Command, args []string) error {
 	}
 
 	fmt.Printf("Installed %s.\n", slug)
+	return nil
+}
+
+func installFromSmithery(qualifiedName, skillsDir string, force bool, installed *skills.InstalledSkills, workspace string) error {
+	// For Smithery, the slug is a qualified name like "anthropics/webapp-testing".
+	// The local skill name is the short slug (last component).
+	parts := strings.Split(qualifiedName, "/")
+	localName := parts[len(parts)-1]
+
+	existingDir := filepath.Join(skillsDir, localName)
+	if _, statErr := os.Stat(existingDir); statErr == nil && !force {
+		if meta, tracked := installed.IsTracked(localName); tracked {
+			fmt.Printf("Skill %q already installed (from %s). Use --force to re-install.\n", localName, meta.Hub)
+		} else {
+			fmt.Printf("Skill %q already exists locally. Use --force to overwrite.\n", localName)
+		}
+		return nil
+	}
+
+	client := skills.NewSmitheryClient()
+	fmt.Printf("Installing %s from Smithery (%s)...\n", qualifiedName, client.BaseURL)
+
+	skillName, err := client.Install(qualifiedName, skillsDir)
+	if err != nil {
+		return fmt.Errorf("install failed: %w", err)
+	}
+
+	installed.Track(skillName, "smithery:"+client.BaseURL)
+	if err := installed.Save(workspace); err != nil {
+		return fmt.Errorf("cannot save tracking: %w", err)
+	}
+
+	fmt.Printf("Installed %s (as %s).\n", qualifiedName, skillName)
 	return nil
 }
 
