@@ -38,21 +38,19 @@ type previewCandidate struct {
 }
 
 // imagePriority is the priority chain for image preview.
-// 1. Gemini Flash (direct)
-// 2. Gemini Flash via OpenRouter
-// 3. Claude Haiku (Anthropic direct)
+// 1. Gemini Flash Lite (direct)
+// 2. Claude Haiku (Anthropic direct)
 var imagePriority = []previewCandidate{
-	{ProviderName: "gemini", ModelType: "gemini-3-flash-preview"},
-	{ProviderName: "openrouter", ModelType: "google/gemini-3-flash-preview"},
-	{ProviderName: "anthropic", ModelType: "claude-sonnet-4-6"},
+	{ProviderName: "gemini", ModelType: "gemini-3.1-flash-lite"},
+	{ProviderName: "anthropic", ModelType: "claude-haiku-4-5"},
 }
 
 // audioPriority is the priority chain for audio preview.
-// 1. OpenAI GPT-4o (direct, best audio accuracy)
-// 2. Gemini Flash (direct)
+// 1. Gemini Flash Lite (direct)
+// 2. Gemini Flash Lite via OpenRouter
 var audioPriority = []previewCandidate{
-	{ProviderName: "openai", ModelType: "gpt-5.2"},
-	{ProviderName: "gemini", ModelType: "gemini-3-flash-preview"},
+	{ProviderName: "gemini", ModelType: "gemini-3.1-flash-lite"},
+	{ProviderName: "openrouter", ModelType: "google/gemini-3.1-flash-lite"},
 }
 
 // Previewer generates quick media previews using lightweight LLM calls.
