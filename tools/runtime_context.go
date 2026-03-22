@@ -10,10 +10,12 @@ type runtimeContextKey struct{}
 
 // RuntimeContext carries lightweight per-run metadata for tools.
 type RuntimeContext struct {
-	SessionKey     string
-	Workspace      string
-	SupportsVision bool
-	SupportsAudio  bool
+	SessionKey             string
+	Workspace              string
+	SupportsVision         bool
+	SupportsAudio          bool
+	ImageReaderConfigured  bool // true if an 'imagereader' agent is available
+	AudioReaderConfigured  bool // true if an 'audioreader' agent is available
 }
 
 // WithRuntimeContext injects tool runtime metadata into context.
