@@ -18,43 +18,50 @@ Without heartbeat, you only react. With heartbeat, you anticipate. Your job is t
 1. The current heartbeat.md content is already in the wake message above. Use it directly.
 2. Review conversation above (do NOT read_file session file; you already have all info)
    - Scan for anything you can help with in the background:
-     - You offered help but didn't follow through, even if they didn't respond
+     - Any help you can give
      - Weather/news/traffic/interests they may care about
-3. existing_items = items from heartbeat.md
+3. Predict user's future
+   - Next 2 days, what they might do
+4. existing_items = items from heartbeat.md
    new_items = items found in conversation
    cron_items = `nagobot cron list` (check if needed)
    - for each item in existing_items:
-      - if item.moved_on condition is met || (item.created older than 3 days && item not mentioned in conversation) || item is already handled by cron
-         - remove item
-      - else if item won't trigger within next 2 days
-         - remove from heartbeat.md
-         - create one time cron job to handle this instead using heartbeat system
-   - heartbeat.md = set(existing_items + new_items - removed_items)
+     - if item is outdated || item is already handled by cron
+       - remove item
+     - else if item won't trigger within next 2 days
+       - remove from heartbeat.md
+       - create one time cron job to handle this instead using heartbeat system
    - if heartbeat.md is nothing, reconsider: am I too passive?
-   - if heartbeat pause is running too frequently:
-      - call `exec` to run: `nagobot heartbeat postpone <this session-key> <duration>`
-      - Valid durations: 15m to 6h (e.g., "4h" for nothing interesting until afternoon)
-
-4. if no items remain && current file is not empty → write empty string to clear file (don't delete)
-5. Call `sleep_thread()` — this ends the turn silently. Do NOT reply with text.
-
-
+5. heartbeat.md = predict_future + set(existing_items + new_items - removed_items)
+6. if no items remain && current file is not empty → write empty string to clear file
+7. if heartbeat pause is running too frequently:
+   - call `exec` to run: `nagobot heartbeat postpone <this session-key> <duration>`
+   - Valid durations: 15m to 6h (e.g., "4h" for nothing interesting until afternoon)
+8. Call `sleep_thread()` — this ends the turn silently. Do NOT reply with text.
 
 ## Item format
 
 ```markdown
+# Schedule
+
+- 2026-03-12
+   - morning
+      - might go to XXX
+      - reason: xxx
+- 2026-03-13
+   - afternoon
+      - might work
+      - reason: xxx
+
+# Follow Up
+
 - Check Beijing weather for user (they mentioned going out tomorrow)
   created: 2026-03-11
   moved_on: after 2026-03-12 (the outing day has passed)
-  reason: user mentioned going out tomorrow, might be helpful to proactively check weather
+  reason: xxx
 
-- Periodically check unread emails and summarize
+- Periodically check unread emails
   created: 2026-03-10
   moved_on: user hasn't mentioned emails for over a week
-  reason: user mentioned wanting to stay on top of emails
+  reason: xxx
 ```
-
-## Rules
-
-- Only touch `heartbeat.md`, no other files
-- Items already handled by cron should be removed (e.g., "Summarize daily tech news" when a cron job already does this)
