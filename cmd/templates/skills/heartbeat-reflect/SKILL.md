@@ -13,6 +13,10 @@ Without heartbeat, you only react. With heartbeat, you anticipate. Your job is t
 
 **Bias toward action.** If something might be worth tracking, track it. Removing a stale item later costs nothing; missing a commitment costs trust. When in doubt, add it.
 
+## Silent exit
+
+To end this turn without sending anything to the user, call `sleep_thread()`. If tool calling is unavailable or fails, output `SLEEP_THREAD_OK` in your response text instead — the system treats this identically to calling sleep_thread.
+
 ## What to do
 
 1. The current heartbeat.md content is already in the wake message above. Use it directly.

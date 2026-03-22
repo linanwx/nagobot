@@ -486,6 +486,77 @@ func TestComputeWakeCompressed_CJK(t *testing.T) {
 	}
 }
 
+func TestIsHeartbeatSkipTurn_SleepThread(t *testing.T) {
+	// Classic case: sleep_thread called → should trim.
+	msgs := []provider.Message{
+		{Role: "user", Content: "heartbeat wake", Source: "heartbeat"},
+		{Role: "assistant", Content: "", ToolCalls: []provider.ToolCall{{ID: "c1", Type: "function", Function: provider.FunctionCall{Name: "use_skill", Arguments: `{"name":"heartbeat-reflect"}`}}}},
+		{Role: "tool", Name: "use_skill", ToolCallID: "c1", Content: "skill loaded"},
+		{Role: "assistant", Content: "", ToolCalls: []provider.ToolCall{{ID: "c2", Type: "function", Function: provider.FunctionCall{Name: "sleep_thread", Arguments: `{}`}}}},
+		{Role: "tool", Name: "sleep_thread", ToolCallID: "c2", Content: "ok"},
+	}
+	if !isHeartbeatSkipTurn(msgs) {
+		t.Error("turn with sleep_thread + safe tools should be trimmed")
+	}
+}
+
+func TestIsHeartbeatSkipTurn_SleepMarkerNoTools(t *testing.T) {
+	// SLEEP_THREAD_OK marker with no tool calls → should trim.
+	msgs := []provider.Message{
+		{Role: "user", Content: "heartbeat wake", Source: "heartbeat"},
+		{Role: "assistant", Content: "Nothing to do. SLEEP_THREAD_OK"},
+	}
+	if !isHeartbeatSkipTurn(msgs) {
+		t.Error("turn with SLEEP_THREAD_OK marker and no tool calls should be trimmed")
+	}
+}
+
+func TestIsHeartbeatSkipTurn_SleepMarkerEmbeddedText(t *testing.T) {
+	// SLEEP_THREAD_OK embedded in longer text → should still trim.
+	msgs := []provider.Message{
+		{Role: "user", Content: "heartbeat wake", Source: "heartbeat"},
+		{Role: "assistant", Content: "I reviewed the heartbeat items. Nothing relevant right now.\n\nSLEEP_THREAD_OK\n\nWill check again later."},
+	}
+	if !isHeartbeatSkipTurn(msgs) {
+		t.Error("SLEEP_THREAD_OK embedded in text should still trigger trim")
+	}
+}
+
+func TestIsHeartbeatSkipTurn_SleepMarkerWithToolCalls(t *testing.T) {
+	// SLEEP_THREAD_OK but model also made tool calls → should NOT trim (ambiguous).
+	msgs := []provider.Message{
+		{Role: "user", Content: "heartbeat wake", Source: "heartbeat"},
+		{Role: "assistant", Content: "SLEEP_THREAD_OK", ToolCalls: []provider.ToolCall{{ID: "c1", Type: "function", Function: provider.FunctionCall{Name: "exec", Arguments: `{"cmd":"echo hi"}`}}}},
+		{Role: "tool", Name: "exec", ToolCallID: "c1", Content: "hi"},
+	}
+	if isHeartbeatSkipTurn(msgs) {
+		t.Error("turn with SLEEP_THREAD_OK but also tool calls should NOT be trimmed")
+	}
+}
+
+func TestIsHeartbeatSkipTurn_NoSleepNoMarker(t *testing.T) {
+	// Neither sleep_thread nor SLEEP_THREAD_OK → should NOT trim (real response).
+	msgs := []provider.Message{
+		{Role: "user", Content: "heartbeat wake", Source: "heartbeat"},
+		{Role: "assistant", Content: "Hey! Just wanted to let you know the weather looks great today."},
+	}
+	if isHeartbeatSkipTurn(msgs) {
+		t.Error("turn without sleep_thread or SLEEP_THREAD_OK should NOT be trimmed")
+	}
+}
+
+func TestIsHeartbeatSkipTurn_SleepMarkerWithRealWork(t *testing.T) {
+	// SLEEP_THREAD_OK but also has non-safe tool results → should NOT trim.
+	msgs := []provider.Message{
+		{Role: "user", Content: "heartbeat wake", Source: "heartbeat"},
+		{Role: "assistant", Content: "SLEEP_THREAD_OK"},
+		{Role: "tool", Name: "exec", ToolCallID: "c1", Content: "sent email"},
+	}
+	if isHeartbeatSkipTurn(msgs) {
+		t.Error("turn with SLEEP_THREAD_OK but real work (non-safe tools) should NOT be trimmed")
+	}
+}
+
 func TestRuneLen(t *testing.T) {
 	if got := runeLen("hello"); got != 5 {
 		t.Errorf("runeLen ASCII: got %d, want 5", got)

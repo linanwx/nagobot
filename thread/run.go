@@ -220,11 +220,16 @@ func (t *Thread) executeRunner(ctx, runCtx context.Context, p provider.Provider,
 		})
 	}
 
+	var hadToolCalls bool // tracks whether any tool calls occurred during the entire run
 	runner.OnMessage(func(m provider.Message) {
 		intermediates = append(intermediates, m)
 		// Incremental persistence: save each message to disk as it arrives.
 		if persistMsg != nil {
 			persistMsg(m)
+		}
+		// Track tool calls for SLEEP_THREAD_OK fallback detection.
+		if m.Role == "assistant" && len(m.ToolCalls) > 0 {
+			hadToolCalls = true
 		}
 		// Deliver intermediate assistant content (with tool_calls) to user in real time.
 		// Final response delivery is handled by onFinalResponse — only intermediate
@@ -242,6 +247,13 @@ func (t *Thread) executeRunner(ctx, runCtx context.Context, p provider.Provider,
 	// For non-streaming or when streamer didn't fire: deliver via sink.Send.
 	// WithRetry(3) only wraps final delivery, not streaming chunks.
 	runner.OnFinalResponse(func(content string) {
+		// SLEEP_THREAD_OK text marker fallback: when a model with weak tool-calling
+		// outputs this marker instead of calling sleep_thread(), treat it as equivalent
+		// to suppress sink delivery during heartbeat turns.
+		if t.IsHeartbeatWake() && !hadToolCalls && strings.Contains(content, "SLEEP_THREAD_OK") {
+			t.SetSuppressSink()
+			logger.Info("SLEEP_THREAD_OK fallback triggered", "sessionKey", t.sessionKey, "source", t.lastWakeSource)
+		}
 		if sink.IsZero() || t.isSuppressSink() || !isUserFacingContent(content) {
 			return
 		}
