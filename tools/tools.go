@@ -249,8 +249,8 @@ func (r *Registry) writeToolLog(name string, args json.RawMessage, result string
 	}
 
 	logResult := result
-	if len(logResult) > toolLogMaxChars {
-		logResult = logResult[:toolLogMaxChars] + "\n\n...(truncated)"
+	if runes := []rune(logResult); len(runes) > toolLogMaxChars {
+		logResult = string(runes[:toolLogMaxChars]) + "\n\n...(truncated)"
 	}
 
 	var sb strings.Builder

@@ -13,9 +13,9 @@ import (
 )
 
 const (
-	compressKeepAssistants = 3 // protect last N assistant turns
-	softTrimHeadChars      = 1500 // chars kept from start of result
-	softTrimTailChars      = 1500 // chars kept from end of result
+	compressKeepAssistants = 3    // protect last N assistant turns
+	softTrimHeadRunes      = 1500 // runes kept from start of result
+	softTrimTailRunes      = 1500 // runes kept from end of result
 
 	compressedHintFmt  = "[compressed — use search-memory --context %s --full to see content if needed, use skill session-ops to see more]"
 	compressedHintNoID = "[compressed — use search-memory with session key and timeframe to find original content, or use skill session-ops to see more]"
@@ -23,6 +23,29 @@ const (
 	compressExpireAge      = 2 * time.Hour // unified age threshold for tier-1 compression
 	heartbeatTrimThreshold = 100           // minimum content size to compress heartbeat results
 )
+
+// runeHead returns the first n runes of s. If s has fewer than n runes, returns s unchanged.
+func runeHead(s string, n int) string {
+	runes := []rune(s)
+	if len(runes) <= n {
+		return s
+	}
+	return string(runes[:n])
+}
+
+// runeTail returns the last n runes of s. If s has fewer than n runes, returns s unchanged.
+func runeTail(s string, n int) string {
+	runes := []rune(s)
+	if len(runes) <= n {
+		return s
+	}
+	return string(runes[len(runes)-n:])
+}
+
+// runeLen returns the number of runes in s.
+func runeLen(s string) int {
+	return len([]rune(s))
+}
 
 // heartbeatSafeTools lists tools that don't produce user-visible effects in a heartbeat turn.
 // If a heartbeat turn only calls these tools, the turn is noise and can be trimmed.
@@ -351,7 +374,7 @@ func computeToolCompressed(m *provider.Message, idx int, lastSkillLoad map[strin
 			Compressed: m.Name, Original: len(m.Content),
 		}, "")
 	}
-	if len(m.Content) <= softTrimHeadChars+softTrimTailChars || strings.Contains(m.Content, "<<media:") {
+	if runeLen(m.Content) <= softTrimHeadRunes+softTrimTailRunes || strings.Contains(m.Content, "<<media:") {
 		return ""
 	}
 	return softTrimWithHint(m.Content, m.Name, m.ID)
@@ -379,15 +402,16 @@ func computeWakeCompressed(m *provider.Message) string {
 
 	// Check whether body needs compression: only when actually trimmable.
 	visibility := ExtractFrontmatterValue(yamlBlock, "visibility")
+	bodyRuneLen := runeLen(body)
 	bodyTrimmable := visibility == "assistant-only" &&
-		len(body) > softTrimHeadChars+softTrimTailChars &&
+		bodyRuneLen > softTrimHeadRunes+softTrimTailRunes &&
 		!strings.Contains(body, "<<media:")
 
 	if bodyTrimmable {
-		n := len(body)
-		trimmed := n - softTrimHeadChars - softTrimTailChars
+		n := bodyRuneLen
+		trimmed := n - softTrimHeadRunes - softTrimTailRunes
 		hint := buildRecoveryHint(m.ID)
-		compressedBody := body[:softTrimHeadChars] + "\n\n" + hint + "\n\n" + body[n-softTrimTailChars:]
+		compressedBody := runeHead(body, softTrimHeadRunes) + "\n\n" + hint + "\n\n" + runeTail(body, softTrimTailRunes)
 		bodyYAML := trimmedYAML + "\ncompressed: true"
 		bodyYAML += fmt.Sprintf("\noriginal: %d", n)
 		bodyYAML += fmt.Sprintf("\ntrimmed: %d", trimmed)
@@ -450,19 +474,19 @@ func buildRecoveryHint(messageID string) string {
 // softTrimWithHint applies head+hint+tail compression and returns a Compressed value.
 // Only compresses when the result is at least 5% smaller than the original.
 func softTrimWithHint(content, name, messageID string) string {
-	n := len(content)
-	if n <= softTrimHeadChars+softTrimTailChars {
+	n := runeLen(content)
+	if n <= softTrimHeadRunes+softTrimTailRunes {
 		return ""
 	}
-	head := content[:softTrimHeadChars]
-	tail := content[n-softTrimTailChars:]
-	trimmed := n - softTrimHeadChars - softTrimTailChars
+	head := runeHead(content, softTrimHeadRunes)
+	tail := runeTail(content, softTrimTailRunes)
+	trimmed := n - softTrimHeadRunes - softTrimTailRunes
 	hint := buildRecoveryHint(messageID)
 	result := marshalCompressed(compressedHeader{
 		Compressed: name, Original: n, Trimmed: trimmed,
 	}, head+"\n\n"+hint+"\n\n"+tail)
 	// Skip if compression didn't shrink by at least 5%.
-	if len(result) >= int(float64(n)*0.95) {
+	if len(result) >= int(float64(len(content))*0.95) {
 		return ""
 	}
 	return result
