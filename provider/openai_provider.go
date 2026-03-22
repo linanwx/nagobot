@@ -271,6 +271,9 @@ func (p *OpenAIProvider) buildRequestBody(req *Request) ([]byte, error) {
 			"summary": "auto",
 		},
 	}
+	if p.modelName == "gpt-5.4" {
+		body["text"] = map[string]any{"verbosity": "low"}
+	}
 	if len(instructions) > 0 {
 		body["instructions"] = strings.Join(instructions, "\n\n")
 	}
