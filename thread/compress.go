@@ -341,7 +341,12 @@ func isExecSafe(turnMessages []provider.Message, toolCallID string) bool {
 			if json.Unmarshal([]byte(tc.Function.Arguments), &args) != nil {
 				return false
 			}
-			return strings.HasPrefix(args.Command, "nagobot ")
+			cmd := args.Command
+			// Strip absolute path: "/path/to/nagobot foo" → "nagobot foo"
+			if idx := strings.LastIndex(cmd, "/nagobot "); idx >= 0 {
+				cmd = cmd[idx+1:]
+			}
+			return strings.HasPrefix(cmd, "nagobot ")
 		}
 	}
 	return false

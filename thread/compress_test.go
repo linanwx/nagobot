@@ -633,6 +633,7 @@ func TestIsExecSafe(t *testing.T) {
 		{"nagobot heartbeat postpone", "c1", `{"command":"nagobot heartbeat postpone telegram:123 30m"}`, true},
 		{"nagobot monitor", "c1", `{"command":"nagobot monitor --metrics"}`, true},
 		{"nagobot config", "c1", `{"command":"nagobot config set key val"}`, true},
+		{"absolute path nagobot", "c1", `{"command":"/Users/linan/.nagobot/workspace/bin/nagobot heartbeat postpone discord:123 6h"}`, true},
 		{"non-nagobot command", "c1", `{"command":"echo hello"}`, false},
 		{"empty command", "c1", `{"command":""}`, false},
 		{"invalid JSON", "c1", `not json`, false},
