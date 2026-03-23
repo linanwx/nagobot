@@ -52,11 +52,10 @@ type previewCandidate struct {
 	Mode         previewMode // default modeChat
 }
 
-// imagePriority is the priority chain for image preview.
+// imagePriority is the default priority chain for image preview.
 var imagePriority = []previewCandidate{
 	{ProviderName: "openrouter", ModelType: "google/gemini-3.1-flash-lite-preview"},
 	{ProviderName: "openai", ModelType: "gpt-5.4-nano"},
-	{ProviderName: "gemini", ModelType: "gemini-3.1-flash-lite-preview"},
 	{ProviderName: "anthropic", ModelType: "claude-haiku-4-5"},
 }
 
@@ -98,6 +97,11 @@ func (p *LLMPreviewer) Preview(ctx context.Context, filePath string, mediaType M
 	candidates := imagePriority
 	if mediaType == MediaTypeAudio {
 		candidates = audioPriority
+	}
+
+	// Override: env var or config can force a specific provider/model.
+	if override := previewOverride(cfg, mediaType); override != nil {
+		candidates = []previewCandidate{*override}
 	}
 
 	// Find first available provider.
@@ -285,6 +289,49 @@ func previewModeLabel(m previewMode) string {
 		return "stt"
 	}
 	return "chat"
+}
+
+// previewOverride checks env vars and config for a preview provider/model override.
+// Env: NAGOBOT_PREVIEW_IMAGE="provider/model" or NAGOBOT_PREVIEW_AUDIO="provider/model"
+// Config: thread.preview.image or thread.preview.audio (same format)
+// Env takes precedence over config.
+func previewOverride(cfg *config.Config, mediaType MediaType) *previewCandidate {
+	var envKey, cfgVal string
+	switch mediaType {
+	case MediaTypeAudio:
+		envKey = "NAGOBOT_PREVIEW_AUDIO"
+		if cfg.Thread.Preview != nil {
+			cfgVal = cfg.Thread.Preview.Audio
+		}
+	default:
+		envKey = "NAGOBOT_PREVIEW_IMAGE"
+		if cfg.Thread.Preview != nil {
+			cfgVal = cfg.Thread.Preview.Image
+		}
+	}
+
+	raw := strings.TrimSpace(os.Getenv(envKey))
+	if raw == "" {
+		raw = strings.TrimSpace(cfgVal)
+	}
+	if raw == "" {
+		return nil
+	}
+
+	// Parse "provider/model" — first segment is provider, rest is model.
+	idx := strings.Index(raw, "/")
+	if idx <= 0 {
+		return nil
+	}
+	provName := raw[:idx]
+	modelType := raw[idx+1:]
+
+	c := &previewCandidate{ProviderName: provName, ModelType: modelType}
+	// Auto-detect STT mode for known transcription models.
+	if strings.Contains(modelType, "transcribe") {
+		c.Mode = modeSTT
+	}
+	return c
 }
 
 // callSTT calls the OpenAI-compatible /v1/audio/transcriptions endpoint.

@@ -183,6 +183,14 @@ type ThreadConfig struct {
 	Temperature         float64                 `json:"temperature,omitempty" yaml:"temperature,omitempty"`                 // defaults to 1.0
 	ContextWindowTokens int                     `json:"contextWindowTokens,omitempty" yaml:"contextWindowTokens,omitempty"` // defaults to 128000
 	Models              map[string]*ModelConfig `json:"models,omitempty" yaml:"models,omitempty"`                           // model type → provider/model mapping
+	Preview             *PreviewConfig          `json:"preview,omitempty" yaml:"preview,omitempty"`                         // override preview provider/model
+}
+
+// PreviewConfig overrides the default preview priority chain.
+// Format: "provider/model" (e.g. "openrouter/google/gemini-3.1-flash-lite-preview").
+type PreviewConfig struct {
+	Image string `json:"image,omitempty" yaml:"image,omitempty"` // override image preview
+	Audio string `json:"audio,omitempty" yaml:"audio,omitempty"` // override audio preview
 }
 
 // ModelConfig maps a model type to a concrete provider and model.
