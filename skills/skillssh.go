@@ -50,22 +50,21 @@ type skillsShEntry struct {
 //   - "owner/repo/skillId" — picks that exact skill
 //   - "skillId" — searches by name, picks the most popular match
 func (c *SkillsShClient) Resolve(slug string) (*skillsShEntry, error) {
-	endpoint := fmt.Sprintf("%s/api/search?q=%s&limit=50",
-		c.BaseURL, url.QueryEscape(slug))
-
-	resp, err := c.client.Get(endpoint)
+	sr, err := c.search(slug)
 	if err != nil {
-		return nil, fmt.Errorf("cannot reach skills.sh registry: %w", err)
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("skills.sh returned %s", resp.Status)
+		return nil, err
 	}
 
-	var sr skillsShSearchResponse
-	if err := json.NewDecoder(resp.Body).Decode(&sr); err != nil {
-		return nil, fmt.Errorf("invalid skills.sh response: %w", err)
+	// If full slug (e.g. "microsoft/playwright-cli") returns no results,
+	// retry with the last segment (e.g. "playwright-cli") because skills.sh
+	// fuzzy search doesn't handle "owner/repo" format well.
+	if len(sr.Skills) == 0 && strings.Contains(slug, "/") {
+		parts := strings.Split(slug, "/")
+		shortName := parts[len(parts)-1]
+		sr, err = c.search(shortName)
+		if err != nil {
+			return nil, err
+		}
 	}
 
 	if len(sr.Skills) == 0 {
@@ -95,6 +94,28 @@ func (c *SkillsShClient) Resolve(slug string) (*skillsShEntry, error) {
 
 	// Fall back to first result.
 	return &sr.Skills[0], nil
+}
+
+// search queries the skills.sh search API.
+func (c *SkillsShClient) search(query string) (*skillsShSearchResponse, error) {
+	endpoint := fmt.Sprintf("%s/api/search?q=%s&limit=50",
+		c.BaseURL, url.QueryEscape(query))
+
+	resp, err := c.client.Get(endpoint)
+	if err != nil {
+		return nil, fmt.Errorf("cannot reach skills.sh registry: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("skills.sh returned %s", resp.Status)
+	}
+
+	var sr skillsShSearchResponse
+	if err := json.NewDecoder(resp.Body).Decode(&sr); err != nil {
+		return nil, fmt.Errorf("invalid skills.sh response: %w", err)
+	}
+	return &sr, nil
 }
 
 // Install downloads a skill from skills.sh and saves it to skillsDir/{skillName}/.
