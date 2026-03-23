@@ -22,10 +22,12 @@ const (
 
 func init() {
 	shared := ProviderRegistration{
-		Models:       []string{"gpt-5.4", "gpt-5.3-codex", "gpt-5.2-codex", "gpt-5.2"},
-		VisionModels: []string{"gpt-5.4", "gpt-5.3-codex", "gpt-5.2-codex", "gpt-5.2"},
+		Models:       []string{"gpt-5.4", "gpt-5.4-mini", "gpt-5.4-nano", "gpt-5.3-codex", "gpt-5.2-codex", "gpt-5.2"},
+		VisionModels: []string{"gpt-5.4", "gpt-5.4-mini", "gpt-5.4-nano", "gpt-5.3-codex", "gpt-5.2-codex", "gpt-5.2"},
 		ContextWindows: map[string]int{
 			"gpt-5.4":       1048576,
+			"gpt-5.4-mini":  400000,
+			"gpt-5.4-nano":  200000,
 			"gpt-5.3-codex": 400000,
 			"gpt-5.2-codex": 400000,
 			"gpt-5.2":       400000,
@@ -327,11 +329,13 @@ func (p *OpenAIProvider) buildRequestBody(req *Request) ([]byte, error) {
 		body["tool_choice"] = "auto"
 	}
 	// ChatGPT backend does not support max_output_tokens or temperature.
+	// Mini/nano models do not support temperature.
+	noTemp := p.accountID != "" || p.modelName == "gpt-5.4-mini" || p.modelName == "gpt-5.4-nano"
 	if p.accountID == "" {
 		if p.maxTokens > 0 {
 			body["max_output_tokens"] = p.maxTokens
 		}
-		if p.temperature != 0 {
+		if p.temperature != 0 && !noTemp {
 			body["temperature"] = p.temperature
 		}
 	}

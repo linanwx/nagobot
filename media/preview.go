@@ -11,7 +11,13 @@ package media
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
+	"io"
+	"mime/multipart"
+	"net/http"
+	"os"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -31,26 +37,34 @@ const (
 	MediaTypeAudio
 )
 
+// previewMode determines how the preview call is made.
+type previewMode int
+
+const (
+	modeChat previewMode = iota // LLM Chat (provider.Chat)
+	modeSTT                     // Speech-to-text (OpenAI /v1/audio/transcriptions)
+)
+
 // previewCandidate defines a provider+model pair that can handle a media type.
 type previewCandidate struct {
 	ProviderName string
 	ModelType    string
+	Mode         previewMode // default modeChat
 }
 
 // imagePriority is the priority chain for image preview.
-// 1. Gemini Flash Lite (direct)
-// 2. Claude Haiku (Anthropic direct)
 var imagePriority = []previewCandidate{
+	{ProviderName: "openrouter", ModelType: "google/gemini-3.1-flash-lite-preview"},
+	{ProviderName: "openai", ModelType: "gpt-5.4-nano"},
 	{ProviderName: "gemini", ModelType: "gemini-3.1-flash-lite-preview"},
 	{ProviderName: "anthropic", ModelType: "claude-haiku-4-5"},
 }
 
 // audioPriority is the priority chain for audio preview.
-// 1. Gemini Flash Lite (direct)
-// 2. Gemini Flash Lite via OpenRouter
 var audioPriority = []previewCandidate{
-	{ProviderName: "gemini", ModelType: "gemini-3.1-flash-lite-preview"},
 	{ProviderName: "openrouter", ModelType: "google/gemini-3.1-flash-lite-preview"},
+	{ProviderName: "openai", ModelType: "gpt-4o-mini-transcribe", Mode: modeSTT},
+	{ProviderName: "gemini", ModelType: "gemini-3.1-flash-lite-preview"},
 }
 
 // Previewer generates quick media previews using lightweight LLM calls.
@@ -111,36 +125,49 @@ func (p *LLMPreviewer) Preview(ctx context.Context, filePath string, mediaType M
 	apiBase := provider.ProviderAPIBaseForPreview(cfg, selectedCandidate.ProviderName)
 	prov := reg.Constructor(apiKey, apiBase, selectedCandidate.ModelType, selectedCandidate.ModelType, 256, 0.3)
 
-	// Build prompt.
-	prompt, mimeType := buildPreviewPrompt(filePath, mediaType)
-
 	// Apply timeout.
 	ctx, cancel := context.WithTimeout(ctx, PreviewTimeout)
 	defer cancel()
 
-	req := &provider.Request{
-		Messages: []provider.Message{
-			{
-				Role:    "user",
-				Content: prompt,
-				Media:   []string{fmt.Sprintf("<<media:%s:%s>>", mimeType, filePath)},
-			},
-		},
-	}
-
+	start := time.Now()
 	logger.Info("media preview starting",
 		"provider", selectedCandidate.ProviderName,
 		"model", selectedCandidate.ModelType,
+		"mode", previewModeLabel(selectedCandidate.Mode),
 		"mediaType", mediaTypeLabel(mediaType),
 		"file", filePath,
 	)
 
-	resp, err := prov.Chat(ctx, req)
-	if err != nil {
-		return "", fmt.Errorf("preview LLM call failed (%s/%s): %w", selectedCandidate.ProviderName, selectedCandidate.ModelType, err)
+	var content string
+	var tokens int
+
+	if selectedCandidate.Mode == modeSTT {
+		// Speech-to-text: OpenAI /v1/audio/transcriptions endpoint.
+		text, err := callSTT(ctx, apiKey, apiBase, selectedCandidate.ModelType, filePath)
+		if err != nil {
+			return "", fmt.Errorf("preview STT failed (%s/%s): %w", selectedCandidate.ProviderName, selectedCandidate.ModelType, err)
+		}
+		content = strings.TrimSpace(text)
+	} else {
+		// LLM Chat: send media via provider.Chat().
+		prompt, mimeType := buildPreviewPrompt(filePath, mediaType)
+		req := &provider.Request{
+			Messages: []provider.Message{
+				{
+					Role:    "user",
+					Content: prompt,
+					Media:   []string{fmt.Sprintf("<<media:%s:%s>>", mimeType, filePath)},
+				},
+			},
+		}
+		resp, err := prov.Chat(ctx, req)
+		if err != nil {
+			return "", fmt.Errorf("preview LLM call failed (%s/%s): %w", selectedCandidate.ProviderName, selectedCandidate.ModelType, err)
+		}
+		content = strings.TrimSpace(resp.Content)
+		tokens = resp.Usage.TotalTokens
 	}
 
-	content := strings.TrimSpace(resp.Content)
 	if content == "" {
 		return "", fmt.Errorf("preview returned empty content (%s/%s)", selectedCandidate.ProviderName, selectedCandidate.ModelType)
 	}
@@ -148,9 +175,11 @@ func (p *LLMPreviewer) Preview(ctx context.Context, filePath string, mediaType M
 	logger.Info("media preview completed",
 		"provider", selectedCandidate.ProviderName,
 		"model", selectedCandidate.ModelType,
+		"mode", previewModeLabel(selectedCandidate.Mode),
 		"mediaType", mediaTypeLabel(mediaType),
+		"durationMs", time.Since(start).Milliseconds(),
 		"preview", truncatePreview(content, 100),
-		"tokens", resp.Usage.TotalTokens,
+		"tokens", tokens,
 	)
 
 	return content, nil
@@ -249,4 +278,71 @@ func truncatePreview(s string, maxLen int) string {
 		return s
 	}
 	return s[:maxLen] + "..."
+}
+
+func previewModeLabel(m previewMode) string {
+	if m == modeSTT {
+		return "stt"
+	}
+	return "chat"
+}
+
+// callSTT calls the OpenAI-compatible /v1/audio/transcriptions endpoint.
+// The file is uploaded as multipart form data. .oga files are renamed to .ogg
+// because OpenAI does not recognize the .oga extension.
+func callSTT(ctx context.Context, apiKey, apiBase, model, filePath string) (string, error) {
+	base := "https://api.openai.com/v1"
+	if apiBase != "" {
+		base = strings.TrimRight(apiBase, "/")
+	}
+
+	pr, pw := io.Pipe()
+	writer := multipart.NewWriter(pw)
+
+	go func() {
+		defer pw.Close()
+		defer writer.Close()
+		_ = writer.WriteField("model", model)
+		// Use .ogg instead of .oga — OpenAI rejects .oga but accepts .ogg (same codec).
+		uploadName := filepath.Base(filePath)
+		if strings.HasSuffix(strings.ToLower(uploadName), ".oga") {
+			uploadName = uploadName[:len(uploadName)-4] + ".ogg"
+		}
+		part, err := writer.CreateFormFile("file", uploadName)
+		if err != nil {
+			return
+		}
+		f, err := os.Open(filePath)
+		if err != nil {
+			return
+		}
+		defer f.Close()
+		_, _ = io.Copy(part, f)
+	}()
+
+	req, err := http.NewRequestWithContext(ctx, "POST", base+"/audio/transcriptions", pr)
+	if err != nil {
+		return "", err
+	}
+	req.Header.Set("Authorization", "Bearer "+apiKey)
+	req.Header.Set("Content-Type", writer.FormDataContentType())
+
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return "", fmt.Errorf("request failed: %w", err)
+	}
+	defer resp.Body.Close()
+
+	body, _ := io.ReadAll(resp.Body)
+	if resp.StatusCode != 200 {
+		return "", fmt.Errorf("%d %s", resp.StatusCode, truncatePreview(string(body), 200))
+	}
+
+	var result struct {
+		Text string `json:"text"`
+	}
+	if err := json.Unmarshal(body, &result); err != nil {
+		return "", fmt.Errorf("parse: %w", err)
+	}
+	return result.Text, nil
 }
