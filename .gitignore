@@ -18,4 +18,16 @@ __pycache__/
 .idea/
 .vscode/
 .playwright-cli/
-.claude/worktrees/
+.claude/
+
+# Decision files (local only)
+/decision/
+
+# Plans and docs (local only)
+/docs/superpowers/
+
+# Compiled binaries
+/preview_benchmark
+
+# Experiments (local testing)
+/experiments/
