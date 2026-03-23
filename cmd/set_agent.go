@@ -75,7 +75,7 @@ func runSetAgent(_ *cobra.Command, _ []string) error {
 		}
 		pc := cfg.EnsureProviderConfigFor(providerArg)
 		hasKey := strings.TrimSpace(pc.APIKey) != ""
-		hasOAuth := providerArg == "openai" && cfg.Providers.OpenAIOAuth != nil && cfg.Providers.OpenAIOAuth.AccessToken != ""
+		hasOAuth := (providerArg == "openai" || providerArg == "openai-oauth") && cfg.Providers.OpenAIOAuth != nil && cfg.Providers.OpenAIOAuth.AccessToken != ""
 		if !hasKey && !hasOAuth {
 			return fmt.Errorf("provider %q has no API key configured.\nFix: nagobot set-provider-key --provider %s --api-key YOUR_KEY", providerArg, providerArg)
 		}

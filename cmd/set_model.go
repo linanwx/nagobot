@@ -152,7 +152,7 @@ func validateProviderModel(cfg *config.Config, provName, modelName, cmdPrefix st
 
 	pc := cfg.EnsureProviderConfigFor(provName)
 	hasKey := strings.TrimSpace(pc.APIKey) != ""
-	hasOAuth := provName == "openai" && cfg.Providers.OpenAIOAuth != nil && cfg.Providers.OpenAIOAuth.AccessToken != ""
+	hasOAuth := (provName == "openai" || provName == "openai-oauth") && cfg.Providers.OpenAIOAuth != nil && cfg.Providers.OpenAIOAuth.AccessToken != ""
 	if !hasKey && !hasOAuth {
 		return fmt.Errorf("provider %q has no API key configured.\nFix: nagobot set-provider-key --provider %s --api-key YOUR_KEY", provName, provName)
 	}
@@ -198,7 +198,7 @@ func listModelRouting(cfg *config.Config) error {
 	for _, prov := range provider.SupportedProviders() {
 		pc := cfg.EnsureProviderConfigFor(prov)
 		hasKey := strings.TrimSpace(pc.APIKey) != ""
-		hasOAuth := prov == "openai" && cfg.Providers.OpenAIOAuth != nil && cfg.Providers.OpenAIOAuth.AccessToken != ""
+		hasOAuth := (prov == "openai" || prov == "openai-oauth") && cfg.Providers.OpenAIOAuth != nil && cfg.Providers.OpenAIOAuth.AccessToken != ""
 		if !hasKey && !hasOAuth {
 			continue // skip unconfigured providers
 		}

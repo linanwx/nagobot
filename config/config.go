@@ -225,7 +225,7 @@ type ProviderConfig struct {
 // GetProviderConfig returns the provider config for a given name, or nil if not found.
 func (p *ProvidersConfig) GetProviderConfig(name string) *ProviderConfig {
 	switch name {
-	case "openai":
+	case "openai", "openai-oauth":
 		return p.OpenAI
 	case "openrouter":
 		return p.OpenRouter

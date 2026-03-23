@@ -21,7 +21,7 @@ const (
 )
 
 func init() {
-	RegisterProvider("openai", ProviderRegistration{
+	shared := ProviderRegistration{
 		Models:       []string{"gpt-5.4", "gpt-5.3-codex", "gpt-5.2-codex", "gpt-5.2"},
 		VisionModels: []string{"gpt-5.4", "gpt-5.3-codex", "gpt-5.2-codex", "gpt-5.2"},
 		ContextWindows: map[string]int{
@@ -30,12 +30,20 @@ func init() {
 			"gpt-5.2-codex": 400000,
 			"gpt-5.2":       400000,
 		},
-		EnvKey:  "OPENAI_API_KEY",
-		EnvBase: "OPENAI_API_BASE",
 		Constructor: func(apiKey, apiBase, modelType, modelName string, maxTokens int, temperature float64) Provider {
 			return newOpenAIProvider(apiKey, apiBase, modelType, modelName, maxTokens, temperature)
 		},
-	})
+	}
+
+	// "openai" — API key auth (env var or static config key).
+	apiKeyReg := shared
+	apiKeyReg.EnvKey = "OPENAI_API_KEY"
+	apiKeyReg.EnvBase = "OPENAI_API_BASE"
+	RegisterProvider("openai", apiKeyReg)
+
+	// "openai-oauth" — OAuth token auth (no env var, no API base override).
+	oauthReg := shared
+	RegisterProvider("openai-oauth", oauthReg)
 }
 
 // OpenAIProvider implements the Provider interface using the OpenAI Responses API.

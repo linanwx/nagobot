@@ -42,14 +42,18 @@ type oauthConfig struct {
 	Scopes   []string
 }
 
+// openaiOAuthConfig is shared by both "openai" and "openai-oauth" providers.
+var openaiOAuthConfig = &oauthConfig{
+	AuthURL:  "https://auth.openai.com/oauth/authorize",
+	TokenURL: "https://auth.openai.com/oauth/token",
+	ClientID: "app_EMoamEEZ73f0CkXaXp7hrann",
+	Scopes:   []string{"openid", "profile", "email", "offline_access"},
+}
+
 // authProviders is the registry of providers that support OAuth login.
 var authProviders = map[string]*oauthConfig{
-	"openai": {
-		AuthURL:  "https://auth.openai.com/oauth/authorize",
-		TokenURL: "https://auth.openai.com/oauth/token",
-		ClientID: "app_EMoamEEZ73f0CkXaXp7hrann",
-		Scopes:   []string{"openid", "profile", "email", "offline_access"},
-	},
+	"openai":       openaiOAuthConfig,
+	"openai-oauth": openaiOAuthConfig,
 }
 
 var authCmd = &cobra.Command{

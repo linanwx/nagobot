@@ -100,9 +100,12 @@ func (f *Factory) Create(providerName, modelType string) (Provider, error) {
 	apiBase := providerAPIBase(cfg, providerName)
 	p := reg.Constructor(apiKey, apiBase, modelType, modelName, f.maxTokens, f.temperature)
 
-	if setter, ok := p.(AccountIDSetter); ok {
-		if token := cfg.GetOAuthToken(providerName); token != nil && token.AccountID != "" {
-			setter.SetAccountID(token.AccountID)
+	// Set account ID only for OAuth-based provider.
+	if providerName == "openai-oauth" {
+		if setter, ok := p.(AccountIDSetter); ok {
+			if token := cfg.GetOAuthToken(providerName); token != nil && token.AccountID != "" {
+				setter.SetAccountID(token.AccountID)
+			}
 		}
 	}
 
@@ -157,10 +160,16 @@ func ProviderKeyAvailable(cfg *config.Config, providerName string) bool {
 }
 
 func providerAPIKey(cfg *config.Config, providerName string) string {
-	reg, ok := providerRegistry[providerName]
-	if !ok {
+	if _, ok := providerRegistry[providerName]; !ok {
 		return ""
 	}
+
+	// "openai-oauth" — only OAuth token, no env var / static key fallback.
+	if providerName == "openai-oauth" {
+		return oauthAccessToken(cfg, providerName)
+	}
+
+	reg := providerRegistry[providerName]
 
 	// 1. Environment variable override.
 	if reg.EnvKey != "" {
@@ -169,35 +178,39 @@ func providerAPIKey(cfg *config.Config, providerName string) string {
 		}
 	}
 
-	// 2. OAuth token (auto-refresh if expired).
-	if token := cfg.GetOAuthToken(providerName); token != nil && token.AccessToken != "" {
-		if token.ExpiresAt > 0 && time.Now().Unix()+oauthExpiryGraceSec > token.ExpiresAt {
-			// Token expired: try refresh if possible (serialized to avoid races).
-			if token.RefreshToken != "" {
-				oauthRefreshMu.Lock()
-				// Re-check after acquiring lock: another goroutine may have refreshed.
-				if t := cfg.GetOAuthToken(providerName); t != nil && t.AccessToken != "" &&
-					(t.ExpiresAt == 0 || time.Now().Unix()+oauthExpiryGraceSec <= t.ExpiresAt) {
-					oauthRefreshMu.Unlock()
-					return t.AccessToken
-				}
-				refreshed := oauthRefresher(cfg, providerName)
-				oauthRefreshMu.Unlock()
-				if refreshed != "" {
-					return refreshed
-				}
-			}
-			// Expired and refresh failed or unavailable — fall through to static key.
-		} else {
-			return token.AccessToken
-		}
-	}
-
-	// 3. Static API key from config.
+	// 2. Static API key from config (skip OAuth for "openai" — that's "openai-oauth" now).
 	if providerCfg := providerConfigFor(cfg, providerName); providerCfg != nil {
 		return strings.TrimSpace(providerCfg.APIKey)
 	}
 	return ""
+}
+
+// oauthAccessToken returns a valid OAuth access token, auto-refreshing if expired.
+func oauthAccessToken(cfg *config.Config, providerName string) string {
+	token := cfg.GetOAuthToken(providerName)
+	if token == nil || token.AccessToken == "" {
+		return ""
+	}
+	if token.ExpiresAt > 0 && time.Now().Unix()+oauthExpiryGraceSec > token.ExpiresAt {
+		// Token expired: try refresh if possible (serialized to avoid races).
+		if token.RefreshToken != "" {
+			oauthRefreshMu.Lock()
+			// Re-check after acquiring lock: another goroutine may have refreshed.
+			if t := cfg.GetOAuthToken(providerName); t != nil && t.AccessToken != "" &&
+				(t.ExpiresAt == 0 || time.Now().Unix()+oauthExpiryGraceSec <= t.ExpiresAt) {
+				oauthRefreshMu.Unlock()
+				return t.AccessToken
+			}
+			refreshed := oauthRefresher(cfg, providerName)
+			oauthRefreshMu.Unlock()
+			if refreshed != "" {
+				return refreshed
+			}
+		}
+		// Expired and refresh failed or unavailable.
+		return ""
+	}
+	return token.AccessToken
 }
 
 // oauthRefreshMu protects concurrent access to the refresh flow.

@@ -219,7 +219,7 @@ func (c *Config) GetOAuthToken(providerName string) *OAuthTokenConfig {
 		return nil
 	}
 	switch providerName {
-	case "openai":
+	case "openai", "openai-oauth":
 		return c.Providers.OpenAIOAuth
 	}
 	return nil
@@ -228,7 +228,7 @@ func (c *Config) GetOAuthToken(providerName string) *OAuthTokenConfig {
 // SetOAuthToken stores an OAuth token for the given provider name.
 func (c *Config) SetOAuthToken(providerName string, token *OAuthTokenConfig) {
 	switch providerName {
-	case "openai":
+	case "openai", "openai-oauth":
 		c.Providers.OpenAIOAuth = token
 	}
 }
@@ -249,7 +249,7 @@ func (c *Config) EnsureProviderConfigFor(providerName string) *ProviderConfig {
 	// Provider not found or field is nil — allocate and set it.
 	pc := &ProviderConfig{}
 	switch providerName {
-	case "openai":
+	case "openai", "openai-oauth":
 		c.Providers.OpenAI = pc
 	case "openrouter":
 		c.Providers.OpenRouter = pc
@@ -397,6 +397,8 @@ func (c *Config) providerConfigEnv() (*ProviderConfig, string, string, error) {
 	switch c.GetProvider() {
 	case "openai":
 		return c.Providers.OpenAI, "OPENAI_API_KEY", "OPENAI_API_BASE", nil
+	case "openai-oauth":
+		return c.Providers.OpenAI, "", "", nil
 	case "openrouter":
 		return c.Providers.OpenRouter, "OPENROUTER_API_KEY", "OPENROUTER_API_BASE", nil
 	case "anthropic":
