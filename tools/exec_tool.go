@@ -143,6 +143,7 @@ func (t *ExecTool) Run(ctx context.Context, args json.RawMessage) string {
 }
 
 func (t *ExecTool) run(ctx context.Context, a execArgs, timeout int) string {
+	start := time.Now()
 	cmd := exec.CommandContext(ctx, "sh", "-c", a.Command)
 	if a.Workdir != "" {
 		cmd.Dir = expandPath(a.Workdir)
@@ -197,7 +198,8 @@ func (t *ExecTool) run(ctx context.Context, a execArgs, timeout int) string {
 	}
 
 	fields := map[string]any{
-		"workdir": cmd.Dir,
+		"workdir":     cmd.Dir,
+		"duration_ms": time.Since(start).Milliseconds(),
 	}
 	if err != nil {
 		if exitErr, ok := err.(*exec.ExitError); ok {
