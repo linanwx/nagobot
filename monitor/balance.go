@@ -167,7 +167,7 @@ type OpenAIQuota struct {
 	AccountID   string
 }
 
-func (b *OpenAIQuota) Provider() string { return "openai" }
+func (b *OpenAIQuota) Provider() string { return "openai-oauth" }
 func (b *OpenAIQuota) Available() bool  { return b.AccessToken != "" }
 
 func (b *OpenAIQuota) Check(ctx context.Context) (*BalanceInfo, error) {
@@ -182,15 +182,15 @@ func (b *OpenAIQuota) Check(ctx context.Context) (*BalanceInfo, error) {
 
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
-		return &BalanceInfo{Provider: "openai", Error: fmt.Sprintf("request failed: %v", err)}, nil
+		return &BalanceInfo{Provider: "openai-oauth", Error: fmt.Sprintf("request failed: %v", err)}, nil
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode == 401 || resp.StatusCode == 403 {
-		return &BalanceInfo{Provider: "openai", Error: "OAuth token expired (run: nagobot auth login openai)"}, nil
+		return &BalanceInfo{Provider: "openai-oauth", Error: "OAuth token expired (run: nagobot auth login openai)"}, nil
 	}
 	if resp.StatusCode != 200 {
-		return &BalanceInfo{Provider: "openai", Error: fmt.Sprintf("HTTP %d", resp.StatusCode)}, nil
+		return &BalanceInfo{Provider: "openai-oauth", Error: fmt.Sprintf("HTTP %d", resp.StatusCode)}, nil
 	}
 
 	var data struct {
@@ -212,10 +212,10 @@ func (b *OpenAIQuota) Check(ctx context.Context) (*BalanceInfo, error) {
 		} `json:"credits"`
 	}
 	if err := json.NewDecoder(resp.Body).Decode(&data); err != nil {
-		return &BalanceInfo{Provider: "openai", Error: fmt.Sprintf("parse error: %v", err)}, nil
+		return &BalanceInfo{Provider: "openai-oauth", Error: fmt.Sprintf("parse error: %v", err)}, nil
 	}
 
-	info := &BalanceInfo{Provider: "openai", Available: true}
+	info := &BalanceInfo{Provider: "openai-oauth", Available: true}
 
 	if data.RateLimit != nil {
 		if pw := data.RateLimit.PrimaryWindow; pw != nil {
