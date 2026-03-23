@@ -11,7 +11,14 @@ Guide the user through installing third-party tool dependencies. Currently suppo
 
 ## Playwright CLI Setup
 
-### Step 1: Check Prerequisites
+### Step 1: Install Playwright CLI Skill
+
+Install the playwright-cli skill from skills.sh:
+```
+exec: nagobot skill install --source=skills.sh microsoft/playwright-cli
+```
+
+### Step 2: Check Prerequisites
 
 Verify Node.js and npx are available:
 ```
@@ -25,15 +32,15 @@ If either command fails, **stop and tell the user** they need to install Node.js
 
 Do NOT proceed until Node.js is confirmed working.
 
-### Step 2: Check if Playwright CLI is Already Installed
+### Step 3: Check if Playwright CLI is Already Installed
 
 ```
 exec: npx @playwright/cli --version 2>/dev/null && echo "ALREADY_INSTALLED" || echo "NOT_INSTALLED"
 ```
 
-If already installed, skip to Step 4 (sanity test).
+If already installed, skip to Step 5 (sanity test).
 
-### Step 3: Install Playwright CLI and Browsers
+### Step 4: Install Playwright CLI and Browsers
 
 Install the CLI globally:
 ```
@@ -47,7 +54,7 @@ exec: npx playwright install
 
 This downloads ~500MB of browser binaries. It may take a few minutes.
 
-### Step 4: Sanity Test
+### Step 5: Sanity Test
 
 Verify the installation works by taking a snapshot of a test page:
 ```
@@ -64,7 +71,7 @@ If FAILED, check the error output and troubleshoot:
 - Permission errors → may need `sudo` for global install
 - Display errors → headless mode should work without a display server
 
-### Step 5: Report Result
+### Step 6: Report Result
 
 Tell the user:
 - Whether installation succeeded
