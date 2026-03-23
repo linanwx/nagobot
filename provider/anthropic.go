@@ -77,11 +77,12 @@ func anthropicRateLimitMiddleware(req *http.Request, next aoption.MiddlewareNext
 
 func init() {
 	RegisterProvider("anthropic", ProviderRegistration{
-		Models:       []string{"claude-sonnet-4-6", "claude-opus-4-6"},
-		VisionModels: []string{"claude-sonnet-4-6", "claude-opus-4-6"},
+		Models:       []string{"claude-sonnet-4-6", "claude-opus-4-6", "claude-haiku-4-5"},
+		VisionModels: []string{"claude-sonnet-4-6", "claude-opus-4-6", "claude-haiku-4-5"},
 		ContextWindows: map[string]int{
 			"claude-sonnet-4-6": 1048576,
 			"claude-opus-4-6":   1048576,
+			"claude-haiku-4-5":  200000,
 		},
 		EnvKey:  "ANTHROPIC_API_KEY",
 		EnvBase: "ANTHROPIC_API_BASE",
@@ -109,7 +110,7 @@ const (
 
 func anthropicThinkingEnabled(modelType string) bool {
 	switch strings.TrimSpace(modelType) {
-	case "claude-sonnet-4-6", "claude-opus-4-6":
+	case "claude-sonnet-4-6", "claude-opus-4-6", "claude-haiku-4-5":
 		return true
 	default:
 		return false
