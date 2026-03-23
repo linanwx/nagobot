@@ -506,7 +506,25 @@ func toGeminiContents(messages []Message, visionCapable, audioCapable bool) (*gm
 				flush()
 				pendingRole = "user"
 			}
-			pendingParts = append(pendingParts, gmPart{Text: m.Content})
+			cleanedText, markers := ParseMediaMarkers(m.Content)
+			pendingParts = append(pendingParts, gmPart{Text: cleanedText})
+			for _, marker := range markers {
+				isImage := strings.HasPrefix(marker.MimeType, "image/")
+				isAudio := strings.HasPrefix(marker.MimeType, "audio/")
+				if (isImage && !visionCapable) || (isAudio && !audioCapable) {
+					continue
+				}
+				if !isImage && !isAudio {
+					continue
+				}
+				b64, err := ReadFileAsBase64(marker.FilePath)
+				if err != nil {
+					continue
+				}
+				pendingParts = append(pendingParts, gmPart{
+					InlineData: &gmBlob{MimeType: marker.MimeType, Data: b64},
+				})
+			}
 
 		case "assistant":
 			if pendingRole != "model" {
