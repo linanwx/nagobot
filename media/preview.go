@@ -50,7 +50,7 @@ var imagePriority = []previewCandidate{
 // 2. Gemini Flash Lite via OpenRouter
 var audioPriority = []previewCandidate{
 	{ProviderName: "gemini", ModelType: "gemini-3.1-flash-lite-preview"},
-	{ProviderName: "openrouter", ModelType: "google/gemini-3.1-flash-lite"},
+	{ProviderName: "openrouter", ModelType: "google/gemini-3.1-flash-lite-preview"},
 }
 
 // Previewer generates quick media previews using lightweight LLM calls.
