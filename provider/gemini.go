@@ -506,24 +506,27 @@ func toGeminiContents(messages []Message, visionCapable, audioCapable bool) (*gm
 				flush()
 				pendingRole = "user"
 			}
-			cleanedText, markers := ParseMediaMarkers(m.Content)
-			pendingParts = append(pendingParts, gmPart{Text: cleanedText})
-			for _, marker := range markers {
-				isImage := strings.HasPrefix(marker.MimeType, "image/")
-				isAudio := strings.HasPrefix(marker.MimeType, "audio/")
-				if (isImage && !visionCapable) || (isAudio && !audioCapable) {
-					continue
+			pendingParts = append(pendingParts, gmPart{Text: m.Content})
+			// Process explicit media attachments.
+			if len(m.Media) > 0 {
+				_, markers := ParseMediaMarkers(strings.Join(m.Media, "\n"))
+				for _, marker := range markers {
+					isImage := strings.HasPrefix(marker.MimeType, "image/")
+					isAudio := strings.HasPrefix(marker.MimeType, "audio/")
+					if (isImage && !visionCapable) || (isAudio && !audioCapable) {
+						continue
+					}
+					if !isImage && !isAudio {
+						continue
+					}
+					b64, err := ReadFileAsBase64(marker.FilePath)
+					if err != nil {
+						continue
+					}
+					pendingParts = append(pendingParts, gmPart{
+						InlineData: &gmBlob{MimeType: marker.MimeType, Data: b64},
+					})
 				}
-				if !isImage && !isAudio {
-					continue
-				}
-				b64, err := ReadFileAsBase64(marker.FilePath)
-				if err != nil {
-					continue
-				}
-				pendingParts = append(pendingParts, gmPart{
-					InlineData: &gmBlob{MimeType: marker.MimeType, Data: b64},
-				})
 			}
 
 		case "assistant":
@@ -559,7 +562,7 @@ func toGeminiContents(messages []Message, visionCapable, audioCapable bool) (*gm
 					Response: map[string]any{"result": cleanedText},
 				},
 			})
-			// Append media from markers (images if vision-capable, audio if audio-capable).
+			// Append media from Content markers (images if vision-capable, audio if audio-capable).
 			for _, marker := range markers {
 				isImage := strings.HasPrefix(marker.MimeType, "image/")
 				isAudio := strings.HasPrefix(marker.MimeType, "audio/")
@@ -576,6 +579,27 @@ func toGeminiContents(messages []Message, visionCapable, audioCapable bool) (*gm
 				pendingParts = append(pendingParts, gmPart{
 					InlineData: &gmBlob{MimeType: marker.MimeType, Data: b64},
 				})
+			}
+			// Process explicit media attachments.
+			if len(m.Media) > 0 {
+				_, mediaMarkers := ParseMediaMarkers(strings.Join(m.Media, "\n"))
+				for _, marker := range mediaMarkers {
+					isImage := strings.HasPrefix(marker.MimeType, "image/")
+					isAudio := strings.HasPrefix(marker.MimeType, "audio/")
+					if (isImage && !visionCapable) || (isAudio && !audioCapable) {
+						continue
+					}
+					if !isImage && !isAudio {
+						continue
+					}
+					b64, err := ReadFileAsBase64(marker.FilePath)
+					if err != nil {
+						continue
+					}
+					pendingParts = append(pendingParts, gmPart{
+						InlineData: &gmBlob{MimeType: marker.MimeType, Data: b64},
+					})
+				}
 			}
 
 		default:

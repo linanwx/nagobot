@@ -38,6 +38,7 @@ type Request struct {
 type Message struct {
 	Role             string     `json:"role"`                        // system, user, assistant, tool
 	Content          string     `json:"content,omitempty"`           // text content
+	Media            []string   `json:"media,omitempty"`             // media markers like <<media:image/jpeg:/path>>
 	ReasoningContent string          `json:"reasoning_content,omitempty"` // reasoning text for providers that require it
 	ReasoningDetails json.RawMessage `json:"reasoning_details,omitempty"` // opaque reasoning details (Gemini thought_signature)
 	ToolCalls        []ToolCall      `json:"tool_calls,omitempty"`        // for assistant messages

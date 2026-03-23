@@ -310,7 +310,32 @@ func toAnthropicMessages(messages []Message) (string, []anthropic.MessageParam, 
 			systemPrompt = m.Content
 		case "user":
 			flushPendingToolResults()
-			msgList = append(msgList, anthropic.NewUserMessage(anthropic.NewTextBlock(m.Content)))
+			if len(m.Media) > 0 {
+				_, markers := ParseMediaMarkers(strings.Join(m.Media, "\n"))
+				blocks := []anthropic.ContentBlockParamUnion{anthropic.NewTextBlock(m.Content)}
+				for _, marker := range markers {
+					if !strings.HasPrefix(marker.MimeType, "image/") {
+						continue // Anthropic only supports image media
+					}
+					b64, err := ReadFileAsBase64(marker.FilePath)
+					if err != nil {
+						continue
+					}
+					blocks = append(blocks, anthropic.ContentBlockParamUnion{
+						OfImage: &anthropic.ImageBlockParam{
+							Source: anthropic.ImageBlockParamSourceUnion{
+								OfBase64: &anthropic.Base64ImageSourceParam{
+									MediaType: anthropic.Base64ImageSourceMediaType(marker.MimeType),
+									Data:      b64,
+								},
+							},
+						},
+					})
+				}
+				msgList = append(msgList, anthropic.NewUserMessage(blocks...))
+			} else {
+				msgList = append(msgList, anthropic.NewUserMessage(anthropic.NewTextBlock(m.Content)))
+			}
 		case "assistant":
 			flushPendingToolResults()
 
@@ -356,6 +381,29 @@ func toAnthropicMessages(messages []Message) (string, []anthropic.MessageParam, 
 						},
 					},
 				})
+			}
+			// Process explicit media attachments.
+			if len(m.Media) > 0 {
+				_, mediaMarkers := ParseMediaMarkers(strings.Join(m.Media, "\n"))
+				for _, marker := range mediaMarkers {
+					if !strings.HasPrefix(marker.MimeType, "image/") {
+						continue // Anthropic only supports image media
+					}
+					b64, err := ReadFileAsBase64(marker.FilePath)
+					if err != nil {
+						continue
+					}
+					content = append(content, anthropic.ToolResultBlockParamContentUnion{
+						OfImage: &anthropic.ImageBlockParam{
+							Source: anthropic.ImageBlockParamSourceUnion{
+								OfBase64: &anthropic.Base64ImageSourceParam{
+									MediaType: anthropic.Base64ImageSourceMediaType(marker.MimeType),
+									Data:      b64,
+								},
+							},
+						},
+					})
+				}
 			}
 			if len(content) == 0 {
 				content = append(content, anthropic.ToolResultBlockParamContentUnion{

@@ -120,7 +120,11 @@ func (p *LLMPreviewer) Preview(ctx context.Context, filePath string, mediaType M
 
 	req := &provider.Request{
 		Messages: []provider.Message{
-			provider.UserMessage(fmt.Sprintf("<<media:%s:%s>>\n\n%s", mimeType, filePath, prompt)),
+			{
+				Role:    "user",
+				Content: prompt,
+				Media:   []string{fmt.Sprintf("<<media:%s:%s>>", mimeType, filePath)},
+			},
 		},
 	}
 

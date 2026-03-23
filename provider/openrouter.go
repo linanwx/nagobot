@@ -229,7 +229,54 @@ func toOpenAIChatMessages(messages []Message, visionCapable, audioCapable bool) 
 		case "system":
 			result = append(result, openai.SystemMessage(m.Content))
 		case "user":
-			result = append(result, openai.UserMessage(m.Content))
+			if len(m.Media) > 0 {
+				_, markers := ParseMediaMarkers(strings.Join(m.Media, "\n"))
+				var parts []openai.ChatCompletionContentPartUnionParam
+				parts = append(parts, openai.TextContentPart(m.Content))
+				for _, marker := range markers {
+					isImage := strings.HasPrefix(marker.MimeType, "image/")
+					isAudio := strings.HasPrefix(marker.MimeType, "audio/")
+					if (isImage && !visionCapable) || (isAudio && !audioCapable) {
+						continue
+					}
+					if !isImage && !isAudio {
+						continue
+					}
+					b64, err := ReadFileAsBase64(marker.FilePath)
+					if err != nil {
+						continue
+					}
+					if isImage {
+						parts = append(parts, openai.ChatCompletionContentPartUnionParam{
+							OfImageURL: &openai.ChatCompletionContentPartImageParam{
+								ImageURL: openai.ChatCompletionContentPartImageImageURLParam{
+									URL: "data:" + marker.MimeType + ";base64," + b64,
+								},
+							},
+						})
+					} else if isAudio {
+						ext := strings.TrimPrefix(marker.MimeType, "audio/")
+						if ext == "mpeg" {
+							ext = "mp3"
+						}
+						parts = append(parts, openai.InputAudioContentPart(
+							openai.ChatCompletionContentPartInputAudioInputAudioParam{
+								Data:   b64,
+								Format: ext,
+							},
+						))
+					}
+				}
+				result = append(result, openai.ChatCompletionMessageParamUnion{
+					OfUser: &openai.ChatCompletionUserMessageParam{
+						Content: openai.ChatCompletionUserMessageParamContentUnion{
+							OfArrayOfContentParts: parts,
+						},
+					},
+				})
+			} else {
+				result = append(result, openai.UserMessage(m.Content))
+			}
 		case "tool":
 			cleanedText, markers := ParseMediaMarkers(m.Content)
 			result = append(result, openai.ToolMessage(cleanedText, m.ToolCallID))
@@ -277,6 +324,54 @@ func toOpenAIChatMessages(messages []Message, visionCapable, audioCapable bool) 
 						OfUser: &openai.ChatCompletionUserMessageParam{
 							Content: openai.ChatCompletionUserMessageParamContentUnion{
 								OfArrayOfContentParts: parts,
+							},
+						},
+					})
+				}
+			}
+			// Process explicit media attachments (tool role).
+			if len(m.Media) > 0 {
+				_, mediaMarkers := ParseMediaMarkers(strings.Join(m.Media, "\n"))
+				var mediaParts []openai.ChatCompletionContentPartUnionParam
+				for _, marker := range mediaMarkers {
+					isImage := strings.HasPrefix(marker.MimeType, "image/")
+					isAudio := strings.HasPrefix(marker.MimeType, "audio/")
+					if (isImage && !visionCapable) || (isAudio && !audioCapable) {
+						continue
+					}
+					if !isImage && !isAudio {
+						continue
+					}
+					b64, err := ReadFileAsBase64(marker.FilePath)
+					if err != nil {
+						continue
+					}
+					if isImage {
+						mediaParts = append(mediaParts, openai.ChatCompletionContentPartUnionParam{
+							OfImageURL: &openai.ChatCompletionContentPartImageParam{
+								ImageURL: openai.ChatCompletionContentPartImageImageURLParam{
+									URL: "data:" + marker.MimeType + ";base64," + b64,
+								},
+							},
+						})
+					} else if isAudio {
+						ext := strings.TrimPrefix(marker.MimeType, "audio/")
+						if ext == "mpeg" {
+							ext = "mp3"
+						}
+						mediaParts = append(mediaParts, openai.InputAudioContentPart(
+							openai.ChatCompletionContentPartInputAudioInputAudioParam{
+								Data:   b64,
+								Format: ext,
+							},
+						))
+					}
+				}
+				if len(mediaParts) > 0 {
+					result = append(result, openai.ChatCompletionMessageParamUnion{
+						OfUser: &openai.ChatCompletionUserMessageParam{
+							Content: openai.ChatCompletionUserMessageParamContentUnion{
+								OfArrayOfContentParts: mediaParts,
 							},
 						},
 					})

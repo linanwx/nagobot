@@ -171,12 +171,30 @@ func (p *OpenAIProvider) buildRequestBody(req *Request) ([]byte, error) {
 			instructions = append(instructions, msg.Content)
 
 		case "user":
+			content := []map[string]any{
+				{"type": "input_text", "text": msg.Content},
+			}
+			// Process explicit media attachments.
+			if len(msg.Media) > 0 {
+				_, markers := ParseMediaMarkers(strings.Join(msg.Media, "\n"))
+				for _, marker := range markers {
+					if !strings.HasPrefix(marker.MimeType, "image/") {
+						continue // OpenAI Responses API only supports image media
+					}
+					b64, err := ReadFileAsBase64(marker.FilePath)
+					if err != nil {
+						continue
+					}
+					content = append(content, map[string]any{
+						"type":      "input_image",
+						"image_url": "data:" + marker.MimeType + ";base64," + b64,
+					})
+				}
+			}
 			input = append(input, map[string]any{
-				"type": "message",
-				"role": "user",
-				"content": []map[string]any{
-					{"type": "input_text", "text": msg.Content},
-				},
+				"type":    "message",
+				"role":    "user",
+				"content": content,
 			})
 
 		case "assistant":
@@ -217,6 +235,7 @@ func (p *OpenAIProvider) buildRequestBody(req *Request) ([]byte, error) {
 
 		case "tool":
 			cleanedText, markers := ParseMediaMarkers(msg.Content)
+			hasMedia := len(markers) > 0
 			output := []map[string]any{
 				{"type": "input_text", "text": cleanedText},
 			}
@@ -230,7 +249,25 @@ func (p *OpenAIProvider) buildRequestBody(req *Request) ([]byte, error) {
 					"image_url": "data:" + marker.MimeType + ";base64," + b64,
 				})
 			}
-			if len(markers) > 0 {
+			// Process explicit media attachments.
+			if len(msg.Media) > 0 {
+				_, mediaMarkers := ParseMediaMarkers(strings.Join(msg.Media, "\n"))
+				for _, marker := range mediaMarkers {
+					if !strings.HasPrefix(marker.MimeType, "image/") {
+						continue // OpenAI Responses API only supports image media
+					}
+					b64, err := ReadFileAsBase64(marker.FilePath)
+					if err != nil {
+						continue
+					}
+					output = append(output, map[string]any{
+						"type":      "input_image",
+						"image_url": "data:" + marker.MimeType + ";base64," + b64,
+					})
+					hasMedia = true
+				}
+			}
+			if hasMedia {
 				input = append(input, map[string]any{
 					"type":    "function_call_output",
 					"call_id": msg.ToolCallID,
