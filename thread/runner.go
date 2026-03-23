@@ -275,12 +275,15 @@ func (r *Runner) logEstimationAccuracy(messages []provider.Message, resp *provid
 		promptDelta = fmt.Sprintf("%+.1f%%", pct)
 	}
 
-	// Reasoning estimation: compare len()/3 vs API's reasoning tokens.
+	// Reasoning estimation: use the same formula as EstimateMessageTokens
+	// (tiktoken on ReasoningContent + len/3 on ReasoningDetails) so the delta
+	// accurately reflects what the estimator would compute for this message.
 	estimatedReasoning := 0
+	if resp.ReasoningContent != "" {
+		estimatedReasoning += EstimateTextTokens(resp.ReasoningContent)
+	}
 	if len(resp.ReasoningDetails) > 0 {
-		estimatedReasoning = len(resp.ReasoningDetails) / 3
-	} else if resp.ReasoningContent != "" {
-		estimatedReasoning = EstimateTextTokens(resp.ReasoningContent)
+		estimatedReasoning += len(resp.ReasoningDetails) / 3
 	}
 	reasoningDelta := "N/A"
 	if actual.ReasoningTokens > 0 && estimatedReasoning > 0 {
