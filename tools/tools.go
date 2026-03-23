@@ -61,8 +61,8 @@ func withTimeout(ctx context.Context, tool string, timeout time.Duration, fn fun
 }
 
 const (
-	toolResultMaxChars  = 100000
-	toolLogMaxChars     = 50000
+	toolResultMaxRunes = 100000
+	toolLogMaxRunes    = 50000
 )
 
 // Tool is the interface for agent tools.
@@ -161,13 +161,13 @@ func (r *Registry) Run(ctx context.Context, name string, args json.RawMessage) s
 	result := t.Run(ctx, args)
 	latency := time.Since(start)
 	originalChars := len(result)
-	result, truncated := truncateWithNotice(result, toolResultMaxChars)
+	result, truncated := truncateWithNotice(result, toolResultMaxRunes)
 	if truncated {
 		logger.Warn("tool output truncated",
 			"tool", name,
 			"originalChars", originalChars,
 			"resultChars", len(result),
-			"limit", toolResultMaxChars,
+			"limit", toolResultMaxRunes,
 		)
 	}
 	okResult := !IsToolError(result)
@@ -249,8 +249,8 @@ func (r *Registry) writeToolLog(name string, args json.RawMessage, result string
 	}
 
 	logResult := result
-	if runes := []rune(logResult); len(runes) > toolLogMaxChars {
-		logResult = string(runes[:toolLogMaxChars]) + "\n\n...(truncated)"
+	if runes := []rune(logResult); len(runes) > toolLogMaxRunes {
+		logResult = string(runes[:toolLogMaxRunes]) + "\n\n...(truncated)"
 	}
 
 	var sb strings.Builder
