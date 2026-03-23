@@ -557,6 +557,99 @@ func TestIsHeartbeatSkipTurn_SleepMarkerWithRealWork(t *testing.T) {
 	}
 }
 
+func TestIsHeartbeatSkipTurn_ExecNagobotCommand(t *testing.T) {
+	// exec runs "nagobot heartbeat postpone ..." → safe, should trim.
+	msgs := []provider.Message{
+		{Role: "user", Content: "heartbeat wake", Source: "heartbeat"},
+		{Role: "assistant", Content: "", ToolCalls: []provider.ToolCall{
+			{ID: "c1", Type: "function", Function: provider.FunctionCall{Name: "exec", Arguments: `{"command":"nagobot heartbeat postpone telegram:123 30m"}`}},
+		}},
+		{Role: "tool", Name: "exec", ToolCallID: "c1", Content: "ok"},
+		{Role: "assistant", Content: "", ToolCalls: []provider.ToolCall{
+			{ID: "c2", Type: "function", Function: provider.FunctionCall{Name: "sleep_thread", Arguments: `{}`}},
+		}},
+		{Role: "tool", Name: "sleep_thread", ToolCallID: "c2", Content: "ok"},
+	}
+	if !isHeartbeatSkipTurn(msgs) {
+		t.Error("exec running nagobot CLI command should be safe, turn should be trimmed")
+	}
+}
+
+func TestIsHeartbeatSkipTurn_ExecNonNagobotCommand(t *testing.T) {
+	// exec runs a non-nagobot command → not safe, should NOT trim.
+	msgs := []provider.Message{
+		{Role: "user", Content: "heartbeat wake", Source: "heartbeat"},
+		{Role: "assistant", Content: "", ToolCalls: []provider.ToolCall{
+			{ID: "c1", Type: "function", Function: provider.FunctionCall{Name: "exec", Arguments: `{"command":"echo hello"}`}},
+		}},
+		{Role: "tool", Name: "exec", ToolCallID: "c1", Content: "hello"},
+		{Role: "assistant", Content: "", ToolCalls: []provider.ToolCall{
+			{ID: "c2", Type: "function", Function: provider.FunctionCall{Name: "sleep_thread", Arguments: `{}`}},
+		}},
+		{Role: "tool", Name: "sleep_thread", ToolCallID: "c2", Content: "ok"},
+	}
+	if isHeartbeatSkipTurn(msgs) {
+		t.Error("exec running non-nagobot command should NOT be trimmed")
+	}
+}
+
+func TestIsHeartbeatSkipTurn_ExecMixedCommands(t *testing.T) {
+	// One exec runs nagobot CLI, another runs curl → not safe overall.
+	msgs := []provider.Message{
+		{Role: "user", Content: "heartbeat wake", Source: "heartbeat"},
+		{Role: "assistant", Content: "", ToolCalls: []provider.ToolCall{
+			{ID: "c1", Type: "function", Function: provider.FunctionCall{Name: "exec", Arguments: `{"command":"nagobot heartbeat postpone telegram:123 30m"}`}},
+			{ID: "c2", Type: "function", Function: provider.FunctionCall{Name: "exec", Arguments: `{"command":"curl https://example.com"}`}},
+		}},
+		{Role: "tool", Name: "exec", ToolCallID: "c1", Content: "ok"},
+		{Role: "tool", Name: "exec", ToolCallID: "c2", Content: "ok"},
+		{Role: "assistant", Content: "", ToolCalls: []provider.ToolCall{
+			{ID: "c3", Type: "function", Function: provider.FunctionCall{Name: "sleep_thread", Arguments: `{}`}},
+		}},
+		{Role: "tool", Name: "sleep_thread", ToolCallID: "c3", Content: "ok"},
+	}
+	if isHeartbeatSkipTurn(msgs) {
+		t.Error("mixed exec commands (one safe, one not) should NOT be trimmed")
+	}
+}
+
+func TestIsExecSafe(t *testing.T) {
+	makeTurn := func(toolCallID, args string) []provider.Message {
+		return []provider.Message{
+			{Role: "user", Content: "heartbeat wake", Source: "heartbeat"},
+			{Role: "assistant", Content: "", ToolCalls: []provider.ToolCall{
+				{ID: "c1", Type: "function", Function: provider.FunctionCall{Name: "exec", Arguments: args}},
+			}},
+			{Role: "tool", Name: "exec", ToolCallID: "c1", Content: "ok"},
+		}
+	}
+
+	tests := []struct {
+		name       string
+		toolCallID string
+		args       string
+		want       bool
+	}{
+		{"nagobot heartbeat postpone", "c1", `{"command":"nagobot heartbeat postpone telegram:123 30m"}`, true},
+		{"nagobot monitor", "c1", `{"command":"nagobot monitor --metrics"}`, true},
+		{"nagobot config", "c1", `{"command":"nagobot config set key val"}`, true},
+		{"non-nagobot command", "c1", `{"command":"echo hello"}`, false},
+		{"empty command", "c1", `{"command":""}`, false},
+		{"invalid JSON", "c1", `not json`, false},
+		{"missing command field", "c1", `{"cmd":"nagobot foo"}`, false},
+		{"toolCallID not found", "c99", `{"command":"nagobot heartbeat postpone x 1h"}`, false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			msgs := makeTurn("c1", tt.args)
+			got := isExecSafe(msgs, tt.toolCallID)
+			if got != tt.want {
+				t.Errorf("isExecSafe() = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
+
 func TestRuneLen(t *testing.T) {
 	if got := runeLen("hello"); got != 5 {
 		t.Errorf("runeLen ASCII: got %d, want 5", got)

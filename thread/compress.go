@@ -2,6 +2,7 @@ package thread
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"strings"
 	"time"
@@ -321,6 +322,31 @@ func markHeartbeatTurns(messages []provider.Message) bool {
 	return modified
 }
 
+// isExecSafe checks whether an exec tool call in a heartbeat turn ran a nagobot CLI command.
+// nagobot CLI commands are internal management operations (heartbeat, monitor, config, etc.)
+// and do not produce user-visible side effects.
+func isExecSafe(turnMessages []provider.Message, toolCallID string) bool {
+	for i := range turnMessages {
+		m := &turnMessages[i]
+		if m.Role != "assistant" {
+			continue
+		}
+		for _, tc := range m.ToolCalls {
+			if tc.ID != toolCallID {
+				continue
+			}
+			var args struct {
+				Command string `json:"command"`
+			}
+			if json.Unmarshal([]byte(tc.Function.Arguments), &args) != nil {
+				return false
+			}
+			return strings.HasPrefix(args.Command, "nagobot ")
+		}
+	}
+	return false
+}
+
 // isHeartbeatSkipTurn returns true if a heartbeat turn should be trimmed:
 // the turn called sleep_thread (meaning it was deliberately silent/suppressed)
 // OR output SLEEP_THREAD_OK text without any tool calls (fallback for weak models),
@@ -337,7 +363,11 @@ func isHeartbeatSkipTurn(turnMessages []provider.Message) bool {
 			if m.Name == "sleep_thread" {
 				hasSleepThread = true
 			} else if !heartbeatSafeTools[m.Name] {
-				hasRealWork = true
+				if m.Name == "exec" && isExecSafe(turnMessages, m.ToolCallID) {
+					// nagobot CLI commands are internal operations, safe to trim
+				} else {
+					hasRealWork = true
+				}
 			}
 		}
 		if m.Role == "assistant" {
