@@ -227,9 +227,15 @@ func (b *OpenAIQuota) Check(ctx context.Context) (*BalanceInfo, error) {
 			if pw.ResetAt > 0 {
 				resetTime := time.Unix(pw.ResetAt, 0)
 				remaining := time.Until(resetTime)
-				detail += fmt.Sprintf(", resets %s, %s left",
+				elapsed := time.Duration(pw.LimitWindowSeconds)*time.Second - remaining
+				elapsedPct := float64(elapsed) / float64(time.Duration(pw.LimitWindowSeconds)*time.Second) * 100
+				if elapsedPct < 0 {
+					elapsedPct = 0
+				}
+				detail += fmt.Sprintf(", resets %s, %s left, %.0f%% elapsed",
 					resetTime.Local().Format("15:04"),
-					formatDuration(remaining))
+					formatDuration(remaining),
+					elapsedPct)
 			}
 			info.Balances = append(info.Balances, BalanceEntry{
 				Currency: fmt.Sprintf("%dh", hours),
@@ -248,9 +254,15 @@ func (b *OpenAIQuota) Check(ctx context.Context) (*BalanceInfo, error) {
 			if sw.ResetAt > 0 {
 				resetTime := time.Unix(sw.ResetAt, 0)
 				remaining := time.Until(resetTime)
-				detail += fmt.Sprintf(", resets %s, %s left",
+				elapsed := time.Duration(sw.LimitWindowSeconds)*time.Second - remaining
+				elapsedPct := float64(elapsed) / float64(time.Duration(sw.LimitWindowSeconds)*time.Second) * 100
+				if elapsedPct < 0 {
+					elapsedPct = 0
+				}
+				detail += fmt.Sprintf(", resets %s, %s left, %.0f%% elapsed",
 					resetTime.Local().Format("Jan 2 15:04"),
-					formatDuration(remaining))
+					formatDuration(remaining),
+					elapsedPct)
 			}
 			info.Balances = append(info.Balances, BalanceEntry{
 				Currency: label,
