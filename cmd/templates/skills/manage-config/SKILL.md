@@ -59,6 +59,17 @@ exec: {{WORKSPACE}}/bin/nagobot set-model --type <model_type> --provider <name> 
 exec: {{WORKSPACE}}/bin/nagobot set-model --list
 ```
 
+### List Fallback Candidates with Balance Status
+
+Shows all configured providers classified into three groups:
+1. **Available** — API key configured, balance OK (fallback candidates)
+2. **Exhausted** — API key configured, but balance depleted
+3. **Unreliable** — cannot verify balance (no balance API)
+
+```
+exec: {{WORKSPACE}}/bin/nagobot set-model --list-fallback
+```
+
 ### Clear Routing (Revert to Default)
 
 ```

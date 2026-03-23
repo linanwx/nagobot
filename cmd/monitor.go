@@ -143,6 +143,19 @@ func showBalance(cfg *config.Config) error {
 			fmt.Printf("  %-16s %s\n", r.Provider, r.Error)
 			continue
 		}
+		// Check if provider has only rate-limit entries (no monetary balance).
+		hasMonetary := false
+		for _, b := range r.Balances {
+			switch b.Currency {
+			case "req/min", "tok/min", "plan", "status":
+				continue
+			}
+			hasMonetary = true
+			break
+		}
+		if !hasMonetary && len(r.Balances) > 0 {
+			fmt.Printf("  %-16s (no balance API — rate limits only)\n", r.Provider)
+		}
 		for _, b := range r.Balances {
 			if b.Limit > 0 {
 				if b.Detail != "" {
@@ -245,6 +258,7 @@ func buildBalanceCheckers(cfg *config.Config, metricsDir string) []monitor.Balan
 		&monitor.MoonshotBalance{Name: "moonshot-cn", Base: "https://api.moonshot.cn/v1", KeyFn: keyFn("moonshot-cn")},
 		&monitor.MoonshotBalance{Name: "moonshot-global", Base: "https://api.moonshot.ai/v1", KeyFn: keyFn("moonshot-global")},
 		&monitor.ZhipuBalance{KeyFn: keyFn("zhipu-cn")},
+		&monitor.UnsupportedBalance{Name: "openai", Reason: "no balance API (requires Admin Key for billing queries)", KeyFn: keyFn("openai")},
 		&monitor.UnsupportedBalance{Name: "gemini", Reason: "no balance API (free tier, RPD/TPM limits only)", KeyFn: keyFn("gemini")},
 		&monitor.UnsupportedBalance{Name: "minimax-cn", Reason: "no balance API (pay-as-you-go; coding plan keys can use /coding_plan/remains)", KeyFn: keyFn("minimax-cn")},
 	}

@@ -2,13 +2,16 @@ package cmd
 
 import (
 	"fmt"
+	"path/filepath"
 	"sort"
 	"strings"
+	"time"
 
 	"github.com/spf13/cobra"
 
 	"github.com/linanwx/nagobot/agent"
 	"github.com/linanwx/nagobot/config"
+	"github.com/linanwx/nagobot/monitor"
 	"github.com/linanwx/nagobot/provider"
 )
 
@@ -34,12 +37,13 @@ Examples:
 }
 
 var (
-	setModelType    string
-	setModelProvider string
-	setModelModel    string
-	setModelList     bool
-	setModelClear    bool
-	setModelDefault  bool
+	setModelType         string
+	setModelProvider     string
+	setModelModel        string
+	setModelList         bool
+	setModelListFallback bool
+	setModelClear        bool
+	setModelDefault      bool
 )
 
 func init() {
@@ -47,6 +51,7 @@ func init() {
 	setModelCmd.Flags().StringVar(&setModelProvider, "provider", "", "Target provider name")
 	setModelCmd.Flags().StringVar(&setModelModel, "model", "", "Target model identifier for the provider")
 	setModelCmd.Flags().BoolVar(&setModelList, "list", false, "List current model routing and agent usage")
+	setModelCmd.Flags().BoolVar(&setModelListFallback, "list-fallback", false, "List fallback candidates with balance and reliability status")
 	setModelCmd.Flags().BoolVar(&setModelClear, "clear", false, "Remove routing for the specified model type (revert to default)")
 	setModelCmd.Flags().BoolVar(&setModelDefault, "default", false, "Set the default provider/model (instead of per-type routing)")
 	rootCmd.AddCommand(setModelCmd)
@@ -61,6 +66,11 @@ func runSetModel(_ *cobra.Command, _ []string) error {
 	// --list: show current routing + agent usage
 	if setModelList {
 		return listModelRouting(cfg)
+	}
+
+	// --list-fallback: show fallback candidates with balance status
+	if setModelListFallback {
+		return listFallbackStatus(cfg)
 	}
 
 	// --default: set default provider/model
@@ -269,6 +279,196 @@ func scanAllAgents() []agentModelSlot {
 		return slots[i].AgentName < slots[j].AgentName
 	})
 	return slots
+}
+
+func listFallbackStatus(cfg *config.Config) error {
+	workspace, err := cfg.WorkspacePath()
+	if err != nil {
+		return fmt.Errorf("failed to get workspace: %w", err)
+	}
+
+	// Load cached balance data.
+	cachePath := filepath.Join(workspace, "system", "balance-cache.json")
+	balances, updatedAt, _ := monitor.LoadBalance(cachePath)
+
+	// Index balance entries by provider name.
+	balanceMap := make(map[string]*monitor.BalanceInfo, len(balances))
+	for i := range balances {
+		balanceMap[balances[i].Provider] = &balances[i]
+	}
+
+	// Classify each configured provider.
+	type providerStatus struct {
+		name    string
+		models  []string
+		balance *monitor.BalanceInfo
+	}
+
+	var available, exhausted, unreliable []providerStatus
+
+	for _, prov := range provider.SupportedProviders() {
+		if !provider.ProviderKeyAvailable(cfg, prov) {
+			continue // no API key, skip entirely
+		}
+		models := provider.SupportedModelsForProvider(prov)
+		if len(models) == 0 {
+			continue
+		}
+
+		ps := providerStatus{name: prov, models: models, balance: balanceMap[prov]}
+
+		bi := ps.balance
+		if bi == nil {
+			// No balance data at all — unreliable.
+			unreliable = append(unreliable, ps)
+			continue
+		}
+
+		// UnsupportedBalance checkers set Available=false with a reason string.
+		if !bi.Available && bi.Error != "" && bi.Error != "not configured" {
+			unreliable = append(unreliable, ps)
+			continue
+		}
+
+		// Check for exhausted balance.
+		if isBalanceExhausted(bi) {
+			exhausted = append(exhausted, ps)
+			continue
+		}
+
+		// If only rate-limit entries (no monetary balance), treat as unreliable.
+		if !hasMonetaryBalance(bi) {
+			unreliable = append(unreliable, ps)
+			continue
+		}
+
+		available = append(available, ps)
+	}
+
+	fmt.Printf("---\ncommand: set-model\nmode: list-fallback\n---\n")
+
+	// Section 1: Available fallback candidates.
+	fmt.Println("\nFallback candidates (available):")
+	if len(available) == 0 {
+		fmt.Println("  (none)")
+	}
+	for _, ps := range available {
+		printProviderModels(ps.name, ps.models, ps.balance)
+	}
+
+	// Section 2: Balance exhausted.
+	fmt.Println("\nBalance exhausted:")
+	if len(exhausted) == 0 {
+		fmt.Println("  (none)")
+	}
+	for _, ps := range exhausted {
+		printProviderModels(ps.name, ps.models, ps.balance)
+	}
+
+	// Section 3: Unreliable (cannot check balance).
+	fmt.Println("\nUnreliable (cannot verify balance):")
+	if len(unreliable) == 0 {
+		fmt.Println("  (none)")
+	}
+	for _, ps := range unreliable {
+		reason := ""
+		if ps.balance != nil && ps.balance.Error != "" {
+			reason = ps.balance.Error
+		} else if ps.balance != nil && len(ps.balance.Balances) > 0 {
+			reason = "no balance API — rate limits only"
+		} else {
+			reason = "no balance data"
+		}
+		fmt.Printf("  %s  [%s]\n", ps.name, reason)
+		for _, m := range ps.models {
+			ctx := provider.ContextWindowForModel(m)
+			if ctx > 0 {
+				fmt.Printf("    %-40s %s\n", m, formatContextTokens(ctx))
+			} else {
+				fmt.Printf("    %s\n", m)
+			}
+		}
+	}
+
+	// Cache freshness.
+	if !updatedAt.IsZero() {
+		ago := time.Since(updatedAt).Round(time.Second)
+		fmt.Printf("\n  (balance cache: %s ago)\n", formatMonitorDuration(ago))
+	} else {
+		fmt.Println("\n  (no balance cache — run 'nagobot monitor --balance --refresh' or start serve)")
+	}
+
+	return nil
+}
+
+// isBalanceExhausted returns true if a provider's balance indicates it cannot serve requests.
+func isBalanceExhausted(bi *monitor.BalanceInfo) bool {
+	if bi.Error == "INSUFFICIENT CREDITS" {
+		return true
+	}
+	// Check all balance entries: if every monetary entry is <= 0, treat as exhausted.
+	// Skip rate-limit entries (req/min, tok/min) and informational entries (plan, status).
+	hasMonetary := false
+	allZero := true
+	for _, b := range bi.Balances {
+		switch b.Currency {
+		case "req/min", "tok/min", "plan", "status":
+			continue
+		}
+		hasMonetary = true
+		if b.Balance > 0 {
+			allZero = false
+		}
+	}
+	return hasMonetary && allZero
+}
+
+// hasMonetaryBalance returns true if the balance info contains at least one
+// monetary entry (not just rate limits or informational fields).
+func hasMonetaryBalance(bi *monitor.BalanceInfo) bool {
+	for _, b := range bi.Balances {
+		switch b.Currency {
+		case "req/min", "tok/min", "plan", "status":
+			continue
+		}
+		return true
+	}
+	return false
+}
+
+func printProviderModels(name string, models []string, bi *monitor.BalanceInfo) {
+	balanceStr := ""
+	if bi != nil {
+		parts := []string{}
+		for _, b := range bi.Balances {
+			switch b.Currency {
+			case "plan", "status":
+				continue
+			}
+			if b.Limit > 0 {
+				parts = append(parts, fmt.Sprintf("%.0f/%.0f %s", b.Balance, b.Limit, b.Currency))
+			} else if b.Balance != 0 {
+				// Use integer format for large values, decimal for small.
+				if b.Balance >= 100 {
+					parts = append(parts, fmt.Sprintf("%.0f %s", b.Balance, b.Currency))
+				} else {
+					parts = append(parts, fmt.Sprintf("%.2f %s", b.Balance, b.Currency))
+				}
+			}
+		}
+		if len(parts) > 0 {
+			balanceStr = "  [" + strings.Join(parts, ", ") + "]"
+		}
+	}
+	fmt.Printf("  %s%s\n", name, balanceStr)
+	for _, m := range models {
+		ctx := provider.ContextWindowForModel(m)
+		if ctx > 0 {
+			fmt.Printf("    %-40s %s\n", m, formatContextTokens(ctx))
+		} else {
+			fmt.Printf("    %s\n", m)
+		}
+	}
 }
 
 func formatContextTokens(tokens int) string {
