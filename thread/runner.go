@@ -19,6 +19,7 @@ type Runner struct {
 	totalUsage     provider.Usage            // accumulated usage across all Chat calls
 	lastQuota      *provider.Quota           // last non-nil quota from provider response
 	contextBudget  int                       // contextWindow - maxCompletionTokens; 0 = no guard
+	toolDefsTokens int                       // cached token estimate for tool definitions
 	onMessage      func(provider.Message)    // optional observer for intermediate messages
 	onIterationEnd func() []provider.Message // optional: called after each tool iteration; returned messages are injected before the next LLM call
 	onText          func(delta string)  // optional: called with each text chunk during streaming generation
@@ -68,10 +69,11 @@ func (r *Runner) ModelLabel() string { return r.modelLabel }
 // real-time metrics collection visible to other threads.
 func NewRunner(p provider.Provider, t *tools.Registry, m *ExecMetrics, contextBudget int) *Runner {
 	return &Runner{
-		provider:      p,
-		tools:         t,
-		metrics:       m,
-		contextBudget: contextBudget,
+		provider:       p,
+		tools:          t,
+		metrics:        m,
+		contextBudget:  contextBudget,
+		toolDefsTokens: EstimateToolDefsTokens(t.Defs()),
 	}
 }
 
@@ -197,7 +199,7 @@ func (r *Runner) RunWithMessages(ctx context.Context, messages []provider.Messag
 // the total estimated tokens exceed contextBudget. It preserves the system
 // prompt (messages[0]) and never removes the last assistant+tool group.
 func (r *Runner) trimLoopMessages(messages []provider.Message) []provider.Message {
-	total := EstimateMessagesTokens(messages)
+	total := EstimateMessagesTokens(messages) + r.toolDefsTokens
 	if total <= r.contextBudget {
 		return messages
 	}
@@ -268,7 +270,7 @@ func (r *Runner) logEstimationAccuracy(messages []provider.Message, resp *provid
 	actual := resp.Usage
 
 	// Prompt estimation: compare our estimate vs API's actual count.
-	estimatedPrompt := EstimateMessagesTokens(messages)
+	estimatedPrompt := EstimateMessagesTokens(messages) + r.toolDefsTokens
 	promptDelta := ""
 	if actual.PromptTokens > 0 {
 		pct := float64(estimatedPrompt-actual.PromptTokens) / float64(actual.PromptTokens) * 100

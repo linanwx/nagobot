@@ -125,19 +125,28 @@ func (m *Manager) tryTier2Compress(sessionKey string) {
 		return
 	}
 
-	tokens := EstimateMessagesTokens(ApplyCompressed(sess.Messages))
-
+	// Capture thread state under lock, then release for expensive token estimation.
 	m.mu.Lock()
 	t, ok := m.threads[sessionKey]
 	if !ok || t.state != threadIdle {
 		m.mu.Unlock()
 		return
 	}
+	toolDefs := t.tools.Defs()
 	_, modelName := t.resolvedProviderModel()
+	m.mu.Unlock()
+
+	tokens := EstimateMessagesTokens(ApplyCompressed(sess.Messages)) + EstimateToolDefsTokens(toolDefs)
 	effectiveWindow := provider.EffectiveContextWindow(modelName, cfg.ContextWindowTokens)
 	ct := ComputeContextThresholds(effectiveWindow)
 	threshold := effectiveWindow - ct.Tier2Token
 	if tokens < threshold {
+		return
+	}
+
+	// Re-acquire lock for cooldown checks and state mutation.
+	m.mu.Lock()
+	if t.state != threadIdle {
 		m.mu.Unlock()
 		return
 	}

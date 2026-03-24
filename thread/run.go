@@ -133,8 +133,9 @@ func (t *Thread) buildMessageHistory(ctx context.Context, systemPrompt, userMess
 	// Compute precise session budget by subtracting known overhead from context window.
 	systemPromptTokens := EstimateMessageTokens(messages[0])
 	userMsgTokens := EstimateTextTokens(userMessage) + 6
+	toolDefsTokens := EstimateToolDefsTokens(t.tools.Defs())
 	maxCompletionTokens := t.cfg().MaxCompletionTokens
-	sessionBudget := int(float64(contextWindowTokens-systemPromptTokens-userMsgTokens-maxCompletionTokens) * 0.96)
+	sessionBudget := int(float64(contextWindowTokens-systemPromptTokens-userMsgTokens-toolDefsTokens-maxCompletionTokens) * 0.96)
 	if sessionBudget < 0 {
 		sessionBudget = 0
 	}
@@ -152,7 +153,7 @@ func (t *Thread) buildMessageHistory(ctx context.Context, systemPrompt, userMess
 	messages = append(messages, userMsg)
 	turnUserMessages = append(turnUserMessages, userMsg)
 
-	requestEstimatedTokens := sessionEstimatedTokens + EstimateMessageTokens(messages[0]) + EstimateMessageTokens(userMsg) + 3
+	requestEstimatedTokens := sessionEstimatedTokens + EstimateMessageTokens(messages[0]) + EstimateMessageTokens(userMsg) + toolDefsTokens + 3
 	logger.Debug(
 		"context estimate",
 		"threadID", t.id,

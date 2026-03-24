@@ -100,10 +100,9 @@ func TestEstimateMessageTokens_ReasoningTrimmedWithDetails(t *testing.T) {
 	}
 }
 
-func TestEstimateMessageTokens_PreciseReasoningTokens(t *testing.T) {
-	// A message with both ReasoningDetails and precise ReasoningTokens.
-	// The precise value should be used instead of len(details)/3 + tiktoken(content).
-	details := json.RawMessage(`[{"type":"thinking","thinking":"deep thought content here that is quite long and would estimate to many tokens if we used len/3","signature":"sig123"}]`)
+func TestEstimateMessageTokens_ReasoningIgnoresAPIValue(t *testing.T) {
+	// ReasoningTokens from API should NOT affect estimation — pure estimation only.
+	details := json.RawMessage(`[{"type":"thinking","thinking":"deep thought","signature":"sig123"}]`)
 	msg := provider.Message{
 		Role:             "assistant",
 		Content:          "Hello",
@@ -111,48 +110,32 @@ func TestEstimateMessageTokens_PreciseReasoningTokens(t *testing.T) {
 		ReasoningDetails: details,
 	}
 
-	tokensEstimated := EstimateMessageTokens(msg)
+	tokensWithout := EstimateMessageTokens(msg)
 
-	// Now set precise ReasoningTokens from provider API.
 	msg.ReasoningTokens = 42
-	tokensPrecise := EstimateMessageTokens(msg)
+	tokensWith := EstimateMessageTokens(msg)
 
-	// The two should differ because the precise value replaces both
-	// ReasoningContent estimation and ReasoningDetails estimation.
-	if tokensEstimated == tokensPrecise {
-		t.Errorf("precise ReasoningTokens should change the result: estimated=%d, precise=%d",
-			tokensEstimated, tokensPrecise)
-	}
-
-	// Verify the precise path includes exactly the ReasoningTokens value.
-	baseTokens := EstimateMessageTokens(provider.Message{
-		Role:    "assistant",
-		Content: "Hello",
-	})
-	expectedWithReasoning := baseTokens + 42
-	if tokensPrecise != expectedWithReasoning {
-		t.Errorf("precise path: expected %d (base %d + 42), got %d",
-			expectedWithReasoning, baseTokens, tokensPrecise)
+	if tokensWithout != tokensWith {
+		t.Errorf("ReasoningTokens should not affect estimation: without=%d, with=%d",
+			tokensWithout, tokensWith)
 	}
 }
 
-func TestEstimateMessageTokens_ReasoningTrimmedIgnoresPrecise(t *testing.T) {
-	// When ReasoningTrimmed=true, even precise ReasoningTokens should be ignored.
+func TestEstimateMessageTokens_ReasoningTrimmedSkipsAll(t *testing.T) {
+	// When ReasoningTrimmed=true, all reasoning is excluded.
 	msg := provider.Message{
 		Role:             "assistant",
 		Content:          "Hello",
 		ReasoningContent: "reasoning",
-		ReasoningTokens:  500,
+		ReasoningDetails: json.RawMessage(`[{"type":"thinking"}]`),
 		ReasoningTrimmed: true,
 	}
 	tokens := EstimateMessageTokens(msg)
 
-	// Compare with a message that has no reasoning at all.
-	baseMsg := provider.Message{
+	baseTokens := EstimateMessageTokens(provider.Message{
 		Role:    "assistant",
 		Content: "Hello",
-	}
-	baseTokens := EstimateMessageTokens(baseMsg)
+	})
 
 	if tokens != baseTokens {
 		t.Errorf("ReasoningTrimmed=true should ignore all reasoning: got %d, want %d",

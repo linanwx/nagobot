@@ -565,20 +565,21 @@ func (p *AnthropicProvider) Chat(ctx context.Context, req *Request) (*Response, 
 		"completionTokens", messageResp.Usage.OutputTokens,
 		"cacheCreationTokens", messageResp.Usage.CacheCreationInputTokens,
 		"cacheReadTokens", messageResp.Usage.CacheReadInputTokens,
-		"totalTokens", messageResp.Usage.InputTokens+messageResp.Usage.OutputTokens,
+		"totalTokens", messageResp.Usage.InputTokens+messageResp.Usage.CacheCreationInputTokens+messageResp.Usage.CacheReadInputTokens+messageResp.Usage.OutputTokens,
 		"outputChars", len(content),
 		"latencyMs", time.Since(start).Milliseconds(),
 	)
 
+	totalInput := int(messageResp.Usage.InputTokens + messageResp.Usage.CacheCreationInputTokens + messageResp.Usage.CacheReadInputTokens)
 	return &Response{
 		Content:          content,
 		ReasoningContent: reasoningContent,
 		ReasoningDetails: reasoningDetailsJSON,
 		ToolCalls:        toolCalls,
 		Usage: Usage{
-			PromptTokens:     int(messageResp.Usage.InputTokens),
+			PromptTokens:     totalInput,
 			CompletionTokens: int(messageResp.Usage.OutputTokens),
-			TotalTokens:      int(messageResp.Usage.InputTokens + messageResp.Usage.OutputTokens),
+			TotalTokens:      totalInput + int(messageResp.Usage.OutputTokens),
 			CachedTokens:     int(messageResp.Usage.CacheReadInputTokens),
 		},
 		ProviderLabel: "anthropic",

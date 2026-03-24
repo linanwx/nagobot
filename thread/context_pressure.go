@@ -2,6 +2,7 @@ package thread
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"strings"
 	"sync"
@@ -113,23 +114,18 @@ func EstimateTextTokens(text string) int {
 }
 
 // EstimateMessageTokens returns a tiktoken-based token estimate for a single message.
-// Includes image token estimation for <<media:...>> markers.
+// Includes image/audio token estimation for <<media:...>> markers.
 // When ReasoningTrimmed is set, reasoning is excluded (cleared at send time).
-// When ReasoningTokens is available (from provider API), it's used instead of estimation.
 func EstimateMessageTokens(message provider.Message) int {
 	tokens := 6 // Base per-message structure overhead.
 	tokens += EstimateTextTokens(message.Role)
 	tokens += EstimateTextTokens(message.Content)
-	// Reasoning estimation: skip if trimmed (reasoning cleared at send time),
-	// use precise API value if available, otherwise fall back to estimation.
+	// Reasoning estimation: skip if trimmed (reasoning cleared at send time).
+	// Always use pure estimation — no API feedback values.
 	if !message.ReasoningTrimmed {
-		if message.ReasoningTokens > 0 {
-			tokens += message.ReasoningTokens
-		} else {
-			tokens += EstimateTextTokens(message.ReasoningContent)
-			if len(message.ReasoningDetails) > 0 {
-				tokens += len(message.ReasoningDetails) / 3
-			}
+		tokens += EstimateTextTokens(message.ReasoningContent)
+		if len(message.ReasoningDetails) > 0 {
+			tokens += len(message.ReasoningDetails) / 3
 		}
 	}
 	tokens += EstimateTextTokens(message.ToolCallID)
@@ -155,6 +151,18 @@ func EstimateMessageTokens(message provider.Message) int {
 	}
 
 	return tokens
+}
+
+// EstimateToolDefsTokens returns a tiktoken-based token estimate for tool definitions.
+func EstimateToolDefsTokens(defs []provider.ToolDef) int {
+	if len(defs) == 0 {
+		return 0
+	}
+	data, err := json.Marshal(defs)
+	if err != nil {
+		return 0
+	}
+	return EstimateTextTokens(string(data))
 }
 
 // EstimateMessagesTokens returns a tiktoken-based token estimate for a slice of messages.
