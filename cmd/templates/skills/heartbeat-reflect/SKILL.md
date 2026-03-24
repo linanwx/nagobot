@@ -28,7 +28,7 @@ To end this turn without sending anything to the user, call `sleep_thread()`. If
    - Next 2 days, what they might do
 4. existing_items = items from heartbeat.md
    new_items = items found in conversation
-   cron_items = `nagobot cron list` (check if needed)
+   cron_items = `{{WORKSPACE}}/bin/nagobot cron list` (check if needed)
    - for each item in existing_items:
      - if item is outdated || item is already handled by cron
        - remove item
@@ -40,7 +40,7 @@ To end this turn without sending anything to the user, call `sleep_thread()`. If
 6. append a summary log of what you have done during this heartbeat-reflect turn in heartbeat.md (remove old logs)
 7. if no items remain && current file is not empty → write empty string to clear file
 8. if heartbeat pulse is running too frequently:
-   - call `exec` to run: `nagobot heartbeat postpone <this session-key> <duration>`
+   - call `exec` to run: `{{WORKSPACE}}/bin/nagobot heartbeat postpone <this session-key> <duration>`
    - Valid durations: 15m to 6h (e.g., "4h" for nothing interesting until afternoon)
 9. Call `sleep_thread()` — this ends the turn silently. Do NOT reply with text.
 

@@ -48,7 +48,7 @@ Action hints for assistant-only sources explicitly tell the AI to include conten
 
 Agents are markdown templates in `{workspace}/agents/{name}.md` with `{{PLACEHOLDER}}` syntax. Variables set via `agent.Set(key, value)` before `Build()`. Runtime vars (TOOLS, SKILLS, USER) are set per-turn in `thread/run.go`. `{{DATE}}` and `{{CALENDAR}}` are auto-resolved in `agent.Build()` at day-level granularity (no minutes/seconds).
 
-**Important**: `{{WORKSPACE}}` is resolved in `agent.Build()` only — skills loaded via `use_skill` do NOT get `{{WORKSPACE}}` replaced. Skills must use `nagobot` (on PATH) for CLI calls, not `{{WORKSPACE}}/bin/nagobot`.
+**Important**: `{{WORKSPACE}}` is resolved in both `agent.Build()` and `use_skill` (`tools/skills.go`). Skills should use `{{WORKSPACE}}/bin/nagobot` for CLI calls.
 
 ### Provider Layer (`provider/`)
 
@@ -155,7 +155,7 @@ Heartbeat source matching uses `strings.HasPrefix(source, "heartbeat")` to cover
 - **Don't use `logger.Debug` for things you need to see**: Heartbeat scheduler activity, error conditions — use `Info` or `Warn`. Debug is invisible at default log level.
 - **Heartbeat state is persisted**: `lastPulse`, `lastHBMtime` are saved to `heartbeat-state.json` after each pulse. Restarts reload this state — no cold-start special-casing needed.
 - **`collectSessions` loads full session data**: Every call parses entire `session.jsonl` for all matching sessions. Don't call it in tight loops. The scheduler calls it every 30s — acceptable for small deployments.
-- **`{{WORKSPACE}}` doesn't resolve in skills**: Only in agent templates (`agent.Build()`). Skills loaded via `use_skill` see `{{WORKSPACE}}` as a literal string. Use `nagobot` CLI (on PATH) instead.
+- **`{{WORKSPACE}}` resolves in both agents and skills**: `agent.Build()` and `use_skill` (`tools/skills.go`) both replace `{{WORKSPACE}}`. Skills should use `{{WORKSPACE}}/bin/nagobot` for CLI calls.
 - **Heartbeat turns suppress via LLM, not code**: The old `WakeHeartbeatReflect` had code-level `SetSuppressSink()`. Now both reflect and act use `WakeHeartbeat` — suppression relies on the LLM calling `sleep_thread()`. If the LLM forgets, output leaks to the user.
 - **`applyDefaults()` only adds, never prunes**: If a cron seed is removed from `defaultCronSeeds()`, old entries in `config.yaml` persist. Manual cleanup may be needed after upgrades.
 
