@@ -22,7 +22,6 @@ const (
 	compressedHintNoID = "[compressed — use search-memory with session key and timeframe to find original content, or use skill session-ops to see more]"
 
 	compressExpireAge      = 2 * time.Hour // unified age threshold for tier-1 compression
-	heartbeatTrimThreshold = 100           // minimum content size to compress heartbeat results
 )
 
 // runeHead returns the first n runes of s. If s has fewer than n runes, returns s unchanged.
@@ -410,14 +409,6 @@ func computeToolCompressed(m *provider.Message, idx int, lastSkillLoad map[strin
 			}, "[compressed — call use_skill to reload if needed]")
 		}
 		return ""
-	}
-	// Heartbeat tool results older than compressExpireAge → header-only
-	if strings.HasPrefix(m.Source, "heartbeat") &&
-		!m.Timestamp.IsZero() && time.Since(m.Timestamp) > compressExpireAge &&
-		len(m.Content) > heartbeatTrimThreshold {
-		return marshalCompressed(compressedHeader{
-			Compressed: m.Name, Original: len(m.Content),
-		}, "")
 	}
 	if runeLen(m.Content) <= softTrimHeadRunes+softTrimTailRunes || strings.Contains(m.Content, "<<media:") {
 		return ""

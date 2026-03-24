@@ -211,8 +211,8 @@ func TestCompressTier1_SkillNotExpired(t *testing.T) {
 	_ = modified
 }
 
-func TestCompressTier1_HeartbeatExpired(t *testing.T) {
-	// Heartbeat source + >6h + >100 bytes → header-only
+func TestCompressTier1_HeartbeatSmallContent(t *testing.T) {
+	// Heartbeat tool results with small content are not compressed (normal softTrim threshold applies).
 	messages := []provider.Message{
 		{Role: "assistant", Content: "", ToolCalls: []provider.ToolCall{{ID: "c1", Type: "function", Function: provider.FunctionCall{Name: "exec", Arguments: `{"cmd":"nagobot list-sessions"}`}}}},
 		{Role: "tool", Name: "exec", ToolCallID: "c1", Content: strings.Repeat("session data\n", 50), Source: "heartbeat", Timestamp: time.Now().Add(-8 * time.Hour)},
@@ -226,20 +226,12 @@ func TestCompressTier1_HeartbeatExpired(t *testing.T) {
 	}
 
 	modified, result := compressTier1(messages, 3)
-	if !modified {
-		t.Fatal("expected modified=true")
+	// Content is 650 chars, below softTrim threshold (3000) — no compression.
+	if modified {
+		t.Fatal("expected modified=false for small heartbeat tool result")
 	}
-
-	m := result[1]
-	if m.Compressed == "" {
-		t.Fatal("heartbeat tool result >6h should be compressed")
-	}
-	if !strings.Contains(m.Compressed, "compressed: exec") {
-		t.Error("should have compressed header with tool name")
-	}
-	// Should be header-only (no body content from original).
-	if strings.Contains(m.Compressed, "session data") {
-		t.Error("header-only compression should not contain original body")
+	if result[1].Compressed != "" {
+		t.Fatal("small heartbeat tool result should not be compressed")
 	}
 }
 
