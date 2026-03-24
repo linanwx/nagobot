@@ -5,30 +5,11 @@ import (
 	"encoding/json"
 	"fmt"
 	"strings"
-	"sync"
 
 	"github.com/linanwx/nagobot/logger"
 	"github.com/linanwx/nagobot/provider"
 	"github.com/linanwx/nagobot/thread/msg"
-	"github.com/tiktoken-go/tokenizer"
 )
-
-var (
-	tiktokenOnce sync.Once
-	tiktokenCodec tokenizer.Codec
-)
-
-func getCodec() tokenizer.Codec {
-	tiktokenOnce.Do(func() {
-		enc, err := tokenizer.Get(tokenizer.O200kBase)
-		if err != nil {
-			logger.Warn("failed to init tiktoken codec, token estimates will be zero", "err", err)
-			return
-		}
-		tiktokenCodec = enc
-	})
-	return tiktokenCodec
-}
 
 // tier2Multiplier scales WarnToken to get the Tier 2 threshold.
 const tier2Multiplier = 1.8
@@ -102,15 +83,7 @@ func (t *Thread) buildCompressionNotice(requestTokens, contextWindowTokens int, 
 
 // EstimateTextTokens returns a tiktoken-based token estimate for a string.
 func EstimateTextTokens(text string) int {
-	if text == "" {
-		return 0
-	}
-	codec := getCodec()
-	if codec == nil {
-		return len(text) / 3 // rough fallback
-	}
-	ids, _, _ := codec.Encode(text)
-	return len(ids)
+	return provider.EstimateTextTokens(text)
 }
 
 // EstimateMessageTokens returns a tiktoken-based token estimate for a single message.

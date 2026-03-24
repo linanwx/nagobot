@@ -19,7 +19,8 @@ type Runner struct {
 	totalUsage     provider.Usage            // accumulated usage across all Chat calls
 	lastQuota      *provider.Quota           // last non-nil quota from provider response
 	contextBudget  int                       // contextWindow - maxCompletionTokens; 0 = no guard
-	toolDefsTokens int                       // cached token estimate for tool definitions
+	toolDefsTokens int                       // cached token estimate for tool definitions (fallback path)
+	tokenEstimator provider.TokenEstimator   // non-nil when provider supports format-specific estimation
 	onMessage      func(provider.Message)    // optional observer for intermediate messages
 	onIterationEnd func() []provider.Message // optional: called after each tool iteration; returned messages are injected before the next LLM call
 	onText          func(delta string)  // optional: called with each text chunk during streaming generation
@@ -68,13 +69,26 @@ func (r *Runner) ModelLabel() string { return r.modelLabel }
 // NewRunner creates a new Runner. Pass a non-nil ExecMetrics to enable
 // real-time metrics collection visible to other threads.
 func NewRunner(p provider.Provider, t *tools.Registry, m *ExecMetrics, contextBudget int) *Runner {
-	return &Runner{
+	r := &Runner{
 		provider:       p,
 		tools:          t,
 		metrics:        m,
 		contextBudget:  contextBudget,
 		toolDefsTokens: EstimateToolDefsTokens(t.Defs()),
 	}
+	if est, ok := p.(provider.TokenEstimator); ok {
+		r.tokenEstimator = est
+	}
+	return r
+}
+
+// estimatePromptTokens returns a prompt token estimate using the provider's
+// format-specific estimator when available, falling back to the generic one.
+func (r *Runner) estimatePromptTokens(messages []provider.Message) int {
+	if r.tokenEstimator != nil {
+		return r.tokenEstimator.EstimatePromptTokens(messages, r.tools.Defs())
+	}
+	return EstimateMessagesTokens(messages) + r.toolDefsTokens
 }
 
 // RunWithMessages executes the agent loop with pre-built messages.
@@ -199,7 +213,7 @@ func (r *Runner) RunWithMessages(ctx context.Context, messages []provider.Messag
 // the total estimated tokens exceed contextBudget. It preserves the system
 // prompt (messages[0]) and never removes the last assistant+tool group.
 func (r *Runner) trimLoopMessages(messages []provider.Message) []provider.Message {
-	total := EstimateMessagesTokens(messages) + r.toolDefsTokens
+	total := r.estimatePromptTokens(messages)
 	if total <= r.contextBudget {
 		return messages
 	}
@@ -270,7 +284,7 @@ func (r *Runner) logEstimationAccuracy(messages []provider.Message, resp *provid
 	actual := resp.Usage
 
 	// Prompt estimation: compare our estimate vs API's actual count.
-	estimatedPrompt := EstimateMessagesTokens(messages) + r.toolDefsTokens
+	estimatedPrompt := r.estimatePromptTokens(messages)
 	promptDelta := ""
 	if actual.PromptTokens > 0 {
 		pct := float64(estimatedPrompt-actual.PromptTokens) / float64(actual.PromptTokens) * 100
