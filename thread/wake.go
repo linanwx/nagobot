@@ -252,14 +252,18 @@ func buildWakePayload(source WakeSource, message, threadID, sessionKey, sessionD
 	if hint := wakeActionHint(source); hint != "" {
 		header.Action = hint
 	}
-	// For user-visible sources (telegram, discord, etc.) that may contain media,
-	// include the current model's multimodal capabilities so the LLM knows what it can do.
-	if sysmsg.IsUserVisibleSource(source) && model != "" {
+	// Include multimodal capabilities when the model supports them.
+	// Only set fields for true capabilities — false is the default and omitted.
+	if model != "" {
 		if prov, mod, ok := strings.Cut(model, "/"); ok {
-			v := provider.SupportsVision(prov, mod)
-			a := provider.SupportsAudio(prov, mod)
-			header.SupportsVision = &v
-			header.SupportsAudio = &a
+			if provider.SupportsVision(prov, mod) {
+				v := true
+				header.SupportsVision = &v
+			}
+			if provider.SupportsAudio(prov, mod) {
+				a := true
+				header.SupportsAudio = &a
+			}
 		}
 	}
 

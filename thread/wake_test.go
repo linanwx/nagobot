@@ -7,11 +7,9 @@ import (
 )
 
 func TestBuildWakePayload_SupportsVisionAudio(t *testing.T) {
-	// Test that user-visible sources include supports_vision and supports_audio
-	// when the model string is in "provider/model" format.
+	// Vision+audio capable model → both fields present with true.
 	loc := time.FixedZone("UTC+8", 8*3600)
 
-	// Use a known vision-capable model from the gemini provider.
 	payload := buildWakePayload(
 		WakeTelegram,
 		"Hello with image",
@@ -20,16 +18,16 @@ func TestBuildWakePayload_SupportsVisionAudio(t *testing.T) {
 		loc,
 	)
 
-	if !strings.Contains(payload, "supports_vision:") {
-		t.Errorf("expected supports_vision field in wake header for user-visible source, got:\n%s", payload)
+	if !strings.Contains(payload, "supports_vision: true") {
+		t.Errorf("expected supports_vision: true for gemini, got:\n%s", payload)
 	}
-	if !strings.Contains(payload, "supports_audio:") {
-		t.Errorf("expected supports_audio field in wake header for user-visible source, got:\n%s", payload)
+	if !strings.Contains(payload, "supports_audio: true") {
+		t.Errorf("expected supports_audio: true for gemini, got:\n%s", payload)
 	}
 }
 
-func TestBuildWakePayload_SystemSource_NoMultimodalInfo(t *testing.T) {
-	// System sources should NOT include supports_vision/supports_audio.
+func TestBuildWakePayload_SystemSource_WithCapabilities(t *testing.T) {
+	// System sources now also include capabilities when model supports them.
 	loc := time.FixedZone("UTC+8", 8*3600)
 
 	payload := buildWakePayload(
@@ -40,11 +38,8 @@ func TestBuildWakePayload_SystemSource_NoMultimodalInfo(t *testing.T) {
 		loc,
 	)
 
-	if strings.Contains(payload, "supports_vision") {
-		t.Errorf("system source should not include supports_vision:\n%s", payload)
-	}
-	if strings.Contains(payload, "supports_audio") {
-		t.Errorf("system source should not include supports_audio:\n%s", payload)
+	if !strings.Contains(payload, "supports_vision: true") {
+		t.Errorf("heartbeat with capable model should include supports_vision: true:\n%s", payload)
 	}
 }
 
@@ -62,5 +57,26 @@ func TestBuildWakePayload_NoModel_NoMultimodalInfo(t *testing.T) {
 
 	if strings.Contains(payload, "supports_vision") {
 		t.Errorf("empty model should not include supports_vision:\n%s", payload)
+	}
+}
+
+func TestBuildWakePayload_FalseCapabilities_Omitted(t *testing.T) {
+	// Model without vision/audio → fields should NOT appear (omitted, not false).
+	loc := time.FixedZone("UTC+8", 8*3600)
+
+	// z-ai/glm-5 is not in VisionModels or AudioModels
+	payload := buildWakePayload(
+		WakeTelegram,
+		"Hello",
+		"thread-1", "telegram:123", "/tmp/sessions/telegram:123",
+		"telegram delivery", "openrouter/z-ai/glm-5", "soul",
+		loc,
+	)
+
+	if strings.Contains(payload, "supports_vision") {
+		t.Errorf("non-vision model should not include supports_vision:\n%s", payload)
+	}
+	if strings.Contains(payload, "supports_audio") {
+		t.Errorf("non-audio model should not include supports_audio:\n%s", payload)
 	}
 }
