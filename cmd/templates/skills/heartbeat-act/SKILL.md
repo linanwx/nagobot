@@ -20,7 +20,7 @@ To end this turn without sending anything to the user, call `sleep_thread()`. If
 - heartbeat.md content is already in the wake message above — use it directly
 - if heartbeat.md is empty || doesn't exist
    - call `sleep_thread()` to skip this pulse/turn
-- else if today haven't greeted the user
+- else if you haven't greeted the user today
    - greet user based on time of day (morning/afternoon/evening)
 - else
    - act_items = []
@@ -29,8 +29,9 @@ To end this turn without sending anything to the user, call `sleep_thread()`. If
          - do actions (search emails, weather, websites, calendars, or just deep-think etc.)
       - if find something valuable and worth sharing
          - add to act_items
+   - append a summary log of what you have done during this heartbeat-act turn in heartbeat.md (remove old logs)
    - if act_items is empty
-      - if heartbeat pause is running too frequently:
+      - if heartbeat pulse is running too frequently:
          - call `exec` to run: `nagobot heartbeat postpone <this session-key> <duration>`
          - Valid durations: 15m to 6h (e.g., "4h" for nothing interesting until afternoon)
       - anyway, do not disturb user, do not send nonsense messages like "nothing to report, keeping silent" — instead, call a function to end this turn
@@ -38,3 +39,15 @@ To end this turn without sending anything to the user, call `sleep_thread()`. If
    - else
       - ready to say something to user
       - compose one response covering all act_items and generate an appropriate report
+
+## heartbeat.md format
+
+```markdown
+# Schedule
+
+# Follow Up
+
+# Last 5 logs
+- xxxx-xx-xx xx-xx-xx: did xxx
+- xxxx-xx-xx xx-xx-xx: did xxx
+```

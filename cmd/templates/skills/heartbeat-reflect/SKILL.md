@@ -34,16 +34,17 @@ To end this turn without sending anything to the user, call `sleep_thread()`. If
        - remove item
      - else if item won't trigger within next 2 days
        - remove from heartbeat.md
-       - create one time cron job to handle this instead using heartbeat system
+       - create one-time cron job to handle this instead using heartbeat system
    - if heartbeat.md is nothing, reconsider: am I too passive?
 5. heartbeat.md = predict_future + set(existing_items + new_items - removed_items)
-6. if no items remain && current file is not empty → write empty string to clear file
-7. if heartbeat pause is running too frequently:
+6. append a summary log of what you have done during this heartbeat-reflect turn in heartbeat.md (remove old logs)
+7. if no items remain && current file is not empty → write empty string to clear file
+8. if heartbeat pulse is running too frequently:
    - call `exec` to run: `nagobot heartbeat postpone <this session-key> <duration>`
    - Valid durations: 15m to 6h (e.g., "4h" for nothing interesting until afternoon)
-8. Call `sleep_thread()` — this ends the turn silently. Do NOT reply with text.
+9. Call `sleep_thread()` — this ends the turn silently. Do NOT reply with text.
 
-## Item format
+## heartbeat.md format
 
 ```markdown
 # Schedule
@@ -68,4 +69,9 @@ To end this turn without sending anything to the user, call `sleep_thread()`. If
   created: 2026-03-10
   moved_on: user hasn't mentioned emails for over a week
   reason: xxx
+
+# Last 5 logs
+
+- xxxx-xx-xx xx-xx-xx: did xxx
+- xxxx-xx-xx xx-xx-xx: did xxx
 ```
