@@ -123,7 +123,7 @@ func (t *SpawnThreadTool) run(ctx context.Context, args json.RawMessage) string 
 	return toolResult("spawn_thread", fields,
 		"Child thread is running asynchronously. When it completes, a child_completed "+
 			"wake message will be delivered to this thread via the sink system. "+
-			"Do not wait or poll — continue with other work. "+
+			"Do not wait or poll — continue with other work or tell the user you will follow up shortly. "+
 			"Use check_thread with the child_id to inspect progress if needed.\n"+
 			"Task: "+taskPreview)
 }

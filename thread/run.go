@@ -11,6 +11,7 @@ import (
 	"github.com/linanwx/nagobot/config"
 	"github.com/linanwx/nagobot/logger"
 	"github.com/linanwx/nagobot/monitor"
+	sysmsg "github.com/linanwx/nagobot/thread/msg"
 	"github.com/linanwx/nagobot/provider"
 	"github.com/linanwx/nagobot/session"
 	"github.com/linanwx/nagobot/tools"
@@ -113,6 +114,7 @@ func (t *Thread) buildSystemPrompt() string {
 	activeAgent.Set("TOOLS", t.tools.Names())
 	activeAgent.Set("SKILLS", skillsSection)
 	activeAgent.Set("USER", t.buildUserSection())
+	activeAgent.Set("HEARTBEAT", t.buildHeartbeatSection())
 	prompt := activeAgent.Build()
 	if strings.TrimSpace(prompt) == "" {
 		return "You are a helpful AI assistant."
@@ -198,6 +200,7 @@ func (t *Thread) executeRunner(ctx, runCtx context.Context, p provider.Provider,
 	}
 	runner := NewRunner(p, t.tools, metrics, loopBudget)
 	runner.ShouldHalt(t.isHaltLoop)
+	runner.SetUserVisible(sysmsg.IsUserVisibleSource(t.lastWakeSource))
 
 	// Set up streaming for chunkable sinks (Telegram, Discord, Feishu, CLI).
 	var streamer *MarkdownStreamer
@@ -296,6 +299,18 @@ func (t *Thread) buildUserSection() string {
 		return fmt.Sprintf("## User Preferences\n\n`%s` is empty. Append to store user preferences.", absPath)
 	}
 	return fmt.Sprintf("## User Preferences\n\nCurrently using `%s` as preferences. Append to store.\n\n%s", absPath, text)
+}
+
+// buildHeartbeatSection resolves the per-session heartbeat.md path into a formatted section.
+// Content is NOT included — heartbeat.md changes frequently and would break prompt caching.
+func (t *Thread) buildHeartbeatSection() string {
+	sessionPath, ok := t.sessionFilePath()
+	if !ok {
+		return ""
+	}
+	hbPath := filepath.Join(filepath.Dir(sessionPath), "heartbeat.md")
+	absPath, _ := filepath.Abs(hbPath)
+	return fmt.Sprintf("## Heartbeat\n\nHeartbeat automatically wakes the thread to reflect on follow-up items and proactively help users with tasks.\n\nCurrently using `%s`.\n\nUse `use_skill(heartbeat-reflect)` to track items and `use_skill(heartbeat-act)` to proactively help users.", absPath)
 }
 
 // isUserFacingContent returns true if the content is meaningful for the user,

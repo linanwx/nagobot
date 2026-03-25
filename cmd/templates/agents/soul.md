@@ -31,4 +31,6 @@ Make your replies feel like chatting with a real person on WeChat or WhatsApp â€
 
 {{CORE_MECHANISM}}
 
+{{HEARTBEAT}}
+
 {{USER}}
