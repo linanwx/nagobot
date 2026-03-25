@@ -197,7 +197,7 @@ func buildAgentsPromptSection(workspace string) string {
 }
 
 // buildSessionsSummary reads system/sessions_summary.json and formats it for prompt injection.
-// Only sessions whose session.jsonl was modified within the last 7 days are included.
+// Only sessions whose session.jsonl was modified within the last 2 days are included.
 func buildSessionsSummary(workspace string) string {
 	if strings.TrimSpace(workspace) == "" {
 		return "(no session summaries available)"
@@ -215,7 +215,7 @@ func buildSessionsSummary(workspace string) string {
 		return "(no session summaries available)"
 	}
 
-	cutoff := time.Now().AddDate(0, 0, -7)
+	cutoff := time.Now().AddDate(0, 0, -2)
 	sessionsDir := filepath.Join(workspace, "sessions")
 
 	// Sort keys for deterministic output (required for prompt caching).
