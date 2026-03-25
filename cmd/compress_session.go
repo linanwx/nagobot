@@ -104,7 +104,7 @@ func runCompressSession(_ *cobra.Command, args []string) error {
 		newMessages := make([]provider.Message, 0, len(tail)+1)
 		newMessages = append(newMessages, tail...)
 		wrappedContent := msg.BuildSystemMessage("compression_summary", nil, content)
-		newMessages = append(newMessages, provider.Message{Role: "assistant", Content: wrappedContent, Timestamp: now})
+		newMessages = append(newMessages, provider.Message{Role: "assistant", Content: wrappedContent, Timestamp: now, Source: "compression"})
 		orig.Messages = newMessages
 
 		// 4. Append summary to daily memory file.
