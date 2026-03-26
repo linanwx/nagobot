@@ -371,10 +371,28 @@ func computeToolCompressed(m *provider.Message, idx int, lastSkillLoad map[strin
 		}
 		return ""
 	}
+	// Expired: stale tool results → header-only after compressExpireAge.
+	// read_file content may be outdated; web results are certainly stale.
+	if expiredToolHeaderOnly[m.Name] && !m.Timestamp.IsZero() && time.Since(m.Timestamp) > compressExpireAge {
+		return marshalCompressed(compressedHeader{
+			Compressed: m.Name, Original: len(m.Content), Outdated: true,
+		}, "[compressed — call "+m.Name+" again to get fresh content if needed]")
+	}
 	if runeLen(m.Content) <= softTrimHeadRunes+softTrimTailRunes || strings.Contains(m.Content, "<<media:") {
 		return ""
 	}
 	return softTrimWithHint(m.Content, m.Name, m.ID)
+}
+
+// expiredToolHeaderOnly lists tools whose results should be compressed to
+// header-only after compressExpireAge (2h). These tools return content that
+// becomes stale over time (file may change, web results outdated).
+var expiredToolHeaderOnly = map[string]bool{
+	"read_file":  true,
+	"web_fetch":  true,
+	"web_search": true,
+	"grep":       true,
+	"health":     true,
 }
 
 // computeWakeCompressed returns the Compressed value for a user message with wake YAML frontmatter.
