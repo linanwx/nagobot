@@ -187,9 +187,43 @@ func (t *CheckThreadTool) run(_ context.Context, args json.RawMessage) string {
 
 	info, found := t.checker.ThreadStatus(id)
 	if !found {
-		return fmt.Sprintf("Error: thread %q not found", id)
+		return toolResult("check_thread", map[string]any{
+			"thread_id": id,
+			"found":     false,
+		}, "Thread not found. Threads are in-memory and lost on restart. "+
+			"If this was a child thread that should have completed, consider re-spawning it or handling the task directly.")
 	}
 
-	result, _ := json.Marshal(info)
-	return string(result)
+	fields := map[string]any{
+		"thread_id":  info.ID,
+		"session":    info.SessionKey,
+		"state":      info.State,
+		"pending":    info.Pending,
+	}
+	if info.Iterations > 0 {
+		fields["iterations"] = info.Iterations
+	}
+	if info.TotalToolCalls > 0 {
+		fields["total_tool_calls"] = info.TotalToolCalls
+	}
+	if info.CurrentTool != "" {
+		fields["current_tool"] = info.CurrentTool
+	}
+	if info.ElapsedSec > 0 {
+		fields["elapsed_sec"] = info.ElapsedSec
+	}
+
+	var hint string
+	switch info.State {
+	case "running":
+		hint = "Thread is still running. It will wake the parent thread via child_completed when done. " +
+			"You can call sleep_thread to end this turn, or tell the user results will follow shortly."
+	case "pending":
+		hint = "Thread is queued and waiting to run. It will wake the parent thread when done. " +
+			"You can call sleep_thread to end this turn, or tell the user results will follow shortly."
+	case "idle":
+		hint = "Thread is idle — it has finished its current task. " +
+			"If you expected a child_completed message and didn't receive one, the result may have already been delivered."
+	}
+	return toolResult("check_thread", fields, hint)
 }
