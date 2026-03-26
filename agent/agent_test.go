@@ -98,6 +98,7 @@ func TestAllAgentsBuild_NoUnresolvedPlaceholders(t *testing.T) {
 			a.Set("SKILLS", "skill_x: does X\nskill_y: does Y")
 			a.Set("TASK", "Test task content")
 			a.Set("USER", "## User Preferences\n\nTest user preferences")
+			a.Set("HEARTBEAT", "## Heartbeat\n\nTest heartbeat section")
 
 			prompt := a.Build()
 
