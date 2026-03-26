@@ -57,6 +57,7 @@ func (a *Agent) Build() string {
 		// {{USER}} is resolved as a runtime var in thread/run.go (per-session).
 		prompt = strings.ReplaceAll(prompt, "{{AGENTS}}", buildAgentsPromptSection(a.workspace))
 		prompt = strings.ReplaceAll(prompt, "{{SESSIONS_SUMMARY}}", buildSessionsSummary(a.workspace))
+		prompt = strings.ReplaceAll(prompt, "{{WORLD_KNOWLEDGE}}", buildWorldKnowledge(a.workspace))
 	}
 
 	// Auto-resolve {{DATE}} and {{CALENDAR}} from current time + agent timezone.
@@ -194,6 +195,22 @@ func buildAgentsPromptSection(workspace string) string {
 	}
 	reg := NewRegistry(workspace)
 	return reg.BuildPromptSection()
+}
+
+// buildWorldKnowledge reads system/world_knowledge.md and returns its content for prompt injection.
+func buildWorldKnowledge(workspace string) string {
+	if strings.TrimSpace(workspace) == "" {
+		return "(no world knowledge available)"
+	}
+	data, err := os.ReadFile(filepath.Join(workspace, "system", "world_knowledge.md"))
+	if err != nil {
+		return "(no world knowledge available)"
+	}
+	content := strings.TrimSpace(string(data))
+	if content == "" {
+		return "(no world knowledge available)"
+	}
+	return content
 }
 
 // buildSessionsSummary reads system/sessions_summary.json and formats it for prompt injection.

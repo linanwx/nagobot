@@ -47,6 +47,10 @@ The skills available in this system are listed below. The `use_skill` tool is th
 
 {{SKILLS}}
 
+## World Knowledge
+
+{{WORLD_KNOWLEDGE}}
+
 ## Active Sessions
 
 {{SESSIONS_SUMMARY}}
