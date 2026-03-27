@@ -160,6 +160,8 @@ type ChannelsInfo struct {
 	SessionAgents map[string]string `json:"sessionAgents,omitempty" yaml:"session_agents,omitempty"`
 	Telegram    *TelegramInfo     `json:"telegram,omitempty" yaml:"telegram,omitempty"`
 	Discord     *DiscordInfo      `json:"discord,omitempty" yaml:"discord,omitempty"`
+	Feishu      *FeishuInfo       `json:"feishu,omitempty" yaml:"feishu,omitempty"`
+	WeCom       *WeComInfo        `json:"wecom,omitempty" yaml:"wecom,omitempty"`
 	Web         *WebInfo          `json:"web,omitempty" yaml:"web,omitempty"`
 }
 
@@ -174,6 +176,16 @@ type DiscordInfo struct {
 	Configured      bool     `json:"configured" yaml:"configured"`
 	AllowedGuildIDs []string `json:"allowedGuildIDs,omitempty" yaml:"allowed_guild_ids,omitempty"`
 	AllowedUserIDs  []string `json:"allowedUserIDs,omitempty" yaml:"allowed_user_ids,omitempty"`
+}
+
+// FeishuInfo contains Feishu channel config.
+type FeishuInfo struct {
+	Configured bool `json:"configured" yaml:"configured"`
+}
+
+// WeComInfo contains WeCom channel config.
+type WeComInfo struct {
+	Configured bool `json:"configured" yaml:"configured"`
 }
 
 // WebInfo contains Web channel config.

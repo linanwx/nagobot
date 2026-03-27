@@ -35,11 +35,13 @@ Supported channels:
   - feishu: Feishu (Lark) bot
   - discord: Discord bot
   - web: Browser chat UI (http + websocket)
+  - wecom: WeCom (WeChat Work) AI Bot
 
 Examples:
   nagobot serve              # Start all configured channels
   nagobot serve --telegram   # Start with Telegram bot only
   nagobot serve --discord    # Start with Discord bot only
+  nagobot serve --wecom      # Start with WeCom bot only
   nagobot serve --web        # Start Web chat channel only`,
 	RunE: runServe,
 }
@@ -49,6 +51,7 @@ var (
 	serveFeishu   bool
 	serveDiscord  bool
 	serveWeb      bool
+	serveWeCom    bool
 )
 
 func init() {
@@ -56,6 +59,7 @@ func init() {
 	serveCmd.Flags().BoolVar(&serveFeishu, "feishu", false, "Enable Feishu (Lark) bot channel")
 	serveCmd.Flags().BoolVar(&serveDiscord, "discord", false, "Enable Discord bot channel")
 	serveCmd.Flags().BoolVar(&serveWeb, "web", false, "Enable Web chat channel")
+	serveCmd.Flags().BoolVar(&serveWeCom, "wecom", false, "Enable WeCom bot channel")
 	rootCmd.AddCommand(serveCmd)
 }
 
@@ -117,22 +121,25 @@ func runServe(cmd *cobra.Command, args []string) error {
 		}
 	})
 
-	finalServeTelegram, finalServeFeishu, finalServeDiscord, finalServeWeb, err := resolveServeTargets(cmd)
+	targets, err := resolveServeTargets(cmd)
 	if err != nil {
 		return err
 	}
 
-	if finalServeWeb {
+	if targets.web {
 		chManager.Register(channel.NewWebChannel(cfg))
 	}
-	if finalServeTelegram {
+	if targets.telegram {
 		chManager.Register(channel.NewTelegramChannel(cfg))
 	}
-	if finalServeFeishu {
+	if targets.feishu {
 		chManager.Register(channel.NewFeishuChannel(cfg))
 	}
-	if finalServeDiscord {
+	if targets.discord {
 		chManager.Register(channel.NewDiscordChannel(cfg))
+	}
+	if targets.wecom {
+		chManager.Register(channel.NewWeComChannel(cfg))
 	}
 	cronCh := channel.NewCronChannel(cfg)
 	chManager.Register(cronCh)
@@ -363,6 +370,27 @@ func buildDefaultSinkFor(chMgr *channel.Manager, cfg *config.Config, sessionsDir
 			}
 		}
 
+		// wecom:{userID} or wecom:group:{chatID} → send to that user/group.
+		if strings.HasPrefix(sessionKey, "wecom:") {
+			target := strings.TrimPrefix(sessionKey, "wecom:")
+			if target != "" {
+				label := "your response will be sent to wecom user " + target
+				if strings.HasPrefix(target, "group:") {
+					label = "your response will be sent to wecom group " + strings.TrimPrefix(target, "group:")
+				}
+				return thread.Sink{
+					Label:     label,
+					Chunkable: true,
+					Send: func(ctx context.Context, response string) error {
+						if strings.TrimSpace(response) == "" {
+							return nil
+						}
+						return chMgr.SendTo(ctx, "wecom", response, target)
+					},
+				}
+			}
+		}
+
 		// "cli" → socket channel.
 		if sessionKey == "cli" {
 			if _, ok := chMgr.Get("socket"); ok {
@@ -384,39 +412,48 @@ func buildDefaultSinkFor(chMgr *channel.Manager, cfg *config.Config, sessionsDir
 }
 
 
-func resolveServeTargets(cmd *cobra.Command) (finalServeTelegram, finalServeFeishu, finalServeDiscord, finalServeWeb bool, err error) {
+type serveTargets struct {
+	telegram, feishu, discord, web, wecom bool
+}
+
+func resolveServeTargets(cmd *cobra.Command) (serveTargets, error) {
 	if cmd == nil {
-		return false, false, false, false, fmt.Errorf("serve command is nil")
+		return serveTargets{}, fmt.Errorf("serve command is nil")
 	}
 	flags := cmd.Flags()
 	telegramChanged := flags.Changed("telegram")
 	feishuChanged := flags.Changed("feishu")
 	discordChanged := flags.Changed("discord")
 	webChanged := flags.Changed("web")
+	wecomChanged := flags.Changed("wecom")
 
 	// No explicit channel flags -> default to all channels.
-	if !telegramChanged && !feishuChanged && !discordChanged && !webChanged {
-		return true, true, true, true, nil
+	if !telegramChanged && !feishuChanged && !discordChanged && !webChanged && !wecomChanged {
+		return serveTargets{true, true, true, true, true}, nil
 	}
 
 	// Any explicit channel flag -> use explicit switches only.
+	var t serveTargets
 	if telegramChanged {
-		finalServeTelegram = serveTelegram
+		t.telegram = serveTelegram
 	}
 	if feishuChanged {
-		finalServeFeishu = serveFeishu
+		t.feishu = serveFeishu
 	}
 	if discordChanged {
-		finalServeDiscord = serveDiscord
+		t.discord = serveDiscord
 	}
 	if webChanged {
-		finalServeWeb = serveWeb
+		t.web = serveWeb
+	}
+	if wecomChanged {
+		t.wecom = serveWeCom
 	}
 
-	if !finalServeTelegram && !finalServeFeishu && !finalServeDiscord && !finalServeWeb {
-		return false, false, false, false, fmt.Errorf("no channels enabled; use --telegram, --feishu, --discord, or --web")
+	if !t.telegram && !t.feishu && !t.discord && !t.web && !t.wecom {
+		return serveTargets{}, fmt.Errorf("no channels enabled; use --telegram, --feishu, --discord, --web, or --wecom")
 	}
-	return finalServeTelegram, finalServeFeishu, finalServeDiscord, finalServeWeb, nil
+	return t, nil
 }
 
 // refreshChannelsLoop periodically checks config for new channel tokens and
@@ -445,6 +482,7 @@ var dynamicChannels = []channelSpec{
 	{"telegram", func(c *config.Config) bool { return c.GetTelegramToken() != "" }, func(c *config.Config) channel.Channel { return channel.NewTelegramChannel(c) }},
 	{"discord", func(c *config.Config) bool { return c.GetDiscordToken() != "" }, func(c *config.Config) channel.Channel { return channel.NewDiscordChannel(c) }},
 	{"feishu", func(c *config.Config) bool { return c.GetFeishuAppID() != "" }, func(c *config.Config) channel.Channel { return channel.NewFeishuChannel(c) }},
+	{"wecom", func(c *config.Config) bool { return c.GetWeComBotID() != "" }, func(c *config.Config) channel.Channel { return channel.NewWeComChannel(c) }},
 }
 
 func refreshChannels(ctx context.Context, chMgr *channel.Manager, dispatcher *Dispatcher) {

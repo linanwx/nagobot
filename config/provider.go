@@ -186,6 +186,36 @@ func (c *Config) GetDiscordAllowedUserIDs() []string {
 	return c.Channels.Discord.AllowedUserIDs
 }
 
+// GetWeComBotID returns the WeCom AI Bot ID (env overrides config).
+func (c *Config) GetWeComBotID() string {
+	if v := strings.TrimSpace(os.Getenv("WECOM_BOT_ID")); v != "" {
+		return v
+	}
+	if c == nil || c.Channels == nil || c.Channels.WeCom == nil {
+		return ""
+	}
+	return c.Channels.WeCom.BotID
+}
+
+// GetWeComSecret returns the WeCom AI Bot secret (env overrides config).
+func (c *Config) GetWeComSecret() string {
+	if v := strings.TrimSpace(os.Getenv("WECOM_SECRET")); v != "" {
+		return v
+	}
+	if c == nil || c.Channels == nil || c.Channels.WeCom == nil {
+		return ""
+	}
+	return c.Channels.WeCom.Secret
+}
+
+// GetWeComAllowedUserIDs returns the WeCom allowed user IDs.
+func (c *Config) GetWeComAllowedUserIDs() []string {
+	if c == nil || c.Channels == nil || c.Channels.WeCom == nil {
+		return nil
+	}
+	return c.Channels.WeCom.AllowedUserIDs
+}
+
 // GetOAuthToken returns the OAuth token config for the given provider name.
 func (c *Config) GetOAuthToken(providerName string) *OAuthTokenConfig {
 	if c == nil {

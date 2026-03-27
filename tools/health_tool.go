@@ -32,6 +32,12 @@ type HealthTelegramInfo = healthsnap.TelegramInfo
 // HealthDiscordInfo holds Discord config for health output.
 type HealthDiscordInfo = healthsnap.DiscordInfo
 
+// HealthFeishuInfo holds Feishu config for health output.
+type HealthFeishuInfo = healthsnap.FeishuInfo
+
+// HealthWeComInfo holds WeCom config for health output.
+type HealthWeComInfo = healthsnap.WeComInfo
+
 // HealthWebInfo holds Web config for health output.
 type HealthWebInfo = healthsnap.WebInfo
 

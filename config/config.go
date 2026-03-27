@@ -304,6 +304,7 @@ type ChannelsConfig struct {
 	Feishu      *FeishuChannelConfig   `json:"feishu,omitempty" yaml:"feishu,omitempty"`
 	Discord     *DiscordChannelConfig  `json:"discord,omitempty" yaml:"discord,omitempty"`
 	Web         *WebChannelConfig      `json:"web,omitempty" yaml:"web,omitempty"`
+	WeCom       *WeComChannelConfig    `json:"wecom,omitempty" yaml:"wecom,omitempty"`
 }
 
 // TelegramChannelConfig contains Telegram bot configuration.
@@ -331,4 +332,12 @@ type DiscordChannelConfig struct {
 // WebChannelConfig contains Web chat configuration.
 type WebChannelConfig struct {
 	Addr string `json:"addr,omitempty" yaml:"addr,omitempty"` // default: 127.0.0.1:8080
+}
+
+// WeComChannelConfig contains WeCom (WeChat Work) AI Bot configuration.
+// Uses WebSocket long connection (no public URL needed).
+type WeComChannelConfig struct {
+	BotID          string   `json:"botId" yaml:"botId"`
+	Secret         string   `json:"secret" yaml:"secret"`
+	AllowedUserIDs []string `json:"allowedUserIds,omitempty" yaml:"allowedUserIds,omitempty"` // empty = allow all
 }

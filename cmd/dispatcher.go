@@ -146,6 +146,7 @@ var chatGroupTypes = map[string][]string{
 	"telegram:": {"group", "supergroup"},
 	"feishu:":   {"group"},
 	"discord:":  {"group"},
+	"wecom:":    {"group"},
 }
 
 // route determines the session key for a message.

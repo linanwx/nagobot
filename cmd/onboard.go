@@ -356,6 +356,57 @@ func runOnboard(cmd *cobra.Command, _ []string) error {
 		}
 	}
 
+	// Step 8: optional WeCom (WeChat Work)
+	configureWeCom := defaults.wecomBotID != ""
+	err = huh.NewForm(
+		huh.NewGroup(
+			huh.NewConfirm().
+				Title("Configure WeCom (WeChat Work) AI Bot?").
+				Description("Setup: 企业微信管理后台 → 应用管理 → 创建应用\n"+
+					"1. 开启「API 模式机器人」\n"+
+					"2. 选择「长连接」类型\n"+
+					"3. 复制 Bot ID (aib-xxx) 和 Secret\n"+
+					"4. 无需配置回调 URL（WebSocket 长连接，无需公网 IP）").
+				Value(&configureWeCom),
+		),
+	).Run()
+	if err != nil {
+		return err
+	}
+
+	wecomBotID := defaults.wecomBotID
+	wecomSecret := defaults.wecomSecret
+	if configureWeCom {
+		err = huh.NewForm(
+			huh.NewGroup(
+				huh.NewInput().
+					Title("WeCom Bot ID").
+					Description("Starts with 'aib-', found in the AI Bot settings page.").
+					Validate(func(s string) error {
+						if strings.TrimSpace(s) == "" {
+							return fmt.Errorf("Bot ID is required")
+						}
+						return nil
+					}).
+					Value(&wecomBotID),
+				huh.NewInput().
+					Title("WeCom Secret").
+					Description("Found alongside the Bot ID in the AI Bot settings page.").
+					EchoMode(huh.EchoModePassword).
+					Validate(func(s string) error {
+						if strings.TrimSpace(s) == "" {
+							return fmt.Errorf("Secret is required")
+						}
+						return nil
+					}).
+					Value(&wecomSecret),
+			),
+		).Run()
+		if err != nil {
+			return err
+		}
+	}
+
 	// --- apply config ---
 
 	// Start from existing config to preserve all provider keys and settings.
@@ -387,6 +438,14 @@ func runOnboard(cmd *cobra.Command, _ []string) error {
 		}
 		cfg.Channels.Feishu.AppID = strings.TrimSpace(feishuAppID)
 		cfg.Channels.Feishu.AppSecret = strings.TrimSpace(feishuAppSecret)
+	}
+
+	if configureWeCom {
+		if cfg.Channels.WeCom == nil {
+			cfg.Channels.WeCom = &config.WeComChannelConfig{}
+		}
+		cfg.Channels.WeCom.BotID = strings.TrimSpace(wecomBotID)
+		cfg.Channels.WeCom.Secret = strings.TrimSpace(wecomSecret)
 	}
 
 	// --- create directories and files ---
@@ -438,6 +497,8 @@ type onboardDefaults struct {
 	discordToken    string
 	feishuAppID     string
 	feishuAppSecret string
+	wecomBotID      string
+	wecomSecret     string
 }
 
 func loadOnboardDefaults(cfg *config.Config) onboardDefaults {
@@ -452,6 +513,8 @@ func loadOnboardDefaults(cfg *config.Config) onboardDefaults {
 		discordToken:    cfg.GetDiscordToken(),
 		feishuAppID:     cfg.GetFeishuAppID(),
 		feishuAppSecret: cfg.GetFeishuAppSecret(),
+		wecomBotID:      cfg.GetWeComBotID(),
+		wecomSecret:     cfg.GetWeComSecret(),
 	}
 }
 

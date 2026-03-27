@@ -175,6 +175,16 @@ func buildThreadManager(cfg *config.Config, enableSessions bool) (*thread.Manage
 				AllowedUserIDs:  ch.Discord.AllowedUserIDs,
 			}
 		}
+		if ch.Feishu != nil {
+			info.Feishu = &tools.HealthFeishuInfo{
+				Configured: ch.Feishu.AppID != "",
+			}
+		}
+		if ch.WeCom != nil {
+			info.WeCom = &tools.HealthWeComInfo{
+				Configured: ch.WeCom.BotID != "",
+			}
+		}
 		if ch.Web != nil {
 			info.Web = &tools.HealthWebInfo{
 				Addr: ch.Web.Addr,

@@ -31,6 +31,7 @@ const (
 	WakeWeb            = msg.WakeWeb
 	WakeDiscord        = msg.WakeDiscord
 	WakeFeishu         = msg.WakeFeishu
+	WakeWeCom          = msg.WakeWeCom
 	WakeUserActive     = msg.WakeUserActive
 	WakeChildTask      = msg.WakeChildTask
 	WakeChildCompleted = msg.WakeChildCompleted
