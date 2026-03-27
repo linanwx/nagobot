@@ -43,21 +43,28 @@ type MetricsSummary struct {
 
 // ProviderStats groups metrics by provider with model breakdown.
 type ProviderStats struct {
-	Turns        int                    `json:"turns" yaml:"turns"`
-	AvgDurMs     int64                  `json:"avgDurationMs" yaml:"avgDurationMs"`
-	PromptTokens int                    `json:"promptTokens" yaml:"promptTokens"`
-	CachedTokens int                    `json:"cachedTokens" yaml:"cachedTokens"`
-	CacheHitRate string                 `json:"cacheHitRate" yaml:"cacheHitRate"`
-	Models       map[string]*GroupStats `json:"models,omitempty" yaml:"models,omitempty"`
+	Turns                    int                    `json:"turns" yaml:"turns"`
+	AvgDurMs                 int64                  `json:"avgDurationMs" yaml:"avgDurationMs"`
+	PromptTokens             int                    `json:"promptTokens" yaml:"promptTokens"`
+	CachedTokens             int                    `json:"cachedTokens" yaml:"cachedTokens"`
+	CacheEligiblePromptTokens int                   `json:"cacheEligiblePromptTokens,omitempty" yaml:"cacheEligiblePromptTokens,omitempty"`
+	CacheHitRate             string                 `json:"cacheHitRate" yaml:"cacheHitRate"`
+	Models                   map[string]*GroupStats `json:"models,omitempty" yaml:"models,omitempty"`
+}
+
+// isCacheUnreliable returns true for providers that don't reliably return cached_tokens.
+func isCacheUnreliable(providerName string) bool {
+	return strings.Contains(providerName, "openai-oauth")
 }
 
 // GroupStats holds aggregated metrics for a group.
 type GroupStats struct {
-	Turns        int    `json:"turns" yaml:"turns"`
-	AvgDurMs     int64  `json:"avgDurationMs" yaml:"avgDurationMs"`
-	PromptTokens int    `json:"promptTokens" yaml:"promptTokens"`
-	CachedTokens int    `json:"cachedTokens" yaml:"cachedTokens"`
-	CacheHitRate string `json:"cacheHitRate" yaml:"cacheHitRate"`
+	Turns                    int    `json:"turns" yaml:"turns"`
+	AvgDurMs                 int64  `json:"avgDurationMs" yaml:"avgDurationMs"`
+	PromptTokens             int    `json:"promptTokens" yaml:"promptTokens"`
+	CachedTokens             int    `json:"cachedTokens" yaml:"cachedTokens"`
+	CacheEligiblePromptTokens int   `json:"cacheEligiblePromptTokens,omitempty" yaml:"cacheEligiblePromptTokens,omitempty"`
+	CacheHitRate             string `json:"cacheHitRate" yaml:"cacheHitRate"`
 }
 
 // Query aggregates turn records for the given time window.
@@ -86,6 +93,8 @@ func Query(store *Store, window Window) *MetricsSummary {
 			errorCount++
 		}
 
+		cacheReliable := !isCacheUnreliable(r.Provider)
+
 		// By provider + model
 		ps, ok := summary.ByProvider[r.Provider]
 		if !ok {
@@ -96,6 +105,9 @@ func Query(store *Store, window Window) *MetricsSummary {
 		ps.AvgDurMs += r.DurationMs
 		ps.PromptTokens += r.PromptTokens
 		ps.CachedTokens += r.CachedTokens
+		if cacheReliable {
+			ps.CacheEligiblePromptTokens += r.PromptTokens
+		}
 		ms, ok := ps.Models[r.Model]
 		if !ok {
 			ms = &GroupStats{}
@@ -105,6 +117,9 @@ func Query(store *Store, window Window) *MetricsSummary {
 		ms.AvgDurMs += r.DurationMs
 		ms.PromptTokens += r.PromptTokens
 		ms.CachedTokens += r.CachedTokens
+		if cacheReliable {
+			ms.CacheEligiblePromptTokens += r.PromptTokens
+		}
 
 		// By agent
 		if r.Agent != "" {
@@ -117,6 +132,9 @@ func Query(store *Store, window Window) *MetricsSummary {
 			as.AvgDurMs += r.DurationMs
 			as.PromptTokens += r.PromptTokens
 			as.CachedTokens += r.CachedTokens
+			if cacheReliable {
+				as.CacheEligiblePromptTokens += r.PromptTokens
+			}
 		}
 
 		// By session
@@ -130,6 +148,9 @@ func Query(store *Store, window Window) *MetricsSummary {
 			ss.AvgDurMs += r.DurationMs
 			ss.PromptTokens += r.PromptTokens
 			ss.CachedTokens += r.CachedTokens
+			if cacheReliable {
+				ss.CacheEligiblePromptTokens += r.PromptTokens
+			}
 		}
 	}
 
@@ -143,23 +164,25 @@ func Query(store *Store, window Window) *MetricsSummary {
 	}
 
 	// Convert accumulated durations to averages and compute cache hit rates.
+	// Cache hit rate uses CacheEligiblePromptTokens (only from reliable providers)
+	// as denominator. If no eligible tokens, show N/A.
+	computeCacheRate := func(cachedTokens, eligiblePromptTokens int) string {
+		if eligiblePromptTokens <= 0 {
+			return "N/A"
+		}
+		return fmt.Sprintf("%.1f%%", float64(cachedTokens)/float64(eligiblePromptTokens)*100)
+	}
 	finalizeGroup := func(g *GroupStats) {
 		if g.Turns > 0 {
 			g.AvgDurMs /= int64(g.Turns)
 		}
-		if g.PromptTokens > 0 {
-			g.CacheHitRate = fmt.Sprintf("%.1f%%", float64(g.CachedTokens)/float64(g.PromptTokens)*100)
-		}
+		g.CacheHitRate = computeCacheRate(g.CachedTokens, g.CacheEligiblePromptTokens)
 	}
-	for provName, ps := range summary.ByProvider {
+	for _, ps := range summary.ByProvider {
 		if ps.Turns > 0 {
 			ps.AvgDurMs /= int64(ps.Turns)
 		}
-		if strings.Contains(provName, "openai-oauth") {
-			ps.CacheHitRate = "N/A"
-		} else if ps.PromptTokens > 0 {
-			ps.CacheHitRate = fmt.Sprintf("%.1f%%", float64(ps.CachedTokens)/float64(ps.PromptTokens)*100)
-		}
+		ps.CacheHitRate = computeCacheRate(ps.CachedTokens, ps.CacheEligiblePromptTokens)
 		for _, ms := range ps.Models {
 			finalizeGroup(ms)
 		}
