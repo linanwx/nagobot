@@ -318,31 +318,13 @@ func listFallbackStatus(cfg *config.Config) error {
 		ps := providerStatus{name: prov, models: models, balance: balanceMap[prov]}
 
 		bi := ps.balance
-		if bi == nil {
-			// No balance data at all — unreliable.
+		if bi.IsUnreliable() {
 			unreliable = append(unreliable, ps)
-			continue
-		}
-
-		// UnsupportedBalance checkers set Available=false with a reason string.
-		if !bi.Available && bi.Error != "" && bi.Error != "not configured" {
-			unreliable = append(unreliable, ps)
-			continue
-		}
-
-		// Check for exhausted balance.
-		if isBalanceExhausted(bi) {
+		} else if bi.IsExhausted() {
 			exhausted = append(exhausted, ps)
-			continue
+		} else {
+			available = append(available, ps)
 		}
-
-		// If only rate-limit entries (no monetary balance), treat as unreliable.
-		if !hasMonetaryBalance(bi) {
-			unreliable = append(unreliable, ps)
-			continue
-		}
-
-		available = append(available, ps)
 	}
 
 	fmt.Printf("---\ncommand: set-model\nmode: list-fallback\n---\n")
@@ -401,40 +383,6 @@ func listFallbackStatus(cfg *config.Config) error {
 	return nil
 }
 
-// isBalanceExhausted returns true if a provider's balance indicates it cannot serve requests.
-func isBalanceExhausted(bi *monitor.BalanceInfo) bool {
-	if bi.Error == "INSUFFICIENT CREDITS" {
-		return true
-	}
-	// Check all balance entries: if every monetary entry is <= 0, treat as exhausted.
-	// Skip rate-limit entries (req/min, tok/min) and informational entries (plan, status).
-	hasMonetary := false
-	allZero := true
-	for _, b := range bi.Balances {
-		switch b.Currency {
-		case "req/min", "tok/min", "plan", "status":
-			continue
-		}
-		hasMonetary = true
-		if b.Balance > 0 {
-			allZero = false
-		}
-	}
-	return hasMonetary && allZero
-}
-
-// hasMonetaryBalance returns true if the balance info contains at least one
-// monetary entry (not just rate limits or informational fields).
-func hasMonetaryBalance(bi *monitor.BalanceInfo) bool {
-	for _, b := range bi.Balances {
-		switch b.Currency {
-		case "req/min", "tok/min", "plan", "status":
-			continue
-		}
-		return true
-	}
-	return false
-}
 
 func printProviderModels(name string, models []string, bi *monitor.BalanceInfo) {
 	balanceStr := ""

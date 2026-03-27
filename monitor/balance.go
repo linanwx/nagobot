@@ -630,6 +630,59 @@ func LoadBalance(path string) ([]BalanceInfo, time.Time, error) {
 	return cache.Entries, cache.UpdatedAt, nil
 }
 
+// IsExhausted returns true if a provider's balance indicates it cannot serve requests.
+func (bi *BalanceInfo) IsExhausted() bool {
+	if bi == nil {
+		return false
+	}
+	if bi.Error == "INSUFFICIENT CREDITS" {
+		return true
+	}
+	hasMonetary := false
+	allZero := true
+	for _, b := range bi.Balances {
+		switch b.Currency {
+		case "req/min", "tok/min", "plan", "status":
+			continue
+		}
+		hasMonetary = true
+		if b.Balance > 0 {
+			allZero = false
+		}
+	}
+	return hasMonetary && allZero
+}
+
+// HasMonetaryBalance returns true if the balance info contains at least one
+// monetary entry (not just rate limits or informational fields).
+func (bi *BalanceInfo) HasMonetaryBalance() bool {
+	if bi == nil {
+		return false
+	}
+	for _, b := range bi.Balances {
+		switch b.Currency {
+		case "req/min", "tok/min", "plan", "status":
+			continue
+		}
+		return true
+	}
+	return false
+}
+
+// IsUnreliable returns true if balance data is missing, errored, or has no monetary entries.
+func (bi *BalanceInfo) IsUnreliable() bool {
+	if bi == nil {
+		return true
+	}
+	if !bi.Available && bi.Error != "" && bi.Error != "not configured" {
+		return true
+	}
+	if !bi.HasMonetaryBalance() {
+		return true
+	}
+	return false
+}
+
 // RunBalancePoller periodically queries all balance checkers and saves results to cachePath.
 func RunBalancePoller(ctx context.Context, interval time.Duration, cachePath string, checkers []BalanceChecker) {
 	// Run immediately on start.

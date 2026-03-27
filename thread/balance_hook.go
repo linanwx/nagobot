@@ -32,72 +32,94 @@ func (t *Thread) balanceWarningHook() turnHook {
 			return nil
 		}
 
-		var current *monitor.BalanceInfo
+		// Index by provider.
+		balanceMap := make(map[string]*monitor.BalanceInfo, len(entries))
 		for i := range entries {
-			if entries[i].Provider == provName {
-				current = &entries[i]
-				break
-			}
+			balanceMap[entries[i].Provider] = &entries[i]
 		}
+
+		current := balanceMap[provName]
 		if current == nil || !current.IsLow() {
 			return nil
 		}
 
-		// Build fallback list from cached balances.
-		var alternatives []string
-		for _, bi := range entries {
-			if bi.Provider == provName || !bi.Available || bi.IsLow() {
+		// Classify all configured providers using the same logic as set-model --list-fallback.
+		var available, exhausted, unreliable []fallbackEntry
+		for _, prov := range provider.SupportedProviders() {
+			if prov == provName {
 				continue
 			}
-			models := provider.SupportedModelsForProvider(bi.Provider)
+			models := provider.SupportedModelsForProvider(prov)
 			if len(models) == 0 {
 				continue
 			}
-			var balDetail string
-			for _, b := range bi.Balances {
-				if b.Detail != "" {
-					balDetail = b.Detail
-					break
-				}
-			}
-			line := fmt.Sprintf("- %s: %s", bi.Provider, strings.Join(models, ", "))
-			if balDetail != "" {
-				line += " (" + balDetail + ")"
-			}
-			alternatives = append(alternatives, line)
-		}
-
-		// Current balance detail.
-		var currentDetail string
-		for _, b := range current.Balances {
-			if b.Detail != "" {
-				currentDetail = b.Detail
-				break
+			bi := balanceMap[prov]
+			entry := fallbackEntry{name: prov, models: models, balance: bi}
+			if bi == nil || bi.IsUnreliable() {
+				unreliable = append(unreliable, entry)
+			} else if bi.IsExhausted() {
+				exhausted = append(exhausted, entry)
+			} else {
+				available = append(available, entry)
 			}
 		}
 
 		var sb strings.Builder
-		sb.WriteString(fmt.Sprintf("⚠ Provider %s balance is low", provName))
-		if currentDetail != "" {
-			sb.WriteString(fmt.Sprintf(" (%s)", currentDetail))
-		}
-		sb.WriteString(".\n")
-		if len(alternatives) > 0 {
-			sb.WriteString("Available alternatives:\n")
-			for _, alt := range alternatives {
-				sb.WriteString(alt + "\n")
+		sb.WriteString(fmt.Sprintf("⚠ Provider %s balance is low (%s).\n", provName, balanceSummary(current)))
+
+		if len(available) > 0 {
+			sb.WriteString("\nAvailable alternatives:\n")
+			for _, a := range available {
+				sb.WriteString(fmt.Sprintf("  %s: %s", a.name, strings.Join(a.models, ", ")))
+				if a.balance != nil {
+					sb.WriteString(fmt.Sprintf(" [%s]", balanceSummary(a.balance)))
+				}
+				sb.WriteString("\n")
 			}
-			sb.WriteString("Suggest the user switch. Use the set-model skill to apply changes.")
-		} else {
-			sb.WriteString("No alternative providers with sufficient balance found.")
 		}
+		if len(exhausted) > 0 {
+			sb.WriteString("\nBalance exhausted:\n")
+			for _, e := range exhausted {
+				sb.WriteString(fmt.Sprintf("  %s: %s\n", e.name, strings.Join(e.models, ", ")))
+			}
+		}
+		if len(unreliable) > 0 {
+			sb.WriteString("\nUnreliable (cannot verify balance):\n")
+			for _, u := range unreliable {
+				sb.WriteString(fmt.Sprintf("  %s: %s\n", u.name, strings.Join(u.models, ", ")))
+			}
+		}
+
+		sb.WriteString("\nSuggest the user switch affected model routing. Use the set-model skill to apply changes.")
 
 		logger.Info("balance warning injected",
 			"sessionKey", tc.SessionKey,
 			"provider", provName,
-			"detail", currentDetail,
 		)
 
 		return []string{sb.String()}
 	}
+}
+
+type fallbackEntry struct {
+	name    string
+	models  []string
+	balance *monitor.BalanceInfo
+}
+
+// balanceSummary returns a short human-readable summary of balance entries.
+func balanceSummary(bi *monitor.BalanceInfo) string {
+	if bi == nil {
+		return "unknown"
+	}
+	var parts []string
+	for _, b := range bi.Balances {
+		if b.Detail != "" {
+			parts = append(parts, b.Detail)
+		}
+	}
+	if len(parts) == 0 {
+		return "no details"
+	}
+	return strings.Join(parts, "; ")
 }
