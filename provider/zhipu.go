@@ -20,9 +20,10 @@ const (
 
 func init() {
 	RegisterProvider("zhipu-cn", ProviderRegistration{
-		Models: []string{"glm-5"},
+		Models: []string{"glm-5", "glm-5-turbo"},
 		ContextWindows: map[string]int{
-			"glm-5": 200000,
+			"glm-5":       200000,
+			"glm-5-turbo": 202752,
 		},
 		EnvKey:  "ZHIPU_API_KEY",
 		EnvBase: "ZHIPU_API_BASE",
@@ -32,9 +33,10 @@ func init() {
 	})
 
 	RegisterProvider("zhipu-global", ProviderRegistration{
-		Models: []string{"glm-5"},
+		Models: []string{"glm-5", "glm-5-turbo"},
 		ContextWindows: map[string]int{
-			"glm-5": 200000,
+			"glm-5":       200000,
+			"glm-5-turbo": 202752,
 		},
 		EnvKey:  "ZHIPU_GLOBAL_API_KEY",
 		EnvBase: "ZHIPU_GLOBAL_API_BASE",
