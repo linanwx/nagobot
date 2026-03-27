@@ -125,6 +125,7 @@ const (
 	WakeWeb            WakeSource = "web"
 	WakeDiscord        WakeSource = "discord"
 	WakeFeishu         WakeSource = "feishu"
+	WakeSocket         WakeSource = "socket"
 	WakeUserActive     WakeSource = "user_active"
 	WakeChildTask      WakeSource = "child_task"
 	WakeChildCompleted WakeSource = "child_completed"
@@ -141,7 +142,7 @@ const (
 // user-initiated channel (telegram, discord, cli, web, feishu).
 func IsUserVisibleSource(source WakeSource) bool {
 	switch source {
-	case WakeTelegram, WakeDiscord, WakeCLI, WakeWeb, WakeFeishu:
+	case WakeTelegram, WakeDiscord, WakeCLI, WakeWeb, WakeFeishu, WakeSocket:
 		return true
 	}
 	return false

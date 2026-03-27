@@ -30,6 +30,30 @@ type BalanceInfo struct {
 	Error     string         `json:"error,omitempty" yaml:"error,omitempty"`
 }
 
+// IsLow returns true if any balance entry is below the low-balance threshold.
+func (bi *BalanceInfo) IsLow() bool {
+	if bi == nil || !bi.Available || len(bi.Balances) == 0 {
+		return false
+	}
+	for _, b := range bi.Balances {
+		switch b.Currency {
+		case "CNY":
+			if b.Balance > 0 && b.Balance < 5 {
+				return true
+			}
+		case "USD", "credits":
+			if b.Balance > 0 && b.Balance < 0.5 {
+				return true
+			}
+		default:
+			if b.Limit > 0 && b.Balance/b.Limit < 0.05 {
+				return true
+			}
+		}
+	}
+	return false
+}
+
 // BalanceChecker checks account balance for a provider.
 type BalanceChecker interface {
 	Provider() string
