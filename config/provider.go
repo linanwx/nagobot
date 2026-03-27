@@ -143,33 +143,6 @@ func (c *Config) GetFeishuAppSecret() string {
 	return c.Channels.Feishu.AppSecret
 }
 
-// GetFeishuVerificationToken returns the Feishu verification token.
-func (c *Config) GetFeishuVerificationToken() string {
-	if c == nil || c.Channels == nil || c.Channels.Feishu == nil {
-		return ""
-	}
-	return c.Channels.Feishu.VerificationToken
-}
-
-// GetFeishuEncryptKey returns the Feishu encrypt key.
-func (c *Config) GetFeishuEncryptKey() string {
-	if c == nil || c.Channels == nil || c.Channels.Feishu == nil {
-		return ""
-	}
-	return c.Channels.Feishu.EncryptKey
-}
-
-// GetFeishuWebhookAddr returns the Feishu webhook listen address (default 127.0.0.1:9090).
-func (c *Config) GetFeishuWebhookAddr() string {
-	if c == nil || c.Channels == nil || c.Channels.Feishu == nil {
-		return "127.0.0.1:9090"
-	}
-	if v := strings.TrimSpace(c.Channels.Feishu.WebhookAddr); v != "" {
-		return v
-	}
-	return "127.0.0.1:9090"
-}
-
 // GetFeishuAdminOpenID returns the Feishu admin open ID.
 func (c *Config) GetFeishuAdminOpenID() string {
 	if c == nil || c.Channels == nil || c.Channels.Feishu == nil {

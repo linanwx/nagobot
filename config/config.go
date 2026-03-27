@@ -313,14 +313,12 @@ type TelegramChannelConfig struct {
 }
 
 // FeishuChannelConfig contains Feishu (Lark) bot configuration.
+// Uses WebSocket long connection (no public URL needed).
 type FeishuChannelConfig struct {
-	AppID             string   `json:"appId" yaml:"appId"`
-	AppSecret         string   `json:"appSecret" yaml:"appSecret"`
-	VerificationToken string   `json:"verificationToken,omitempty" yaml:"verificationToken,omitempty"`
-	EncryptKey        string   `json:"encryptKey,omitempty" yaml:"encryptKey,omitempty"`
-	WebhookAddr       string   `json:"webhookAddr,omitempty" yaml:"webhookAddr,omitempty"` // default: 127.0.0.1:9090
-	AdminOpenID       string   `json:"adminOpenId,omitempty" yaml:"adminOpenId,omitempty"`
-	AllowedOpenIDs    []string `json:"allowedOpenIds,omitempty" yaml:"allowedOpenIds,omitempty"` // empty = allow all
+	AppID          string   `json:"appId" yaml:"appId"`
+	AppSecret      string   `json:"appSecret" yaml:"appSecret"`
+	AdminOpenID    string   `json:"adminOpenId,omitempty" yaml:"adminOpenId,omitempty"`
+	AllowedOpenIDs []string `json:"allowedOpenIds,omitempty" yaml:"allowedOpenIds,omitempty"` // empty = allow all
 }
 
 // DiscordChannelConfig contains Discord bot configuration.

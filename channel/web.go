@@ -860,12 +860,6 @@ func redactConfig(cfg *config.Config) {
 			if cfg.Channels.Feishu.AppSecret != "" {
 				cfg.Channels.Feishu.AppSecret = redactedValue
 			}
-			if cfg.Channels.Feishu.VerificationToken != "" {
-				cfg.Channels.Feishu.VerificationToken = redactedValue
-			}
-			if cfg.Channels.Feishu.EncryptKey != "" {
-				cfg.Channels.Feishu.EncryptKey = redactedValue
-			}
 		}
 	}
 
