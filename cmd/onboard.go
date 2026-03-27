@@ -303,6 +303,53 @@ func runOnboard(cmd *cobra.Command, _ []string) error {
 		}
 	}
 
+	// Step 7: optional Feishu
+	configureFeishu := defaults.feishuAppID != ""
+	err = huh.NewForm(
+		huh.NewGroup(
+			huh.NewConfirm().
+				Title("Configure Feishu (Lark) bot?").
+				Description("Setup: https://open.feishu.cn/app → Create App → get App ID & App Secret.\nEnable permissions: im:message, im:message:send_as_bot.\nEvents: subscribe im.message.receive_v1 using long connection mode.").
+				Value(&configureFeishu),
+		),
+	).Run()
+	if err != nil {
+		return err
+	}
+
+	feishuAppID := defaults.feishuAppID
+	feishuAppSecret := defaults.feishuAppSecret
+	if configureFeishu {
+		err = huh.NewForm(
+			huh.NewGroup(
+				huh.NewInput().
+					Title("Feishu App ID").
+					Description("Found in your app's 'Credentials & Basic Info' page.").
+					Validate(func(s string) error {
+						if strings.TrimSpace(s) == "" {
+							return fmt.Errorf("App ID is required")
+						}
+						return nil
+					}).
+					Value(&feishuAppID),
+				huh.NewInput().
+					Title("Feishu App Secret").
+					Description("Found in your app's 'Credentials & Basic Info' page.").
+					EchoMode(huh.EchoModePassword).
+					Validate(func(s string) error {
+						if strings.TrimSpace(s) == "" {
+							return fmt.Errorf("App Secret is required")
+						}
+						return nil
+					}).
+					Value(&feishuAppSecret),
+			),
+		).Run()
+		if err != nil {
+			return err
+		}
+	}
+
 	// --- apply config ---
 
 	// Start from existing config to preserve all provider keys and settings.
@@ -326,6 +373,14 @@ func runOnboard(cmd *cobra.Command, _ []string) error {
 			cfg.Channels.Discord = &config.DiscordChannelConfig{}
 		}
 		cfg.Channels.Discord.Token = strings.TrimSpace(discordToken)
+	}
+
+	if configureFeishu {
+		if cfg.Channels.Feishu == nil {
+			cfg.Channels.Feishu = &config.FeishuChannelConfig{}
+		}
+		cfg.Channels.Feishu.AppID = strings.TrimSpace(feishuAppID)
+		cfg.Channels.Feishu.AppSecret = strings.TrimSpace(feishuAppSecret)
 	}
 
 	// --- create directories and files ---
@@ -370,11 +425,13 @@ func runOnboard(cmd *cobra.Command, _ []string) error {
 
 // onboardDefaults holds pre-filled values from existing config.
 type onboardDefaults struct {
-	provider     string
-	model        string
-	tgToken      string
-	tgAllowedIDs string
-	discordToken string
+	provider        string
+	model           string
+	tgToken         string
+	tgAllowedIDs    string
+	discordToken    string
+	feishuAppID     string
+	feishuAppSecret string
 }
 
 func loadOnboardDefaults(cfg *config.Config) onboardDefaults {
@@ -382,11 +439,13 @@ func loadOnboardDefaults(cfg *config.Config) onboardDefaults {
 		return onboardDefaults{}
 	}
 	return onboardDefaults{
-		provider:     cfg.GetProvider(),
-		model:        cfg.GetModelType(),
-		tgToken:      cfg.GetTelegramToken(),
-		tgAllowedIDs: formatAllowedIDs(cfg.GetTelegramAllowedIDs()),
-		discordToken: cfg.GetDiscordToken(),
+		provider:        cfg.GetProvider(),
+		model:           cfg.GetModelType(),
+		tgToken:         cfg.GetTelegramToken(),
+		tgAllowedIDs:    formatAllowedIDs(cfg.GetTelegramAllowedIDs()),
+		discordToken:    cfg.GetDiscordToken(),
+		feishuAppID:     cfg.GetFeishuAppID(),
+		feishuAppSecret: cfg.GetFeishuAppSecret(),
 	}
 }
 
