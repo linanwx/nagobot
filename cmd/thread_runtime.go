@@ -147,6 +147,10 @@ func buildThreadManager(cfg *config.Config, enableSessions bool) (*thread.Manage
 		if err != nil {
 			logger.Warn("session manager unavailable", "err", err)
 		}
+		if sessions != nil {
+			countsPath := filepath.Join(workspace, "system", "message_counts.json")
+			sessions.Counts = session.NewMessageCounts(countsPath)
+		}
 	}
 
 	healthChannelsFn := func() *tools.HealthChannelsInfo {

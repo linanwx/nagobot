@@ -43,6 +43,7 @@ type sessionEntry struct {
 	TimezoneSource      string `json:"timezone_source,omitempty"` // "configured" or "machine_default"
 	UpdatedAt           string `json:"updated_at"`
 	MessageCount        int    `json:"message_count"`
+	TotalMessages       int64  `json:"total_messages"`
 	Summary             string `json:"summary"`
 	SummaryAt           string `json:"summary_at,omitempty"`
 	ChangedSinceSummary bool   `json:"changed_since_summary"`
@@ -151,6 +152,7 @@ func collectSessions(cfg *config.Config, opts listSessionsOpts) (*listSessionsOu
 		return nil, fmt.Errorf("failed to get sessions dir: %w", err)
 	}
 	summaries := loadSummariesFile(filepath.Join(workspace, "system", "sessions_summary.json"))
+	msgCounts := loadMessageCounts(filepath.Join(workspace, "system", "message_counts.json"))
 	cutoff := time.Now().AddDate(0, 0, -days)
 
 	var all []sessionEntry
@@ -212,6 +214,7 @@ func collectSessions(cfg *config.Config, opts listSessionsOpts) (*listSessionsOu
 			TimezoneSource:   tzSource,
 			UpdatedAt:        updatedAt.Format(time.RFC3339),
 			MessageCount:     len(s.Messages),
+			TotalMessages:    msgCounts[key],
 			HasHeartbeat:     hasHeartbeat,
 			LastUserActiveAt: lastUserActiveAt,
 		}
@@ -320,6 +323,19 @@ func loadSummariesFile(path string) map[string]summaryEntry {
 		return nil
 	}
 	var m map[string]summaryEntry
+	if err := json.Unmarshal(data, &m); err != nil {
+		return nil
+	}
+	return m
+}
+
+// loadMessageCounts reads system/message_counts.json.
+func loadMessageCounts(path string) map[string]int64 {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return nil
+	}
+	var m map[string]int64
 	if err := json.Unmarshal(data, &m); err != nil {
 		return nil
 	}

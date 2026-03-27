@@ -221,6 +221,8 @@ func runServe(cmd *cobra.Command, args []string) error {
 
 	dispatcher.Run(ctx)
 
+	threadMgr.Shutdown()
+
 	if err := chManager.StopAll(); err != nil {
 		logger.Error("error stopping channels", "err", err)
 	}

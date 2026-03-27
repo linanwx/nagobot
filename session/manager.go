@@ -55,6 +55,7 @@ type Manager struct {
 	sessionsDir string
 	cache       map[string]*Session
 	mu          sync.RWMutex
+	Counts      *MessageCounts // cumulative message counter (nil-safe)
 }
 
 // NewManager creates a new session manager rooted at the given sessions directory.
@@ -170,6 +171,10 @@ func (m *Manager) Append(key string, msgs ...provider.Message) error {
 
 	if err := writeJSONL(f, msgs); err != nil {
 		return err
+	}
+
+	if m.Counts != nil {
+		m.Counts.Add(key, len(msgs))
 	}
 
 	m.mu.Lock()

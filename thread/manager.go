@@ -36,6 +36,13 @@ func NewManager(cfg *ThreadConfig) *Manager {
 	}
 }
 
+// Shutdown performs cleanup of managed resources (e.g. flushes message counts).
+func (m *Manager) Shutdown() {
+	if m.cfg.Sessions != nil && m.cfg.Sessions.Counts != nil {
+		m.cfg.Sessions.Counts.Stop()
+	}
+}
+
 // Run is the manager's main scheduling loop. It picks runnable threads and
 // runs them up to maxConcurrency in parallel. Blocks until ctx is cancelled.
 func (m *Manager) Run(ctx context.Context) {
