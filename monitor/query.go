@@ -3,6 +3,7 @@ package monitor
 import (
 	"fmt"
 	"sort"
+	"strings"
 	"time"
 )
 
@@ -150,11 +151,13 @@ func Query(store *Store, window Window) *MetricsSummary {
 			g.CacheHitRate = fmt.Sprintf("%.1f%%", float64(g.CachedTokens)/float64(g.PromptTokens)*100)
 		}
 	}
-	for _, ps := range summary.ByProvider {
+	for provName, ps := range summary.ByProvider {
 		if ps.Turns > 0 {
 			ps.AvgDurMs /= int64(ps.Turns)
 		}
-		if ps.PromptTokens > 0 {
+		if strings.Contains(provName, "openai-oauth") {
+			ps.CacheHitRate = "N/A"
+		} else if ps.PromptTokens > 0 {
 			ps.CacheHitRate = fmt.Sprintf("%.1f%%", float64(ps.CachedTokens)/float64(ps.PromptTokens)*100)
 		}
 		for _, ms := range ps.Models {

@@ -104,10 +104,11 @@ type gmCandidate struct {
 }
 
 type gmUsageMetadata struct {
-	PromptTokenCount     int `json:"promptTokenCount"`
-	CandidatesTokenCount int `json:"candidatesTokenCount"`
-	TotalTokenCount      int `json:"totalTokenCount"`
-	ThoughtsTokenCount   int `json:"thoughtsTokenCount"`
+	PromptTokenCount          int `json:"promptTokenCount"`
+	CandidatesTokenCount      int `json:"candidatesTokenCount"`
+	TotalTokenCount           int `json:"totalTokenCount"`
+	ThoughtsTokenCount        int `json:"thoughtsTokenCount"`
+	CachedContentTokenCount   int `json:"cachedContentTokenCount"`
 }
 
 type gmAPIError struct {
@@ -367,6 +368,7 @@ func (p *GeminiProvider) chatStream(ctx context.Context, req *Request, gmReq gmR
 		"promptTokens", usage.PromptTokenCount,
 		"candidatesTokens", usage.CandidatesTokenCount,
 		"thoughtsTokens", usage.ThoughtsTokenCount,
+		"cachedTokens", usage.CachedContentTokenCount,
 		"totalTokens", usage.TotalTokenCount,
 		"outputChars", len(finalContent),
 		"latencyMs", time.Since(start).Milliseconds(),
@@ -382,6 +384,7 @@ func (p *GeminiProvider) chatStream(ctx context.Context, req *Request, gmReq gmR
 			CompletionTokens: usage.CandidatesTokenCount,
 			TotalTokens:      usage.TotalTokenCount,
 			ReasoningTokens:  usage.ThoughtsTokenCount,
+			CachedTokens:     usage.CachedContentTokenCount,
 		},
 		ProviderLabel: "gemini",
 		ModelLabel:    p.modelName,
@@ -451,6 +454,7 @@ func (p *GeminiProvider) parseResponse(resp gmResponse, start time.Time) (*Respo
 		"promptTokens", usage.PromptTokenCount,
 		"candidatesTokens", usage.CandidatesTokenCount,
 		"thoughtsTokens", usage.ThoughtsTokenCount,
+		"cachedTokens", usage.CachedContentTokenCount,
 		"totalTokens", usage.TotalTokenCount,
 		"outputChars", len(finalContent),
 		"latencyMs", time.Since(start).Milliseconds(),
@@ -466,6 +470,7 @@ func (p *GeminiProvider) parseResponse(resp gmResponse, start time.Time) (*Respo
 			CompletionTokens: usage.CandidatesTokenCount,
 			TotalTokens:      usage.TotalTokenCount,
 			ReasoningTokens:  usage.ThoughtsTokenCount,
+			CachedTokens:     usage.CachedContentTokenCount,
 		},
 		ProviderLabel: "gemini",
 		ModelLabel:    p.modelName,
