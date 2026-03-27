@@ -164,8 +164,11 @@ func Query(store *Store, window Window) *MetricsSummary {
 			finalizeGroup(ms)
 		}
 	}
-	for _, as := range summary.ByAgent {
+	for agentName, as := range summary.ByAgent {
 		finalizeGroup(as)
+		if strings.Contains(agentName, "openai-oauth") {
+			as.CacheHitRate = "N/A"
+		}
 	}
 	for _, ss := range summary.BySession {
 		finalizeGroup(ss)
