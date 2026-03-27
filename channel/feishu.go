@@ -88,7 +88,7 @@ func (f *FeishuChannel) Start(ctx context.Context) error {
 	// WebSocket client — SDK handles reconnection internally.
 	f.wsClient = larkws.NewClient(f.appID, f.appSecret,
 		larkws.WithEventHandler(eventHandler),
-		larkws.WithLogLevel(larkcore.LogLevelInfo),
+		larkws.WithLogLevel(larkcore.LogLevelDebug),
 	)
 
 	// WebSocket connection goroutine — Start() blocks with select{}.
@@ -173,11 +173,14 @@ func (f *FeishuChannel) Send(ctx context.Context, resp *Response) error {
 
 		result, err := f.apiClient.Im.Message.Create(ctx, req)
 		if err != nil {
+			logger.Error("feishu send error", "err", err, "receiveIDType", receiveIDType, "receiveID", receiveID)
 			return fmt.Errorf("feishu send error: %w", err)
 		}
 		if !result.Success() {
+			logger.Error("feishu send failed", "code", result.Code, "msg", result.Msg, "receiveIDType", receiveIDType, "receiveID", receiveID)
 			return fmt.Errorf("feishu send failed: code=%d msg=%s", result.Code, result.Msg)
 		}
+		logger.Info("feishu message sent", "receiveIDType", receiveIDType, "receiveID", receiveID)
 	}
 	return nil
 }

@@ -309,7 +309,13 @@ func runOnboard(cmd *cobra.Command, _ []string) error {
 		huh.NewGroup(
 			huh.NewConfirm().
 				Title("Configure Feishu (Lark) bot?").
-				Description("Setup: https://open.feishu.cn/app → Create App → get App ID & App Secret.\nEnable permissions: im:message, im:message:send_as_bot.\nEvents: subscribe im.message.receive_v1 using long connection mode.").
+				Description("Setup: https://open.feishu.cn/app → Create Enterprise App\n"+
+					"1. Credentials: copy App ID & App Secret\n"+
+					"2. App Capability → enable Bot\n"+
+					"3. Permissions → batch import: im:message, im:message:send_as_bot, im:resource\n"+
+					"4. Events → use LONG CONNECTION → subscribe im.message.receive_v1\n"+
+					"5. Create version & publish (admin approval may be required)\n"+
+					"Note: all 5 steps must be done BEFORE the bot can send/receive messages.").
 				Value(&configureFeishu),
 		),
 	).Run()
