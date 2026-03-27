@@ -147,7 +147,13 @@ type reqIDEntry struct {
 }
 
 // NewWeComChannel creates a new WeCom channel from config.
-func NewWeComChannel(cfg *config.Config) *WeComChannel {
+// Returns nil if botId is not configured (same pattern as other channels).
+func NewWeComChannel(cfg *config.Config) Channel {
+	botID := cfg.GetWeComBotID()
+	if botID == "" {
+		logger.Warn("WeCom botId not configured, skipping WeCom channel")
+		return nil
+	}
 	allowed := make(map[string]bool)
 	for _, id := range cfg.GetWeComAllowedUserIDs() {
 		allowed[id] = true
@@ -169,11 +175,6 @@ func (w *WeComChannel) Name() string             { return "wecom" }
 func (w *WeComChannel) Messages() <-chan *Message { return w.messages }
 
 func (w *WeComChannel) Start(ctx context.Context) error {
-	if w.botID == "" {
-		logger.Info("wecom channel not configured, skipping")
-		return nil
-	}
-
 	w.wg.Add(1)
 	go func() {
 		defer w.wg.Done()
