@@ -29,11 +29,9 @@ import (
 const (
 	wecomWSURL             = "wss://openws.work.weixin.qq.com"
 	wecomMessageBufferSize = 100
-	wecomMaxMessageLength  = 2048
 	wecomDedupTTL          = 5 * time.Minute
 	wecomHeartbeatInterval = 30 * time.Second
 	wecomMaxMissedPong     = 2
-	wecomReplyACKTimeout   = 5 * time.Second
 	wecomReconnectBase     = 1 * time.Second
 	wecomReconnectMaxDelay = 30 * time.Second
 	wecomMaxReconnect      = 10
@@ -99,12 +97,6 @@ type wecomMsgBody struct {
 	} `json:"event,omitempty"`
 }
 
-// pendingACK tracks a reply waiting for server acknowledgement.
-type pendingACK struct {
-	ch    chan wsFrame
-	timer *time.Timer
-}
-
 // WeComChannel implements the Channel interface for WeCom (WeChat Work)
 // using the AI Bot WebSocket long connection (no public URL needed).
 type WeComChannel struct {
@@ -132,10 +124,6 @@ type WeComChannel struct {
 	authFailureAttempts int
 	manualClose         atomic.Bool
 
-	// reply ACK tracking
-	ackMu      sync.Mutex
-	pendingAck map[string]*pendingACK
-
 	// last req_id per target (userid or "group:chatid") for reply routing
 	reqIDMu   sync.Mutex
 	lastReqID map[string]reqIDEntry
@@ -159,14 +147,13 @@ func NewWeComChannel(cfg *config.Config) Channel {
 		allowed[id] = true
 	}
 	return &WeComChannel{
-		botID:          cfg.GetWeComBotID(),
+		botID:          botID,
 		secret:         cfg.GetWeComSecret(),
 		allowedUserIDs: allowed,
 		mediaDir:       initMediaDir(cfg),
 		messages:       make(chan *Message, wecomMessageBufferSize),
 		done:           make(chan struct{}),
 		seen:           make(map[string]time.Time),
-		pendingAck:     make(map[string]*pendingACK),
 		lastReqID:      make(map[string]reqIDEntry),
 	}
 }
@@ -232,22 +219,30 @@ func (w *WeComChannel) Send(ctx context.Context, resp *Response) error {
 		return fmt.Errorf("wecom: no req_id for target %q (user may not have sent a message yet)", target)
 	}
 
-	chunks := SplitMessage(resp.Text, wecomMaxMessageLength)
-	for _, chunk := range chunks {
-		body, _ := json.Marshal(map[string]any{
-			"msgtype": "text",
-			"text":    map[string]string{"content": chunk},
-		})
-		frame := wsFrame{
-			Cmd:     wsCmdRespondMsg,
-			Headers: map[string]string{"req_id": reqID},
-			Body:    body,
-		}
-		if err := w.sendAndWaitACK(frame); err != nil {
-			return fmt.Errorf("wecom send: %w", err)
-		}
+	// WeCom aibot_respond_msg only supports stream msgtype.
+	// Send as a single finished stream (content + finish=true).
+	streamID := generateReqID("stream")
+	body, _ := json.Marshal(map[string]any{
+		"msgtype": "stream",
+		"stream": map[string]any{
+			"id":      streamID,
+			"content": resp.Text,
+			"finish":  true,
+		},
+	})
+	frame := wsFrame{
+		Cmd:     wsCmdRespondMsg,
+		Headers: map[string]string{"req_id": reqID},
+		Body:    body,
 	}
-	return nil
+
+	w.connMu.Lock()
+	conn := w.conn
+	w.connMu.Unlock()
+	if conn == nil {
+		return fmt.Errorf("wecom: not connected")
+	}
+	return w.writeFrame(conn, frame)
 }
 
 // connectLoop manages the WebSocket lifecycle: connect → auth → read loop → reconnect.
@@ -299,7 +294,6 @@ func (w *WeComChannel) connectAndRun(ctx context.Context) error {
 		}
 		w.connMu.Unlock()
 		conn.Close()
-		w.clearPendingACKs("connection closed")
 	}()
 
 	// Authenticate.
@@ -438,16 +432,7 @@ func (w *WeComChannel) handleFrame(frame wsFrame, conn *websocket.Conn, authed c
 		return
 	}
 
-	// Reply ACK.
-	w.ackMu.Lock()
-	if p, ok := w.pendingAck[reqID]; ok {
-		p.timer.Stop()
-		delete(w.pendingAck, reqID)
-		w.ackMu.Unlock()
-		p.ch <- frame
-		return
-	}
-	w.ackMu.Unlock()
+	// Reply ACK — ignored (fire-and-forget sends).
 }
 
 func (w *WeComChannel) handleMsgCallback(frame wsFrame) {
@@ -630,66 +615,6 @@ func (w *WeComChannel) heartbeatLoop(conn *websocket.Conn) {
 				return
 			}
 		}
-	}
-}
-
-// sendAndWaitACK sends a frame and waits for the server ACK.
-func (w *WeComChannel) sendAndWaitACK(frame wsFrame) error {
-	reqID := frame.Headers["req_id"]
-	ack := &pendingACK{
-		ch:    make(chan wsFrame, 1),
-		timer: time.NewTimer(wecomReplyACKTimeout),
-	}
-
-	w.ackMu.Lock()
-	w.pendingAck[reqID] = ack
-	w.ackMu.Unlock()
-
-	w.connMu.Lock()
-	conn := w.conn
-	w.connMu.Unlock()
-
-	if conn == nil {
-		w.ackMu.Lock()
-		delete(w.pendingAck, reqID)
-		w.ackMu.Unlock()
-		ack.timer.Stop()
-		return fmt.Errorf("not connected")
-	}
-
-	if err := w.writeFrame(conn, frame); err != nil {
-		w.ackMu.Lock()
-		delete(w.pendingAck, reqID)
-		w.ackMu.Unlock()
-		ack.timer.Stop()
-		return err
-	}
-
-	select {
-	case resp := <-ack.ch:
-		if resp.ErrCode != 0 {
-			return fmt.Errorf("reply error: %d %s", resp.ErrCode, resp.ErrMsg)
-		}
-		return nil
-	case <-ack.timer.C:
-		w.ackMu.Lock()
-		delete(w.pendingAck, reqID)
-		w.ackMu.Unlock()
-		return fmt.Errorf("ACK timeout (%v)", wecomReplyACKTimeout)
-	}
-}
-
-func (w *WeComChannel) clearPendingACKs(reason string) {
-	w.ackMu.Lock()
-	defer w.ackMu.Unlock()
-	for reqID, p := range w.pendingAck {
-		p.timer.Stop()
-		// Send zero-value error frame instead of closing (avoids race with sendAndWaitACK select).
-		select {
-		case p.ch <- wsFrame{ErrCode: -1, ErrMsg: reason}:
-		default:
-		}
-		delete(w.pendingAck, reqID)
 	}
 }
 

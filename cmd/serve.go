@@ -500,7 +500,12 @@ func refreshChannels(ctx context.Context, chMgr *channel.Manager, dispatcher *Di
 			if ch, ok := chMgr.Get(spec.name); ok {
 				if rc, ok := ch.(channel.Reconfigurable); ok {
 					rc.Reconfigure(cfg)
+					continue
 				}
+				// Channel doesn't support Reconfigurable — replace it
+				// (handles case where channel died after max reconnect attempts).
+				chMgr.Unregister(spec.name)
+				registered = false
 			}
 		}
 
