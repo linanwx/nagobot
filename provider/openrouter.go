@@ -116,6 +116,9 @@ var openRouterModels = map[string]openRouterModelMeta{
 		},
 		ProviderOrder: []string{"z-ai"},
 	},
+	"z-ai/glm-5-turbo": {
+		ProviderOrder: []string{"z-ai"},
+	},
 	"minimax/minimax-m2.5": {
 		ThinkingOpts: []oaioption.RequestOption{
 			oaioption.WithJSONSet("reasoning", map[string]any{"effort": "high"}),
@@ -175,7 +178,7 @@ var openRouterModels = map[string]openRouterModelMeta{
 
 func init() {
 	RegisterProvider("openrouter", ProviderRegistration{
-		Models:       []string{"moonshotai/kimi-k2.5", "anthropic/claude-sonnet-4.6", "anthropic/claude-opus-4.6", "anthropic/claude-haiku-4.5", "z-ai/glm-5", "minimax/minimax-m2.5", "minimax/minimax-m2.7", "qwen/qwen3.5-35b-a3b", "google/gemini-3-flash-preview", "google/gemini-3.1-flash-lite-preview", "x-ai/grok-4.1-fast", "openai/gpt-5.4-mini", "xiaomi/mimo-v2-pro", "xiaomi/mimo-v2-omni"},
+		Models:       []string{"moonshotai/kimi-k2.5", "anthropic/claude-sonnet-4.6", "anthropic/claude-opus-4.6", "anthropic/claude-haiku-4.5", "z-ai/glm-5", "z-ai/glm-5-turbo", "minimax/minimax-m2.5", "minimax/minimax-m2.7", "qwen/qwen3.5-35b-a3b", "google/gemini-3-flash-preview", "google/gemini-3.1-flash-lite-preview", "x-ai/grok-4.1-fast", "openai/gpt-5.4-mini", "xiaomi/mimo-v2-pro", "xiaomi/mimo-v2-omni"},
 		VisionModels: []string{"moonshotai/kimi-k2.5", "anthropic/claude-sonnet-4.6", "anthropic/claude-opus-4.6", "anthropic/claude-haiku-4.5", "qwen/qwen3.5-35b-a3b", "google/gemini-3-flash-preview", "google/gemini-3.1-flash-lite-preview", "x-ai/grok-4.1-fast", "openai/gpt-5.4-mini", "xiaomi/mimo-v2-pro", "xiaomi/mimo-v2-omni"},
 		AudioModels:  []string{"google/gemini-3-flash-preview", "google/gemini-3.1-flash-lite-preview", "xiaomi/mimo-v2-omni"},
 		ContextWindows: map[string]int{
@@ -183,6 +186,7 @@ func init() {
 			"anthropic/claude-sonnet-4.6":   1048576,
 			"anthropic/claude-opus-4.6":     1048576,
 			"z-ai/glm-5":                   200000,
+			"z-ai/glm-5-turbo":             202752,
 			"minimax/minimax-m2.5":          196608,
 			"minimax/minimax-m2.7":          204800,
 			"qwen/qwen3.5-35b-a3b":         262144,
