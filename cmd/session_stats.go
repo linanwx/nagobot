@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strings"
 
 	"github.com/linanwx/nagobot/agent"
 	"github.com/linanwx/nagobot/config"
@@ -46,6 +47,7 @@ type sessionStatsOutput struct {
 }
 
 type modelResolution struct {
+	Note             string           `json:"note"`
 	Steps            []resolutionStep `json:"steps"`
 	ResolvedProvider string           `json:"resolved_provider"`
 	ResolvedModel    string           `json:"resolved_model"`
@@ -203,6 +205,8 @@ func resolveModelChain(cfg *config.Config, registry *agent.AgentRegistry, sessio
 	result := &resolveModelChainResult{}
 	var steps []resolutionStep
 
+	result.Note = "Static config inference only. Actual agent may vary per wake via WakeMessage.AgentName."
+
 	// Step 1: session key → agent name
 	agentName := cfg.SessionAgent(sessionKey)
 	if agentName != "" {
@@ -212,6 +216,32 @@ func resolveModelChain(cfg *config.Config, registry *agent.AgentRegistry, sessio
 			Found:  agentName,
 			Status: "hit",
 		})
+	} else if strings.HasPrefix(sessionKey, "cron:") {
+		// Check cron config for the job's agent.
+		cronJobID := strings.TrimPrefix(sessionKey, "cron:")
+		for _, job := range cfg.Cron {
+			if job.ID == cronJobID && strings.TrimSpace(job.Agent) != "" {
+				agentName = strings.TrimSpace(job.Agent)
+				break
+			}
+		}
+		if agentName != "" {
+			steps = append(steps, resolutionStep{
+				Step:   "session_agent",
+				Lookup: fmt.Sprintf("cron[%q].agent", cronJobID),
+				Found:  agentName,
+				Status: "hit",
+			})
+		} else {
+			agentName = "soul"
+			steps = append(steps, resolutionStep{
+				Step:     "session_agent",
+				Lookup:   fmt.Sprintf("sessionAgents[%q] + cron[%q].agent", sessionKey, cronJobID),
+				Found:    "",
+				Status:   "miss",
+				Fallback: "soul",
+			})
+		}
 	} else {
 		agentName = "soul"
 		steps = append(steps, resolutionStep{
