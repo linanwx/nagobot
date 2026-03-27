@@ -169,6 +169,11 @@ func (w *WeComChannel) Name() string             { return "wecom" }
 func (w *WeComChannel) Messages() <-chan *Message { return w.messages }
 
 func (w *WeComChannel) Start(ctx context.Context) error {
+	if w.botID == "" {
+		logger.Info("wecom channel not configured, skipping")
+		return nil
+	}
+
 	w.wg.Add(1)
 	go func() {
 		defer w.wg.Done()
