@@ -16,7 +16,7 @@ type ZhipuSearchProvider struct {
 	KeyFn func() string
 }
 
-func (p *ZhipuSearchProvider) Name() string { return "zhipu" }
+func (p *ZhipuSearchProvider) Name() string { return "zhipu-cn" }
 func (p *ZhipuSearchProvider) Available() bool {
 	return p.KeyFn != nil && p.KeyFn() != ""
 }

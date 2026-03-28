@@ -88,7 +88,7 @@ func (h *SearchHealthChecker) probe(ctx context.Context, name string, p SearchPr
 	var lastErr string
 
 	for i := 0; i < attempts; i++ {
-		probeCtx, cancel := context.WithTimeout(ctx, 15*time.Second)
+		probeCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
 		start := time.Now()
 		_, err := p.Search(probeCtx, probeQuery, 1)
 		elapsed := time.Since(start).Milliseconds()

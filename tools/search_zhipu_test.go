@@ -6,8 +6,8 @@ import (
 
 func TestZhipuProviderName(t *testing.T) {
 	p := &ZhipuSearchProvider{}
-	if got := p.Name(); got != "zhipu" {
-		t.Errorf("Name() = %q, want %q", got, "zhipu")
+	if got := p.Name(); got != "zhipu-cn" {
+		t.Errorf("Name() = %q, want %q", got, "zhipu-cn")
 	}
 }
 

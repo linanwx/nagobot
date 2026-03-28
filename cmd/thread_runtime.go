@@ -64,7 +64,8 @@ func buildThreadManager(cfg *config.Config, enableSessions bool) (*thread.Manage
 	// Build search providers (all registered; availability checked at call time via Available())
 	searchProviders := map[string]tools.SearchProvider{
 		"duckduckgo": &tools.DuckDuckGoProvider{},
-		"bing-cn":    &tools.BingProvider{},
+		"bing":       tools.NewBingProvider(),
+		"bing-cn":    tools.NewBingCNProvider(),
 		"brave": &tools.BraveSearchProvider{
 			KeyFn: func() string {
 				c, err := config.Load()
@@ -91,7 +92,7 @@ func buildThreadManager(cfg *config.Config, enableSessions bool) (*thread.Manage
 			},
 		},
 	}
-	searchProviders["zhipu"] = &tools.ZhipuSearchProvider{
+	searchProviders["zhipu-cn"] = &tools.ZhipuSearchProvider{
 		KeyFn: func() string {
 			c, err := config.Load()
 			if err != nil {
