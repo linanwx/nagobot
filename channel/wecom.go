@@ -34,8 +34,6 @@ const (
 	wecomMaxMissedPong     = 2
 	wecomReconnectBase     = 1 * time.Second
 	wecomReconnectMaxDelay = 30 * time.Second
-	wecomMaxReconnect      = 10
-	wecomMaxAuthFailure    = 5
 )
 
 // WeCom WebSocket frame commands.
@@ -263,10 +261,6 @@ func (w *WeComChannel) connectLoop(ctx context.Context) {
 		}
 
 		delay := w.scheduleReconnect()
-		if delay < 0 {
-			return // max attempts exhausted
-		}
-
 		select {
 		case <-w.done:
 			return
@@ -618,17 +612,9 @@ func (w *WeComChannel) heartbeatLoop(conn *websocket.Conn) {
 	}
 }
 
-// scheduleReconnect computes the reconnect delay. Returns -1 if max attempts exhausted.
+// scheduleReconnect computes the reconnect delay with exponential backoff.
+// Never gives up — caps at wecomReconnectMaxDelay after max attempts.
 func (w *WeComChannel) scheduleReconnect() time.Duration {
-	if w.authFailureAttempts >= wecomMaxAuthFailure {
-		logger.Error("wecom: max auth failure attempts reached", "attempts", w.authFailureAttempts)
-		return -1
-	}
-	if w.reconnectAttempts >= wecomMaxReconnect {
-		logger.Error("wecom: max reconnect attempts reached", "attempts", w.reconnectAttempts)
-		return -1
-	}
-
 	w.reconnectAttempts++
 	delay := min(
 		time.Duration(float64(wecomReconnectBase)*math.Pow(2, float64(w.reconnectAttempts-1))),
