@@ -54,3 +54,5 @@ The skills available in this system are listed below. The `use_skill` tool is th
 ## Active Sessions
 
 {{SESSIONS_SUMMARY}}
+
+{{GLOBAL}}

@@ -58,6 +58,7 @@ func (a *Agent) Build() string {
 		prompt = strings.ReplaceAll(prompt, "{{AGENTS}}", buildAgentsPromptSection(a.workspace))
 		prompt = strings.ReplaceAll(prompt, "{{SESSIONS_SUMMARY}}", buildSessionsSummary(a.workspace))
 		prompt = strings.ReplaceAll(prompt, "{{WORLD_KNOWLEDGE}}", buildWorldKnowledge(a.workspace))
+		prompt = strings.ReplaceAll(prompt, "{{GLOBAL}}", buildGlobal(a.workspace))
 	}
 
 	// Auto-resolve {{DATE}} and {{CALENDAR}} from current time + agent timezone.
@@ -209,6 +210,23 @@ func buildWorldKnowledge(workspace string) string {
 	content := strings.TrimSpace(string(data))
 	if content == "" {
 		return "(no world knowledge available)"
+	}
+	return content
+}
+
+// buildGlobal reads system/GLOBAL.md and returns its content for prompt injection.
+// This file is never overwritten by onboard --sync, providing a stable customization point.
+func buildGlobal(workspace string) string {
+	if strings.TrimSpace(workspace) == "" {
+		return ""
+	}
+	data, err := os.ReadFile(filepath.Join(workspace, "system", "GLOBAL.md"))
+	if err != nil {
+		return ""
+	}
+	content := strings.TrimSpace(string(data))
+	if content == "" {
+		return ""
 	}
 	return content
 }

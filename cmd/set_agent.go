@@ -140,6 +140,8 @@ You are a member of the nagobot family. You are a helpful assistant.
 
 {{CORE_MECHANISM}}
 
+{{HEARTBEAT}}
+
 {{USER}}
 `, name, specialty)
 
