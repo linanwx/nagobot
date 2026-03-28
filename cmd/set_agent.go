@@ -92,6 +92,26 @@ func runSetAgent(_ *cobra.Command, _ []string) error {
 		fmt.Printf("Specialty %q → %s / %s (implicit routing)\n", specialty, providerArg, modelArg)
 	}
 
+	// Validate agent exists before writing config (--agent mode only;
+	// --provider/--model mode already created the file above).
+	if agentArg != "" && modelArg == "" {
+		workspace, wErr := cfg.WorkspacePath()
+		if wErr != nil {
+			return fmt.Errorf("failed to get workspace: %w", wErr)
+		}
+		found := false
+		for _, dir := range []string{"agents", "agents-builtin"} {
+			path := filepath.Join(workspace, dir, agentArg+".md")
+			if _, err := os.Stat(path); err == nil {
+				found = true
+				break
+			}
+		}
+		if !found {
+			return fmt.Errorf("agent %q not found in agents/ or agents-builtin/.\nTo create a model-pinned agent, use: nagobot set-agent --session %s --provider <name> --model <model>", agentArg, session)
+		}
+	}
+
 	if cfg.Channels == nil {
 		cfg.Channels = &config.ChannelsConfig{}
 	}
