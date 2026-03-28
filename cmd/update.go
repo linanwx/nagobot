@@ -239,41 +239,61 @@ func stopRunningProcess() {
 	fmt.Println("    Warning: old process may still be running.")
 }
 
-// ghProxyMirrors are fallback mirrors for GitHub release downloads.
-// Used when direct download fails (e.g. in mainland China).
-var ghProxyMirrors = []string{
-	"https://gh-proxy.com/",
-	"https://ghfast.top/",
-}
+const ghProxy = "https://gh-proxy.com/"
 
-// downloadWithFallback tries direct download first, then gh-proxy mirrors.
-func downloadWithFallback(url string) (*http.Response, error) {
-	client := &http.Client{Timeout: 60 * time.Second}
+// downloadWithFallback detects mainland China via ipinfo.io and routes
+// through gh-proxy.com for faster downloads. Falls back to direct if
+// detection fails or proxy is unavailable.
+func downloadWithFallback(rawURL string) (*http.Response, error) {
+	dlURL := rawURL
+	if isMainlandChina() {
+		dlURL = ghProxy + rawURL
+		fmt.Printf("    Detected mainland China, using mirror %s\n", ghProxy)
+	}
 
-	resp, err := client.Get(url)
+	client := &http.Client{Timeout: 5 * time.Minute}
+	resp, err := client.Get(dlURL)
 	if err == nil && resp.StatusCode == http.StatusOK {
 		return resp, nil
 	}
 	if resp != nil {
 		resp.Body.Close()
 	}
-	directErr := err
-	if err == nil {
-		directErr = fmt.Errorf("HTTP %s", resp.Status)
+
+	// If mirror failed, try direct (and vice versa).
+	fallbackURL := rawURL
+	if dlURL == rawURL {
+		fallbackURL = ghProxy + rawURL
+		fmt.Println("    Direct download failed, trying gh-proxy mirror...")
+	} else {
+		fmt.Println("    Mirror download failed, trying direct...")
 	}
 
-	// Try mirrors.
-	for _, mirror := range ghProxyMirrors {
-		mirrorURL := mirror + url
-		fmt.Printf("    Direct download failed, trying mirror %s...\n", mirror)
-		resp, err = client.Get(mirrorURL)
-		if err == nil && resp.StatusCode == http.StatusOK {
-			return resp, nil
-		}
-		if resp != nil {
-			resp.Body.Close()
-		}
+	resp, err = client.Get(fallbackURL)
+	if err == nil && resp.StatusCode == http.StatusOK {
+		return resp, nil
 	}
+	if resp != nil {
+		resp.Body.Close()
+	}
+	if err != nil {
+		return nil, err
+	}
+	return nil, fmt.Errorf("download failed: HTTP %s", resp.Status)
+}
 
-	return nil, fmt.Errorf("%w (mirrors also failed)", directErr)
+// isMainlandChina checks if the current machine is in mainland China
+// by querying ipinfo.io/country.
+func isMainlandChina() bool {
+	client := &http.Client{Timeout: 3 * time.Second}
+	resp, err := client.Get("https://ipinfo.io/country")
+	if err != nil {
+		return false
+	}
+	defer resp.Body.Close()
+	body, err := io.ReadAll(io.LimitReader(resp.Body, 10))
+	if err != nil {
+		return false
+	}
+	return strings.TrimSpace(string(body)) == "CN"
 }
