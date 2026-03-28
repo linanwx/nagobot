@@ -145,7 +145,13 @@ func (p *ZhipuProvider) Chat(ctx context.Context, req *Request) (*Response, erro
 		)
 	}
 
-	chatResp, err := p.client.Chat.Completions.New(ctx, chatReq, requestOpts...)
+	var chatResp *openai.ChatCompletion
+	var streamReasoning string
+	if req.OnTextDelta != nil {
+		chatResp, streamReasoning, err = openAIStreamChat(ctx, p.client, chatReq, req.OnTextDelta, requestOpts...)
+	} else {
+		chatResp, err = p.client.Chat.Completions.New(ctx, chatReq, requestOpts...)
+	}
 	if err != nil {
 		logger.Error("zhipu request send error", "provider", p.providerName, "err", err)
 		return nil, fmt.Errorf("request failed: %w", err)
@@ -161,6 +167,9 @@ func (p *ZhipuProvider) Chat(ctx context.Context, req *Request) (*Response, erro
 	reasoningTokens := chatResp.Usage.CompletionTokensDetails.ReasoningTokens
 	rawMessage := choice.Message.RawJSON()
 	reasoningText := extractReasoningText(rawMessage)
+	if reasoningText == "" && streamReasoning != "" {
+		reasoningText = streamReasoning
+	}
 	finalContent := choice.Message.Content
 	finalContent = resolveContentWithReasoningFallback(finalContent, reasoningText, "zhipu", toolCalls)
 

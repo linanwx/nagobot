@@ -137,7 +137,13 @@ func (p *MoonshotProvider) Chat(ctx context.Context, req *Request) (*Response, e
 			oaioption.WithJSONSet("extra_body.chat_template_kwargs.thinking", true),
 		)
 	}
-	chatResp, err := p.client.Chat.Completions.New(ctx, chatReq, requestOpts...)
+	var chatResp *openai.ChatCompletion
+	var streamReasoning string
+	if req.OnTextDelta != nil {
+		chatResp, streamReasoning, err = openAIStreamChat(ctx, p.client, chatReq, req.OnTextDelta, requestOpts...)
+	} else {
+		chatResp, err = p.client.Chat.Completions.New(ctx, chatReq, requestOpts...)
+	}
 	if err != nil {
 		logger.Error("moonshot request send error", "provider", p.providerName, "err", err)
 		return nil, fmt.Errorf("request failed: %w", err)
@@ -154,6 +160,9 @@ func (p *MoonshotProvider) Chat(ctx context.Context, req *Request) (*Response, e
 	rawMessage := choice.Message.RawJSON()
 	rawResponse := chatResp.RawJSON()
 	reasoningText := extractReasoningText(rawMessage)
+	if reasoningText == "" && streamReasoning != "" {
+		reasoningText = streamReasoning
+	}
 	finalContent := choice.Message.Content
 	finalContent = resolveContentWithReasoningFallback(finalContent, reasoningText, "moonshot", toolCalls)
 

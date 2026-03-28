@@ -482,6 +482,42 @@ func fromOpenAIChatToolCalls(calls []openai.ChatCompletionMessageToolCallUnion) 
 	return result
 }
 
+// openAIStreamChat executes a streaming chat completion via the OpenAI SDK.
+// It calls onTextDelta for each text content delta and accumulates the full
+// response. Returns the accumulated ChatCompletion and any reasoning content
+// extracted from streaming delta extra fields.
+func openAIStreamChat(ctx context.Context, client openai.Client, params openai.ChatCompletionNewParams, onTextDelta func(string), opts ...oaioption.RequestOption) (*openai.ChatCompletion, string, error) {
+	stream := client.Chat.Completions.NewStreaming(ctx, params, opts...)
+
+	var acc openai.ChatCompletionAccumulator
+	var reasoning strings.Builder
+	for stream.Next() {
+		chunk := stream.Current()
+		acc.AddChunk(chunk)
+
+		if len(chunk.Choices) == 0 {
+			continue
+		}
+		delta := chunk.Choices[0].Delta
+		if delta.Content != "" && onTextDelta != nil {
+			onTextDelta(delta.Content)
+		}
+		// Accumulate reasoning_content from non-standard extra fields
+		// (used by OpenRouter, Moonshot, Zhipu, Minimax via various backends).
+		if rc := delta.JSON.ExtraFields["reasoning_content"]; rc.Valid() {
+			var s string
+			if json.Unmarshal([]byte(rc.Raw()), &s) == nil {
+				reasoning.WriteString(s)
+			}
+		}
+	}
+	if err := stream.Err(); err != nil {
+		return nil, "", err
+	}
+
+	return &acc.ChatCompletion, reasoning.String(), nil
+}
+
 // Chat sends a chat completion request to OpenRouter.
 func (p *OpenRouterProvider) Chat(ctx context.Context, req *Request) (*Response, error) {
 	start := time.Now()
@@ -535,7 +571,13 @@ func (p *OpenRouterProvider) Chat(ctx context.Context, req *Request) (*Response,
 	}
 
 
-	chatResp, err := p.client.Chat.Completions.New(ctx, chatReq, requestOpts...)
+	var chatResp *openai.ChatCompletion
+	var streamReasoning string
+	if req.OnTextDelta != nil {
+		chatResp, streamReasoning, err = openAIStreamChat(ctx, p.client, chatReq, req.OnTextDelta, requestOpts...)
+	} else {
+		chatResp, err = p.client.Chat.Completions.New(ctx, chatReq, requestOpts...)
+	}
 	if err != nil {
 		logger.Error("openrouter request send error", "provider", "openrouter", "err", err)
 		return nil, fmt.Errorf("request failed: %w", err)
@@ -552,6 +594,9 @@ func (p *OpenRouterProvider) Chat(ctx context.Context, req *Request) (*Response,
 	rawMessage := choice.Message.RawJSON()
 	rawResponse := chatResp.RawJSON()
 	reasoningText := extractReasoningText(rawMessage)
+	if reasoningText == "" && streamReasoning != "" {
+		reasoningText = streamReasoning
+	}
 	reasoningDetails := extractReasoningDetails(rawMessage)
 	finalContent := choice.Message.Content
 	finalContent = resolveContentWithReasoningFallback(finalContent, reasoningText, "openrouter", toolCalls)
