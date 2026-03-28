@@ -76,6 +76,11 @@ func (m *linuxManager) Install(binPath, logDir string) error {
 		return fmt.Errorf("systemctl enable failed: %s (%w)", string(out), err)
 	}
 
+	// Enable linger for root so the user service survives SSH disconnects.
+	if os.Getuid() == 0 {
+		_ = exec.Command("loginctl", "enable-linger", "root").Run()
+	}
+
 	fmt.Println("    Service: systemctl --user status nagobot")
 	return nil
 }

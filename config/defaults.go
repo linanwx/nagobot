@@ -105,21 +105,11 @@ func (c *Config) applyDefaults() bool {
 		c.Channels = &ChannelsConfig{}
 		changed = true
 	}
-	if c.Channels.Telegram == nil {
-		c.Channels.Telegram = &TelegramChannelConfig{
-			AllowedIDs: []int64{},
-		}
-		changed = true
-	}
-	if c.Channels.Telegram.AllowedIDs == nil {
+	if c.Channels.Telegram != nil && c.Channels.Telegram.AllowedIDs == nil {
 		c.Channels.Telegram.AllowedIDs = []int64{}
 		changed = true
 	}
-	if c.Channels.Web == nil {
-		c.Channels.Web = &WebChannelConfig{}
-		changed = true
-	}
-	if c.Channels.Web.Addr == "" {
+	if c.Channels.Web != nil && c.Channels.Web.Addr == "" {
 		c.Channels.Web.Addr = defaultWebAddr
 		changed = true
 	}

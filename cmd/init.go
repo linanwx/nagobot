@@ -55,6 +55,12 @@ func runInit(cmd *cobra.Command, _ []string) error {
 	cfg.SetProviderAPIKey(apiKey)
 
 	if strings.TrimSpace(initTelegramToken) != "" {
+		if cfg.Channels == nil {
+			cfg.Channels = &config.ChannelsConfig{}
+		}
+		if cfg.Channels.Telegram == nil {
+			cfg.Channels.Telegram = &config.TelegramChannelConfig{}
+		}
 		cfg.Channels.Telegram.Token = strings.TrimSpace(initTelegramToken)
 	}
 

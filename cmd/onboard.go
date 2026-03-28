@@ -421,6 +421,9 @@ func runOnboard(cmd *cobra.Command, _ []string) error {
 	cfg.Thread.Models = modelOverrides
 
 	if configureTG {
+		if cfg.Channels.Telegram == nil {
+			cfg.Channels.Telegram = &config.TelegramChannelConfig{}
+		}
 		cfg.Channels.Telegram.Token = strings.TrimSpace(tgToken)
 		cfg.Channels.Telegram.AllowedIDs = parseAllowedIDs(tgAllowedIDs)
 	}

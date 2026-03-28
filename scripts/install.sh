@@ -68,6 +68,11 @@ fi
 echo "Registering system service..."
 "${INSTALL_DIR}/nagobot" install
 
+# Enable linger for root so the user service survives SSH disconnects.
+if [ "$(id -u)" = "0" ]; then
+    loginctl enable-linger root 2>/dev/null || true
+fi
+
 # Remind user to reload shell if PATH was updated.
 if [ -n "${RC:-}" ]; then
   echo ""

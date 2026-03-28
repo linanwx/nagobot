@@ -4,14 +4,17 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"runtime"
 	"strings"
+	"time"
 
 	"github.com/linanwx/nagobot/cmd/service"
+	"github.com/linanwx/nagobot/config"
 	"github.com/spf13/cobra"
 )
 
@@ -173,6 +176,11 @@ func runUpdate(cmd *cobra.Command, args []string) error {
 		fmt.Printf("Warning: failed to sync templates: %v\n", err)
 	}
 
+	// Gracefully stop the running process via socket RPC before restarting.
+	// This handles the case where the process was started manually (e.g., nohup)
+	// and the service manager cannot stop it.
+	stopRunningProcess()
+
 	// Restart service.
 	fmt.Println("Restarting service...")
 	mgr := service.New()
@@ -184,4 +192,53 @@ func runUpdate(cmd *cobra.Command, args []string) error {
 	}
 
 	return nil
+}
+
+// stopRunningProcess sends a shutdown RPC to the running nagobot process via
+// the unix socket. This ensures the old process exits even if it was started
+// manually (nohup) and is not managed by the system service manager.
+func stopRunningProcess() {
+	socketPath, err := config.SocketPath()
+	if err != nil {
+		return
+	}
+
+	conn, err := net.DialTimeout("unix", socketPath, 2*time.Second)
+	if err != nil {
+		// No running process or socket not available — nothing to stop.
+		return
+	}
+	defer conn.Close()
+
+	conn.SetDeadline(time.Now().Add(2 * time.Second))
+
+	// Send shutdown RPC.
+	req := struct {
+		ID     string `json:"id"`
+		Method string `json:"method"`
+	}{ID: "shutdown", Method: "shutdown"}
+
+	if err := json.NewEncoder(conn).Encode(req); err != nil {
+		return
+	}
+
+	// Read the response (best effort).
+	var resp json.RawMessage
+	json.NewDecoder(conn).Decode(&resp)
+	conn.Close()
+
+	fmt.Println("Waiting for old process to exit...")
+
+	// Wait up to 5 seconds for the socket to become unavailable (process exited).
+	deadline := time.Now().Add(5 * time.Second)
+	for time.Now().Before(deadline) {
+		time.Sleep(500 * time.Millisecond)
+		probe, err := net.DialTimeout("unix", socketPath, 500*time.Millisecond)
+		if err != nil {
+			// Socket gone — old process has exited.
+			return
+		}
+		probe.Close()
+	}
+	fmt.Println("    Warning: old process may still be running.")
 }

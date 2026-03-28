@@ -95,6 +95,9 @@ func runServe(cmd *cobra.Command, args []string) error {
 		return c
 	})
 
+	// shutdownCh allows the RPC "shutdown" method to trigger graceful shutdown.
+	shutdownCh := make(chan struct{})
+
 	// Wire RPC handler so CLI commands can query the running serve process.
 	socketCh.SetRPCHandler(func(method string, params json.RawMessage) (any, error) {
 		switch method {
@@ -116,6 +119,18 @@ func runServe(cmd *cobra.Command, args []string) error {
 			return output, nil
 		case "heartbeat.status":
 			return hbScheduler.Status(), nil
+		case "shutdown":
+			go func() {
+				// Small delay so the RPC response is sent before shutdown.
+				time.Sleep(100 * time.Millisecond)
+				select {
+				case <-shutdownCh:
+					// Already closed.
+				default:
+					close(shutdownCh)
+				}
+			}()
+			return "shutting down", nil
 		default:
 			return nil, fmt.Errorf("unknown method: %s", method)
 		}
@@ -175,8 +190,12 @@ func runServe(cmd *cobra.Command, args []string) error {
 	sigChan := make(chan os.Signal, 1)
 	signal.Notify(sigChan, syscall.SIGINT, syscall.SIGTERM)
 	go func() {
-		<-sigChan
-		logger.Info("shutdown signal received")
+		select {
+		case <-sigChan:
+			logger.Info("shutdown signal received")
+		case <-shutdownCh:
+			logger.Info("shutdown requested via RPC")
+		}
 		cancel()
 	}()
 
