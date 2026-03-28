@@ -140,9 +140,17 @@ func runUpdate(cmd *cobra.Command, args []string) error {
 	tmpPath := tmpFile.Name()
 	defer os.Remove(tmpPath) // clean up on error
 
-	if _, err := io.Copy(tmpFile, dlResp.Body); err != nil {
+	var src io.Reader = dlResp.Body
+	if dlResp.ContentLength > 0 {
+		src = &progressReader{r: dlResp.Body, total: dlResp.ContentLength}
+	}
+	if _, err := io.Copy(tmpFile, src); err != nil {
 		tmpFile.Close()
+		fmt.Println() // newline after progress bar
 		return fmt.Errorf("download write failed: %w", err)
+	}
+	if dlResp.ContentLength > 0 {
+		fmt.Println() // newline after progress bar
 	}
 	tmpFile.Close()
 
@@ -296,4 +304,42 @@ func isMainlandChina() bool {
 		return false
 	}
 	return strings.TrimSpace(string(body)) == "CN"
+}
+
+// progressReader wraps an io.Reader and prints a progress bar to stdout.
+type progressReader struct {
+	r       io.Reader
+	total   int64
+	current int64
+	last    int // last printed percentage (avoid redundant writes)
+}
+
+func (pr *progressReader) Read(p []byte) (int, error) {
+	n, err := pr.r.Read(p)
+	pr.current += int64(n)
+
+	pct := int(pr.current * 100 / pr.total)
+	if pct != pr.last || err == io.EOF {
+		pr.last = pct
+		filled := pct / 2          // 50-char wide bar
+		empty := 50 - filled
+		fmt.Fprintf(os.Stdout, "\r    %s / %s  [%s%s]  %d%%",
+			formatBytes(pr.current), formatBytes(pr.total),
+			strings.Repeat("=", filled), strings.Repeat(" ", empty),
+			pct)
+	}
+	return n, err
+}
+
+func formatBytes(b int64) string {
+	switch {
+	case b >= 1<<30:
+		return fmt.Sprintf("%.1f GB", float64(b)/float64(1<<30))
+	case b >= 1<<20:
+		return fmt.Sprintf("%.1f MB", float64(b)/float64(1<<20))
+	case b >= 1<<10:
+		return fmt.Sprintf("%.1f KB", float64(b)/float64(1<<10))
+	default:
+		return fmt.Sprintf("%d B", b)
+	}
 }
