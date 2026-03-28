@@ -135,7 +135,7 @@ func (p *OpenAIProvider) Chat(ctx context.Context, req *Request) (*Response, err
 		return nil, fmt.Errorf("request failed: %d %s", httpResp.StatusCode, string(errBody))
 	}
 
-	resp, err := p.parseSSEStream(httpResp)
+	resp, err := p.parseSSEStream(httpResp, req.OnTextDelta)
 	if err != nil {
 		return nil, fmt.Errorf("failed to parse response: %w", err)
 	}
@@ -345,9 +345,10 @@ func (p *OpenAIProvider) buildRequestBody(req *Request) ([]byte, error) {
 }
 
 // parseSSEStream reads an SSE event stream and assembles the complete response.
-// We collect response.output_item.done events for output items and
+// We collect response.output_text.delta events for streaming text delivery,
+// response.output_item.done events for complete output items, and
 // response.completed for usage data.
-func (p *OpenAIProvider) parseSSEStream(httpResp *http.Response) (*Response, error) {
+func (p *OpenAIProvider) parseSSEStream(httpResp *http.Response, onTextDelta func(string)) (*Response, error) {
 	var content strings.Builder
 	var reasoning strings.Builder
 	var reasoningItems []json.RawMessage
@@ -372,6 +373,7 @@ func (p *OpenAIProvider) parseSSEStream(httpResp *http.Response) (*Response, err
 
 		var event struct {
 			Type     string         `json:"type"`
+			Delta    string         `json:"delta,omitempty"`
 			Item     map[string]any `json:"item,omitempty"`
 			Response struct {
 				Usage struct {
@@ -393,6 +395,11 @@ func (p *OpenAIProvider) parseSSEStream(httpResp *http.Response) (*Response, err
 		}
 
 		switch event.Type {
+		case "response.output_text.delta":
+			if onTextDelta != nil && event.Delta != "" {
+				onTextDelta(event.Delta)
+			}
+
 		case "response.output_item.done":
 			p.extractOutputItem(event.Item, &content, &toolCalls, &reasoning, &reasoningItems)
 
