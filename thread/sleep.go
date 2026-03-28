@@ -42,15 +42,15 @@ func (t *Thread) SetSuppressSink() {
 	t.mu.Unlock()
 }
 
-// isSuppressSink returns whether sink delivery is currently suppressed.
-func (t *Thread) isSuppressSink() bool {
+// isSinkSuppressed returns whether sink delivery is currently suppressed.
+func (t *Thread) isSinkSuppressed() bool {
 	t.mu.Lock()
 	defer t.mu.Unlock()
 	return t.suppressSink
 }
 
-// checkAndResetSuppressSink returns the current suppressSink flag and resets it.
-func (t *Thread) checkAndResetSuppressSink() bool {
+// checkAndResetSinkSuppressed returns the current suppressSink flag and resets it.
+func (t *Thread) checkAndResetSinkSuppressed() bool {
 	t.mu.Lock()
 	defer t.mu.Unlock()
 	v := t.suppressSink

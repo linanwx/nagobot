@@ -149,8 +149,8 @@ func (t *Thread) RunOnce(ctx context.Context) {
 	if sink.IsZero() {
 		sink = t.defaultSink
 	}
-	// System-initiated wakes: suppress intermediate delivery (streaming +
-	// OnMessage) while keeping final response delivery via OnFinalResponse.
+	// System-initiated wakes: disable streaming (Chunkable=false) so only
+	// non-streaming delivery in OnMessage fires.
 	if messageVisibility(msg.Source) == "assistant-only" {
 		sink = sink.WithoutStreaming()
 	}
@@ -205,7 +205,7 @@ func (t *Thread) RunOnce(ctx context.Context) {
 	}
 
 	response, err := t.run(ctx, userMessage, sink, injectFn, string(msg.Source))
-	t.checkAndResetSuppressSink()
+	t.checkAndResetSinkSuppressed()
 
 	if err != nil {
 		logger.Error("thread run error", "threadID", t.id, "sessionKey", t.sessionKey, "source", msg.Source, "err", err)

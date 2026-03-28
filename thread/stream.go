@@ -15,7 +15,7 @@ type MarkdownStreamer struct {
 	buf       strings.Builder
 	sent      int  // byte offset of content already sent
 	threshold int  // minimum unsent bytes before attempting a split
-	active    bool // whether any content has been streamed
+	didSend   bool // whether any content was actually sent to the user
 }
 
 // NewMarkdownStreamer creates a streamer that sends markdown blocks to sink
@@ -28,7 +28,7 @@ func NewMarkdownStreamer(sink Sink, ctx context.Context, threshold int) *Markdow
 	}
 }
 
-// OnDelta is the callback for Runner.OnText. It accumulates text and
+// OnDelta is the callback for Runner.OnStream. It accumulates text and
 // sends complete markdown blocks when the buffer is large enough.
 func (s *MarkdownStreamer) OnDelta(delta string) {
 	s.buf.WriteString(delta)
@@ -50,7 +50,7 @@ func (s *MarkdownStreamer) OnDelta(delta string) {
 		return
 	}
 	s.sent += splitPos
-	s.active = true
+	s.didSend = true
 }
 
 // Flush sends any remaining unsent content and resets the buffer
@@ -61,16 +61,16 @@ func (s *MarkdownStreamer) Flush() {
 		if err := s.sink.Send(s.ctx, remaining); err != nil {
 			logger.Error("streamer flush error", "err", err)
 		} else {
-			s.active = true
+			s.didSend = true
 		}
 	}
 	s.buf.Reset()
 	s.sent = 0
 }
 
-// Streamed returns true if any content was sent via streaming.
-func (s *MarkdownStreamer) Streamed() bool {
-	return s.active
+// DidSend returns true if the streamer actually sent content to the user.
+func (s *MarkdownStreamer) DidSend() bool {
+	return s.didSend
 }
 
 // findMarkdownSplit finds a suitable split position in text, returning the

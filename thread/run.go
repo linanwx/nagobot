@@ -202,71 +202,60 @@ func (t *Thread) executeRunner(ctx, runCtx context.Context, p provider.Provider,
 	runner.ShouldHalt(t.isHaltLoop)
 	runner.SetUserVisible(sysmsg.IsUserVisibleSource(t.lastWakeSource))
 
-	// Set up streaming for chunkable sinks (Telegram, Discord, Feishu, CLI).
+	// Streaming: register OnStream for chunkable sinks on non-heartbeat turns.
+	// Heartbeat turns are forced non-streaming so SLEEP_THREAD_OK can never
+	// leak through the streaming path.
 	var streamer *MarkdownStreamer
-	var chatStreamed bool // whether current Chat() round produced streaming deltas
-	if !sink.IsZero() && sink.Chunkable {
+	useStreaming := !t.IsHeartbeatWake() && !sink.IsZero() && sink.Chunkable
+	if useStreaming {
 		streamer = NewMarkdownStreamer(sink, ctx, streamFlushThreshold)
-		runner.OnText(func(delta string) {
-			if ctx.Err() != nil {
+		runner.OnStream(func(streamID, delta string) {
+			if ctx.Err() != nil || t.isSinkSuppressed() {
 				return
 			}
-			if !t.isSuppressSink() {
-				chatStreamed = true
-				streamer.OnDelta(delta)
-			}
-		})
-		runner.OnChatEnd(func() {
-			if ctx.Err() != nil {
+			if delta == "" {
+				streamer.Flush() // end-of-stream signal: flush remaining buffer
 				return
 			}
-			if !t.isSuppressSink() {
-				streamer.Flush()
-			}
+			streamer.OnDelta(delta)
 		})
 	}
 
-	var hadToolCalls bool // tracks whether any tool calls occurred during the entire run
+	// OnMessage: persistence + suppression + delivery for every message.
 	runner.OnMessage(func(m provider.Message) {
+		// 1. Persist all messages.
 		intermediates = append(intermediates, m)
-		// Incremental persistence: save each message to disk as it arrives.
 		if persistMsg != nil {
 			persistMsg(m)
 		}
-		// Track tool calls for SLEEP_THREAD_OK fallback detection.
-		if m.Role == "assistant" && len(m.ToolCalls) > 0 {
-			hadToolCalls = true
-		}
-		// Deliver intermediate assistant content (with tool_calls) to user in real time.
-		// Final response delivery is handled by onFinalResponse — only intermediate
-		// messages (those with tool_calls) are delivered here to avoid double delivery.
-		if m.Role == "assistant" && len(m.ToolCalls) > 0 && isUserFacingContent(m.Content) && !sink.IsZero() && sink.Chunkable && !chatStreamed && !t.isSuppressSink() {
-			_ = sink.Send(ctx, m.Content)
-		}
-		if m.Role == "assistant" {
-			chatStreamed = false
-		}
-	})
 
-	// Deliver final response (no tool calls) inside the runner lifecycle.
-	// For streaming: streamer already delivered via OnText chunks — skip.
-	// For non-streaming or when streamer didn't fire: deliver via sink.Send.
-	// WithRetry(3) only wraps final delivery, not streaming chunks.
-	runner.OnFinalResponse(func(content string) {
-		// SLEEP_THREAD_OK text marker fallback: when a model with weak tool-calling
-		// outputs this marker instead of calling sleep_thread(), treat it as equivalent
-		// to suppress sink delivery during heartbeat turns.
-		if t.IsHeartbeatWake() && !hadToolCalls && strings.Contains(content, "SLEEP_THREAD_OK") {
+		if m.Role != "assistant" {
+			return
+		}
+
+		// 2. SLEEP_THREAD_OK suppression (heartbeat only, final response only).
+		// Heartbeat is forced non-streaming, so no content has been streamed.
+		if len(m.ToolCalls) == 0 && t.IsHeartbeatWake() && strings.Contains(m.Content, "SLEEP_THREAD_OK") {
 			t.SetSuppressSink()
 			logger.Info("SLEEP_THREAD_OK fallback triggered", "sessionKey", t.sessionKey, "source", t.lastWakeSource)
 		}
-		if sink.IsZero() || t.isSuppressSink() || !isUserFacingContent(content) {
+
+		// 3. Delivery (non-streaming path).
+		if sink.IsZero() || t.isSinkSuppressed() || !isUserFacingContent(m.Content) {
 			return
 		}
-		if streamer != nil && streamer.Streamed() {
-			return
+		if streamer != nil && streamer.DidSend() {
+			return // streaming already delivered this content
 		}
-		_ = sink.WithRetry(3).Send(ctx, content)
+		if len(m.ToolCalls) > 0 {
+			// Intermediate: deliver for chunkable sinks only.
+			if sink.Chunkable {
+				_ = sink.Send(ctx, m.Content)
+			}
+		} else {
+			// Final response: deliver with retry.
+			_ = sink.WithRetry(3).Send(ctx, m.Content)
+		}
 	})
 
 	runner.OnIterationEnd(injectFn)

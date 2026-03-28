@@ -21,36 +21,30 @@ type Runner struct {
 	lastQuota      *provider.Quota           // last non-nil quota from provider response
 	contextBudget  int                       // contextWindow - maxCompletionTokens; 0 = no guard
 	toolDefsTokens int                       // cached token estimate for tool definitions
-	onMessage      func(provider.Message)    // optional observer for intermediate messages
-	onIterationEnd func() []provider.Message // optional: called after each tool iteration; returned messages are injected before the next LLM call
-	onText          func(delta string)  // optional: called with each text chunk during streaming generation
-	onChatEnd       func()             // optional: called after each provider.Chat() returns
-	onFinalResponse func(string)       // optional: called with the final response content (no tool calls) before return
-	shouldHalt      func() bool        // optional: if true, stop loop after current tool calls
+	onStream       func(streamID, delta string) // optional: called with each streaming text delta; empty delta signals end of stream
+	onMessage      func(provider.Message)       // optional: called for every message (assistant, tool, injected)
+	onIterationEnd func() []provider.Message    // optional: called after each tool iteration; returned messages are injected before the next LLM call
+	shouldHalt     func() bool                  // optional: if true, stop loop after current tool calls
 	providerLabel   string             // effective provider name from last response
 	modelLabel      string             // effective model name from last response
 	userVisible     bool               // true when the current turn was triggered by a user-visible message
 	iterations      int                // number of tool-call iterations completed
 }
 
-// OnMessage sets a callback invoked for each intermediate message
-// (assistant-with-tools and tool results) generated during the agentic loop.
+// OnStream sets a callback invoked with each streaming text delta during
+// Chat(). An empty delta signals the end of the stream (Chat() returned).
+// If not set, provider.Chat() runs without streaming (OnTextDelta=nil).
+func (r *Runner) OnStream(fn func(streamID, delta string)) { r.onStream = fn }
+
+// OnMessage sets a callback invoked for every message produced during the
+// agentic loop: assistant (with or without tool calls), tool results, and
+// injected messages. The caller handles persistence, delivery, and suppression.
 func (r *Runner) OnMessage(fn func(provider.Message)) { r.onMessage = fn }
 
 // OnIterationEnd sets a callback invoked after each tool-call iteration
 // completes, before the next LLM call. If it returns messages, they are
 // appended to the conversation (e.g. mid-execution user messages).
 func (r *Runner) OnIterationEnd(fn func() []provider.Message) { r.onIterationEnd = fn }
-
-// OnText sets a callback invoked with each text delta during streaming generation.
-func (r *Runner) OnText(fn func(string)) { r.onText = fn }
-
-// OnChatEnd sets a callback invoked after each provider.Chat() call returns.
-func (r *Runner) OnChatEnd(fn func()) { r.onChatEnd = fn }
-
-// OnFinalResponse sets a callback invoked with the final response content
-// (when no tool calls are present) just before RunWithMessages returns.
-func (r *Runner) OnFinalResponse(fn func(string)) { r.onFinalResponse = fn }
 
 // ShouldHalt sets a callback checked after each tool-call iteration.
 // If it returns true, the loop exits immediately without calling the LLM again.
@@ -101,15 +95,28 @@ func (r *Runner) RunWithMessages(ctx context.Context, messages []provider.Messag
 			messages = r.trimLoopMessages(messages)
 		}
 
+		// Build request; enable streaming only when OnStream is registered.
 		chatReq := &provider.Request{
-			Messages:    messages,
-			Tools:       toolDefs,
-			OnTextDelta: r.onText,
+			Messages: messages,
+			Tools:    toolDefs,
 		}
+		var streamID string
+		if r.onStream != nil {
+			streamID = RandomHex(8)
+			chatReq.OnTextDelta = func(delta string) {
+				r.onStream(streamID, delta)
+			}
+		}
+
 		resp, err := r.provider.Chat(ctx, chatReq)
-		if r.onChatEnd != nil {
-			r.onChatEnd()
+
+		// Signal end of stream before any other processing.
+		// Empty delta tells the caller that Chat() returned and all
+		// streaming deltas have been delivered.
+		if r.onStream != nil {
+			r.onStream(streamID, "")
 		}
+
 		if err != nil {
 			return "", fmt.Errorf("provider error: %w", err)
 		}
@@ -135,13 +142,12 @@ func (r *Runner) RunWithMessages(ctx context.Context, messages []provider.Messag
 		if !resp.HasToolCalls() {
 			// Emit final response via onMessage — symmetric with the tool-calls path,
 			// so intermediates always contains the complete message set.
+			// The caller handles delivery (streaming content was already sent via
+			// OnStream; non-streaming delivery happens inside onMessage).
 			if r.onMessage != nil {
 				msg := provider.AssistantMessageWithTools(resp.Content, resp.ReasoningContent, resp.ReasoningDetails, nil)
 				msg.ReasoningTokens = resp.Usage.ReasoningTokens
 				r.onMessage(msg)
-			}
-			if r.onFinalResponse != nil {
-				r.onFinalResponse(resp.Content)
 			}
 			return resp.Content, nil
 		}
