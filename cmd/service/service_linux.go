@@ -24,15 +24,19 @@ RestartSec=5
 Environment=HOME={{.Home}}
 
 [Install]
-WantedBy=default.target
+WantedBy={{.WantedBy}}
 `))
 
 type unitData struct {
-	BinPath string
-	Home    string
+	BinPath  string
+	Home     string
+	WantedBy string
 }
 
 type linuxManager struct{}
+
+// isRoot returns true when running as UID 0.
+func isRoot() bool { return os.Getuid() == 0 }
 
 func (m *linuxManager) InstallElevated(binPath, logDir string) error {
 	return m.Install(binPath, logDir)
@@ -44,15 +48,20 @@ func (m *linuxManager) Install(binPath, logDir string) error {
 		return fmt.Errorf("cannot determine home directory: %w", err)
 	}
 
-	unitDir := filepath.Join(home, ".config", "systemd", "user")
-	if err := os.MkdirAll(unitDir, 0755); err != nil {
-		return fmt.Errorf("cannot create systemd user directory: %w", err)
+	var unitPath string
+	if isRoot() {
+		// Root: system-level unit — no D-Bus user session required.
+		unitPath = filepath.Join("/etc/systemd/system", unitName)
+	} else {
+		unitDir := filepath.Join(home, ".config", "systemd", "user")
+		if err := os.MkdirAll(unitDir, 0755); err != nil {
+			return fmt.Errorf("cannot create systemd user directory: %w", err)
+		}
+		unitPath = filepath.Join(unitDir, unitName)
 	}
 
-	unitPath := filepath.Join(unitDir, unitName)
-
 	// Stop existing service if any.
-	_ = exec.Command("systemctl", "--user", "stop", "nagobot").Run()
+	_ = systemctl(isRoot(), "stop", "nagobot")
 
 	// Write unit file.
 	f, err := os.Create(unitPath)
@@ -61,32 +70,42 @@ func (m *linuxManager) Install(binPath, logDir string) error {
 	}
 	defer f.Close()
 
+	wantedBy := "default.target"
+	if isRoot() {
+		wantedBy = "multi-user.target"
+	}
+
 	if err := unitTemplate.Execute(f, unitData{
-		BinPath: binPath,
-		Home:    home,
+		BinPath:  binPath,
+		Home:     home,
+		WantedBy: wantedBy,
 	}); err != nil {
 		return fmt.Errorf("cannot write unit file: %w", err)
 	}
 
 	// Reload and enable.
-	if out, err := exec.Command("systemctl", "--user", "daemon-reload").CombinedOutput(); err != nil {
+	if out, err := systemctlOutput(isRoot(), "daemon-reload"); err != nil {
 		return fmt.Errorf("systemctl daemon-reload failed: %s (%w)", string(out), err)
 	}
-	if out, err := exec.Command("systemctl", "--user", "enable", "--now", "nagobot").CombinedOutput(); err != nil {
+	if out, err := systemctlOutput(isRoot(), "enable", "--now", "nagobot"); err != nil {
 		return fmt.Errorf("systemctl enable failed: %s (%w)", string(out), err)
 	}
 
-	// Enable linger for root so the user service survives SSH disconnects.
-	if os.Getuid() == 0 {
-		_ = exec.Command("loginctl", "enable-linger", "root").Run()
+	// Enable linger for non-root user so the service survives SSH disconnects.
+	if !isRoot() {
+		_ = exec.Command("loginctl", "enable-linger").Run()
 	}
 
-	fmt.Println("    Service: systemctl --user status nagobot")
+	if isRoot() {
+		fmt.Println("    Service: systemctl status nagobot")
+	} else {
+		fmt.Println("    Service: systemctl --user status nagobot")
+	}
 	return nil
 }
 
 func (m *linuxManager) Restart() error {
-	if out, err := exec.Command("systemctl", "--user", "restart", "nagobot").CombinedOutput(); err != nil {
+	if out, err := systemctlOutput(isRoot(), "restart", "nagobot"); err != nil {
 		return fmt.Errorf("systemctl restart failed: %s (%w)", string(out), err)
 	}
 	return nil
@@ -98,15 +117,36 @@ func (m *linuxManager) Uninstall() error {
 		return fmt.Errorf("cannot determine home directory: %w", err)
 	}
 
-	unitPath := filepath.Join(home, ".config", "systemd", "user", unitName)
+	var unitPath string
+	if isRoot() {
+		unitPath = filepath.Join("/etc/systemd/system", unitName)
+	} else {
+		unitPath = filepath.Join(home, ".config", "systemd", "user", unitName)
+	}
 
 	fmt.Println("==> Stopping service...")
-	_ = exec.Command("systemctl", "--user", "disable", "--now", "nagobot").Run()
+	_ = systemctl(isRoot(), "disable", "--now", "nagobot")
 
 	fmt.Println("==> Removing systemd unit...")
 	os.Remove(unitPath)
 
-	_ = exec.Command("systemctl", "--user", "daemon-reload").Run()
+	_ = systemctl(isRoot(), "daemon-reload")
 
 	return nil
+}
+
+// systemctl runs systemctl with or without --user depending on root status.
+func systemctl(root bool, args ...string) error {
+	if !root {
+		args = append([]string{"--user"}, args...)
+	}
+	return exec.Command("systemctl", args...).Run()
+}
+
+// systemctlOutput is like systemctl but returns combined output.
+func systemctlOutput(root bool, args ...string) ([]byte, error) {
+	if !root {
+		args = append([]string{"--user"}, args...)
+	}
+	return exec.Command("systemctl", args...).CombinedOutput()
 }
