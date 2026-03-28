@@ -52,11 +52,32 @@ func addYAMLPair(node *yaml.Node, key, value string) {
 	)
 }
 
+// ReactFunc wraps a nil-safe emoji reaction callback.
+type ReactFunc struct {
+	fn func(ctx context.Context, emoji string)
+}
+
+// NewReactFunc creates a ReactFunc from a callback.
+func NewReactFunc(fn func(ctx context.Context, emoji string)) ReactFunc {
+	return ReactFunc{fn: fn}
+}
+
+// IsZero reports whether no reaction function is set.
+func (r ReactFunc) IsZero() bool { return r.fn == nil }
+
+// Do fires the reaction. Safe to call on zero value.
+func (r ReactFunc) Do(ctx context.Context, emoji string) {
+	if r.fn != nil {
+		r.fn(ctx, emoji)
+	}
+}
+
 // Sink defines how thread output is delivered.
 type Sink struct {
 	Label     string
 	Send      func(ctx context.Context, response string) error
-	Chunkable bool // True for sinks that accept chunked streaming delivery (telegram, discord, feishu, cli).
+	React     ReactFunc // Optional: fire-and-forget emoji reaction on the source message.
+	Chunkable bool      // True for sinks that accept chunked streaming delivery (telegram, discord, feishu, cli).
 }
 
 // IsZero reports whether the sink has no delivery function.

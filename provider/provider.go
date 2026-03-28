@@ -31,7 +31,8 @@ type AccountIDSetter interface {
 type Request struct {
 	Messages    []Message
 	Tools       []ToolDef
-	OnTextDelta func(delta string) // Optional: called with each text chunk during streaming generation.
+	OnTextDelta    func(delta string) // Optional: called with each text chunk during streaming generation.
+	OnToolCallStart func(name string) // Optional: called once when the first tool call is detected during streaming.
 }
 
 // Message represents a chat message in OpenAI format (internal canonical format).

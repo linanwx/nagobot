@@ -193,7 +193,7 @@ func (p *MinimaxProvider) Chat(ctx context.Context, req *Request) (*Response, er
 	var chatResp *openai.ChatCompletion
 	var streamReasoning string
 	if req.OnTextDelta != nil {
-		chatResp, streamReasoning, err = openAIStreamChat(ctx, p.client, chatReq, req.OnTextDelta, requestOpts...)
+		chatResp, streamReasoning, err = openAIStreamChat(ctx, p.client, chatReq, req.OnTextDelta, req.OnToolCallStart, requestOpts...)
 	} else {
 		chatResp, err = p.client.Chat.Completions.New(ctx, chatReq, requestOpts...)
 	}

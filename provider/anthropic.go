@@ -510,6 +510,7 @@ func (p *AnthropicProvider) Chat(ctx context.Context, req *Request) (*Response, 
 		// Streaming path.
 		stream := p.client.Messages.NewStreaming(ctx, params)
 		var textParts []string
+		var toolCallSignaled bool
 		var reasoningParts []string
 		var thinkingDetails []anthropicThinkingDetail
 
@@ -539,6 +540,10 @@ func (p *AnthropicProvider) Chat(ctx context.Context, req *Request) (*Response, 
 				case "tool_use":
 					bs.id = event.ContentBlock.ID
 					bs.name = event.ContentBlock.Name
+					if req.OnToolCallStart != nil && !toolCallSignaled {
+						toolCallSignaled = true
+						req.OnToolCallStart(event.ContentBlock.Name)
+					}
 				case "redacted_thinking":
 					bs.data = event.ContentBlock.Data
 				}

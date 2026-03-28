@@ -486,11 +486,12 @@ func fromOpenAIChatToolCalls(calls []openai.ChatCompletionMessageToolCallUnion) 
 // It calls onTextDelta for each text content delta and accumulates the full
 // response. Returns the accumulated ChatCompletion and any reasoning content
 // extracted from streaming delta extra fields.
-func openAIStreamChat(ctx context.Context, client openai.Client, params openai.ChatCompletionNewParams, onTextDelta func(string), opts ...oaioption.RequestOption) (*openai.ChatCompletion, string, error) {
+func openAIStreamChat(ctx context.Context, client openai.Client, params openai.ChatCompletionNewParams, onTextDelta func(string), onToolCallStart func(string), opts ...oaioption.RequestOption) (*openai.ChatCompletion, string, error) {
 	stream := client.Chat.Completions.NewStreaming(ctx, params, opts...)
 
 	var acc openai.ChatCompletionAccumulator
 	var reasoning strings.Builder
+	var toolCallSignaled bool
 	for stream.Next() {
 		chunk := stream.Current()
 		acc.AddChunk(chunk)
@@ -501,6 +502,12 @@ func openAIStreamChat(ctx context.Context, client openai.Client, params openai.C
 		delta := chunk.Choices[0].Delta
 		if delta.Content != "" && onTextDelta != nil {
 			onTextDelta(delta.Content)
+		}
+		if len(delta.ToolCalls) > 0 && onToolCallStart != nil && !toolCallSignaled {
+			toolCallSignaled = true
+			if name := delta.ToolCalls[0].Function.Name; name != "" {
+				onToolCallStart(name)
+			}
 		}
 		// Accumulate reasoning_content from non-standard extra fields
 		// (used by OpenRouter, Moonshot, Zhipu, Minimax via various backends).
@@ -574,7 +581,7 @@ func (p *OpenRouterProvider) Chat(ctx context.Context, req *Request) (*Response,
 	var chatResp *openai.ChatCompletion
 	var streamReasoning string
 	if req.OnTextDelta != nil {
-		chatResp, streamReasoning, err = openAIStreamChat(ctx, p.client, chatReq, req.OnTextDelta, requestOpts...)
+		chatResp, streamReasoning, err = openAIStreamChat(ctx, p.client, chatReq, req.OnTextDelta, req.OnToolCallStart, requestOpts...)
 	} else {
 		chatResp, err = p.client.Chat.Completions.New(ctx, chatReq, requestOpts...)
 	}

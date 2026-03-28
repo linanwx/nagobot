@@ -253,6 +253,15 @@ func (d *DiscordChannel) Messages() <-chan *Message {
 	return d.messages
 }
 
+// ReactTo adds an emoji reaction to a message (accumulative).
+func (d *DiscordChannel) ReactTo(_ context.Context, chatID, msgID, emoji string) error {
+	if d.session == nil {
+		return nil
+	}
+	_ = d.session.MessageReactionAdd(chatID, msgID, emoji)
+	return nil
+}
+
 func (d *DiscordChannel) handleMessageCreate(s *discordgo.Session, m *discordgo.MessageCreate) {
 	// Ignore self.
 	if m.Author.ID == s.State.User.ID {

@@ -223,8 +223,8 @@ func (d *Dispatcher) buildSink(ch channel.Channel, msg *channel.Message) thread.
 		replyTo = strings.TrimSpace(msg.ReplyTo)
 	}
 
-	return thread.Sink{
-		Label:      "your response will be sent to the user via " + channelName,
+	sink := thread.Sink{
+		Label:     "your response will be sent to the user via " + channelName,
 		Chunkable: true,
 		Send: func(ctx context.Context, response string) error {
 			if strings.TrimSpace(response) == "" {
@@ -233,6 +233,10 @@ func (d *Dispatcher) buildSink(ch channel.Channel, msg *channel.Message) thread.
 			return manager.SendTo(ctx, channelName, response, replyTo)
 		},
 	}
+
+	// Build React closure for channels that support it.
+	sink.React = d.buildReactFunc(channelName, manager, msg)
+	return sink
 }
 
 // buildCronSink creates a sink for cron jobs that wakes the creator thread
@@ -265,6 +269,35 @@ func (d *Dispatcher) buildCronSink(msg *channel.Message) thread.Sink {
 			return nil
 		},
 	}
+}
+
+// buildReactFunc creates a ReactFunc for a channel message.
+// For Telegram/Discord, uses the channel's Reactor interface.
+// For CLI/socket/web, prints the emoji to stdout for debugging.
+func (d *Dispatcher) buildReactFunc(channelName string, manager *channel.Manager, msg *channel.Message) thread.ReactFunc {
+	if msg == nil {
+		return thread.ReactFunc{}
+	}
+	msgID := msg.ID
+	chatID := strings.TrimSpace(msg.Metadata["chat_id"])
+	if chatID == "" {
+		chatID = strings.TrimSpace(msg.ReplyTo)
+	}
+
+	// CLI/socket/web: print to stdout for testing.
+	if channelName == "cli" || channelName == "socket" || channelName == "web" {
+		return thread.NewReactFunc(func(_ context.Context, emoji string) {
+			fmt.Fprintf(os.Stderr, "[react] %s\n", emoji)
+		})
+	}
+
+	// Channels with Reactor support (telegram, discord, etc.).
+	if chatID != "" && msgID != "" {
+		return thread.NewReactFunc(func(ctx context.Context, emoji string) {
+			_ = manager.ReactTo(ctx, channelName, chatID, msgID, emoji)
+		})
+	}
+	return thread.ReactFunc{}
 }
 
 // resolveAgentName returns the agent name and vars for a message.

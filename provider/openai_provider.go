@@ -135,7 +135,7 @@ func (p *OpenAIProvider) Chat(ctx context.Context, req *Request) (*Response, err
 		return nil, fmt.Errorf("request failed: %d %s", httpResp.StatusCode, string(errBody))
 	}
 
-	resp, err := p.parseSSEStream(httpResp, req.OnTextDelta)
+	resp, err := p.parseSSEStream(httpResp, req.OnTextDelta, req.OnToolCallStart)
 	if err != nil {
 		return nil, fmt.Errorf("failed to parse response: %w", err)
 	}
@@ -348,10 +348,11 @@ func (p *OpenAIProvider) buildRequestBody(req *Request) ([]byte, error) {
 // We collect response.output_text.delta events for streaming text delivery,
 // response.output_item.done events for complete output items, and
 // response.completed for usage data.
-func (p *OpenAIProvider) parseSSEStream(httpResp *http.Response, onTextDelta func(string)) (*Response, error) {
+func (p *OpenAIProvider) parseSSEStream(httpResp *http.Response, onTextDelta func(string), onToolCallStart func(string)) (*Response, error) {
 	var content strings.Builder
 	var reasoning strings.Builder
 	var reasoningItems []json.RawMessage
+	var toolCallSignaled bool
 	var toolCalls []ToolCall
 	var usage Usage
 
@@ -401,6 +402,13 @@ func (p *OpenAIProvider) parseSSEStream(httpResp *http.Response, onTextDelta fun
 			}
 
 		case "response.output_item.done":
+			if itemType, _ := event.Item["type"].(string); itemType == "function_call" {
+				if onToolCallStart != nil && !toolCallSignaled {
+					toolCallSignaled = true
+					name, _ := event.Item["name"].(string)
+					onToolCallStart(name)
+				}
+			}
 			p.extractOutputItem(event.Item, &content, &toolCalls, &reasoning, &reasoningItems)
 
 		case "response.completed", "response.done":

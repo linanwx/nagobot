@@ -36,6 +36,11 @@ type Reconfigurable interface {
 	Reconfigure(cfg *config.Config)
 }
 
+// Reactor is an optional interface for channels that support emoji reactions.
+type Reactor interface {
+	ReactTo(ctx context.Context, chatID, msgID, emoji string) error
+}
+
 // Channel is the interface for messaging channels.
 type Channel interface {
 	// Name returns the channel name (e.g., "telegram", "cli", "webhook").
@@ -108,6 +113,22 @@ func (m *Manager) Get(name string) (Channel, bool) {
 	ch, ok := m.channels[name]
 	m.mu.RUnlock()
 	return ch, ok
+}
+
+// ReactTo sends an emoji reaction to a message on a named channel.
+// Silently returns nil if the channel doesn't support reactions.
+func (m *Manager) ReactTo(ctx context.Context, channelName, chatID, msgID, emoji string) error {
+	m.mu.RLock()
+	ch, ok := m.channels[channelName]
+	m.mu.RUnlock()
+	if !ok {
+		return nil
+	}
+	reactor, ok := ch.(Reactor)
+	if !ok {
+		return nil
+	}
+	return reactor.ReactTo(ctx, chatID, msgID, emoji)
 }
 
 // SendTo sends a text message to a named channel.

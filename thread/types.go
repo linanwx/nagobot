@@ -18,6 +18,12 @@ import (
 // Sink is an alias for msg.Sink.
 type Sink = msg.Sink
 
+// ReactFunc is an alias for msg.ReactFunc.
+type ReactFunc = msg.ReactFunc
+
+// NewReactFunc is a convenience re-export of msg.NewReactFunc.
+var NewReactFunc = msg.NewReactFunc
+
 // WakeMessage is an alias for msg.WakeMessage.
 type WakeMessage = msg.WakeMessage
 

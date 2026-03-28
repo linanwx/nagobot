@@ -162,3 +162,32 @@ func (t *TelegramChannel) Messages() <-chan *Message {
 	return t.messages
 }
 
+// ReactTo sets an emoji reaction on a message (atomic replacement).
+func (t *TelegramChannel) ReactTo(ctx context.Context, chatID, msgID, emoji string) error {
+	if t.b == nil {
+		return nil
+	}
+	cid, err := strconv.ParseInt(chatID, 10, 64)
+	if err != nil {
+		return nil
+	}
+	mid, err := strconv.Atoi(msgID)
+	if err != nil {
+		return nil
+	}
+	_, _ = t.b.SetMessageReaction(ctx, &bot.SetMessageReactionParams{
+		ChatID:    cid,
+		MessageID: mid,
+		Reaction: []models.ReactionType{
+			{
+				Type: models.ReactionTypeTypeEmoji,
+				ReactionTypeEmoji: &models.ReactionTypeEmoji{
+					Type:  models.ReactionTypeTypeEmoji,
+					Emoji: emoji,
+				},
+			},
+		},
+	})
+	return nil
+}
+

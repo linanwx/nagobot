@@ -21,20 +21,34 @@ type Runner struct {
 	lastQuota      *provider.Quota           // last non-nil quota from provider response
 	contextBudget  int                       // contextWindow - maxCompletionTokens; 0 = no guard
 	toolDefsTokens int                       // cached token estimate for tool definitions
-	onStream       func(streamID, delta string) // optional: called with each streaming text delta; empty delta signals end of stream
-	onMessage      func(provider.Message)       // optional: called for every message (assistant, tool, injected)
-	onIterationEnd func() []provider.Message    // optional: called after each tool iteration; returned messages are injected before the next LLM call
-	shouldHalt     func() bool                  // optional: if true, stop loop after current tool calls
+	onStream       func(streamID, delta string)      // optional: called with each streaming text delta; empty delta signals end of stream
+	onMessage      func(provider.Message)            // optional: called for every message (assistant, tool, injected)
+	onEvent        func(event RunnerEvent, detail string) // optional: lifecycle events (tool calls, etc.)
+	onIterationEnd func() []provider.Message         // optional: called after each tool iteration; returned messages are injected before the next LLM call
+	shouldHalt     func() bool                       // optional: if true, stop loop after current tool calls
 	providerLabel   string             // effective provider name from last response
 	modelLabel      string             // effective model name from last response
 	userVisible     bool               // true when the current turn was triggered by a user-visible message
 	iterations      int                // number of tool-call iterations completed
 }
 
+// RunnerEvent identifies a lifecycle event in the agentic loop.
+type RunnerEvent int
+
+const (
+	// EventToolCalls fires when the current Chat() round has tool calls.
+	// Detail is the name of the first tool.
+	EventToolCalls RunnerEvent = iota
+)
+
 // OnStream sets a callback invoked with each streaming text delta during
 // Chat(). An empty delta signals the end of the stream (Chat() returned).
 // If not set, provider.Chat() runs without streaming (OnTextDelta=nil).
 func (r *Runner) OnStream(fn func(streamID, delta string)) { r.onStream = fn }
+
+// OnEvent sets a callback for lifecycle events (tool calls, etc.).
+// Each event fires at most once per Chat() round.
+func (r *Runner) OnEvent(fn func(event RunnerEvent, detail string)) { r.onEvent = fn }
 
 // OnMessage sets a callback invoked for every message produced during the
 // agentic loop: assistant (with or without tool calls), tool results, and
@@ -107,6 +121,16 @@ func (r *Runner) RunWithMessages(ctx context.Context, messages []provider.Messag
 				r.onStream(streamID, delta)
 			}
 		}
+		// Wire provider-level tool call detection for OnEvent.
+		toolCallSignaled := false
+		if r.onEvent != nil {
+			chatReq.OnToolCallStart = func(name string) {
+				if !toolCallSignaled {
+					toolCallSignaled = true
+					r.onEvent(EventToolCalls, name)
+				}
+			}
+		}
 
 		resp, err := r.provider.Chat(ctx, chatReq)
 
@@ -150,6 +174,11 @@ func (r *Runner) RunWithMessages(ctx context.Context, messages []provider.Messag
 				r.onMessage(msg)
 			}
 			return resp.Content, nil
+		}
+
+		// Fallback: fire EventToolCalls if provider didn't signal during streaming.
+		if resp.HasToolCalls() && !toolCallSignaled && r.onEvent != nil {
+			r.onEvent(EventToolCalls, resp.ToolCalls[0].Function.Name)
 		}
 
 		assistantMsg := provider.AssistantMessageWithTools(resp.Content, resp.ReasoningContent, resp.ReasoningDetails, resp.ToolCalls)

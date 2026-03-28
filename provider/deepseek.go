@@ -326,11 +326,12 @@ func (p *DeepSeekProvider) chatStream(ctx context.Context, req *Request, dsReq d
 	}
 
 	var (
-		content     strings.Builder
-		reasoning   strings.Builder
-		toolCallAcc = map[int]*streamToolCallAcc{}
-		usage       dsUsage
-		finishReason string
+		content          strings.Builder
+		reasoning        strings.Builder
+		toolCallAcc      = map[int]*streamToolCallAcc{}
+		toolCallSignaled bool
+		usage            dsUsage
+		finishReason     string
 	)
 
 	scanner := bufio.NewScanner(httpResp.Body)
@@ -375,6 +376,12 @@ func (p *DeepSeekProvider) chatStream(ctx context.Context, req *Request, dsReq d
 		}
 
 		// Accumulate tool calls by index.
+		if len(delta.ToolCalls) > 0 && req.OnToolCallStart != nil && !toolCallSignaled {
+			toolCallSignaled = true
+			if name := delta.ToolCalls[0].Function.Name; name != "" {
+				req.OnToolCallStart(name)
+			}
+		}
 		for _, tc := range delta.ToolCalls {
 			acc, ok := toolCallAcc[tc.Index]
 			if !ok {

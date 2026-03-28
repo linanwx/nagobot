@@ -277,10 +277,11 @@ func (p *GeminiProvider) chatStream(ctx context.Context, req *Request, gmReq gmR
 	var (
 		content      strings.Builder
 		reasoning    strings.Builder
-		toolCalls    []ToolCall
-		allParts     []gmPart // accumulate all parts for ReasoningDetails
-		usage        gmUsageMetadata
-		finishReason string
+		toolCalls        []ToolCall
+		allParts         []gmPart // accumulate all parts for ReasoningDetails
+		toolCallSignaled bool
+		usage            gmUsageMetadata
+		finishReason     string
 	)
 
 	scanner := bufio.NewScanner(httpResp.Body)
@@ -326,6 +327,10 @@ func (p *GeminiProvider) chatStream(ctx context.Context, req *Request, gmReq gmR
 				req.OnTextDelta(part.Text)
 			}
 			if part.FunctionCall != nil {
+				if req.OnToolCallStart != nil && !toolCallSignaled {
+					toolCallSignaled = true
+					req.OnToolCallStart(part.FunctionCall.Name)
+				}
 				argsJSON, _ := json.Marshal(part.FunctionCall.Args)
 				toolCalls = append(toolCalls, ToolCall{
 					ID:   fmt.Sprintf("gemini_%s_%d", part.FunctionCall.Name, callIndex),

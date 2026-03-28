@@ -202,6 +202,19 @@ func (t *Thread) executeRunner(ctx, runCtx context.Context, p provider.Provider,
 	runner.ShouldHalt(t.isHaltLoop)
 	runner.SetUserVisible(sysmsg.IsUserVisibleSource(t.lastWakeSource))
 
+	// Reaction: connect lifecycle events to sink reaction.
+	if !sink.React.IsZero() && !t.IsHeartbeatWake() {
+		runner.OnEvent(func(event RunnerEvent, detail string) {
+			if t.isSinkSuppressed() {
+				return
+			}
+			switch event {
+			case EventToolCalls:
+				sink.React.Do(ctx, "🔧")
+			}
+		})
+	}
+
 	// Streaming: register OnStream for chunkable sinks on non-heartbeat turns.
 	// Heartbeat turns are forced non-streaming so SLEEP_THREAD_OK can never
 	// leak through the streaming path.
