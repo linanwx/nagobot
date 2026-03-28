@@ -271,9 +271,31 @@ func (d *Dispatcher) buildCronSink(msg *channel.Message) thread.Sink {
 	}
 }
 
+// Per-platform emoji mapping for ReactEvents.
+var platformEmoji = map[string]map[thread.ReactEvent]string{
+	"telegram": {thread.ReactToolCalls: "⚡"},
+	"discord":  {thread.ReactToolCalls: "🔧"},
+}
+
+// defaultEmoji is used for CLI/socket/web debugging.
+var defaultEmoji = map[thread.ReactEvent]string{
+	thread.ReactToolCalls: "🔧",
+}
+
+func emojiFor(channelName string, event thread.ReactEvent) string {
+	if m, ok := platformEmoji[channelName]; ok {
+		if e, ok := m[event]; ok {
+			return e
+		}
+	}
+	if e, ok := defaultEmoji[event]; ok {
+		return e
+	}
+	return ""
+}
+
 // buildReactFunc creates a ReactFunc for a channel message.
-// For Telegram/Discord, uses the channel's Reactor interface.
-// For CLI/socket/web, prints the emoji to stdout for debugging.
+// Each platform maps ReactEvents to its own emoji set.
 func (d *Dispatcher) buildReactFunc(channelName string, manager *channel.Manager, msg *channel.Message) thread.ReactFunc {
 	if msg == nil {
 		return thread.ReactFunc{}
@@ -284,17 +306,21 @@ func (d *Dispatcher) buildReactFunc(channelName string, manager *channel.Manager
 		chatID = strings.TrimSpace(msg.ReplyTo)
 	}
 
-	// CLI/socket/web: print to stdout for testing.
+	// CLI/socket/web: print to stderr for testing.
 	if channelName == "cli" || channelName == "socket" || channelName == "web" {
-		return thread.NewReactFunc(func(_ context.Context, emoji string) {
-			fmt.Fprintf(os.Stderr, "[react] %s\n", emoji)
+		return thread.NewReactFunc(func(_ context.Context, event thread.ReactEvent) {
+			if emoji := emojiFor(channelName, event); emoji != "" {
+				fmt.Fprintf(os.Stderr, "[react] %s\n", emoji)
+			}
 		})
 	}
 
 	// Channels with Reactor support (telegram, discord, etc.).
 	if chatID != "" && msgID != "" {
-		return thread.NewReactFunc(func(ctx context.Context, emoji string) {
-			_ = manager.ReactTo(ctx, channelName, chatID, msgID, emoji)
+		return thread.NewReactFunc(func(ctx context.Context, event thread.ReactEvent) {
+			if emoji := emojiFor(channelName, event); emoji != "" {
+				_ = manager.ReactTo(ctx, channelName, chatID, msgID, emoji)
+			}
 		})
 	}
 	return thread.ReactFunc{}

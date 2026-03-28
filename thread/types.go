@@ -21,6 +21,14 @@ type Sink = msg.Sink
 // ReactFunc is an alias for msg.ReactFunc.
 type ReactFunc = msg.ReactFunc
 
+// ReactEvent is an alias for msg.ReactEvent.
+type ReactEvent = msg.ReactEvent
+
+// React event constants re-exported from msg package.
+const (
+	ReactToolCalls = msg.ReactToolCalls
+)
+
 // NewReactFunc is a convenience re-export of msg.NewReactFunc.
 var NewReactFunc = msg.NewReactFunc
 

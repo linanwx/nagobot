@@ -204,13 +204,13 @@ func (t *Thread) executeRunner(ctx, runCtx context.Context, p provider.Provider,
 
 	// Reaction: connect lifecycle events to sink reaction.
 	if !sink.React.IsZero() && !t.IsHeartbeatWake() {
-		runner.OnEvent(func(event RunnerEvent, detail string) {
+		runner.OnEvent(func(event RunnerEvent, _ string) {
 			if t.isSinkSuppressed() {
 				return
 			}
 			switch event {
 			case EventToolCalls:
-				sink.React.Do(ctx, "🔧")
+				sink.React.Do(ctx, ReactToolCalls)
 			}
 		})
 	}

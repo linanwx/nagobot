@@ -52,13 +52,22 @@ func addYAMLPair(node *yaml.Node, key, value string) {
 	)
 }
 
-// ReactFunc wraps a nil-safe emoji reaction callback.
+// ReactEvent identifies a lifecycle event for reaction purposes.
+type ReactEvent int
+
+const (
+	ReactToolCalls ReactEvent = iota // tool call detected
+	// ReactStreaming                 // future: first text delta
+)
+
+// ReactFunc wraps a nil-safe reaction callback.
+// Each platform maps ReactEvent to its own emoji.
 type ReactFunc struct {
-	fn func(ctx context.Context, emoji string)
+	fn func(ctx context.Context, event ReactEvent)
 }
 
 // NewReactFunc creates a ReactFunc from a callback.
-func NewReactFunc(fn func(ctx context.Context, emoji string)) ReactFunc {
+func NewReactFunc(fn func(ctx context.Context, event ReactEvent)) ReactFunc {
 	return ReactFunc{fn: fn}
 }
 
@@ -66,9 +75,9 @@ func NewReactFunc(fn func(ctx context.Context, emoji string)) ReactFunc {
 func (r ReactFunc) IsZero() bool { return r.fn == nil }
 
 // Do fires the reaction. Safe to call on zero value.
-func (r ReactFunc) Do(ctx context.Context, emoji string) {
+func (r ReactFunc) Do(ctx context.Context, event ReactEvent) {
 	if r.fn != nil {
-		r.fn(ctx, emoji)
+		r.fn(ctx, event)
 	}
 }
 
