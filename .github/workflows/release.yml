@@ -21,7 +21,7 @@ jobs:
       - name: Build binaries (parallel)
         run: |
           VERSION="${GITHUB_REF_NAME}"
-          LDFLAGS="-X github.com/linanwx/nagobot/cmd.Version=${VERSION}"
+          LDFLAGS="-s -w -X github.com/linanwx/nagobot/cmd.Version=${VERSION}"
           pids=""
           for pair in linux/amd64 linux/arm64 darwin/amd64 darwin/arm64 windows/amd64; do
             GOOS="${pair%/*}"

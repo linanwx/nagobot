@@ -116,17 +116,13 @@ func runUpdate(cmd *cobra.Command, args []string) error {
 	}
 	url := fmt.Sprintf("https://github.com/linanwx/nagobot/releases/download/%s/%s", latest, assetName)
 
-	// Download to temp file.
+	// Download to temp file. Try direct first, then gh-proxy mirror as fallback.
 	fmt.Printf("Downloading %s...\n", assetName)
-	dlResp, err := http.Get(url)
+	dlResp, err := downloadWithFallback(url)
 	if err != nil {
 		return fmt.Errorf("download failed: %w", err)
 	}
 	defer dlResp.Body.Close()
-
-	if dlResp.StatusCode != http.StatusOK {
-		return fmt.Errorf("download returned %s", dlResp.Status)
-	}
 
 	installDir := service.DefaultInstallDir()
 	binName := service.DefaultBinName()
@@ -241,4 +237,43 @@ func stopRunningProcess() {
 		probe.Close()
 	}
 	fmt.Println("    Warning: old process may still be running.")
+}
+
+// ghProxyMirrors are fallback mirrors for GitHub release downloads.
+// Used when direct download fails (e.g. in mainland China).
+var ghProxyMirrors = []string{
+	"https://gh-proxy.com/",
+	"https://ghfast.top/",
+}
+
+// downloadWithFallback tries direct download first, then gh-proxy mirrors.
+func downloadWithFallback(url string) (*http.Response, error) {
+	client := &http.Client{Timeout: 60 * time.Second}
+
+	resp, err := client.Get(url)
+	if err == nil && resp.StatusCode == http.StatusOK {
+		return resp, nil
+	}
+	if resp != nil {
+		resp.Body.Close()
+	}
+	directErr := err
+	if err == nil {
+		directErr = fmt.Errorf("HTTP %s", resp.Status)
+	}
+
+	// Try mirrors.
+	for _, mirror := range ghProxyMirrors {
+		mirrorURL := mirror + url
+		fmt.Printf("    Direct download failed, trying mirror %s...\n", mirror)
+		resp, err = client.Get(mirrorURL)
+		if err == nil && resp.StatusCode == http.StatusOK {
+			return resp, nil
+		}
+		if resp != nil {
+			resp.Body.Close()
+		}
+	}
+
+	return nil, fmt.Errorf("%w (mirrors also failed)", directErr)
 }
