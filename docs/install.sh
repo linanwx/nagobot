@@ -30,19 +30,33 @@ URL="https://github.com/${REPO}/releases/download/${VERSION}/nagobot-${OS}-${ARC
 INSTALL_DIR="${HOME}/.local/bin"
 mkdir -p "$INSTALL_DIR"
 
-# Detect mainland China — use gh-proxy mirror for faster downloads.
+# Detect mainland China — try multiple mirrors for faster downloads.
 COUNTRY="$(curl -s --max-time 3 https://ipinfo.io/country 2>/dev/null || echo "")"
-if [ "$COUNTRY" = "CN" ]; then
-  GHPROXY="https://gh-proxy.com/"
-  echo "Detected mainland China, using mirror ${GHPROXY}"
-  URL="${GHPROXY}${URL}"
-fi
+CHINA_MIRRORS=("https://gh-proxy.com/" "https://ghfast.top/" "https://gh-proxy.org/")
 
 echo "Downloading nagobot ${VERSION}..."
 # Remove old binary first — a running process keeps its inode,
 # so deleting is safe and avoids "text file busy" / write errors.
 rm -f "${INSTALL_DIR}/nagobot"
-curl -fsSL --retry 3 --retry-delay 5 "$URL" -o "${INSTALL_DIR}/nagobot"
+
+DOWNLOADED=false
+if [ "$COUNTRY" = "CN" ]; then
+  echo "Detected mainland China, trying mirrors..."
+  for MIRROR in "${CHINA_MIRRORS[@]}"; do
+    echo "    Trying ${MIRROR}"
+    if curl -fsSL --retry 1 --max-time 120 "${MIRROR}${URL}" -o "${INSTALL_DIR}/nagobot" 2>/dev/null; then
+      DOWNLOADED=true
+      break
+    fi
+    rm -f "${INSTALL_DIR}/nagobot"
+  done
+  if [ "$DOWNLOADED" = false ]; then
+    echo "    All mirrors failed, trying direct..."
+    curl -fsSL --retry 3 --retry-delay 5 "$URL" -o "${INSTALL_DIR}/nagobot"
+  fi
+else
+  curl -fsSL --retry 3 --retry-delay 5 "$URL" -o "${INSTALL_DIR}/nagobot"
+fi
 chmod +x "${INSTALL_DIR}/nagobot"
 
 # macOS: remove quarantine attribute to bypass Gatekeeper.
