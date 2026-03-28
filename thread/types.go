@@ -27,6 +27,7 @@ type ReactEvent = msg.ReactEvent
 // React event constants re-exported from msg package.
 const (
 	ReactToolCalls = msg.ReactToolCalls
+	ReactStreaming = msg.ReactStreaming
 )
 
 // NewReactFunc is a convenience re-export of msg.NewReactFunc.

@@ -273,13 +273,14 @@ func (d *Dispatcher) buildCronSink(msg *channel.Message) thread.Sink {
 
 // Per-platform emoji mapping for ReactEvents.
 var platformEmoji = map[string]map[thread.ReactEvent]string{
-	"telegram": {thread.ReactToolCalls: "⚡"},
-	"discord":  {thread.ReactToolCalls: "🔧"},
+	"telegram": {thread.ReactToolCalls: "⚡", thread.ReactStreaming: "✍"},
+	"discord":  {thread.ReactToolCalls: "🔧", thread.ReactStreaming: "✏️"},
 }
 
 // defaultEmoji is used for CLI/socket/web debugging.
 var defaultEmoji = map[thread.ReactEvent]string{
 	thread.ReactToolCalls: "🔧",
+	thread.ReactStreaming:  "✏️",
 }
 
 func emojiFor(channelName string, event thread.ReactEvent) string {

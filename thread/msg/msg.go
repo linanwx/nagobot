@@ -57,7 +57,7 @@ type ReactEvent int
 
 const (
 	ReactToolCalls ReactEvent = iota // tool call detected
-	// ReactStreaming                 // future: first text delta
+	ReactStreaming                   // first text content generated
 )
 
 // ReactFunc wraps a nil-safe reaction callback.

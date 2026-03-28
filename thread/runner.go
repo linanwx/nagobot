@@ -39,6 +39,8 @@ const (
 	// EventToolCalls fires when the current Chat() round has tool calls.
 	// Detail is the name of the first tool.
 	EventToolCalls RunnerEvent = iota
+	// EventStreaming fires on the first text content in the current Chat() round.
+	EventStreaming
 )
 
 // OnStream sets a callback invoked with each streaming text delta during
@@ -115,14 +117,25 @@ func (r *Runner) RunWithMessages(ctx context.Context, messages []provider.Messag
 			Tools:    toolDefs,
 		}
 		var streamID string
-		if r.onStream != nil {
-			streamID = RandomHex(8)
+		streamingSignaled := false
+		toolCallSignaled := false
+
+		// Set OnTextDelta when streaming or event detection is needed.
+		if r.onStream != nil || r.onEvent != nil {
+			if r.onStream != nil {
+				streamID = RandomHex(8)
+			}
 			chatReq.OnTextDelta = func(delta string) {
-				r.onStream(streamID, delta)
+				if r.onStream != nil {
+					r.onStream(streamID, delta)
+				}
+				if !streamingSignaled && delta != "" && r.onEvent != nil {
+					streamingSignaled = true
+					r.onEvent(EventStreaming, "")
+				}
 			}
 		}
 		// Wire provider-level tool call detection for OnEvent.
-		toolCallSignaled := false
 		if r.onEvent != nil {
 			chatReq.OnToolCallStart = func(name string) {
 				if !toolCallSignaled {
@@ -164,6 +177,10 @@ func (r *Runner) RunWithMessages(ctx context.Context, messages []provider.Messag
 		r.logEstimationAccuracy(messages, resp)
 
 		if !resp.HasToolCalls() {
+			// Fallback: fire EventStreaming for final response if not already signaled.
+			if resp.Content != "" && !streamingSignaled && r.onEvent != nil {
+				r.onEvent(EventStreaming, "")
+			}
 			// Emit final response via onMessage — symmetric with the tool-calls path,
 			// so intermediates always contains the complete message set.
 			// The caller handles delivery (streaming content was already sent via
@@ -176,7 +193,10 @@ func (r *Runner) RunWithMessages(ctx context.Context, messages []provider.Messag
 			return resp.Content, nil
 		}
 
-		// Fallback: fire EventToolCalls if provider didn't signal during streaming.
+		// Fallbacks: fire events if provider didn't signal during streaming.
+		if resp.Content != "" && !streamingSignaled && r.onEvent != nil {
+			r.onEvent(EventStreaming, "")
+		}
 		if resp.HasToolCalls() && !toolCallSignaled && r.onEvent != nil {
 			r.onEvent(EventToolCalls, resp.ToolCalls[0].Function.Name)
 		}

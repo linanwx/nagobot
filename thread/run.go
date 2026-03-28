@@ -211,6 +211,8 @@ func (t *Thread) executeRunner(ctx, runCtx context.Context, p provider.Provider,
 			switch event {
 			case EventToolCalls:
 				sink.React.Do(ctx, ReactToolCalls)
+			case EventStreaming:
+				sink.React.Do(ctx, ReactStreaming)
 			}
 		})
 	}
