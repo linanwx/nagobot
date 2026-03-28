@@ -247,37 +247,56 @@ func stopRunningProcess() {
 	fmt.Println("    Warning: old process may still be running.")
 }
 
-const ghProxy = "https://gh-proxy.com/"
+// China mirrors for GitHub release downloads, ordered by priority.
+var chinaMirrors = []string{
+	"https://gh-proxy.com/",
+	"https://ghfast.top/",
+	"https://gh-proxy.org/",
+}
 
-// downloadWithFallback detects mainland China via ipinfo.io and routes
-// through gh-proxy.com for faster downloads. Falls back to direct if
-// detection fails or proxy is unavailable.
+// downloadWithFallback detects mainland China via ipinfo.io and tries
+// multiple mirrors before falling back to direct download.
+// From outside China: direct → first mirror as fallback.
 func downloadWithFallback(rawURL string) (*http.Response, error) {
-	dlURL := rawURL
+	client := &http.Client{Timeout: 5 * time.Minute}
+
 	if isMainlandChina() {
-		dlURL = ghProxy + rawURL
-		fmt.Printf("    Detected mainland China, using mirror %s\n", ghProxy)
+		fmt.Printf("    Detected mainland China, trying mirrors...\n")
+		// Try each mirror in order, then direct as last resort.
+		for _, mirror := range chinaMirrors {
+			fmt.Printf("    Trying %s\n", mirror)
+			resp, err := client.Get(mirror + rawURL)
+			if err == nil && resp.StatusCode == http.StatusOK {
+				return resp, nil
+			}
+			if resp != nil {
+				resp.Body.Close()
+			}
+		}
+		fmt.Println("    All mirrors failed, trying direct...")
+		resp, err := client.Get(rawURL)
+		if err == nil && resp.StatusCode == http.StatusOK {
+			return resp, nil
+		}
+		if resp != nil {
+			resp.Body.Close()
+		}
+		if err != nil {
+			return nil, err
+		}
+		return nil, fmt.Errorf("all download attempts failed (mirrors + direct)")
 	}
 
-	client := &http.Client{Timeout: 5 * time.Minute}
-	resp, err := client.Get(dlURL)
+	// Outside China: try direct first, then first mirror as fallback.
+	resp, err := client.Get(rawURL)
 	if err == nil && resp.StatusCode == http.StatusOK {
 		return resp, nil
 	}
 	if resp != nil {
 		resp.Body.Close()
 	}
-
-	// If mirror failed, try direct (and vice versa).
-	fallbackURL := rawURL
-	if dlURL == rawURL {
-		fallbackURL = ghProxy + rawURL
-		fmt.Println("    Direct download failed, trying gh-proxy mirror...")
-	} else {
-		fmt.Println("    Mirror download failed, trying direct...")
-	}
-
-	resp, err = client.Get(fallbackURL)
+	fmt.Printf("    Direct download failed, trying mirror %s\n", chinaMirrors[0])
+	resp, err = client.Get(chinaMirrors[0] + rawURL)
 	if err == nil && resp.StatusCode == http.StatusOK {
 		return resp, nil
 	}
