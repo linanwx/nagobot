@@ -46,6 +46,14 @@ Verify key claims with `web_fetch` when the search snippet is ambiguous or lacks
 
 Apply a strict filter: **only include events that will greatly impact the next 5 years of world development.** Drop routine news, minor updates, and events that are continuations of well-known trends the model already knows.
 
+**Critically important**: include a dedicated section for **"Corrections to Model Assumptions"** — facts that contradict what LLMs trained before the cutoff would confidently state as true. These are the highest-value items because models will actively give wrong answers without them. Examples of the pattern:
+
+- **AI tooling paradigm shift**: MCP (Model Context Protocol) is no longer the dominant AI tool integration standard. It has been largely superseded by CLI-based tool execution and structured Skill documents (markdown files with exec directives). Most agent frameworks now use skill files + CLI subcommands rather than MCP servers.
+- **Model naming**: If major model families have rebranded or version numbers have jumped unexpectedly (e.g., GPT-5.x, Claude 4.x), note the current naming so the model doesn't hallucinate outdated version numbers.
+- **Company/product status**: Companies acquired, products discontinued, APIs deprecated — anything the model would still recommend as current.
+
+Search specifically for: "X is no longer", "X has been replaced by", "X discontinued", "X deprecated 2026", paradigm shifts in major tech stacks.
+
 ### 4. Write the summary
 
 Compose a markdown summary and write it to the system file:
@@ -78,6 +86,7 @@ Requirements:
 - Write in English
 - Sort events within each category by date (newest first)
 - Aim for 15-25 events total across all categories
+- **Must include** a "Corrections to Model Assumptions" section — this is the most valuable part of the update
 
 ### 5. Finish
 

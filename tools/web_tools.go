@@ -26,6 +26,7 @@ const (
 type WebSearchTool struct {
 	defaultMaxResults int
 	providers         map[string]SearchProvider
+	healthChecker     *SearchHealthChecker
 }
 
 // Def returns the tool definition.
@@ -38,7 +39,12 @@ func (t *WebSearchTool) Def() provider.ToolDef {
 		}
 	}
 	sort.Strings(sources)
-	sourceDesc := fmt.Sprintf("Search source. Available: %s. Default: duckduckgo.", strings.Join(sources, ", "))
+	// Append health status to description.
+	healthInfo := ""
+	if t.healthChecker != nil {
+		healthInfo = " Status: " + t.healthChecker.StatusSummary() + "."
+	}
+	sourceDesc := fmt.Sprintf("Search source (required). Available: %s.%s", strings.Join(sources, ", "), healthInfo)
 
 	return provider.ToolDef{
 		Type: "function",
@@ -61,7 +67,7 @@ func (t *WebSearchTool) Def() provider.ToolDef {
 						"description": sourceDesc,
 					},
 				},
-				"required": []string{"query"},
+				"required": []string{"query", "source"},
 			},
 		},
 	}
@@ -91,27 +97,24 @@ func (t *WebSearchTool) Run(ctx context.Context, args json.RawMessage) string {
 
 	source := a.Source
 	if source == "" {
-		source = "duckduckgo"
+		return t.sourceError("source parameter is required")
 	}
 
 	p, ok := t.providers[source]
-	if !ok || !p.Available() {
-		available := make([]string, 0, len(t.providers))
-		for name, prov := range t.providers {
-			if prov.Available() {
-				available = append(available, name)
-			}
-		}
-		sort.Strings(available)
-		if ok && !p.Available() {
-			return fmt.Sprintf("Error: search source %q is not available (API key not configured). Use the manage-config skill to set it up. Available: %s", source, strings.Join(available, ", "))
-		}
-		return fmt.Sprintf("Error: unknown search source %q. Available: %s", source, strings.Join(available, ", "))
+	if !ok {
+		return t.sourceError(fmt.Sprintf("unknown search source %q", source))
+	}
+	if !p.Available() {
+		return t.sourceError(fmt.Sprintf("search source %q is not available (API key not configured)", source))
 	}
 
 	results, err := p.Search(ctx, a.Query, a.MaxResults)
 	if err != nil {
-		return toolError("web_search", fmt.Sprintf("%v", err))
+		return t.searchError(source, a.Query, err)
+	}
+
+	if len(results) == 0 {
+		return t.emptyResults(source, a.Query)
 	}
 
 	fields := map[string]any{
@@ -119,17 +122,55 @@ func (t *WebSearchTool) Run(ctx context.Context, args json.RawMessage) string {
 		"source":  source,
 		"results": len(results),
 	}
-	var others []string
-	for name, prov := range t.providers {
-		if name != source && prov.Available() {
-			others = append(others, name)
-		}
-	}
-	if len(others) > 0 {
-		sort.Strings(others)
-		fields["available_sources"] = strings.Join(others, ", ")
+	if t.healthChecker != nil {
+		fields["source_status"] = t.healthChecker.StatusSummary()
 	}
 	return toolResult("web_search", fields, FormatSearchResults(a.Query, results))
+}
+
+// sourceError returns an error with detailed health status when source selection fails.
+func (t *WebSearchTool) sourceError(msg string) string {
+	var sb strings.Builder
+	sb.WriteString(fmt.Sprintf("Error: %s.\n\n", msg))
+	if t.healthChecker != nil {
+		sb.WriteString(t.healthChecker.DetailedStatus())
+	} else {
+		available := make([]string, 0, len(t.providers))
+		for name, prov := range t.providers {
+			if prov.Available() {
+				available = append(available, name)
+			}
+		}
+		sort.Strings(available)
+		sb.WriteString(fmt.Sprintf("Available sources: %s\n", strings.Join(available, ", ")))
+	}
+	return sb.String()
+}
+
+// searchError returns an error with health status when a search fails.
+func (t *WebSearchTool) searchError(source, query string, err error) string {
+	var sb strings.Builder
+	sb.WriteString(fmt.Sprintf("Error: search on %q failed: %v\n\n", source, err))
+	sb.WriteString("Try a different source.\n")
+	if t.healthChecker != nil {
+		sb.WriteString(t.healthChecker.DetailedStatus())
+	}
+	return toolError("web_search", sb.String())
+}
+
+// emptyResults returns a message with health status when no results are found.
+func (t *WebSearchTool) emptyResults(source, query string) string {
+	fields := map[string]any{
+		"query":   query,
+		"source":  source,
+		"results": 0,
+	}
+	var body strings.Builder
+	body.WriteString(fmt.Sprintf("No results found for %q on %s.\n\nTry a different source or rephrase the query.\n", query, source))
+	if t.healthChecker != nil {
+		body.WriteString(t.healthChecker.DetailedStatus())
+	}
+	return toolResult("web_search", fields, body.String())
 }
 
 // webFetchCache is a simple in-memory cache for fetched page content.

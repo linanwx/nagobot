@@ -15,13 +15,13 @@ import (
 	"github.com/linanwx/nagobot/tools"
 )
 
-func buildThreadManager(cfg *config.Config, enableSessions bool) (*thread.Manager, error) {
+func buildThreadManager(cfg *config.Config, enableSessions bool) (*thread.Manager, *tools.SearchHealthChecker, error) {
 	if cfg == nil {
-		return nil, fmt.Errorf("config is nil")
+		return nil, nil, fmt.Errorf("config is nil")
 	}
 	workspace, err := cfg.WorkspacePath()
 	if err != nil {
-		return nil, fmt.Errorf("failed to get workspace: %w", err)
+		return nil, nil, fmt.Errorf("failed to get workspace: %w", err)
 	}
 
 	cfgFn := func() *config.Config {
@@ -33,22 +33,22 @@ func buildThreadManager(cfg *config.Config, enableSessions bool) (*thread.Manage
 	}
 	providerFactory, err := provider.NewFactory(cfgFn)
 	if err != nil {
-		return nil, fmt.Errorf("failed to create provider factory: %w", err)
+		return nil, nil, fmt.Errorf("failed to create provider factory: %w", err)
 	}
 
 	defaultProvider, _ := providerFactory.Create("", "")
 
 	skillsDir, err := cfg.SkillsDir()
 	if err != nil {
-		return nil, fmt.Errorf("failed to get skills directory: %w", err)
+		return nil, nil, fmt.Errorf("failed to get skills directory: %w", err)
 	}
 	builtinSkillsDir, err := cfg.BuiltinSkillsDir()
 	if err != nil {
-		return nil, fmt.Errorf("failed to get builtin skills directory: %w", err)
+		return nil, nil, fmt.Errorf("failed to get builtin skills directory: %w", err)
 	}
 	sessionsDir, err := cfg.SessionsDir()
 	if err != nil {
-		return nil, fmt.Errorf("failed to get sessions directory: %w", err)
+		return nil, nil, fmt.Errorf("failed to get sessions directory: %w", err)
 	}
 
 	skillRegistry := skills.NewRegistry()
@@ -64,6 +64,7 @@ func buildThreadManager(cfg *config.Config, enableSessions bool) (*thread.Manage
 	// Build search providers (all registered; availability checked at call time via Available())
 	searchProviders := map[string]tools.SearchProvider{
 		"duckduckgo": &tools.DuckDuckGoProvider{},
+		"bing-cn":    &tools.BingProvider{},
 		"brave": &tools.BraveSearchProvider{
 			KeyFn: func() string {
 				c, err := config.Load()
@@ -129,10 +130,13 @@ func buildThreadManager(cfg *config.Config, enableSessions bool) (*thread.Manage
 		logsDir = filepath.Join(cd, "logs")
 	}
 
+	searchHealthChecker := tools.NewSearchHealthChecker(searchProviders)
+
 	toolRegistry.RegisterDefaultTools(workspace, tools.DefaultToolsConfig{
 		ExecTimeout:         cfg.GetExecTimeout(),
 		WebSearchMaxResults: cfg.GetWebSearchMaxResults(),
 		SearchProviders:     searchProviders,
+		SearchHealthChecker: searchHealthChecker,
 		FetchProviders:      fetchProviders,
 		RestrictToWorkspace: cfg.GetExecRestrictToWorkspace(),
 		Skills:              skillRegistry,
@@ -219,5 +223,5 @@ func buildThreadManager(cfg *config.Config, enableSessions bool) (*thread.Manage
 		},
 		SessionTimezoneFor:  cfg.SessionTimezone,
 		MetricsStore:        metricsStore,
-	}), nil
+	}), searchHealthChecker, nil
 }
