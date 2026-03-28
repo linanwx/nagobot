@@ -67,18 +67,20 @@ func scanInterruptedSessions(sessionsDir string) []resumeCandidate {
 			return nil
 		}
 
-		// Find the original user message to reference in the resume payload.
+		// Find the original user message — extract both body and agent from
+		// the same message to guarantee consistency (#108).
 		origMsg, ok := findLastUserMessage(sess.Messages)
 		body := ""
+		agent := ""
 		if ok {
 			body = origMsg.Content
 			if runes := []rune(body); len(runes) > 1000 {
 				body = string(runes[:1000]) + "\n... (truncated)"
 			}
+			if yamlBlock, _, fmOk := thread.SplitFrontmatter(origMsg.Content); fmOk {
+				agent = thread.ExtractFrontmatterValue(yamlBlock, "agent")
+			}
 		}
-
-		// Extract agent from the first non-resume user message.
-		agent := extractAgentFromSession(sess.Messages)
 
 		logger.Info("found interrupted session",
 			"sessionKey", key,
@@ -152,17 +154,3 @@ func findLastUserMessage(messages []provider.Message) (provider.Message, bool) {
 	return provider.Message{}, false
 }
 
-// extractAgentFromSession finds the first non-resume user message and extracts
-// the agent name from its YAML frontmatter. Returns "" if not found.
-func extractAgentFromSession(messages []provider.Message) string {
-	for _, m := range messages {
-		if m.Role == "user" && m.Source != "resume" {
-			yamlBlock, _, ok := thread.SplitFrontmatter(m.Content)
-			if ok {
-				return thread.ExtractFrontmatterValue(yamlBlock, "agent")
-			}
-			return ""
-		}
-	}
-	return ""
-}

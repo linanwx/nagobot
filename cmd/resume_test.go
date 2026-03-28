@@ -5,6 +5,7 @@ import (
 	"time"
 
 	"github.com/linanwx/nagobot/provider"
+	"github.com/linanwx/nagobot/thread"
 )
 
 func TestIsIncompleteSession(t *testing.T) {
@@ -174,45 +175,41 @@ func TestIsResumableSessionKey(t *testing.T) {
 	}
 }
 
-func TestExtractAgentFromSession(t *testing.T) {
-	t.Run("extracts agent from YAML frontmatter", func(t *testing.T) {
-		msgs := []provider.Message{
-			{Role: "user", Content: "---\nsource: child_task\nagent: imagereader\n---\n\nAnalyze this image", Source: "child_task"},
-		}
-		got := extractAgentFromSession(msgs)
-		if got != "imagereader" {
-			t.Errorf("expected 'imagereader', got %q", got)
-		}
-	})
+func TestExtractAgentFromLastMessage(t *testing.T) {
+	// Verifies that agent is extracted from the SAME message as findLastUserMessage,
+	// not from the first user message (#108).
 
-	t.Run("skips resume messages", func(t *testing.T) {
+	t.Run("agent from last user message, not first", func(t *testing.T) {
 		msgs := []provider.Message{
-			{Role: "user", Content: "---\nsource: telegram\nagent: soul\n---\n\nhello", Source: "telegram"},
-			{Role: "user", Content: "---\nsource: resume\nagent: soul\n---\n\nresume content", Source: "resume"},
+			{Role: "user", Content: "---\nsource: telegram\nagent: coffee\n---\n\nold msg", Source: "telegram"},
+			{Role: "assistant", Content: "reply"},
+			{Role: "user", Content: "---\nsource: telegram\nagent: soul\n---\n\nnew msg", Source: "telegram"},
 		}
-		got := extractAgentFromSession(msgs)
+		msg, ok := findLastUserMessage(msgs)
+		if !ok {
+			t.Fatal("expected to find user message")
+		}
+		yamlBlock, _, fmOk := thread.SplitFrontmatter(msg.Content)
+		if !fmOk {
+			t.Fatal("expected frontmatter")
+		}
+		got := thread.ExtractFrontmatterValue(yamlBlock, "agent")
 		if got != "soul" {
-			t.Errorf("expected 'soul', got %q", got)
+			t.Errorf("expected 'soul' (last msg), got %q", got)
 		}
 	})
 
-	t.Run("no agent field — returns empty", func(t *testing.T) {
-		msgs := []provider.Message{
-			{Role: "user", Content: "---\nsource: telegram\n---\n\nhello", Source: "telegram"},
-		}
-		got := extractAgentFromSession(msgs)
-		if got != "" {
-			t.Errorf("expected empty, got %q", got)
-		}
-	})
-
-	t.Run("no YAML frontmatter — returns empty", func(t *testing.T) {
+	t.Run("no frontmatter — empty agent", func(t *testing.T) {
 		msgs := []provider.Message{
 			{Role: "user", Content: "plain text message", Source: "telegram"},
 		}
-		got := extractAgentFromSession(msgs)
-		if got != "" {
-			t.Errorf("expected empty, got %q", got)
+		msg, ok := findLastUserMessage(msgs)
+		if !ok {
+			t.Fatal("expected to find user message")
+		}
+		_, _, fmOk := thread.SplitFrontmatter(msg.Content)
+		if fmOk {
+			t.Error("expected no frontmatter")
 		}
 	})
 }
