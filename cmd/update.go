@@ -239,7 +239,7 @@ func stopRunningProcess() {
 	fmt.Println("    Warning: old process may still be running.")
 }
 
-const ghProxy = "https://gh-proxy.com/"
+const ghProxy = "https://gh.ddlc.top/"
 
 // downloadWithFallback detects mainland China via ipinfo.io and routes
 // through gh-proxy.com for faster downloads. Falls back to direct if

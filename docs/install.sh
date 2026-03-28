@@ -33,7 +33,7 @@ mkdir -p "$INSTALL_DIR"
 # Detect mainland China — use gh-proxy mirror for faster downloads.
 COUNTRY="$(curl -s --max-time 3 https://ipinfo.io/country 2>/dev/null || echo "")"
 if [ "$COUNTRY" = "CN" ]; then
-  GHPROXY="https://gh-proxy.com/"
+  GHPROXY="https://gh.ddlc.top/"
   echo "Detected mainland China, using mirror ${GHPROXY}"
   URL="${GHPROXY}${URL}"
 fi
