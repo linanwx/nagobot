@@ -265,11 +265,15 @@ func (t *Thread) executeRunner(ctx, runCtx context.Context, p provider.Provider,
 		if len(m.ToolCalls) > 0 {
 			// Intermediate: deliver for chunkable sinks only.
 			if sink.Chunkable {
-				_ = sink.Send(ctx, m.Content)
+				if err := sink.Send(ctx, m.Content); err != nil {
+					logger.Warn("intermediate delivery failed", "key", t.sessionKey, "sink", sink.Label, "err", err)
+				}
 			}
 		} else {
 			// Final response: deliver with retry.
-			_ = sink.WithRetry(3).Send(ctx, m.Content)
+			if err := sink.WithRetry(3).Send(ctx, m.Content); err != nil {
+				logger.Warn("final delivery failed", "key", t.sessionKey, "sink", sink.Label, "err", err)
+			}
 		}
 	})
 

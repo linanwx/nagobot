@@ -10,6 +10,7 @@ import (
 
 	"github.com/linanwx/nagobot/cron"
 	"github.com/linanwx/nagobot/logger"
+	"github.com/linanwx/nagobot/provider"
 	"github.com/linanwx/nagobot/thread/msg"
 	"github.com/linanwx/nagobot/tools"
 )
@@ -273,6 +274,18 @@ func (m *Manager) SystemPrompt(sessionKey string) (string, bool) {
 		return "", false
 	}
 	return t.buildSystemPrompt(), true
+}
+
+// ToolDefs returns the current tool definitions for the thread identified by
+// sessionKey. Returns (nil, false) if no thread is loaded for that key.
+func (m *Manager) ToolDefs(sessionKey string) ([]provider.ToolDef, bool) {
+	m.mu.Lock()
+	t, ok := m.threads[sessionKey]
+	m.mu.Unlock()
+	if !ok {
+		return nil, false
+	}
+	return t.tools.Defs(), true
 }
 
 // ListThreads returns a summary of all active threads.

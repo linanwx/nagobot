@@ -1499,6 +1499,36 @@
         if (!n || n <= 0) return "0";
         return n >= 1000 ? (n / 1000).toFixed(1) + "k" : String(n);
       }
+
+      // createCollapsibleBanner builds a collapsible banner element with arrow toggle.
+      // Returns the banner DOM element, or null if not created.
+      function createCollapsibleBanner(opts) {
+        const banner = document.createElement("div");
+        banner.className = "system-prompt-banner" + (opts.extraClass ? " " + opts.extraClass : "");
+        const hdr = document.createElement("div");
+        hdr.className = "system-prompt-header";
+        const arrow = document.createElement("span");
+        arrow.className = "system-prompt-arrow";
+        arrow.textContent = "\u25B8";
+        const label = document.createElement("span");
+        label.className = "system-prompt-label";
+        label.textContent = opts.label;
+        hdr.appendChild(arrow);
+        hdr.appendChild(label);
+        const body = document.createElement("div");
+        body.className = "system-prompt-body";
+        const pre = document.createElement("pre");
+        pre.textContent = opts.content;
+        body.appendChild(pre);
+        hdr.addEventListener("click", () => {
+          const open = body.classList.contains("open");
+          body.classList.toggle("open", !open);
+          arrow.classList.toggle("open", !open);
+        });
+        banner.appendChild(hdr);
+        banner.appendChild(body);
+        return banner;
+      }
       function tokColorClass(n) {
         if (n < 300) return "tok-low";
         if (n < 800) return "tok-mid";
@@ -2003,38 +2033,43 @@
           messagesEmpty.style.display = "none";
 
           // Fetch system prompt (non-blocking, best-effort)
-          fetch("/api/sessions/" + key.split(":").map(encodeURIComponent).join("/") + "/system-prompt")
+          const sessionPath = "/api/sessions/" + key.split(":").map(encodeURIComponent).join("/");
+          fetch(sessionPath + "/system-prompt")
             .then(r => r.ok ? r.json() : null)
             .then(sp => {
               if (sp && sp.available && sp.prompt && currentSession === key) {
-                const existing = messagesContainer.querySelector(".system-prompt-banner");
+                const existing = messagesContainer.querySelector(".sp-banner");
                 if (existing) existing.remove();
-                const banner = document.createElement("div");
-                banner.className = "system-prompt-banner";
-                const hdr = document.createElement("div");
-                hdr.className = "system-prompt-header";
-                const arrow = document.createElement("span");
-                arrow.className = "system-prompt-arrow";
-                arrow.textContent = "\u25B8";
-                const label = document.createElement("span");
-                label.className = "system-prompt-label";
                 const tokStr = sp.tokens > 0 ? fmtTok(sp.tokens) + " tok" : "";
-                label.textContent = "System Prompt (live)" + (tokStr ? "  \u00B7  " + tokStr : "");
-                hdr.appendChild(arrow);
-                hdr.appendChild(label);
-                const body = document.createElement("div");
-                body.className = "system-prompt-body";
-                const pre = document.createElement("pre");
-                pre.textContent = sp.prompt;
-                body.appendChild(pre);
-                hdr.addEventListener("click", () => {
-                  const open = body.classList.contains("open");
-                  body.classList.toggle("open", !open);
-                  arrow.classList.toggle("open", !open);
+                const banner = createCollapsibleBanner({
+                  extraClass: "sp-banner",
+                  label: "System Prompt (live)" + (tokStr ? "  \u00B7  " + tokStr : ""),
+                  content: sp.prompt,
                 });
-                banner.appendChild(hdr);
-                banner.appendChild(body);
                 messagesContainer.insertBefore(banner, messagesContainer.firstChild);
+              }
+            })
+            .catch(() => {});
+
+          // Fetch tool definitions (non-blocking, best-effort)
+          fetch(sessionPath + "/tools")
+            .then(r => r.ok ? r.json() : null)
+            .then(td => {
+              if (td && td.available && td.tools && td.tools.length > 0 && currentSession === key) {
+                const existing = messagesContainer.querySelector(".td-banner");
+                if (existing) existing.remove();
+                const tokStr = td.tokens > 0 ? fmtTok(td.tokens) + " tok" : "";
+                const banner = createCollapsibleBanner({
+                  extraClass: "td-banner",
+                  label: "Tool Definitions (live)  \u00B7  " + td.count + " tools" + (tokStr ? "  \u00B7  " + tokStr : ""),
+                  content: JSON.stringify(td.tools, null, 2),
+                });
+                const spBanner = messagesContainer.querySelector(".sp-banner");
+                if (spBanner && spBanner.nextSibling) {
+                  messagesContainer.insertBefore(banner, spBanner.nextSibling);
+                } else {
+                  messagesContainer.insertBefore(banner, messagesContainer.firstChild);
+                }
               }
             })
             .catch(() => {});

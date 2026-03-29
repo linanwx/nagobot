@@ -55,6 +55,7 @@ type WebChannel struct {
 	stopOnce sync.Once
 
 	systemPromptFn  func(string) (string, bool)
+	toolDefsFn      func(string) ([]provider.ToolDef, bool)
 	contextBudgetFn func(string) (int, int, bool)
 }
 
@@ -102,6 +103,12 @@ func NewWebChannel(cfg *config.Config) Channel {
 // for a given session key. Returns ("", false) if the thread is not in memory.
 func (w *WebChannel) SetSystemPromptFn(fn func(string) (string, bool)) {
 	w.systemPromptFn = fn
+}
+
+// SetToolDefsFn sets a callback that returns the current tool definitions
+// for a given session key. Returns (nil, false) if the thread is not in memory.
+func (w *WebChannel) SetToolDefsFn(fn func(string) ([]provider.ToolDef, bool)) {
+	w.toolDefsFn = fn
 }
 
 // SetContextBudgetFn sets a callback that returns the effective context window
@@ -603,6 +610,12 @@ func (w *WebChannel) handleSessionMessages(rw http.ResponseWriter, r *http.Reque
 		return
 	}
 
+	// Route: /api/sessions/{key...}/tools
+	if key, ok := strings.CutSuffix(raw, ":tools"); ok {
+		w.handleToolDefs(rw, key)
+		return
+	}
+
 	// Route: /api/sessions/{key...}/stats
 	if key, ok := strings.CutSuffix(raw, ":stats"); ok {
 		w.handleSessionStats(rw, key)
@@ -663,6 +676,29 @@ func (w *WebChannel) handleSystemPrompt(rw http.ResponseWriter, key string) {
 		resp.Prompt, resp.Available = w.systemPromptFn(key)
 		if resp.Available && resp.Prompt != "" {
 			resp.Tokens = thread.EstimateTextTokens(resp.Prompt)
+		}
+	}
+	rw.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(rw).Encode(resp)
+}
+
+// --- GET /api/sessions/{key...}/tools ---
+
+type toolDefsResponse struct {
+	Key       string             `json:"key"`
+	Tools     []provider.ToolDef `json:"tools,omitempty"`
+	Available bool               `json:"available"`
+	Count     int                `json:"count,omitempty"`
+	Tokens    int                `json:"tokens,omitempty"`
+}
+
+func (w *WebChannel) handleToolDefs(rw http.ResponseWriter, key string) {
+	resp := toolDefsResponse{Key: key}
+	if w.toolDefsFn != nil {
+		resp.Tools, resp.Available = w.toolDefsFn(key)
+		if resp.Available {
+			resp.Count = len(resp.Tools)
+			resp.Tokens = thread.EstimateToolDefsTokens(resp.Tools)
 		}
 	}
 	rw.Header().Set("Content-Type", "application/json")

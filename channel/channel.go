@@ -133,13 +133,18 @@ func (m *Manager) ReactTo(ctx context.Context, channelName, chatID, msgID, emoji
 
 // SendTo sends a text message to a named channel.
 func (m *Manager) SendTo(ctx context.Context, channelName, text, replyTo string) error {
+	return m.SendResponse(ctx, channelName, &Response{Text: text, ReplyTo: replyTo})
+}
+
+// SendResponse sends a full Response (with optional Metadata) to a named channel.
+func (m *Manager) SendResponse(ctx context.Context, channelName string, resp *Response) error {
 	m.mu.RLock()
 	ch, ok := m.channels[channelName]
 	m.mu.RUnlock()
 	if !ok {
 		return fmt.Errorf("channel not found: %s", channelName)
 	}
-	return ch.Send(ctx, &Response{Text: text, ReplyTo: replyTo})
+	return ch.Send(ctx, resp)
 }
 
 // StartAll starts all registered channels.

@@ -440,32 +440,43 @@ func (d *Dispatcher) wakeSource(ch channel.Channel) thread.WakeSource {
 
 // persistChannelRouting writes channel.json to the session directory for
 // channels that need routing metadata beyond what the session key provides
-// (e.g., Discord DM needs "dm:{userID}" to create a DM channel on send).
+// (e.g., Discord DM needs "dm:{userID}" to create a DM channel on send,
+// WeCom needs req_id to reply after service restart).
 func persistChannelRouting(sessionsDir, sessionKey string, msg *channel.Message) {
 	if msg == nil {
 		return
 	}
+
+	var data map[string]any
+
+	// Discord DM: persist reply_to for DM channel creation.
 	chatType := strings.TrimSpace(msg.Metadata["chat_type"])
-	if chatType != "dm" {
-		return
+	if chatType == "dm" && strings.HasPrefix(msg.ChannelID, "discord:") {
+		if userID := strings.TrimSpace(msg.UserID); userID != "" {
+			data = map[string]any{
+				"discord_dm": map[string]string{
+					"channel":  "discord",
+					"reply_to": "dm:" + userID,
+					"user_id":  userID,
+				},
+			}
+		}
 	}
-	if !strings.HasPrefix(msg.ChannelID, "discord:") {
-		return
+
+	// WeCom: persist req_id so heartbeat can reply after restart.
+	if reqID := strings.TrimSpace(msg.Metadata[channel.MetaWeComReqID]); reqID != "" && strings.HasPrefix(sessionKey, "wecom:") {
+		data = map[string]any{
+			"wecom": map[string]string{
+				"req_id": reqID,
+			},
+		}
 	}
-	userID := strings.TrimSpace(msg.UserID)
-	if userID == "" {
+
+	if data == nil {
 		return
 	}
 
 	sessionDir := session.SessionDir(sessionsDir, sessionKey)
-
-	data := map[string]any{
-		"discord_dm": map[string]string{
-			"channel":  "discord",
-			"reply_to": "dm:" + userID,
-			"user_id":  userID,
-		},
-	}
 	raw, err := json.MarshalIndent(data, "", "  ")
 	if err != nil {
 		return

@@ -36,6 +36,9 @@ const (
 	wecomReconnectMaxDelay = 30 * time.Second
 )
 
+// MetaWeComReqID is the metadata key for WeCom req_id passthrough.
+const MetaWeComReqID = "wecom_req_id"
+
 // WeCom WebSocket frame commands.
 const (
 	wsCmdSubscribe       = "aibot_subscribe"
@@ -208,11 +211,13 @@ func (w *WeComChannel) Stop() error {
 func (w *WeComChannel) Send(ctx context.Context, resp *Response) error {
 	target := resp.ReplyTo
 
-	// Look up the req_id for this target.
 	w.reqIDMu.Lock()
 	reqID := w.lastReqID[target].reqID
 	w.reqIDMu.Unlock()
 
+	if reqID == "" && resp.Metadata != nil {
+		reqID = resp.Metadata[MetaWeComReqID]
+	}
 	if reqID == "" {
 		return fmt.Errorf("wecom: no req_id for target %q (user may not have sent a message yet)", target)
 	}
@@ -466,7 +471,7 @@ func (w *WeComChannel) handleMsgCallback(frame wsFrame) {
 		UserID:    body.From.UserID,
 		Username:  body.From.UserID,
 		Metadata: map[string]string{
-			"wecom_req_id": reqID,
+			MetaWeComReqID: reqID,
 			"chat_type":    body.ChatType,
 			"chat_id":      target,
 		},
@@ -658,7 +663,7 @@ func (w *WeComChannel) cleanupSeen() {
 	}
 }
 
-const wecomReqIDTTL = 1 * time.Hour
+const wecomReqIDTTL = 48 * time.Hour
 
 func (w *WeComChannel) cleanupReqIDs() {
 	w.reqIDMu.Lock()

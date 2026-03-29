@@ -174,6 +174,7 @@ func runServe(cmd *cobra.Command, args []string) error {
 	if ch, ok := chManager.Get("web"); ok {
 		if webCh, ok := ch.(*channel.WebChannel); ok {
 			webCh.SetSystemPromptFn(threadMgr.SystemPrompt)
+			webCh.SetToolDefsFn(threadMgr.ToolDefs)
 			webCh.SetContextBudgetFn(threadMgr.ContextBudget)
 		}
 	}
@@ -267,23 +268,26 @@ func buildDefaultAgentFor(cfg *config.Config) func(string) string {
 	}
 }
 
-// readDiscordDMReplyTo reads {sessionDir}/channel.json and returns the discord_dm
-// reply_to value if present. Returns empty string if not found.
-func readDiscordDMReplyTo(sessionsDir, sessionKey string) string {
+// channelRouting is the on-disk shape of {sessionDir}/channel.json.
+type channelRouting struct {
+	DiscordDM *struct {
+		ReplyTo string `json:"reply_to"`
+	} `json:"discord_dm"`
+	WeCom *struct {
+		ReqID string `json:"req_id"`
+	} `json:"wecom"`
+}
+
+// readChannelRouting loads channel.json from the session directory.
+func readChannelRouting(sessionsDir, sessionKey string) channelRouting {
 	sessionDir := session.SessionDir(sessionsDir, sessionKey)
 	data, err := os.ReadFile(filepath.Join(sessionDir, "channel.json"))
 	if err != nil {
-		return ""
+		return channelRouting{}
 	}
-	var routing struct {
-		DiscordDM *struct {
-			ReplyTo string `json:"reply_to"`
-		} `json:"discord_dm"`
-	}
-	if err := json.Unmarshal(data, &routing); err != nil || routing.DiscordDM == nil {
-		return ""
-	}
-	return routing.DiscordDM.ReplyTo
+	var r channelRouting
+	_ = json.Unmarshal(data, &r)
+	return r
 }
 
 // buildDefaultSinkFor returns a factory that resolves the fallback sink for a given session key.
@@ -376,8 +380,8 @@ func buildDefaultSinkFor(chMgr *channel.Manager, cfg *config.Config, sessionsDir
 			channelID := strings.TrimPrefix(sessionKey, "discord:")
 			if channelID != "" {
 				replyTo := channelID
-				if r := readDiscordDMReplyTo(sessionsDir, sessionKey); r != "" {
-					replyTo = r
+				if r := readChannelRouting(sessionsDir, sessionKey); r.DiscordDM != nil && r.DiscordDM.ReplyTo != "" {
+					replyTo = r.DiscordDM.ReplyTo
 				}
 				return thread.Sink{
 					Label:      "your response will be sent to discord channel " + channelID,
@@ -400,6 +404,11 @@ func buildDefaultSinkFor(chMgr *channel.Manager, cfg *config.Config, sessionsDir
 				if strings.HasPrefix(target, "group:") {
 					label = "your response will be sent to wecom group " + strings.TrimPrefix(target, "group:")
 				}
+				// Read persisted req_id once at sink creation (survives restart).
+				var persistedReqID string
+				if r := readChannelRouting(sessionsDir, sessionKey); r.WeCom != nil {
+					persistedReqID = r.WeCom.ReqID
+				}
 				return thread.Sink{
 					Label:     label,
 					Chunkable: true,
@@ -407,7 +416,13 @@ func buildDefaultSinkFor(chMgr *channel.Manager, cfg *config.Config, sessionsDir
 						if strings.TrimSpace(response) == "" {
 							return nil
 						}
-						return chMgr.SendTo(ctx, "wecom", response, target)
+						return chMgr.SendResponse(ctx, "wecom", &channel.Response{
+							Text:    response,
+							ReplyTo: target,
+							Metadata: map[string]string{
+								channel.MetaWeComReqID: persistedReqID,
+							},
+						})
 					},
 				}
 			}
