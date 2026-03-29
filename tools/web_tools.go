@@ -136,13 +136,20 @@ func (t *WebSearchTool) sourceError(msg string) string {
 		sb.WriteString(t.healthChecker.DetailedStatus())
 	} else {
 		available := make([]string, 0, len(t.providers))
+		unavailable := make([]string, 0)
 		for name, prov := range t.providers {
 			if prov.Available() {
 				available = append(available, name)
+			} else {
+				unavailable = append(unavailable, name)
 			}
 		}
 		sort.Strings(available)
+		sort.Strings(unavailable)
 		sb.WriteString(fmt.Sprintf("Available sources: %s\n", strings.Join(available, ", ")))
+		if len(unavailable) > 0 {
+			sb.WriteString(fmt.Sprintf("Unavailable sources (not configured — may need API key): %s\n", strings.Join(unavailable, ", ")))
+		}
 	}
 	t.appendGuide(&sb)
 	return sb.String()
