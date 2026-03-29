@@ -1,6 +1,7 @@
 package cmd
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -116,14 +117,6 @@ func runUpdate(cmd *cobra.Command, args []string) error {
 	}
 	url := fmt.Sprintf("https://github.com/linanwx/nagobot/releases/download/%s/%s", latest, assetName)
 
-	// Download to temp file. Try direct first, then gh-proxy mirror as fallback.
-	fmt.Printf("Downloading %s...\n", assetName)
-	dlResp, err := downloadWithFallback(url)
-	if err != nil {
-		return fmt.Errorf("download failed: %w", err)
-	}
-	defer dlResp.Body.Close()
-
 	installDir := service.DefaultInstallDir()
 	binName := service.DefaultBinName()
 	installPath := filepath.Join(installDir, binName)
@@ -140,17 +133,11 @@ func runUpdate(cmd *cobra.Command, args []string) error {
 	tmpPath := tmpFile.Name()
 	defer os.Remove(tmpPath) // clean up on error
 
-	var src io.Reader = dlResp.Body
-	if dlResp.ContentLength > 0 {
-		src = &progressReader{r: dlResp.Body, total: dlResp.ContentLength}
-	}
-	if _, err := io.Copy(tmpFile, src); err != nil {
+	// Download to temp file. Each mirror gets its own timeout; on failure the next is tried.
+	fmt.Printf("Downloading %s...\n", assetName)
+	if err := downloadWithFallback(url, tmpFile); err != nil {
 		tmpFile.Close()
-		fmt.Println() // newline after progress bar
-		return fmt.Errorf("download write failed: %w", err)
-	}
-	if dlResp.ContentLength > 0 {
-		fmt.Println() // newline after progress bar
+		return fmt.Errorf("download failed: %w", err)
 	}
 	tmpFile.Close()
 
@@ -251,62 +238,76 @@ func stopRunningProcess() {
 var chinaMirrors = []string{
 	"https://gh-proxy.com/",
 	"https://ghfast.top/",
+	"https://gh-fast.com/",
 	"https://gh-proxy.org/",
 }
 
-// downloadWithFallback detects mainland China via ipinfo.io and tries
-// multiple mirrors before falling back to direct download.
-// From outside China: direct → first mirror as fallback.
-func downloadWithFallback(rawURL string) (*http.Response, error) {
-	client := &http.Client{Timeout: 5 * time.Minute}
+const perMirrorTimeout = 2 * time.Minute
+
+// downloadWithFallback downloads rawURL into dst, trying mirrors with
+// per-mirror timeouts. Each attempt includes the full body transfer;
+// on timeout or failure the next mirror is tried automatically.
+func downloadWithFallback(rawURL string, dst *os.File) error {
+	client := &http.Client{} // no global timeout; per-request context handles it
+
+	type source struct {
+		label string
+		url   string
+	}
+	var sources []source
 
 	if isMainlandChina() {
-		fmt.Printf("    Detected mainland China, trying mirrors...\n")
-		// Try each mirror in order, then direct as last resort.
+		fmt.Println("    Detected mainland China, trying mirrors...")
 		for _, mirror := range chinaMirrors {
-			fmt.Printf("    Trying %s\n", mirror)
-			resp, err := client.Get(mirror + rawURL)
-			if err == nil && resp.StatusCode == http.StatusOK {
-				return resp, nil
-			}
-			if resp != nil {
-				resp.Body.Close()
-			}
+			sources = append(sources, source{mirror, mirror + rawURL})
 		}
-		fmt.Println("    All mirrors failed, trying direct...")
-		resp, err := client.Get(rawURL)
-		if err == nil && resp.StatusCode == http.StatusOK {
-			return resp, nil
-		}
-		if resp != nil {
-			resp.Body.Close()
-		}
-		if err != nil {
-			return nil, err
-		}
-		return nil, fmt.Errorf("all download attempts failed (mirrors + direct)")
+		sources = append(sources, source{"direct", rawURL})
+	} else {
+		sources = append(sources, source{"direct", rawURL})
+		sources = append(sources, source{chinaMirrors[0], chinaMirrors[0] + rawURL})
 	}
 
-	// Outside China: try direct first, then first mirror as fallback.
-	resp, err := client.Get(rawURL)
-	if err == nil && resp.StatusCode == http.StatusOK {
-		return resp, nil
-	}
-	if resp != nil {
+	for _, s := range sources {
+		fmt.Printf("    Trying %s\n", s.label)
+
+		ctx, cancel := context.WithTimeout(context.Background(), perMirrorTimeout)
+		req, _ := http.NewRequestWithContext(ctx, "GET", s.url, nil)
+		resp, err := client.Do(req)
+		if err != nil {
+			cancel()
+			fmt.Printf("    Failed: %v\n", err)
+			continue
+		}
+		if resp.StatusCode != http.StatusOK {
+			resp.Body.Close()
+			cancel()
+			fmt.Printf("    Failed: HTTP %s\n", resp.Status)
+			continue
+		}
+
+		// Reset file for this attempt.
+		dst.Seek(0, io.SeekStart)
+		dst.Truncate(0)
+
+		var src io.Reader = resp.Body
+		if resp.ContentLength > 0 {
+			src = &progressReader{r: resp.Body, total: resp.ContentLength}
+		}
+		_, err = io.Copy(dst, src)
 		resp.Body.Close()
+		cancel()
+
+		if err != nil {
+			fmt.Println() // newline after progress bar
+			fmt.Printf("    Failed: %v\n", err)
+			continue
+		}
+		if resp.ContentLength > 0 {
+			fmt.Println() // newline after progress bar
+		}
+		return nil
 	}
-	fmt.Printf("    Direct download failed, trying mirror %s\n", chinaMirrors[0])
-	resp, err = client.Get(chinaMirrors[0] + rawURL)
-	if err == nil && resp.StatusCode == http.StatusOK {
-		return resp, nil
-	}
-	if resp != nil {
-		resp.Body.Close()
-	}
-	if err != nil {
-		return nil, err
-	}
-	return nil, fmt.Errorf("download failed: HTTP %s", resp.Status)
+	return fmt.Errorf("all download attempts failed")
 }
 
 // isMainlandChina checks if the current machine is in mainland China
