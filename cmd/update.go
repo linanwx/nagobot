@@ -238,7 +238,6 @@ func stopRunningProcess() {
 var chinaMirrors = []string{
 	"https://gh-proxy.com/",
 	"https://ghfast.top/",
-	"https://gh-fast.com/",
 	"https://gh-proxy.org/",
 }
 

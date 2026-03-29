@@ -32,7 +32,7 @@ mkdir -p "$INSTALL_DIR"
 
 # Detect mainland China — try multiple mirrors for faster downloads.
 COUNTRY="$(curl -s --max-time 3 https://ipinfo.io/country 2>/dev/null || echo "")"
-CHINA_MIRRORS=("https://gh-proxy.com/" "https://ghfast.top/" "https://gh-fast.com/" "https://gh-proxy.org/")
+CHINA_MIRRORS=("https://gh-proxy.com/" "https://ghfast.top/" "https://gh-proxy.org/")
 
 echo "Downloading nagobot ${VERSION}..."
 # Remove old binary first — a running process keeps its inode,
