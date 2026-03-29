@@ -30,7 +30,7 @@ URL="https://github.com/${REPO}/releases/download/${VERSION}/nagobot-${OS}-${ARC
 INSTALL_DIR="${HOME}/.local/bin"
 mkdir -p "$INSTALL_DIR"
 
-# Detect mainland China — try multiple mirrors for faster downloads.
+# Detect mainland China — rank mirrors by speed before downloading.
 COUNTRY="$(curl -s --max-time 3 https://ipinfo.io/country 2>/dev/null || echo "")"
 CHINA_MIRRORS=("https://gh-proxy.com/" "https://ghfast.top/" "https://gh-proxy.org/")
 
@@ -41,10 +41,32 @@ rm -f "${INSTALL_DIR}/nagobot"
 
 DOWNLOADED=false
 if [ "$COUNTRY" = "CN" ]; then
-  echo "Detected mainland China, trying mirrors..."
+  echo "Detected mainland China, ranking mirrors..."
+  # Probe each mirror (first 100KB) in parallel, sort by speed.
+  RANKED=()
+  declare -A SPEEDS
   for MIRROR in "${CHINA_MIRRORS[@]}"; do
+    (
+      SPEED=$(curl -s -o /dev/null -w '%{speed_download}' --max-time 10 -r 0-102399 "${MIRROR}${URL}" 2>/dev/null || echo "0")
+      echo "${SPEED} ${MIRROR}"
+    ) &
+  done > /tmp/nagobot_mirror_probe 2>&1
+  wait
+  # Sort by speed descending, print ranking.
+  while IFS=' ' read -r SPEED MIRROR; do
+    KB=$(awk "BEGIN {printf \"%.0f\", ${SPEED:-0}/1024}")
+    if [ "$KB" -gt 0 ] 2>/dev/null; then
+      echo "    ${MIRROR} ${KB} KB/s"
+    else
+      echo "    ${MIRROR} failed"
+    fi
+    RANKED+=("$MIRROR")
+  done < <(sort -rn /tmp/nagobot_mirror_probe)
+  rm -f /tmp/nagobot_mirror_probe
+  # Download using ranked order, then direct as fallback.
+  for MIRROR in "${RANKED[@]}"; do
     echo "    Trying ${MIRROR}"
-    if curl -fsSL --retry 1 --max-time 120 "${MIRROR}${URL}" -o "${INSTALL_DIR}/nagobot" 2>/dev/null; then
+    if curl -fsSL --max-time 120 "${MIRROR}${URL}" -o "${INSTALL_DIR}/nagobot" 2>/dev/null; then
       DOWNLOADED=true
       break
     fi

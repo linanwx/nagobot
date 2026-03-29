@@ -11,7 +11,9 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"sort"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/linanwx/nagobot/cmd/service"
@@ -234,7 +236,7 @@ func stopRunningProcess() {
 	fmt.Println("    Warning: old process may still be running.")
 }
 
-// China mirrors for GitHub release downloads, ordered by priority.
+// China mirrors for GitHub release downloads.
 var chinaMirrors = []string{
 	"https://gh-proxy.com/",
 	"https://ghfast.top/",
@@ -242,6 +244,62 @@ var chinaMirrors = []string{
 }
 
 const perMirrorTimeout = 2 * time.Minute
+
+// rankMirrors probes each mirror in parallel by downloading the first 100KB
+// of rawURL and returns mirrors sorted by speed (fastest first).
+// Mirrors that fail or are too slow are appended at the end.
+func rankMirrors(mirrors []string, rawURL string) []string {
+	type result struct {
+		mirror string
+		speed  float64 // bytes per second, 0 = failed
+	}
+
+	results := make([]result, len(mirrors))
+	var wg sync.WaitGroup
+
+	for i, mirror := range mirrors {
+		wg.Add(1)
+		go func(idx int, m string) {
+			defer wg.Done()
+			ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+			defer cancel()
+
+			req, _ := http.NewRequestWithContext(ctx, "GET", m+rawURL, nil)
+			req.Header.Set("Range", "bytes=0-102399") // first 100KB
+			start := time.Now()
+			resp, err := http.DefaultClient.Do(req)
+			if err != nil {
+				results[idx] = result{m, 0}
+				return
+			}
+			n, _ := io.Copy(io.Discard, resp.Body)
+			resp.Body.Close()
+			elapsed := time.Since(start).Seconds()
+			if elapsed > 0 && n > 0 {
+				results[idx] = result{m, float64(n) / elapsed}
+			} else {
+				results[idx] = result{m, 0}
+			}
+		}(i, mirror)
+	}
+	wg.Wait()
+
+	// Sort: fastest first, failed last.
+	sort.Slice(results, func(i, j int) bool {
+		return results[i].speed > results[j].speed
+	})
+
+	ranked := make([]string, len(results))
+	for i, r := range results {
+		ranked[i] = r.mirror
+		tag := "failed"
+		if r.speed > 0 {
+			tag = fmt.Sprintf("%.0f KB/s", r.speed/1024)
+		}
+		fmt.Printf("    %s %s\n", r.mirror, tag)
+	}
+	return ranked
+}
 
 // downloadWithFallback downloads rawURL into dst, trying mirrors with
 // per-mirror timeouts. Each attempt includes the full body transfer;
@@ -256,8 +314,9 @@ func downloadWithFallback(rawURL string, dst *os.File) error {
 	var sources []source
 
 	if isMainlandChina() {
-		fmt.Println("    Detected mainland China, trying mirrors...")
-		for _, mirror := range chinaMirrors {
+		fmt.Println("    Detected mainland China, ranking mirrors...")
+		ranked := rankMirrors(chinaMirrors, rawURL)
+		for _, mirror := range ranked {
 			sources = append(sources, source{mirror, mirror + rawURL})
 		}
 		sources = append(sources, source{"direct", rawURL})
