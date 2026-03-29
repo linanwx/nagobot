@@ -625,6 +625,9 @@ func createBootstrapFiles(workspace string) error {
 	if err := writeTemplate(workspace, "system/CORE_MECHANISM.md", "system/CORE_MECHANISM.md", true); err != nil {
 		return err
 	}
+	if err := writeTemplate(workspace, "system/WEB_SEARCH_GUIDE.md", "system/WEB_SEARCH_GUIDE.md", true); err != nil {
+		return err
+	}
 
 	// Built-in agents: clean and re-copy to ensure deleted agents are removed.
 	builtinAgentsDest := filepath.Join(workspace, builtinAgentsDir)
