@@ -91,6 +91,7 @@ type Registry struct {
 type DefaultToolsConfig struct {
 	ExecTimeout         int
 	WebSearchMaxResults int
+	WebSearchGuide      string // content from WEB_SEARCH_GUIDE.md
 	SearchProviders     map[string]SearchProvider
 	SearchHealthChecker *SearchHealthChecker
 	FetchProviders      map[string]FetchProvider
@@ -209,7 +210,7 @@ func (r *Registry) RegisterDefaultTools(workspace string, cfg DefaultToolsConfig
 	r.Register(&EditFileTool{workspace: workspace})
 	r.Register(NewExecTool(workspace, cfg.ExecTimeout, cfg.RestrictToWorkspace))
 	r.Register(&HealthTool{Workspace: workspace, LogsDir: cfg.LogsDir})
-	r.Register(&WebSearchTool{defaultMaxResults: cfg.WebSearchMaxResults, providers: cfg.SearchProviders, healthChecker: cfg.SearchHealthChecker})
+	r.Register(&WebSearchTool{defaultMaxResults: cfg.WebSearchMaxResults, providers: cfg.SearchProviders, healthChecker: cfg.SearchHealthChecker, Guide: cfg.WebSearchGuide})
 	r.Register(&WebFetchTool{providers: cfg.FetchProviders})
 	if cfg.Skills != nil {
 		r.Register(NewUseSkillTool(cfg.Skills))

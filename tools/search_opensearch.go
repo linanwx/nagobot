@@ -21,7 +21,8 @@ type OpenSearchProvider struct {
 	HostFn func() string
 }
 
-func (p *OpenSearchProvider) Name() string { return "opensearch" }
+func (p *OpenSearchProvider) Name() string    { return "opensearch" }
+func (p *OpenSearchProvider) Tags() []string  { return []string{"paid", "¥0.0048/query"} }
 func (p *OpenSearchProvider) Available() bool {
 	return p.KeyFn != nil && p.KeyFn() != "" && p.HostFn != nil && p.HostFn() != ""
 }

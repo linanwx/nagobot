@@ -2,7 +2,9 @@ package cmd
 
 import (
 	"fmt"
+	"os"
 	"path/filepath"
+	"strings"
 
 	"github.com/linanwx/nagobot/agent"
 	"github.com/linanwx/nagobot/config"
@@ -92,21 +94,37 @@ func buildThreadManager(cfg *config.Config, enableSessions bool) (*thread.Manage
 			},
 		},
 	}
-	searchProviders["zhipu-cn"] = &tools.ZhipuSearchProvider{
-		KeyFn: func() string {
-			c, err := config.Load()
-			if err != nil {
-				return ""
-			}
-			// Prefer dedicated search key; fall back to LLM provider key.
-			if k := c.GetSearchKey("zhipu"); k != "" {
-				return k
-			}
-			if pc := c.Providers.GetProviderConfig("zhipu-cn"); pc != nil {
-				return pc.APIKey
-			}
+	zhipuKeyFn := func() string {
+		c, err := config.Load()
+		if err != nil {
 			return ""
-		},
+		}
+		// Prefer dedicated search key; fall back to LLM provider key.
+		if k := c.GetSearchKey("zhipu"); k != "" {
+			return k
+		}
+		if pc := c.Providers.GetProviderConfig("zhipu-cn"); pc != nil {
+			return pc.APIKey
+		}
+		return ""
+	}
+	zhipuEngines := []struct {
+		name   string
+		engine string
+		tags   []string
+	}{
+		{"zhipu-cn-std", "search_std", []string{"paid", "¥0.01/query"}},
+		{"zhipu-cn-pro", "search_pro", []string{"paid", "¥0.03/query"}},
+		{"zhipu-cn-sogou", "search_pro_sogou", []string{"paid", "¥0.05/query"}},
+		{"zhipu-cn-quark", "search_pro_quark", []string{"paid", "¥0.05/query"}},
+	}
+	for _, e := range zhipuEngines {
+		searchProviders[e.name] = &tools.ZhipuSearchProvider{
+			KeyFn:        zhipuKeyFn,
+			ProviderName: e.name,
+			Engine:       e.engine,
+			ProviderTags: e.tags,
+		}
 	}
 
 	fetchProviders := map[string]tools.FetchProvider{
@@ -133,9 +151,15 @@ func buildThreadManager(cfg *config.Config, enableSessions bool) (*thread.Manage
 
 	searchHealthChecker := tools.NewSearchHealthChecker(searchProviders)
 
+	webSearchGuide := ""
+	if guideData, err := os.ReadFile(filepath.Join(workspace, "system", "WEB_SEARCH_GUIDE.md")); err == nil {
+		webSearchGuide = strings.TrimSpace(string(guideData))
+	}
+
 	toolRegistry.RegisterDefaultTools(workspace, tools.DefaultToolsConfig{
 		ExecTimeout:         cfg.GetExecTimeout(),
 		WebSearchMaxResults: cfg.GetWebSearchMaxResults(),
+		WebSearchGuide:      webSearchGuide,
 		SearchProviders:     searchProviders,
 		SearchHealthChecker: searchHealthChecker,
 		FetchProviders:      fetchProviders,

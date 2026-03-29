@@ -111,6 +111,7 @@ func NewBingCNProvider() *BingCNProvider {
 }
 
 func (p *BingCNProvider) Name() string      { return "bing-cn" }
+func (p *BingCNProvider) Tags() []string    { return []string{"free", "scraping", "low quality on datacenter IP"} }
 func (p *BingCNProvider) Available() bool   { return true }
 func (p *BingCNProvider) Search(ctx context.Context, query string, maxResults int) ([]SearchResult, error) {
 	return p.search(ctx, query, maxResults)
@@ -125,6 +126,7 @@ func NewBingProvider() *BingProvider {
 }
 
 func (p *BingProvider) Name() string      { return "bing" }
+func (p *BingProvider) Tags() []string    { return []string{"free", "scraping", "low quality on datacenter IP"} }
 func (p *BingProvider) Available() bool   { return true }
 func (p *BingProvider) Search(ctx context.Context, query string, maxResults int) ([]SearchResult, error) {
 	return p.search(ctx, query, maxResults)

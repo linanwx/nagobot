@@ -233,8 +233,8 @@ func runServe(cmd *cobra.Command, args []string) error {
 	// Start heartbeat scheduler (created above near RPC handler).
 	go hbScheduler.run(ctx)
 
-	// Start search provider health checker (1min initial delay, then every 6h).
-	go searchHealthChecker.Run(ctx, 1*time.Minute, 6*time.Hour)
+	// Set up search health persistence (passive recording, no active probing).
+	searchHealthChecker.SetPersistPath(filepath.Join(workspace, "system", "search-health.json"))
 
 	// Start background balance poller.
 	balanceCachePath := filepath.Join(workspace, "system", "balance-cache.json")

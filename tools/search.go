@@ -19,6 +19,8 @@ type SearchResult struct {
 type SearchProvider interface {
 	// Name returns the provider identifier (e.g. "duckduckgo", "brave").
 	Name() string
+	// Tags returns descriptive labels (e.g. "free", "paid", "low quality").
+	Tags() []string
 	// Available reports whether the provider can serve requests right now.
 	// This is checked at call time to support hot-reloading of config (e.g. API keys).
 	Available() bool

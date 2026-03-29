@@ -14,9 +14,16 @@ import (
 type ZhipuSearchProvider struct {
 	// KeyFn returns the API key at call time (supports runtime config changes).
 	KeyFn func() string
+	// ProviderName is the source name (e.g. "zhipu-cn-std").
+	ProviderName string
+	// Engine is the search_engine parameter (e.g. "search_std", "search_pro").
+	Engine string
+	// ProviderTags are descriptive labels for this provider.
+	ProviderTags []string
 }
 
-func (p *ZhipuSearchProvider) Name() string { return "zhipu-cn" }
+func (p *ZhipuSearchProvider) Name() string   { return p.ProviderName }
+func (p *ZhipuSearchProvider) Tags() []string { return p.ProviderTags }
 func (p *ZhipuSearchProvider) Available() bool {
 	return p.KeyFn != nil && p.KeyFn() != ""
 }
@@ -32,7 +39,7 @@ func (p *ZhipuSearchProvider) Search(ctx context.Context, query string, maxResul
 	}
 
 	reqBody := zhipuSearchRequest{
-		SearchEngine: "search_pro",
+		SearchEngine: p.Engine,
 		SearchQuery:  query,
 		Count:        maxResults,
 	}

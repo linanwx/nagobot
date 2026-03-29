@@ -58,6 +58,7 @@ func (a *Agent) Build() string {
 		prompt = strings.ReplaceAll(prompt, "{{AGENTS}}", buildAgentsPromptSection(a.workspace))
 		prompt = strings.ReplaceAll(prompt, "{{SESSIONS_SUMMARY}}", buildSessionsSummary(a.workspace))
 		prompt = strings.ReplaceAll(prompt, "{{WORLD_KNOWLEDGE}}", buildWorldKnowledge(a.workspace))
+		prompt = strings.ReplaceAll(prompt, "{{WEBSEARCHGUIDE}}", buildFileSection(a.workspace, "system", "WEB_SEARCH_GUIDE.md"))
 		prompt = strings.ReplaceAll(prompt, "{{GLOBAL}}", buildGlobal(a.workspace))
 	}
 
@@ -229,6 +230,19 @@ func buildGlobal(workspace string) string {
 		return ""
 	}
 	return content
+}
+
+// buildFileSection reads a file under workspace and returns its trimmed content (empty string if missing/empty).
+func buildFileSection(workspace string, pathParts ...string) string {
+	if strings.TrimSpace(workspace) == "" {
+		return ""
+	}
+	parts := append([]string{workspace}, pathParts...)
+	data, err := os.ReadFile(filepath.Join(parts...))
+	if err != nil {
+		return ""
+	}
+	return strings.TrimSpace(string(data))
 }
 
 // buildSessionsSummary reads system/sessions_summary.json and formats it for prompt injection.

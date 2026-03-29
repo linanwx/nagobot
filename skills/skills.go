@@ -353,9 +353,6 @@ func (r *Registry) BuildPromptSection() string {
 	}
 
 	var sb strings.Builder
-	sb.WriteString("## Skills\n\n")
-	sb.WriteString("Available skills (use the `use_skill` tool to load full instructions):\n\n")
-
 	for _, s := range list {
 		sb.WriteString(fmt.Sprintf("- **%s**", s.Slug))
 		if s.Description != "" {

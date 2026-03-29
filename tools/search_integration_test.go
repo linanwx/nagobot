@@ -114,7 +114,7 @@ func TestIntegration_ZhipuSearch(t *testing.T) {
 		t.Skip("zhipu search key not configured")
 	}
 
-	p := &ZhipuSearchProvider{KeyFn: func() string { return key }}
+	p := &ZhipuSearchProvider{KeyFn: func() string { return key }, ProviderName: "zhipu-cn-std", Engine: "search_std"}
 	if !p.Available() {
 		t.Fatal("provider should be available")
 	}

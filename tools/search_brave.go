@@ -16,6 +16,7 @@ type BraveSearchProvider struct {
 }
 
 func (p *BraveSearchProvider) Name() string      { return "brave" }
+func (p *BraveSearchProvider) Tags() []string    { return []string{"paid", "$5/1k queries", "$5/mo free credit"} }
 func (p *BraveSearchProvider) Available() bool { return p.KeyFn != nil && p.KeyFn() != "" }
 
 func (p *BraveSearchProvider) Search(ctx context.Context, query string, maxResults int) ([]SearchResult, error) {

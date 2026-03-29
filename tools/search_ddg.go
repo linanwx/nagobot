@@ -15,6 +15,7 @@ import (
 type DuckDuckGoProvider struct{}
 
 func (p *DuckDuckGoProvider) Name() string      { return "duckduckgo" }
+func (p *DuckDuckGoProvider) Tags() []string    { return []string{"free", "scraping", "blocked in China"} }
 func (p *DuckDuckGoProvider) Available() bool { return true }
 
 func (p *DuckDuckGoProvider) Search(ctx context.Context, query string, maxResults int) ([]SearchResult, error) {

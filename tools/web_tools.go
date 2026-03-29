@@ -27,47 +27,33 @@ type WebSearchTool struct {
 	defaultMaxResults int
 	providers         map[string]SearchProvider
 	healthChecker     *SearchHealthChecker
+	Guide             string // injected from WEB_SEARCH_GUIDE.md, appended to error responses
 }
 
 // Def returns the tool definition.
 func (t *WebSearchTool) Def() provider.ToolDef {
-	// Build available sources list dynamically (only providers that are ready right now)
-	sources := make([]string, 0, len(t.providers))
-	for name, p := range t.providers {
-		if p.Available() {
-			sources = append(sources, name)
-		}
-	}
-	sort.Strings(sources)
-	// Append health status to description.
-	healthInfo := ""
-	if t.healthChecker != nil {
-		healthInfo = " Status: " + t.healthChecker.StatusSummary() + "."
-	}
-	sourceDesc := fmt.Sprintf("Search source (required). Available: %s.%s", strings.Join(sources, ", "), healthInfo)
-
 	return provider.ToolDef{
 		Type: "function",
 		Function: provider.FunctionDef{
 			Name:        "web_search",
-			Description: "Search the web and return results. Use for finding current information, documentation, etc.",
+			Description: "Search the web.",
 			Parameters: map[string]any{
 				"type": "object",
 				"properties": map[string]any{
 					"query": map[string]any{
 						"type":        "string",
-						"description": "The search query.",
+						"description": "Search query.",
 					},
 					"max_results": map[string]any{
 						"type":        "integer",
-						"description": "Maximum number of results to return. If omitted, uses the system-configured default.",
+						"description": "Max results. Default: 5.",
 					},
 					"source": map[string]any{
 						"type":        "string",
-						"description": sourceDesc,
+						"description": "Search source. Empty to see guide.",
 					},
 				},
-				"required": []string{"query", "source"},
+				"required": []string{"query"},
 			},
 		},
 	}
@@ -97,7 +83,7 @@ func (t *WebSearchTool) Run(ctx context.Context, args json.RawMessage) string {
 
 	source := a.Source
 	if source == "" {
-		return t.sourceError("source parameter is required")
+		return t.sourceError("source is required")
 	}
 
 	p, ok := t.providers[source]
@@ -105,21 +91,35 @@ func (t *WebSearchTool) Run(ctx context.Context, args json.RawMessage) string {
 		return t.sourceError(fmt.Sprintf("unknown search source %q", source))
 	}
 	if !p.Available() {
-		return t.sourceError(fmt.Sprintf("search source %q is not available (API key not configured)", source))
+		return t.sourceError(fmt.Sprintf("search source %q is not available", source))
 	}
 
+	start := time.Now()
 	results, err := p.Search(ctx, a.Query, a.MaxResults)
+	elapsed := time.Since(start).Milliseconds()
+
 	if err != nil {
+		if t.healthChecker != nil {
+			t.healthChecker.Record(source, false, 0, elapsed)
+		}
 		return t.searchError(source, a.Query, err)
+	}
+
+	if t.healthChecker != nil {
+		t.healthChecker.Record(source, true, len(results), elapsed)
 	}
 
 	if len(results) == 0 {
 		return t.emptyResults(source, a.Query)
 	}
 
+	sourceTags := ""
+	if tags := p.Tags(); len(tags) > 0 {
+		sourceTags = " [" + strings.Join(tags, ",") + "]"
+	}
 	fields := map[string]any{
 		"query":   a.Query,
-		"source":  source,
+		"source":  source + sourceTags,
 		"results": len(results),
 	}
 	if t.healthChecker != nil {
@@ -144,6 +144,7 @@ func (t *WebSearchTool) sourceError(msg string) string {
 		sort.Strings(available)
 		sb.WriteString(fmt.Sprintf("Available sources: %s\n", strings.Join(available, ", ")))
 	}
+	t.appendGuide(&sb)
 	return sb.String()
 }
 
@@ -155,6 +156,7 @@ func (t *WebSearchTool) searchError(source, query string, err error) string {
 	if t.healthChecker != nil {
 		sb.WriteString(t.healthChecker.DetailedStatus())
 	}
+	t.appendGuide(&sb)
 	return toolError("web_search", sb.String())
 }
 
@@ -170,7 +172,17 @@ func (t *WebSearchTool) emptyResults(source, query string) string {
 	if t.healthChecker != nil {
 		body.WriteString(t.healthChecker.DetailedStatus())
 	}
+	t.appendGuide(&body)
 	return toolResult("web_search", fields, body.String())
+}
+
+// appendGuide appends WEB_SEARCH_GUIDE content if available.
+func (t *WebSearchTool) appendGuide(sb *strings.Builder) {
+	if t.Guide != "" {
+		sb.WriteString("\n")
+		sb.WriteString(t.Guide)
+		sb.WriteString("\n")
+	}
 }
 
 // webFetchCache is a simple in-memory cache for fetched page content.
