@@ -115,25 +115,29 @@ func (h *SearchHealthChecker) buildSummary(window time.Duration) string {
 		}
 	}
 
-	// Include providers with no records as "no data".
 	names := h.sourceNames()
 	var parts []string
 	for _, name := range names {
 		tags := h.tagsFor(name)
 		s := m[name]
 		if s == nil {
-			parts = append(parts, fmt.Sprintf("%s%s: no data", name, tags))
+			parts = append(parts, fmt.Sprintf("%s%s: not used yet", name, tags))
 			continue
 		}
 		total := s.ok + s.fail
-		avgMs := int64(0)
-		avgResults := 0
-		if s.ok > 0 {
-			avgMs = s.totalMs / int64(s.ok)
-			avgResults = s.totalResults / s.ok
+		if s.ok == 0 {
+			parts = append(parts, fmt.Sprintf("%s%s: all %d requests failed", name, tags, total))
+			continue
 		}
-		parts = append(parts, fmt.Sprintf("%s%s: %d/%d/%d avg=%d results %dms",
-			name, tags, s.ok, s.fail, total, avgResults, avgMs))
+		avgMs := s.totalMs / int64(s.ok)
+		avgResults := s.totalResults / s.ok
+		if s.fail == 0 {
+			parts = append(parts, fmt.Sprintf("%s%s: %d requests, avg %d results, %dms",
+				name, tags, total, avgResults, avgMs))
+		} else {
+			parts = append(parts, fmt.Sprintf("%s%s: %d/%d succeeded, avg %d results, %dms",
+				name, tags, s.ok, total, avgResults, avgMs))
+		}
 	}
 	return strings.Join(parts, "; ")
 }

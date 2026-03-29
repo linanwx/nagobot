@@ -327,24 +327,17 @@ func markHeartbeatTurns(messages []provider.Message) bool {
 // If the AI chose silence, the turn is noise — any valuable findings should
 // already be persisted to heartbeat.md by the reflect/act skills.
 func isHeartbeatSkipTurn(turnMessages []provider.Message) bool {
-	hasSleepThread := false
-	hasSleepMarker := false
-	hasToolCalls := false
+	endedSilently := false // sleep_thread called or SLEEP_THREAD_OK fallback
 	for i := range turnMessages {
 		m := &turnMessages[i]
 		if m.Role == "tool" && m.Name == "sleep_thread" {
-			hasSleepThread = true
+			endedSilently = true
 		}
-		if m.Role == "assistant" {
-			if strings.Contains(m.Content, "SLEEP_THREAD_OK") {
-				hasSleepMarker = true
-			}
-			if len(m.ToolCalls) > 0 {
-				hasToolCalls = true
-			}
+		if m.Role == "assistant" && len(m.ToolCalls) == 0 && strings.Contains(m.Content, "SLEEP_THREAD_OK") {
+			endedSilently = true
 		}
 	}
-	return hasSleepThread || (hasSleepMarker && !hasToolCalls)
+	return endedSilently
 }
 
 // computeToolCompressed returns the Compressed value for a tool message.
