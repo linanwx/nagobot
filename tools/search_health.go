@@ -73,8 +73,12 @@ func (h *SearchHealthChecker) DetailedStatus() string {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 
-	names := h.sourceNames()
-	if len(names) == 0 {
+	available, unavailable := h.partitionSourceNames()
+
+	if len(available) == 0 {
+		if len(unavailable) > 0 {
+			return fmt.Sprintf("No available search providers. Unavailable (not configured — may need API key): %s\n", strings.Join(unavailable, ", "))
+		}
 		return "No search data recorded yet.\n"
 	}
 
@@ -85,6 +89,13 @@ func (h *SearchHealthChecker) DetailedStatus() string {
 	sb.WriteString("\n  [7d]  ")
 	sb.WriteString(h.buildSummary(7 * 24 * time.Hour))
 	sb.WriteString("\n")
+
+	if len(unavailable) > 0 {
+		sb.WriteString("  [unavailable] ")
+		sb.WriteString(strings.Join(unavailable, ", "))
+		sb.WriteString(" (not configured — may need API key)\n")
+	}
+
 	return sb.String()
 }
 
@@ -142,7 +153,21 @@ func (h *SearchHealthChecker) buildSummary(window time.Duration) string {
 	return strings.Join(parts, "; ")
 }
 
-// sourceNames returns sorted provider names. Caller holds mu.
+// partitionSourceNames returns sorted available and unavailable provider names. Caller holds mu.
+func (h *SearchHealthChecker) partitionSourceNames() (available, unavailable []string) {
+	for n, p := range h.providers {
+		if p.Available() {
+			available = append(available, n)
+		} else {
+			unavailable = append(unavailable, n)
+		}
+	}
+	sort.Strings(available)
+	sort.Strings(unavailable)
+	return
+}
+
+// sourceNames returns sorted available provider names. Caller holds mu.
 func (h *SearchHealthChecker) sourceNames() []string {
 	names := make([]string, 0, len(h.providers))
 	for n, p := range h.providers {
