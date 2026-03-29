@@ -38,10 +38,9 @@ func (t *UseSkillTool) Def() provider.ToolDef {
 				"properties": map[string]any{
 					"name": map[string]any{
 						"type":        "string",
-						"description": "The skill name to load (for example: 'research').",
+						"description": "The skill name to load (for example: 'research'). Pass empty string to list all available skills.",
 					},
 				},
-				"required": []string{"name"},
 			},
 		},
 	}
@@ -63,6 +62,14 @@ func (t *UseSkillTool) run(ctx context.Context, args json.RawMessage) string {
 	var a useSkillArgs
 	if errMsg := parseArgs(args, &a); errMsg != "" {
 		return errMsg
+	}
+
+	if a.Name == "" {
+		names := t.provider.SkillNames()
+		if len(names) == 0 {
+			return "No skills available."
+		}
+		return fmt.Sprintf("Available skills: %s", strings.Join(names, ", "))
 	}
 
 	prompt, dir, ok := t.provider.GetSkillPrompt(a.Name)

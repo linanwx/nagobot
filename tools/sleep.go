@@ -98,7 +98,15 @@ func (t *SleepThreadTool) Run(_ context.Context, args json.RawMessage) string {
 	if err != nil {
 		return fmt.Sprintf("Error: invalid duration %q: %v", durationStr, err)
 	}
-	if d <= 0 {
+	if d == 0 {
+		// Treat zero duration as no duration — just end the turn silently.
+		t.sleeper.SetHaltLoop()
+		return toolResult("sleep_thread", map[string]any{
+			"mode": "silent_end",
+		}, "Turn ended silently. No wake scheduled. "+
+			"Future heartbeat, cron, and user messages still fire on their normal schedule.")
+	}
+	if d < 0 {
 		return "Error: duration must be positive"
 	}
 	if d > 24*time.Hour {

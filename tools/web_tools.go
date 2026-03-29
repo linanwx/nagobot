@@ -231,11 +231,7 @@ func (t *WebFetchTool) Def() provider.ToolDef {
 						"type":        "string",
 						"description": sourceDesc,
 					},
-					"raw": map[string]any{
-						"type":        "boolean",
-						"description": "Set to true to return raw HTML instead of stripped text. Can be omitted.",
-					},
-					"offset": map[string]any{
+"offset": map[string]any{
 						"type":        "integer",
 						"description": "Character offset to start returning content from. Use to paginate through long pages. Default: 0.",
 					},
@@ -254,7 +250,6 @@ func (t *WebFetchTool) Def() provider.ToolDef {
 type webFetchArgs struct {
 	URL    string `json:"url"`
 	Source string `json:"source,omitempty"`
-	Raw    bool   `json:"raw,omitempty"`
 	Offset int    `json:"offset,omitempty"`
 	Limit  int    `json:"limit,omitempty"`
 }
@@ -288,11 +283,7 @@ func (t *WebFetchTool) Run(ctx context.Context, args json.RawMessage) string {
 		return fmt.Sprintf("Error: unknown fetch source %q. Available: %s", source, strings.Join(available, ", "))
 	}
 
-	// Build cache key: url + source + raw flag
 	cacheKey := a.URL + "::" + source
-	if a.Raw {
-		cacheKey += "::raw"
-	}
 
 	// Check cache
 	content, cached := webFetchCacheLookup(cacheKey)
@@ -308,8 +299,8 @@ func (t *WebFetchTool) Run(ctx context.Context, args json.RawMessage) string {
 		}
 
 		// Jina returns markdown — skip HTML extraction.
-		// Direct and browser return HTML — extract text unless raw.
-		if !a.Raw && source != "jina" {
+		// Direct and browser return HTML — extract text.
+		if source != "jina" {
 			content = extractTextContent(content)
 		}
 

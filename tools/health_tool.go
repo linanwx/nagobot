@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"strings"
 	healthsnap "github.com/linanwx/nagobot/internal/health"
 	"github.com/linanwx/nagobot/provider"
 	"gopkg.in/yaml.v3"
@@ -63,13 +62,6 @@ func (t *HealthTool) Def() provider.ToolDef {
 			Description: "Get runtime status of this nagobot process. Returns: LLM provider and model, current time and timezone, Go version/OS/arch, workspace/sessions/skills paths, current thread info (ID, agent name, session key), current session file stats (size, message count), all sessions scan (valid/invalid counts), all active threads, channel config (Telegram allowed IDs, Web addr), cron job list, workspace directory tree, process memory and goroutine count.",
 			Parameters: map[string]any{
 				"type": "object",
-				"properties": map[string]any{
-					"format": map[string]any{
-						"type":        "string",
-						"description": "Output format: yaml or json. Can be omitted.",
-						"enum":        []string{"yaml", "json"},
-					},
-				},
 			},
 		},
 	}
@@ -82,10 +74,6 @@ func (t *HealthTool) channels() *HealthChannelsInfo {
 	return nil
 }
 
-type healthArgs struct {
-	Format string `json:"format,omitempty"`
-}
-
 // Run executes the tool.
 func (t *HealthTool) Run(ctx context.Context, args json.RawMessage) string {
 	return withTimeout(ctx, "health", healthToolTimeout, func(ctx context.Context) string {
@@ -93,14 +81,7 @@ func (t *HealthTool) Run(ctx context.Context, args json.RawMessage) string {
 	})
 }
 
-func (t *HealthTool) run(ctx context.Context, args json.RawMessage) string {
-	var a healthArgs
-	if len(args) > 0 {
-		if errMsg := parseArgs(args, &a); errMsg != "" {
-			return errMsg
-		}
-	}
-
+func (t *HealthTool) run(ctx context.Context, _ json.RawMessage) string {
 	const (
 		treeDepth      = 1
 		treeMaxEntries = 200
@@ -138,14 +119,6 @@ func (t *HealthTool) run(ctx context.Context, args json.RawMessage) string {
 
 	if t.ThreadsListFn != nil {
 		snapshot.AllThreads = t.ThreadsListFn()
-	}
-
-	if strings.EqualFold(a.Format, "json") {
-		data, err := json.MarshalIndent(snapshot, "", "  ")
-		if err != nil {
-			return fmt.Sprintf("Error: failed to serialize health snapshot: %v", err)
-		}
-		return string(data)
 	}
 
 	data, err := yaml.Marshal(snapshot)
