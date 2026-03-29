@@ -169,8 +169,14 @@ func (h *SearchHealthChecker) partitionSourceNames() (available, unavailable []s
 
 // sourceNames returns sorted available provider names. Caller holds mu.
 func (h *SearchHealthChecker) sourceNames() []string {
-	available, _ := h.partitionSourceNames()
-	return available
+	names := make([]string, 0, len(h.providers))
+	for n, p := range h.providers {
+		if p.Available() {
+			names = append(names, n)
+		}
+	}
+	sort.Strings(names)
+	return names
 }
 
 // tagsFor returns formatted tags string for a provider, e.g. " [free]". Caller holds mu.
