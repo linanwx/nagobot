@@ -20,9 +20,15 @@ type searchRecord struct {
 	Time     time.Time `json:"t"`
 }
 
-// SearchHealthChecker tracks real search request outcomes (no active probing).
+// healthProvider is the minimal interface needed by the health checker.
+type healthProvider interface {
+	Available() bool
+	Tags() []string
+}
+
+// SearchHealthChecker tracks real search/fetch request outcomes (no active probing).
 type SearchHealthChecker struct {
-	providers map[string]SearchProvider
+	providers map[string]healthProvider
 
 	mu      sync.Mutex
 	records []searchRecord
@@ -32,9 +38,20 @@ type SearchHealthChecker struct {
 
 // NewSearchHealthChecker creates a health checker backed by real usage data.
 func NewSearchHealthChecker(providers map[string]SearchProvider) *SearchHealthChecker {
-	return &SearchHealthChecker{
-		providers: providers,
+	hp := make(map[string]healthProvider, len(providers))
+	for k, v := range providers {
+		hp[k] = v
 	}
+	return &SearchHealthChecker{providers: hp}
+}
+
+// NewFetchHealthChecker creates a health checker for fetch providers.
+func NewFetchHealthChecker(providers map[string]FetchProvider) *SearchHealthChecker {
+	hp := make(map[string]healthProvider, len(providers))
+	for k, v := range providers {
+		hp[k] = v
+	}
+	return &SearchHealthChecker{providers: hp}
 }
 
 // SetPersistPath sets the file path for persisting records.
@@ -77,13 +94,13 @@ func (h *SearchHealthChecker) DetailedStatus() string {
 
 	if len(available) == 0 {
 		if len(unavailable) > 0 {
-			return fmt.Sprintf("No available search providers. Unavailable (not configured — may need API key): %s\n", strings.Join(unavailable, ", "))
+			return fmt.Sprintf("No available providers. Unavailable (not configured — may need API key): %s\n", strings.Join(unavailable, ", "))
 		}
-		return "No search data recorded yet.\n"
+		return "No data recorded yet.\n"
 	}
 
 	var sb strings.Builder
-	sb.WriteString("Search provider stats:\n")
+	sb.WriteString("Provider stats:\n")
 	sb.WriteString("  [24h] ")
 	sb.WriteString(h.buildSummary(24 * time.Hour))
 	sb.WriteString("\n  [7d]  ")

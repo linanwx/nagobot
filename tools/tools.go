@@ -95,6 +95,8 @@ type DefaultToolsConfig struct {
 	SearchProviders     map[string]SearchProvider
 	SearchHealthChecker *SearchHealthChecker
 	FetchProviders      map[string]FetchProvider
+	FetchHealthChecker  *SearchHealthChecker // reused type — tracks fetch outcomes
+	WebFetchGuide       string              // content from WEB_FETCH_GUIDE.md
 	RestrictToWorkspace bool
 	Skills              SkillProvider
 	LogsDir             string // Log files directory for health diagnostics
@@ -211,7 +213,7 @@ func (r *Registry) RegisterDefaultTools(workspace string, cfg DefaultToolsConfig
 	r.Register(NewExecTool(workspace, cfg.ExecTimeout, cfg.RestrictToWorkspace))
 	r.Register(&HealthTool{Workspace: workspace, LogsDir: cfg.LogsDir})
 	r.Register(&WebSearchTool{defaultMaxResults: cfg.WebSearchMaxResults, providers: cfg.SearchProviders, healthChecker: cfg.SearchHealthChecker, Guide: cfg.WebSearchGuide})
-	r.Register(&WebFetchTool{providers: cfg.FetchProviders})
+	r.Register(&WebFetchTool{providers: cfg.FetchProviders, healthChecker: cfg.FetchHealthChecker, Guide: cfg.WebFetchGuide})
 	if cfg.Skills != nil {
 		r.Register(NewUseSkillTool(cfg.Skills))
 	}

@@ -128,7 +128,8 @@ func buildThreadManager(cfg *config.Config, enableSessions bool) (*thread.Manage
 	}
 
 	fetchProviders := map[string]tools.FetchProvider{
-		"direct": &tools.DirectFetchProvider{},
+		"raw":            &tools.DirectFetchProvider{},
+		"go-readability": &tools.ReadabilityFetchProvider{},
 		"jina": &tools.JinaFetchProvider{
 			KeyFn: func() string {
 				c, err := config.Load()
@@ -137,6 +138,34 @@ func buildThreadManager(cfg *config.Config, enableSessions bool) (*thread.Manage
 				}
 				return c.GetJinaKey()
 			},
+		},
+		"kimi-cn": &tools.KimiFetchProvider{
+			KeyFn: func() string {
+				c, err := config.Load()
+				if err != nil {
+					return ""
+				}
+				if pc := c.Providers.GetProviderConfig("moonshot-cn"); pc != nil {
+					return pc.APIKey
+				}
+				return ""
+			},
+			BaseURL:      "https://api.moonshot.cn",
+			ProviderTags: []string{"free", "limited-time"},
+		},
+		"kimi-global": &tools.KimiFetchProvider{
+			KeyFn: func() string {
+				c, err := config.Load()
+				if err != nil {
+					return ""
+				}
+				if pc := c.Providers.GetProviderConfig("moonshot-global"); pc != nil {
+					return pc.APIKey
+				}
+				return ""
+			},
+			BaseURL:      "https://api.moonshot.ai",
+			ProviderTags: []string{"free", "limited-time", "international"},
 		},
 	}
 
@@ -151,9 +180,15 @@ func buildThreadManager(cfg *config.Config, enableSessions bool) (*thread.Manage
 
 	searchHealthChecker := tools.NewSearchHealthChecker(searchProviders)
 
+	fetchHealthChecker := tools.NewFetchHealthChecker(fetchProviders)
+
 	webSearchGuide := ""
 	if guideData, err := os.ReadFile(filepath.Join(workspace, "system", "WEB_SEARCH_GUIDE.md")); err == nil {
 		webSearchGuide = strings.TrimSpace(string(guideData))
+	}
+	webFetchGuide := ""
+	if guideData, err := os.ReadFile(filepath.Join(workspace, "system", "WEB_FETCH_GUIDE.md")); err == nil {
+		webFetchGuide = strings.TrimSpace(string(guideData))
 	}
 
 	toolRegistry.RegisterDefaultTools(workspace, tools.DefaultToolsConfig{
@@ -163,6 +198,8 @@ func buildThreadManager(cfg *config.Config, enableSessions bool) (*thread.Manage
 		SearchProviders:     searchProviders,
 		SearchHealthChecker: searchHealthChecker,
 		FetchProviders:      fetchProviders,
+		FetchHealthChecker:  fetchHealthChecker,
+		WebFetchGuide:       webFetchGuide,
 		RestrictToWorkspace: cfg.GetExecRestrictToWorkspace(),
 		Skills:              skillRegistry,
 		LogsDir:             logsDir,

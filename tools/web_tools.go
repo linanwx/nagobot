@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/url"
-	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -128,46 +127,14 @@ func (t *WebSearchTool) Run(ctx context.Context, args json.RawMessage) string {
 	return toolResult("web_search", fields, FormatSearchResults(a.Query, results))
 }
 
-// sourceError returns an error with detailed health status when source selection fails.
 func (t *WebSearchTool) sourceError(msg string) string {
-	var sb strings.Builder
-	sb.WriteString(fmt.Sprintf("Error: %s.\n\n", msg))
-	if t.healthChecker != nil {
-		sb.WriteString(t.healthChecker.DetailedStatus())
-	} else {
-		available := make([]string, 0, len(t.providers))
-		unavailable := make([]string, 0)
-		for name, prov := range t.providers {
-			if prov.Available() {
-				available = append(available, name)
-			} else {
-				unavailable = append(unavailable, name)
-			}
-		}
-		sort.Strings(available)
-		sort.Strings(unavailable)
-		sb.WriteString(fmt.Sprintf("Available sources: %s\n", strings.Join(available, ", ")))
-		if len(unavailable) > 0 {
-			sb.WriteString(fmt.Sprintf("Unavailable sources (not configured — may need API key): %s\n", strings.Join(unavailable, ", ")))
-		}
-	}
-	t.appendGuide(&sb)
-	return sb.String()
+	return buildSourceError(msg, t.healthChecker, t.Guide)
 }
 
-// searchError returns an error with health status when a search fails.
 func (t *WebSearchTool) searchError(source, query string, err error) string {
-	var sb strings.Builder
-	sb.WriteString(fmt.Sprintf("Error: search on %q failed: %v\n\n", source, err))
-	sb.WriteString("Try a different source.\n")
-	if t.healthChecker != nil {
-		sb.WriteString(t.healthChecker.DetailedStatus())
-	}
-	t.appendGuide(&sb)
-	return toolError("web_search", sb.String())
+	return buildToolError("web_search", fmt.Sprintf("Error: search on %q failed: %v", source, err), t.healthChecker, t.Guide)
 }
 
-// emptyResults returns a message with health status when no results are found.
 func (t *WebSearchTool) emptyResults(source, query string) string {
 	fields := map[string]any{
 		"query":   query,
@@ -179,17 +146,8 @@ func (t *WebSearchTool) emptyResults(source, query string) string {
 	if t.healthChecker != nil {
 		body.WriteString(t.healthChecker.DetailedStatus())
 	}
-	t.appendGuide(&body)
+	appendGuide(&body, t.Guide)
 	return toolResult("web_search", fields, body.String())
-}
-
-// appendGuide appends WEB_SEARCH_GUIDE content if available.
-func (t *WebSearchTool) appendGuide(sb *strings.Builder) {
-	if t.Guide != "" {
-		sb.WriteString("\n")
-		sb.WriteString(t.Guide)
-		sb.WriteString("\n")
-	}
 }
 
 // webFetchCache is a simple in-memory cache for fetched page content.
@@ -207,26 +165,18 @@ const webFetchCacheTTL = 10 * time.Minute
 
 // WebFetchTool fetches content from a URL using pluggable providers.
 type WebFetchTool struct {
-	providers map[string]FetchProvider
+	providers     map[string]FetchProvider
+	healthChecker *SearchHealthChecker // reused from web_search — tracks fetch outcomes
+	Guide         string              // injected from WEB_FETCH_GUIDE.md, appended to error responses
 }
 
 // Def returns the tool definition.
 func (t *WebFetchTool) Def() provider.ToolDef {
-	// Build available sources list dynamically.
-	sources := make([]string, 0, len(t.providers))
-	for name, p := range t.providers {
-		if p.Available() {
-			sources = append(sources, name)
-		}
-	}
-	sort.Strings(sources)
-	sourceDesc := fmt.Sprintf("Fetch source. Available: %s. Default: direct. Use 'jina' for anti-bot bypass (returns clean markdown).", strings.Join(sources, ", "))
-
 	return provider.ToolDef{
 		Type: "function",
 		Function: provider.FunctionDef{
 			Name:        "web_fetch",
-			Description: "Fetch the content of a web page. Returns the text content (HTML tags stripped for readability). Content is cached for 10 minutes — repeated fetches of the same URL are free. Use offset/limit to paginate through long pages without re-fetching. If a site returns 403/503 (anti-bot), retry with a different source (e.g. jina or browser).",
+			Description: "Fetch the content of a web page. Returns readable text/markdown. Content is cached for 10 minutes — repeated fetches of the same URL are free. Use offset/limit to paginate through long pages without re-fetching. If a site returns 403/503 (anti-bot), retry with a different source.",
 			Parameters: map[string]any{
 				"type": "object",
 				"properties": map[string]any{
@@ -236,9 +186,9 @@ func (t *WebFetchTool) Def() provider.ToolDef {
 					},
 					"source": map[string]any{
 						"type":        "string",
-						"description": sourceDesc,
+						"description": "Fetch source. Empty to see guide.",
 					},
-"offset": map[string]any{
+					"offset": map[string]any{
 						"type":        "integer",
 						"description": "Character offset to start returning content from. Use to paginate through long pages. Default: 0.",
 					},
@@ -278,16 +228,15 @@ func (t *WebFetchTool) Run(ctx context.Context, args json.RawMessage) string {
 
 	source := a.Source
 	if source == "" {
-		source = "direct"
+		return t.fetchSourceError("source is required")
 	}
 
 	p, ok := t.providers[source]
-	if !ok || !p.Available() {
-		available := t.availableSources()
-		if ok && !p.Available() {
-			return fmt.Sprintf("Error: fetch source %q is not available. Available: %s", source, strings.Join(available, ", "))
-		}
-		return fmt.Sprintf("Error: unknown fetch source %q. Available: %s", source, strings.Join(available, ", "))
+	if !ok {
+		return t.fetchSourceError(fmt.Sprintf("unknown fetch source %q", source))
+	}
+	if !p.Available() {
+		return t.fetchSourceError(fmt.Sprintf("fetch source %q is not available", source))
 	}
 
 	cacheKey := a.URL + "::" + source
@@ -295,19 +244,23 @@ func (t *WebFetchTool) Run(ctx context.Context, args json.RawMessage) string {
 	// Check cache
 	content, cached := webFetchCacheLookup(cacheKey)
 	if !cached {
+		start := time.Now()
 		content, err = p.Fetch(ctx, a.URL)
+		elapsed := time.Since(start).Milliseconds()
+
 		if err != nil {
-			// On 403/503, hint available sources.
-			if httpErr, ok := err.(*HTTPError); ok && (httpErr.StatusCode == 403 || httpErr.StatusCode == 503) {
-				available := t.availableSources()
-				return fmt.Sprintf("Error: %v. Try a different source to bypass anti-bot protection. Available: %s", err, strings.Join(available, ", "))
+			if t.healthChecker != nil {
+				t.healthChecker.Record(source, false, 0, elapsed)
 			}
-			return fmt.Sprintf("Error: %v", err)
+			return t.fetchError(source, a.URL, err)
 		}
 
-		// Jina returns markdown — skip HTML extraction.
-		// Direct and browser return HTML — extract text.
-		if source != "jina" {
+		if t.healthChecker != nil {
+			t.healthChecker.Record(source, true, len(content), elapsed)
+		}
+
+		// Providers that return raw HTML need content extraction.
+		if !p.ReturnsMarkdown() {
 			content = extractTextContent(content)
 		}
 
@@ -335,9 +288,13 @@ func (t *WebFetchTool) Run(ctx context.Context, args json.RawMessage) string {
 	}
 	slice := content[offset:end]
 
+	sourceTags := ""
+	if tags := p.Tags(); len(tags) > 0 {
+		sourceTags = " [" + strings.Join(tags, ",") + "]"
+	}
 	fields := map[string]any{
 		"url":         a.URL,
-		"source":      source,
+		"source":      source + sourceTags,
 		"total_chars": totalChars,
 		"showing":     fmt.Sprintf("%d-%d", offset, end),
 	}
@@ -347,19 +304,19 @@ func (t *WebFetchTool) Run(ctx context.Context, args json.RawMessage) string {
 	if end < totalChars {
 		fields["next_offset"] = end
 	}
+	if t.healthChecker != nil {
+		fields["source_status"] = t.healthChecker.StatusSummary()
+	}
 
 	return toolResult("web_fetch", fields, slice)
 }
 
-func (t *WebFetchTool) availableSources() []string {
-	available := make([]string, 0, len(t.providers))
-	for name, prov := range t.providers {
-		if prov.Available() {
-			available = append(available, name)
-		}
-	}
-	sort.Strings(available)
-	return available
+func (t *WebFetchTool) fetchSourceError(msg string) string {
+	return buildSourceError(msg, t.healthChecker, t.Guide)
+}
+
+func (t *WebFetchTool) fetchError(source, fetchURL string, err error) string {
+	return buildToolError("web_fetch", fmt.Sprintf("Error: fetch %q via %s failed: %v", fetchURL, source, err), t.healthChecker, t.Guide)
 }
 
 func webFetchCacheLookup(key string) (string, bool) {
@@ -418,4 +375,35 @@ func extractTextContent(html string) string {
 	}
 
 	return strings.Join(cleanLines, "\n")
+}
+
+// buildSourceError builds an error message with health status and guide for source selection failures.
+func buildSourceError(msg string, hc *SearchHealthChecker, guide string) string {
+	var sb strings.Builder
+	sb.WriteString(fmt.Sprintf("Error: %s.\n\n", msg))
+	if hc != nil {
+		sb.WriteString(hc.DetailedStatus())
+	}
+	appendGuide(&sb, guide)
+	return sb.String()
+}
+
+// buildToolError builds a tool error with health status and guide.
+func buildToolError(toolName, errMsg string, hc *SearchHealthChecker, guide string) string {
+	var sb strings.Builder
+	sb.WriteString(errMsg)
+	sb.WriteString("\n\nTry a different source.\n")
+	if hc != nil {
+		sb.WriteString(hc.DetailedStatus())
+	}
+	appendGuide(&sb, guide)
+	return toolError(toolName, sb.String())
+}
+
+func appendGuide(sb *strings.Builder, guide string) {
+	if guide != "" {
+		sb.WriteString("\n")
+		sb.WriteString(guide)
+		sb.WriteString("\n")
+	}
 }
