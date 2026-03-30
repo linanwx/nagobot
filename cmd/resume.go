@@ -143,17 +143,6 @@ func isIncompleteSession(messages []provider.Message) bool {
 	return true
 }
 
-// resumableSources lists sources whose messages represent reasoning-initiating
-// requests that should be resumed after a crash.
-var resumableSources = map[string]bool{
-	// User-visible channels.
-	"telegram": true, "discord": true, "cli": true, "web": true,
-	"feishu": true, "wecom": true, "socket": true,
-	// System-initiated reasoning.
-	"user_active": true, "cron": true, "child_task": true,
-	"child_completed": true, "cron_finished": true,
-}
-
 // isInjectedMessage checks the YAML frontmatter of a user message for
 // the `injected: true` field, which marks messages that were injected
 // mid-execution (between tool iterations) rather than initiating reasoning.
@@ -166,14 +155,12 @@ func isInjectedMessage(content string) bool {
 }
 
 // findLastUserMessage scans backwards for the last role=user message that
-// initiated reasoning. A message qualifies when:
-//  1. Its source is in the resumableSources allowlist.
-//  2. It is not marked `injected: true` (mid-execution injection).
+// initiated a reasoning turn, skipping mid-execution injected messages
+// (marked with `injected: true` in YAML frontmatter).
 func findLastUserMessage(messages []provider.Message) (provider.Message, bool) {
 	for i := len(messages) - 1; i >= 0; i-- {
-		m := messages[i]
-		if m.Role == "user" && resumableSources[m.Source] && !isInjectedMessage(m.Content) {
-			return m, true
+		if messages[i].Role == "user" && !isInjectedMessage(messages[i].Content) {
+			return messages[i], true
 		}
 	}
 	return provider.Message{}, false

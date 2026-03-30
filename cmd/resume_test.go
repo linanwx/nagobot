@@ -108,7 +108,7 @@ func normalMsg(source, body string) string {
 func TestFindLastUserMessage(t *testing.T) {
 	now := time.Now()
 
-	t.Run("finds last user-visible message", func(t *testing.T) {
+	t.Run("finds last non-injected message", func(t *testing.T) {
 		msgs := []provider.Message{
 			{Role: "user", Content: normalMsg("telegram", "first"), Source: "telegram", Timestamp: now},
 			{Role: "assistant", Content: "reply", Timestamp: now},
@@ -134,28 +134,10 @@ func TestFindLastUserMessage(t *testing.T) {
 		}
 	})
 
-	t.Run("skips non-resumable sources", func(t *testing.T) {
-		msgs := []provider.Message{
-			{Role: "user", Content: normalMsg("telegram", "original"), Source: "telegram", Timestamp: now},
-			{Role: "user", Content: normalMsg("heartbeat", "pulse"), Source: "heartbeat", Timestamp: now},
-			{Role: "user", Content: normalMsg("compression", "compact"), Source: "compression", Timestamp: now},
-			{Role: "user", Content: normalMsg("resume", "restart"), Source: "resume", Timestamp: now},
-		}
-		msg, ok := findLastUserMessage(msgs)
-		if !ok {
-			t.Fatal("expected to find user message")
-		}
-		_, body, _ := thread.SplitFrontmatter(msg.Content)
-		if body != "\noriginal" {
-			t.Fatalf("expected 'original', got %q", body)
-		}
-	})
-
 	t.Run("skips mid-execution injected messages", func(t *testing.T) {
 		msgs := []provider.Message{
 			{Role: "user", Content: normalMsg("telegram", "original request"), Source: "telegram", Timestamp: now},
 			{Role: "assistant", Content: "working...", Timestamp: now},
-			// Mid-execution injection: same source but marked injected.
 			{Role: "user", Content: injectedMsg("telegram", "follow-up"), Source: "telegram", Timestamp: now},
 		}
 		msg, ok := findLastUserMessage(msgs)
@@ -168,85 +150,37 @@ func TestFindLastUserMessage(t *testing.T) {
 		}
 	})
 
-	t.Run("finds cron as original request", func(t *testing.T) {
-		msgs := []provider.Message{
-			{Role: "user", Content: normalMsg("cron", "cron job"), Source: "cron", Timestamp: now},
-		}
-		_, ok := findLastUserMessage(msgs)
-		if !ok {
-			t.Fatal("expected to find cron message")
-		}
-	})
-
-	t.Run("finds child_task as original request", func(t *testing.T) {
-		msgs := []provider.Message{
-			{Role: "user", Content: normalMsg("child_task", "subtask"), Source: "child_task", Timestamp: now},
-		}
-		_, ok := findLastUserMessage(msgs)
-		if !ok {
-			t.Fatal("expected to find child_task message")
+	t.Run("finds any non-injected source", func(t *testing.T) {
+		// All non-injected messages initiate reasoning and are resumable.
+		for _, source := range []string{"telegram", "discord", "cron", "child_task", "child_completed", "heartbeat", "compression", "resume", "sleep_completed", "external"} {
+			msgs := []provider.Message{
+				{Role: "user", Content: normalMsg(source, "msg"), Source: source, Timestamp: now},
+			}
+			_, ok := findLastUserMessage(msgs)
+			if !ok {
+				t.Errorf("expected to find message with source %q", source)
+			}
 		}
 	})
 
-	t.Run("finds child_completed as wake source", func(t *testing.T) {
+	t.Run("all injected — returns false", func(t *testing.T) {
 		msgs := []provider.Message{
-			{Role: "user", Content: normalMsg("child_completed", "done"), Source: "child_completed", Timestamp: now},
-		}
-		_, ok := findLastUserMessage(msgs)
-		if !ok {
-			t.Fatal("expected to find child_completed message")
-		}
-	})
-
-	t.Run("finds cron_finished as wake source", func(t *testing.T) {
-		msgs := []provider.Message{
-			{Role: "user", Content: normalMsg("cron_finished", "done"), Source: "cron_finished", Timestamp: now},
-		}
-		_, ok := findLastUserMessage(msgs)
-		if !ok {
-			t.Fatal("expected to find cron_finished message")
-		}
-	})
-
-	t.Run("finds user_active as wake source", func(t *testing.T) {
-		msgs := []provider.Message{
-			{Role: "user", Content: normalMsg("user_active", "context"), Source: "user_active", Timestamp: now},
-		}
-		_, ok := findLastUserMessage(msgs)
-		if !ok {
-			t.Fatal("expected to find user_active message")
-		}
-	})
-
-	t.Run("skips sleep_completed — not in allowlist", func(t *testing.T) {
-		msgs := []provider.Message{
-			{Role: "user", Content: normalMsg("sleep_completed", "timer"), Source: "sleep_completed", Timestamp: now},
+			{Role: "user", Content: injectedMsg("telegram", "a"), Source: "telegram", Timestamp: now},
+			{Role: "user", Content: injectedMsg("telegram", "b"), Source: "telegram", Timestamp: now},
 		}
 		_, ok := findLastUserMessage(msgs)
 		if ok {
-			t.Fatal("expected ok=false for sleep_completed")
+			t.Fatal("expected ok=false when all user messages are injected")
 		}
 	})
 
-	t.Run("skips external — not in allowlist", func(t *testing.T) {
+	t.Run("plain text without frontmatter — not injected", func(t *testing.T) {
 		msgs := []provider.Message{
-			{Role: "user", Content: normalMsg("external", "ext"), Source: "external", Timestamp: now},
+			{Role: "user", Content: "plain text message", Source: "telegram", Timestamp: now},
 		}
-		_, ok := findLastUserMessage(msgs)
-		if ok {
-			t.Fatal("expected ok=false for external")
-		}
-	})
-
-	t.Run("all non-resumable — returns false", func(t *testing.T) {
-		msgs := []provider.Message{
-			{Role: "user", Content: normalMsg("resume", "r"), Source: "resume", Timestamp: now},
-			{Role: "user", Content: normalMsg("heartbeat", "h"), Source: "heartbeat", Timestamp: now},
-			{Role: "user", Content: normalMsg("compression", "c"), Source: "compression", Timestamp: now},
-		}
-		_, ok := findLastUserMessage(msgs)
-		if ok {
-			t.Fatal("expected ok=false when all sources are non-resumable")
+		msg, ok := findLastUserMessage(msgs)
+		if !ok || msg.Content != "plain text message" {
+			t.Fatalf("expected 'plain text message', got %q ok=%v", msg.Content, ok)
 		}
 	})
 }
