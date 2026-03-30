@@ -59,6 +59,7 @@ func (a *Agent) Build() string {
 		prompt = strings.ReplaceAll(prompt, "{{SESSIONS_SUMMARY}}", buildSessionsSummary(a.workspace))
 		prompt = strings.ReplaceAll(prompt, "{{WORLD_KNOWLEDGE}}", buildWorldKnowledge(a.workspace))
 		prompt = strings.ReplaceAll(prompt, "{{WEBSEARCHGUIDE}}", buildFileSection(a.workspace, "system", "WEB_SEARCH_GUIDE.md"))
+		prompt = strings.ReplaceAll(prompt, "{{WEBFETCHGUIDE}}", buildFileSection(a.workspace, "system", "WEB_FETCH_GUIDE.md"))
 		prompt = strings.ReplaceAll(prompt, "{{GLOBAL}}", buildGlobal(a.workspace))
 	}
 

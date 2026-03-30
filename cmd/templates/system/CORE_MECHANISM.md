@@ -41,6 +41,8 @@ The available agent names in the current system are listed below. You may need t
 
 {{WEBSEARCHGUIDE}}
 
+{{WEBFETCHGUIDE}}
+
 You can perform multi-step reasoning and repeatedly call tools to execute commands.
 
 ## Skills
