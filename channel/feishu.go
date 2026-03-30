@@ -33,9 +33,11 @@ type FeishuChannel struct {
 	apiClient *lark.Client   // REST client for sending messages
 	wsClient  *larkws.Client // WebSocket client for receiving events
 
-	messages chan *Message
-	done     chan struct{}
-	wg       sync.WaitGroup
+	messages  chan *Message
+	done      chan struct{}
+	cancel    context.CancelFunc
+	startDone chan struct{} // closed when wsClient.Start() returns
+	wg        sync.WaitGroup
 
 	// Event dedup: Feishu may deliver duplicate events.
 	seenMu   sync.Mutex
@@ -91,11 +93,16 @@ func (f *FeishuChannel) Start(ctx context.Context) error {
 		larkws.WithLogLevel(larkcore.LogLevelDebug),
 	)
 
-	// WebSocket connection goroutine — Start() blocks with select{}.
+	// WebSocket connection goroutine — Start() blocks until context is cancelled.
+	startCtx, cancel := context.WithCancel(ctx)
+	f.cancel = cancel
+	f.startDone = make(chan struct{})
+
 	f.wg.Add(1)
 	go func() {
 		defer f.wg.Done()
-		if err := f.wsClient.Start(ctx); err != nil {
+		defer close(f.startDone)
+		if err := f.wsClient.Start(startCtx); err != nil {
 			select {
 			case <-f.done:
 				// Normal shutdown — ignore error.
@@ -129,8 +136,16 @@ func (f *FeishuChannel) Start(ctx context.Context) error {
 func (f *FeishuChannel) Stop() error {
 	f.stopOnce.Do(func() {
 		close(f.done)
-		// wsClient.Start() blocks on select{} — it will exit when ctx is cancelled
-		// by the parent context (serve shutdown). No explicit disconnect needed.
+		if f.cancel != nil {
+			f.cancel()
+			// Wait for wsClient.Start() to return, with a 5s timeout as a safeguard
+			// in case the SDK doesn't respond to context cancellation.
+			select {
+			case <-f.startDone:
+			case <-time.After(5 * time.Second):
+				logger.Warn("feishu websocket shutdown timed out after 5s")
+			}
+		}
 		f.wg.Wait()
 		close(f.messages)
 		logger.Info("feishu channel stopped")
