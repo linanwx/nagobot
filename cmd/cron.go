@@ -199,7 +199,7 @@ func runCronList(_ *cobra.Command, _ []string) error {
 		return nil
 	}
 	fmt.Printf("---\ncommand: cron list\nstatus: ok\ncount: %d\n---\n\n", len(jobs))
-	fmt.Printf("ID\tKIND\tSCHEDULE\tAGENT\tTASK\n")
+	fmt.Printf("ID\tKIND\tSCHEDULE\tAGENT\tWAKE-SESSION\tDIRECT-WAKE\tTASK\n")
 	for _, job := range jobs {
 		schedule := job.Expr
 		if job.Kind == cronsvc.JobKindAt {
@@ -207,7 +207,11 @@ func runCronList(_ *cobra.Command, _ []string) error {
 				schedule = job.AtTime.Format(time.RFC3339)
 			}
 		}
-		fmt.Printf("%s\t%s\t%s\t%s\t%s\n", job.ID, job.Kind, schedule, job.Agent, job.Task)
+		directWake := ""
+		if job.DirectWake {
+			directWake = "true"
+		}
+		fmt.Printf("%s\t%s\t%s\t%s\t%s\t%s\t%s\n", job.ID, job.Kind, schedule, job.Agent, job.WakeSession, directWake, job.Task)
 	}
 	return nil
 }
