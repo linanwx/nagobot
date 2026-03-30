@@ -456,11 +456,15 @@ func (b *ZhipuBalance) Check(ctx context.Context) (*BalanceInfo, error) {
 	}
 
 	d := result.Data
+	currency := "CNY"
+	if b.Name == "zhipu-global" {
+		currency = "USD"
+	}
 	return &BalanceInfo{
 		Provider:  b.Name,
 		Available: true,
 		Balances: []BalanceEntry{{
-			Currency: "CNY",
+			Currency: currency,
 			Balance:  d.AvailableBalance,
 			Detail:   fmt.Sprintf("recharged=%.2f gifted=%.2f spent=%.2f", d.RechargeAmount, d.GiveAmount, d.TotalSpendAmount),
 		}},
