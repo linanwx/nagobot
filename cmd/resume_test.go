@@ -150,14 +150,11 @@ func TestFindLastUserMessage(t *testing.T) {
 		}
 	})
 
-	t.Run("skips all system-injected sources", func(t *testing.T) {
+	t.Run("skips parasitic sources but keeps legitimate ones", func(t *testing.T) {
 		msgs := []provider.Message{
 			{Role: "user", Content: "real msg", Source: "telegram", Timestamp: now},
 			{Role: "user", Content: "compressed", Source: "compression", Timestamp: now},
-			{Role: "user", Content: "cron job", Source: "cron", Timestamp: now},
-			{Role: "user", Content: "child done", Source: "child_completed", Timestamp: now},
-			{Role: "user", Content: "sleep done", Source: "sleep_completed", Timestamp: now},
-			{Role: "user", Content: "external", Source: "external", Timestamp: now},
+			{Role: "user", Content: "heartbeat", Source: "heartbeat", Timestamp: now},
 			{Role: "user", Content: "resumed", Source: "resume", Timestamp: now},
 		}
 		msg, ok := findLastUserMessage(msgs)
@@ -166,24 +163,51 @@ func TestFindLastUserMessage(t *testing.T) {
 		}
 	})
 
-	t.Run("all messages are system-injected — returns false", func(t *testing.T) {
+	t.Run("finds cron as original request", func(t *testing.T) {
 		msgs := []provider.Message{
-			{Role: "user", Content: "resume only", Source: "resume", Timestamp: now},
-			{Role: "user", Content: "heartbeat", Source: "heartbeat", Timestamp: now},
+			{Role: "user", Content: "cron job context", Source: "cron", Timestamp: now},
+			{Role: "assistant", Content: "", ToolCalls: []provider.ToolCall{{ID: "tc1", Type: "function", Function: provider.FunctionCall{Name: "read_file"}}}, Timestamp: now},
+			{Role: "tool", ToolCallID: "tc1", Content: "file data", Timestamp: now},
 		}
-		_, ok := findLastUserMessage(msgs)
-		if ok {
-			t.Fatal("expected ok=false when all user messages are system-injected")
+		msg, ok := findLastUserMessage(msgs)
+		if !ok || msg.Content != "cron job context" {
+			t.Fatalf("expected 'cron job context', got %q ok=%v", msg.Content, ok)
 		}
 	})
 
-	t.Run("empty source treated as non-user-visible", func(t *testing.T) {
+	t.Run("finds child_task as original request", func(t *testing.T) {
 		msgs := []provider.Message{
-			{Role: "user", Content: "no source", Source: "", Timestamp: now},
+			{Role: "user", Content: "do subtask", Source: "child_task", Timestamp: now},
+			{Role: "assistant", Content: "", ToolCalls: []provider.ToolCall{{ID: "tc1", Type: "function", Function: provider.FunctionCall{Name: "read_file"}}}, Timestamp: now},
+			{Role: "tool", ToolCallID: "tc1", Content: "result", Timestamp: now},
+		}
+		msg, ok := findLastUserMessage(msgs)
+		if !ok || msg.Content != "do subtask" {
+			t.Fatalf("expected 'do subtask', got %q ok=%v", msg.Content, ok)
+		}
+	})
+
+	t.Run("finds sleep_completed as wake source", func(t *testing.T) {
+		msgs := []provider.Message{
+			{Role: "user", Content: "original", Source: "telegram", Timestamp: now},
+			{Role: "assistant", Content: "scheduled", Timestamp: now},
+			{Role: "user", Content: "timer expired", Source: "sleep_completed", Timestamp: now},
+		}
+		msg, ok := findLastUserMessage(msgs)
+		if !ok || msg.Content != "timer expired" {
+			t.Fatalf("expected 'timer expired', got %q ok=%v", msg.Content, ok)
+		}
+	})
+
+	t.Run("all messages are parasitic — returns false", func(t *testing.T) {
+		msgs := []provider.Message{
+			{Role: "user", Content: "resume only", Source: "resume", Timestamp: now},
+			{Role: "user", Content: "heartbeat", Source: "heartbeat", Timestamp: now},
+			{Role: "user", Content: "compressed", Source: "compression", Timestamp: now},
 		}
 		_, ok := findLastUserMessage(msgs)
 		if ok {
-			t.Fatal("expected ok=false for empty source")
+			t.Fatal("expected ok=false when all user messages are parasitic")
 		}
 	})
 }

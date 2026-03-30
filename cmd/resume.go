@@ -144,13 +144,23 @@ func isIncompleteSession(messages []provider.Message) bool {
 	return true
 }
 
-// findLastUserMessage scans backwards for the last role=user message
-// from a real user-visible channel (telegram, discord, cli, web, feishu,
-// wecom, socket), skipping all system-injected sources (resume, heartbeat,
-// compression, cron, child_completed, etc.).
+// isParasiticSource returns true for sources that inject messages into an
+// existing session but are never the session's original request. These should
+// be skipped when searching for the user's real message during resume.
+func isParasiticSource(source string) bool {
+	switch msg.WakeSource(source) {
+	case msg.WakeResume, msg.WakeHeartbeat, msg.WakeCompression:
+		return true
+	}
+	return false
+}
+
+// findLastUserMessage scans backwards for the last role=user message,
+// skipping parasitic sources (resume, heartbeat, compression) that inject
+// into existing sessions but are never the original request.
 func findLastUserMessage(messages []provider.Message) (provider.Message, bool) {
 	for i := len(messages) - 1; i >= 0; i-- {
-		if messages[i].Role == "user" && msg.IsUserVisibleSource(msg.WakeSource(messages[i].Source)) {
+		if messages[i].Role == "user" && !isParasiticSource(messages[i].Source) {
 			return messages[i], true
 		}
 	}
