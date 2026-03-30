@@ -1,6 +1,6 @@
 ---
 name: heartbeat-wake
-description: Heartbeat pulse handler — decide whether to reflect (update heartbeat.md) or act (evaluate items and respond). Triggered automatically by the heartbeat scheduler.
+description: Heartbeat pulse handler — resume pending work, reflect (update heartbeat.md), or act (evaluate items and respond). Triggered automatically by the heartbeat scheduler.
 tags: [heartbeat, internal]
 ---
 # Heartbeat Wake
