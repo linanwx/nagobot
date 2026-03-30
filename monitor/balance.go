@@ -408,16 +408,17 @@ func (b *MoonshotBalance) Check(ctx context.Context) (*BalanceInfo, error) {
 
 // ZhipuBalance checks balance via the web dashboard API.
 type ZhipuBalance struct {
+	Name  string
 	KeyFn func() string
 }
 
-func (b *ZhipuBalance) Provider() string { return "zhipu-cn" }
+func (b *ZhipuBalance) Provider() string { return b.Name }
 func (b *ZhipuBalance) Available() bool  { return b.KeyFn != nil && b.KeyFn() != "" }
 
 func (b *ZhipuBalance) Check(ctx context.Context) (*BalanceInfo, error) {
 	key := b.KeyFn()
 	if key == "" {
-		return &BalanceInfo{Provider: "zhipu-cn", Error: "no API key configured"}, nil
+		return &BalanceInfo{Provider: b.Name, Error: "no API key configured"}, nil
 	}
 
 	req, err := http.NewRequestWithContext(ctx, "GET", "https://open.bigmodel.cn/api/biz/account/query-customer-account-report", nil)
@@ -451,12 +452,12 @@ func (b *ZhipuBalance) Check(ctx context.Context) (*BalanceInfo, error) {
 		return nil, fmt.Errorf("zhipu balance: parse error: %w", err)
 	}
 	if !result.Success {
-		return &BalanceInfo{Provider: "zhipu-cn", Error: "API returned success=false"}, nil
+		return &BalanceInfo{Provider: b.Name, Error: "API returned success=false"}, nil
 	}
 
 	d := result.Data
 	return &BalanceInfo{
-		Provider:  "zhipu-cn",
+		Provider:  b.Name,
 		Available: true,
 		Balances: []BalanceEntry{{
 			Currency: "CNY",
