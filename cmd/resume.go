@@ -152,6 +152,7 @@ var resumableSources = map[string]bool{
 	"cli": true, "web": true, "wecom": true, "socket": true,
 	"user_active": true, "cron": true, "child_task": true,
 	"child_completed": true, "cron_finished": true, "external": true,
+	"sleep_completed": true,
 }
 
 // isInjectedMessage checks the YAML frontmatter of a user message for

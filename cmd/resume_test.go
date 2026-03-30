@@ -151,7 +151,7 @@ func TestFindLastUserMessage(t *testing.T) {
 	})
 
 	t.Run("resumable sources found", func(t *testing.T) {
-		for _, source := range []string{"telegram", "discord", "feishu", "cli", "web", "wecom", "socket", "user_active", "cron", "child_task", "child_completed", "cron_finished", "external"} {
+		for _, source := range []string{"telegram", "discord", "feishu", "cli", "web", "wecom", "socket", "user_active", "cron", "child_task", "child_completed", "cron_finished", "external", "sleep_completed"} {
 			msgs := []provider.Message{
 				{Role: "user", Content: normalMsg(source, "msg"), Source: source, Timestamp: now},
 			}
@@ -163,7 +163,7 @@ func TestFindLastUserMessage(t *testing.T) {
 	})
 
 	t.Run("non-resumable sources skipped", func(t *testing.T) {
-		for _, source := range []string{"heartbeat", "compression", "resume", "sleep_completed"} {
+		for _, source := range []string{"heartbeat", "compression", "resume"} {
 			msgs := []provider.Message{
 				{Role: "user", Content: normalMsg(source, "msg"), Source: source, Timestamp: now},
 			}
