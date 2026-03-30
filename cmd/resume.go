@@ -143,12 +143,33 @@ func isIncompleteSession(messages []provider.Message) bool {
 	return true
 }
 
-// findLastUserMessage scans backwards for the last role=user message,
-// skipping resume-source messages to find the original request.
+// nonResumableSources are sources that should not be resumed after a crash.
+// - heartbeat/compression: self-recovering, the system will re-trigger them
+// - resume: self-referential, resuming a resume would cause infinite loops
+var nonResumableSources = map[string]bool{
+	"heartbeat": true, "compression": true, "resume": true,
+}
+
+// isInjectedMessage checks the YAML frontmatter of a user message for
+// the `injected: true` field, which marks messages that were injected
+// mid-execution (between tool iterations) rather than initiating reasoning.
+func isInjectedMessage(content string) bool {
+	yamlBlock, _, ok := thread.SplitFrontmatter(content)
+	if !ok {
+		return false
+	}
+	return thread.ExtractFrontmatterValue(yamlBlock, "injected") == "true"
+}
+
+// findLastUserMessage scans backwards for the last role=user message that
+// initiated a reasoning turn worth resuming. Skips:
+//   - Mid-execution injected messages (injected: true in frontmatter)
+//   - Non-resumable sources (heartbeat, compression, resume, sleep_completed, external)
 func findLastUserMessage(messages []provider.Message) (provider.Message, bool) {
 	for i := len(messages) - 1; i >= 0; i-- {
-		if messages[i].Role == "user" && messages[i].Source != "resume" {
-			return messages[i], true
+		m := messages[i]
+		if m.Role == "user" && !nonResumableSources[m.Source] && !isInjectedMessage(m.Content) {
+			return m, true
 		}
 	}
 	return provider.Message{}, false

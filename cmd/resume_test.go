@@ -94,20 +94,33 @@ func TestIsIncompleteSession(t *testing.T) {
 	}
 }
 
+// injectedMsg builds a user message Content with `injected: true` in YAML
+// frontmatter, matching what markInjected produces for mid-execution messages.
+func injectedMsg(source, body string) string {
+	return "---\nsource: " + source + "\ninjected: true\n---\n\n" + body
+}
+
+// normalMsg builds a user message Content with normal YAML frontmatter.
+func normalMsg(source, body string) string {
+	return "---\nsource: " + source + "\n---\n\n" + body
+}
+
 func TestFindLastUserMessage(t *testing.T) {
 	now := time.Now()
 
-	t.Run("finds last user message", func(t *testing.T) {
+	t.Run("finds last resumable message", func(t *testing.T) {
 		msgs := []provider.Message{
-			{Role: "user", Content: "first", Timestamp: now},
+			{Role: "user", Content: normalMsg("telegram", "first"), Source: "telegram", Timestamp: now},
 			{Role: "assistant", Content: "reply", Timestamp: now},
-			{Role: "user", Content: "second", Timestamp: now},
-			{Role: "assistant", Content: "", ToolCalls: []provider.ToolCall{{ID: "tc1"}}, Timestamp: now},
-			{Role: "tool", ToolCallID: "tc1", Content: "result", Timestamp: now},
+			{Role: "user", Content: normalMsg("telegram", "second"), Source: "telegram", Timestamp: now},
 		}
 		msg, ok := findLastUserMessage(msgs)
-		if !ok || msg.Content != "second" {
-			t.Fatalf("expected 'second', got %q ok=%v", msg.Content, ok)
+		if !ok {
+			t.Fatal("expected to find user message")
+		}
+		_, body, _ := thread.SplitFrontmatter(msg.Content)
+		if body != "\nsecond" {
+			t.Fatalf("expected body 'second', got %q", body)
 		}
 	})
 
@@ -121,30 +134,70 @@ func TestFindLastUserMessage(t *testing.T) {
 		}
 	})
 
-	t.Run("skips resume messages", func(t *testing.T) {
+	t.Run("skips mid-execution injected messages", func(t *testing.T) {
 		msgs := []provider.Message{
-			{Role: "user", Content: "original request", Source: "telegram", Timestamp: now},
-			{Role: "assistant", Content: "partial", Timestamp: now},
-			{Role: "user", Content: "resume msg 1", Source: "resume", Timestamp: now},
-			{Role: "assistant", Content: "", ToolCalls: []provider.ToolCall{{ID: "tc1", Type: "function", Function: provider.FunctionCall{Name: "sleep_thread"}}}, Timestamp: now},
-			{Role: "tool", ToolCallID: "tc1", Name: "sleep_thread", Content: "ok", Timestamp: now},
-			{Role: "user", Content: "resume msg 2", Source: "resume", Timestamp: now},
-			{Role: "assistant", Content: "", ToolCalls: []provider.ToolCall{{ID: "tc2", Type: "function", Function: provider.FunctionCall{Name: "sleep_thread"}}}, Timestamp: now},
-			{Role: "tool", ToolCallID: "tc2", Name: "sleep_thread", Content: "ok", Timestamp: now},
+			{Role: "user", Content: normalMsg("telegram", "original request"), Source: "telegram", Timestamp: now},
+			{Role: "assistant", Content: "working...", Timestamp: now},
+			{Role: "user", Content: injectedMsg("telegram", "follow-up"), Source: "telegram", Timestamp: now},
 		}
 		msg, ok := findLastUserMessage(msgs)
-		if !ok || msg.Content != "original request" {
-			t.Fatalf("expected 'original request', got %q ok=%v", msg.Content, ok)
+		if !ok {
+			t.Fatal("expected to find user message")
+		}
+		_, body, _ := thread.SplitFrontmatter(msg.Content)
+		if body != "\noriginal request" {
+			t.Fatalf("expected 'original request', got %q", body)
 		}
 	})
 
-	t.Run("all messages are resume — returns false", func(t *testing.T) {
+	t.Run("non-resumable sources skipped", func(t *testing.T) {
+		for _, source := range []string{"heartbeat", "compression", "resume"} {
+			msgs := []provider.Message{
+				{Role: "user", Content: normalMsg(source, "msg"), Source: source, Timestamp: now},
+			}
+			_, ok := findLastUserMessage(msgs)
+			if ok {
+				t.Errorf("expected source %q to be non-resumable", source)
+			}
+		}
+	})
+
+	t.Run("other sources are resumable", func(t *testing.T) {
+		for _, source := range []string{"telegram", "discord", "cron", "child_task", "child_completed", "cron_finished", "external", "sleep_completed"} {
+			msgs := []provider.Message{
+				{Role: "user", Content: normalMsg(source, "msg"), Source: source, Timestamp: now},
+			}
+			_, ok := findLastUserMessage(msgs)
+			if !ok {
+				t.Errorf("expected source %q to be resumable", source)
+			}
+		}
+	})
+
+	t.Run("skips non-resumable to find resumable", func(t *testing.T) {
 		msgs := []provider.Message{
-			{Role: "user", Content: "resume only", Source: "resume", Timestamp: now},
+			{Role: "user", Content: normalMsg("telegram", "original"), Source: "telegram", Timestamp: now},
+			{Role: "user", Content: normalMsg("heartbeat", "pulse"), Source: "heartbeat", Timestamp: now},
+			{Role: "user", Content: normalMsg("compression", "compact"), Source: "compression", Timestamp: now},
+		}
+		msg, ok := findLastUserMessage(msgs)
+		if !ok {
+			t.Fatal("expected to find user message")
+		}
+		_, body, _ := thread.SplitFrontmatter(msg.Content)
+		if body != "\noriginal" {
+			t.Fatalf("expected 'original', got %q", body)
+		}
+	})
+
+	t.Run("all non-resumable — returns false", func(t *testing.T) {
+		msgs := []provider.Message{
+			{Role: "user", Content: normalMsg("heartbeat", "h"), Source: "heartbeat", Timestamp: now},
+			{Role: "user", Content: normalMsg("compression", "c"), Source: "compression", Timestamp: now},
 		}
 		_, ok := findLastUserMessage(msgs)
 		if ok {
-			t.Fatal("expected ok=false when all user messages are resume")
+			t.Fatal("expected ok=false")
 		}
 	})
 }
