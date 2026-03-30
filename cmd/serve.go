@@ -98,9 +98,19 @@ func runServe(cmd *cobra.Command, args []string) error {
 	// shutdownCh allows the RPC "shutdown" method to trigger graceful shutdown.
 	shutdownCh := make(chan struct{})
 
+	// Updater for RPC-driven self-update.
+	srvUpdater := &updater{}
+
 	// Wire RPC handler so CLI commands can query the running serve process.
 	socketCh.SetRPCHandler(func(method string, params json.RawMessage) (any, error) {
 		switch method {
+		case "update.start":
+			var p updateStartParams
+			_ = json.Unmarshal(params, &p)
+			accepted, reason := srvUpdater.Start(p.Pre)
+			return updateStartResponse{Accepted: accepted, Reason: reason, Current: Version}, nil
+		case "update.status":
+			return srvUpdater.Status(), nil
 		case "sessions.list":
 			var p listSessionsOpts
 			_ = json.Unmarshal(params, &p)

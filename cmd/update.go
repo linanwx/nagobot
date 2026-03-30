@@ -18,6 +18,7 @@ import (
 
 	"github.com/linanwx/nagobot/cmd/service"
 	"github.com/linanwx/nagobot/config"
+	"github.com/linanwx/nagobot/logger"
 	"github.com/spf13/cobra"
 )
 
@@ -31,7 +32,8 @@ var updateCmd = &cobra.Command{
 By default only stable (non-pre-release) versions are considered.
 Use --pre to include pre-release versions.
 
-After replacing the binary the running service is automatically restarted.`,
+When a serve process is running, the update is delegated to it via RPC.
+Otherwise the CLI performs the update directly.`,
 	RunE: runUpdate,
 }
 
@@ -47,8 +49,6 @@ type ghRelease struct {
 }
 
 // fetchLatestVersion returns the tag name of the target release.
-// When pre is false, it uses /releases/latest (stable only).
-// When pre is true, it lists releases and picks the first non-draft entry.
 func fetchLatestVersion(pre bool) (string, error) {
 	if !pre {
 		resp, err := http.Get("https://api.github.com/repos/linanwx/nagobot/releases/latest")
@@ -71,7 +71,6 @@ func fetchLatestVersion(pre bool) (string, error) {
 		return rel.TagName, nil
 	}
 
-	// --pre: list all releases and pick the first non-draft.
 	resp, err := http.Get("https://api.github.com/repos/linanwx/nagobot/releases?per_page=10")
 	if err != nil {
 		return "", fmt.Errorf("cannot reach GitHub API: %w", err)
@@ -95,8 +94,97 @@ func fetchLatestVersion(pre bool) (string, error) {
 	return "", fmt.Errorf("no release found")
 }
 
+// ---------------------------------------------------------------------------
+// runUpdate: RPC-first, with fallback to direct execution.
+// ---------------------------------------------------------------------------
+
 func runUpdate(cmd *cobra.Command, args []string) error {
 	fmt.Printf("Current version: %s\n", Version)
+
+	// Try RPC mode: delegate to running serve process.
+	result, err := rpcCallWithTimeout("update.start", updateStartParams{Pre: updatePre}, 5*time.Second)
+	if err != nil {
+		// Serve not running or RPC failed — fall back to direct update.
+		return runUpdateDirect()
+	}
+
+	var startResp updateStartResponse
+	if err := json.Unmarshal(result, &startResp); err != nil {
+		return runUpdateDirect()
+	}
+	if !startResp.Accepted {
+		return fmt.Errorf("update rejected: %s", startResp.Reason)
+	}
+
+	fmt.Println("Update delegated to running service...")
+
+	// Poll update.status until done or connection lost.
+	var lastMsg string
+	for {
+		time.Sleep(500 * time.Millisecond)
+
+		result, err := rpcCallWithTimeout("update.status", nil, 3*time.Second)
+		if err != nil {
+			// Connection lost = serve is restarting with new version.
+			fmt.Println("\nService is restarting with the new version.")
+			return nil
+		}
+
+		var status updateStatusResponse
+		if err := json.Unmarshal(result, &status); err != nil {
+			continue
+		}
+
+		printUpdateProgress(status, &lastMsg)
+
+		if status.Done {
+			if status.Error != "" {
+				return fmt.Errorf("\nUpdate failed: %s", status.Error)
+			}
+			if status.Phase == phaseUpToDate {
+				fmt.Printf("\nAlready up to date (%s).\n", Version)
+			} else {
+				fmt.Printf("\nUpdated to %s. Service is restarting.\n", status.Latest)
+			}
+			return nil
+		}
+	}
+}
+
+func printUpdateProgress(s updateStatusResponse, lastMsg *string) {
+	var msg string
+	switch s.Phase {
+	case phaseChecking:
+		msg = "Checking for updates..."
+	case phaseRankingMirrors:
+		msg = "Ranking mirrors..."
+	case phaseDownloading:
+		if s.Progress > 0 {
+			msg = fmt.Sprintf("%s  %d%%", s.Message, s.Progress)
+		} else {
+			msg = s.Message
+		}
+	case phaseInstalling:
+		msg = fmt.Sprintf("Installing %s...", s.Latest)
+	case phaseSyncing:
+		msg = "Syncing templates..."
+	case phaseRestarting:
+		msg = s.Message
+	default:
+		msg = s.Message
+	}
+	if msg != *lastMsg {
+		fmt.Printf("\r\033[K%s", msg)
+		*lastMsg = msg
+	}
+}
+
+// ---------------------------------------------------------------------------
+// runUpdateDirect: full update when serve is not running (fallback).
+// ---------------------------------------------------------------------------
+
+func runUpdateDirect() error {
+	fmt.Println("No running service detected, updating directly...")
 
 	latest, err := fetchLatestVersion(updatePre)
 	if err != nil {
@@ -110,7 +198,6 @@ func runUpdate(cmd *cobra.Command, args []string) error {
 
 	fmt.Printf("New version available: %s\n", latest)
 
-	// Build download URL.
 	goos := runtime.GOOS
 	goarch := runtime.GOARCH
 	assetName := fmt.Sprintf("nagobot-%s-%s", goos, goarch)
@@ -127,17 +214,15 @@ func runUpdate(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("cannot create directory %s: %w", installDir, err)
 	}
 
-	// Write to temp file in same directory, then rename.
 	tmpFile, err := os.CreateTemp(installDir, "nagobot-update-*")
 	if err != nil {
 		return fmt.Errorf("cannot create temp file: %w", err)
 	}
 	tmpPath := tmpFile.Name()
-	defer os.Remove(tmpPath) // clean up on error
+	defer os.Remove(tmpPath)
 
-	// Download to temp file. Each mirror gets its own timeout; on failure the next is tried.
 	fmt.Printf("Downloading %s...\n", assetName)
-	if err := downloadWithFallback(url, tmpFile); err != nil {
+	if err := downloadWithFallback(url, tmpFile, printDownloadProgress); err != nil {
 		tmpFile.Close()
 		return fmt.Errorf("download failed: %w", err)
 	}
@@ -147,12 +232,10 @@ func runUpdate(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("chmod failed: %w", err)
 	}
 
-	// macOS: remove quarantine attribute.
 	if goos == "darwin" {
 		removeQuarantine(tmpPath)
 	}
 
-	// Replace: remove old, rename new.
 	os.Remove(installPath)
 	if err := os.Rename(tmpPath, installPath); err != nil {
 		return fmt.Errorf("cannot replace binary: %w", err)
@@ -160,7 +243,7 @@ func runUpdate(cmd *cobra.Command, args []string) error {
 
 	fmt.Printf("Updated to %s at %s\n", latest, installPath)
 
-	// Sync template files using the NEW binary (current process has old embedded templates).
+	// Sync templates using the new binary.
 	fmt.Println("Syncing templates...")
 	syncCmd := exec.Command(installPath, "onboard", "--sync")
 	syncCmd.Stdout = os.Stdout
@@ -169,12 +252,9 @@ func runUpdate(cmd *cobra.Command, args []string) error {
 		fmt.Printf("Warning: failed to sync templates: %v\n", err)
 	}
 
-	// Gracefully stop the running process via socket RPC before restarting.
-	// This handles the case where the process was started manually (e.g., nohup)
-	// and the service manager cannot stop it.
+	// Gracefully stop the running process (if any) before restarting.
 	stopRunningProcess()
 
-	// Restart service.
 	fmt.Println("Restarting service...")
 	mgr := service.New()
 	if err := mgr.Restart(); err != nil {
@@ -187,9 +267,15 @@ func runUpdate(cmd *cobra.Command, args []string) error {
 	return nil
 }
 
-// stopRunningProcess sends a shutdown RPC to the running nagobot process via
-// the unix socket. This ensures the old process exits even if it was started
-// manually (nohup) and is not managed by the system service manager.
+// printDownloadProgress is the progress callback for direct (non-RPC) mode.
+func printDownloadProgress(mirror string, pct int) {
+	fmt.Fprintf(os.Stdout, "\r    %s  %d%%", mirror, pct)
+}
+
+// ---------------------------------------------------------------------------
+// stopRunningProcess sends a shutdown RPC (used by direct update only).
+// ---------------------------------------------------------------------------
+
 func stopRunningProcess() {
 	socketPath, err := config.SocketPath()
 	if err != nil {
@@ -198,14 +284,12 @@ func stopRunningProcess() {
 
 	conn, err := net.DialTimeout("unix", socketPath, 2*time.Second)
 	if err != nil {
-		// No running process or socket not available — nothing to stop.
 		return
 	}
 	defer conn.Close()
 
 	conn.SetDeadline(time.Now().Add(2 * time.Second))
 
-	// Send shutdown RPC.
 	req := struct {
 		ID     string `json:"id"`
 		Method string `json:"method"`
@@ -215,26 +299,27 @@ func stopRunningProcess() {
 		return
 	}
 
-	// Read the response (best effort).
 	var resp json.RawMessage
 	json.NewDecoder(conn).Decode(&resp)
 	conn.Close()
 
 	fmt.Println("Waiting for old process to exit...")
 
-	// Wait up to 5 seconds for the socket to become unavailable (process exited).
 	deadline := time.Now().Add(5 * time.Second)
 	for time.Now().Before(deadline) {
 		time.Sleep(500 * time.Millisecond)
 		probe, err := net.DialTimeout("unix", socketPath, 500*time.Millisecond)
 		if err != nil {
-			// Socket gone — old process has exited.
 			return
 		}
 		probe.Close()
 	}
 	fmt.Println("    Warning: old process may still be running.")
 }
+
+// ---------------------------------------------------------------------------
+// Download helpers (shared by direct mode and serve-side updater).
+// ---------------------------------------------------------------------------
 
 // China mirrors for GitHub release downloads.
 var chinaMirrors = []string{
@@ -245,13 +330,11 @@ var chinaMirrors = []string{
 
 const perMirrorTimeout = 2 * time.Minute
 
-// rankMirrors probes each mirror in parallel by downloading the first 100KB
-// of rawURL and returns mirrors sorted by speed (fastest first).
-// Mirrors that fail or are too slow are appended at the end.
+// rankMirrors probes each mirror in parallel and returns them sorted by speed.
 func rankMirrors(mirrors []string, rawURL string) []string {
 	type result struct {
 		mirror string
-		speed  float64 // bytes per second, 0 = failed
+		speed  float64
 	}
 
 	results := make([]result, len(mirrors))
@@ -265,7 +348,7 @@ func rankMirrors(mirrors []string, rawURL string) []string {
 			defer cancel()
 
 			req, _ := http.NewRequestWithContext(ctx, "GET", m+rawURL, nil)
-			req.Header.Set("Range", "bytes=0-102399") // first 100KB
+			req.Header.Set("Range", "bytes=0-102399")
 			start := time.Now()
 			resp, err := http.DefaultClient.Do(req)
 			if err != nil {
@@ -284,7 +367,6 @@ func rankMirrors(mirrors []string, rawURL string) []string {
 	}
 	wg.Wait()
 
-	// Sort: fastest first, failed last.
 	sort.Slice(results, func(i, j int) bool {
 		return results[i].speed > results[j].speed
 	})
@@ -296,16 +378,15 @@ func rankMirrors(mirrors []string, rawURL string) []string {
 		if r.speed > 0 {
 			tag = fmt.Sprintf("%.0f KB/s", r.speed/1024)
 		}
-		fmt.Printf("    %s %s\n", r.mirror, tag)
+		logger.Info("mirror ranked", "mirror", r.mirror, "speed", tag)
 	}
 	return ranked
 }
 
 // downloadWithFallback downloads rawURL into dst, trying mirrors with
-// per-mirror timeouts. Each attempt includes the full body transfer;
-// on timeout or failure the next mirror is tried automatically.
-func downloadWithFallback(rawURL string, dst *os.File) error {
-	client := &http.Client{} // no global timeout; per-request context handles it
+// per-mirror timeouts. onProgress is called with (mirror label, percent).
+func downloadWithFallback(rawURL string, dst *os.File, onProgress func(mirror string, pct int)) error {
+	client := &http.Client{}
 
 	type source struct {
 		label string
@@ -314,7 +395,7 @@ func downloadWithFallback(rawURL string, dst *os.File) error {
 	var sources []source
 
 	if isMainlandChina() {
-		fmt.Println("    Detected mainland China, ranking mirrors...")
+		logger.Info("detected mainland China, ranking mirrors")
 		ranked := rankMirrors(chinaMirrors, rawURL)
 		for _, mirror := range ranked {
 			sources = append(sources, source{mirror, mirror + rawURL})
@@ -326,50 +407,49 @@ func downloadWithFallback(rawURL string, dst *os.File) error {
 	}
 
 	for _, s := range sources {
-		fmt.Printf("    Trying %s\n", s.label)
+		logger.Info("trying download source", "source", s.label)
 
 		ctx, cancel := context.WithTimeout(context.Background(), perMirrorTimeout)
 		req, _ := http.NewRequestWithContext(ctx, "GET", s.url, nil)
 		resp, err := client.Do(req)
 		if err != nil {
 			cancel()
-			fmt.Printf("    Failed: %v\n", err)
+			logger.Warn("download source failed", "source", s.label, "error", err)
 			continue
 		}
 		if resp.StatusCode != http.StatusOK {
 			resp.Body.Close()
 			cancel()
-			fmt.Printf("    Failed: HTTP %s\n", resp.Status)
+			logger.Warn("download source failed", "source", s.label, "status", resp.Status)
 			continue
 		}
 
-		// Reset file for this attempt.
 		dst.Seek(0, io.SeekStart)
 		dst.Truncate(0)
 
 		var src io.Reader = resp.Body
 		if resp.ContentLength > 0 {
-			src = &progressReader{r: resp.Body, total: resp.ContentLength}
+			src = &progressReader{
+				r:          resp.Body,
+				total:      resp.ContentLength,
+				label:      s.label,
+				onProgress: onProgress,
+			}
 		}
 		_, err = io.Copy(dst, src)
 		resp.Body.Close()
 		cancel()
 
 		if err != nil {
-			fmt.Println() // newline after progress bar
-			fmt.Printf("    Failed: %v\n", err)
+			logger.Warn("download body failed", "source", s.label, "error", err)
 			continue
-		}
-		if resp.ContentLength > 0 {
-			fmt.Println() // newline after progress bar
 		}
 		return nil
 	}
 	return fmt.Errorf("all download attempts failed")
 }
 
-// isMainlandChina checks if the current machine is in mainland China
-// by querying ipinfo.io/country.
+// isMainlandChina checks if the current machine is in mainland China.
 func isMainlandChina() bool {
 	client := &http.Client{Timeout: 3 * time.Second}
 	resp, err := client.Get("https://ipinfo.io/country")
@@ -384,12 +464,14 @@ func isMainlandChina() bool {
 	return strings.TrimSpace(string(body)) == "CN"
 }
 
-// progressReader wraps an io.Reader and prints a progress bar to stdout.
+// progressReader wraps an io.Reader and reports download progress.
 type progressReader struct {
-	r       io.Reader
-	total   int64
-	current int64
-	last    int // last printed percentage (avoid redundant writes)
+	r          io.Reader
+	total      int64
+	current    int64
+	last       int
+	label      string
+	onProgress func(mirror string, pct int)
 }
 
 func (pr *progressReader) Read(p []byte) (int, error) {
@@ -399,12 +481,9 @@ func (pr *progressReader) Read(p []byte) (int, error) {
 	pct := int(pr.current * 100 / pr.total)
 	if pct != pr.last || err == io.EOF {
 		pr.last = pct
-		filled := pct / 2          // 50-char wide bar
-		empty := 50 - filled
-		fmt.Fprintf(os.Stdout, "\r    %s / %s  [%s%s]  %d%%",
-			formatBytes(pr.current), formatBytes(pr.total),
-			strings.Repeat("=", filled), strings.Repeat(" ", empty),
-			pct)
+		if pr.onProgress != nil {
+			pr.onProgress(pr.label, pct)
+		}
 	}
 	return n, err
 }

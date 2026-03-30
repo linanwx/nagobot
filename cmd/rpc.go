@@ -26,19 +26,23 @@ type rpcResponseMsg struct {
 // rpcCall connects to the running serve process via unix socket,
 // sends an RPC request, and returns the raw result.
 func rpcCall(method string, params any) (json.RawMessage, error) {
+	return rpcCallWithTimeout(method, params, 5*time.Second)
+}
+
+// rpcCallWithTimeout is like rpcCall but with a custom deadline.
+func rpcCallWithTimeout(method string, params any, timeout time.Duration) (json.RawMessage, error) {
 	socketPath, err := config.SocketPath()
 	if err != nil {
 		return nil, fmt.Errorf("socket path: %w", err)
 	}
 
-	conn, err := net.DialTimeout("unix", socketPath, 5*time.Second)
+	conn, err := net.DialTimeout("unix", socketPath, timeout)
 	if err != nil {
 		return nil, fmt.Errorf("connect to serve: %w", err)
 	}
 	defer conn.Close()
 
-	// Set read/write deadline.
-	conn.SetDeadline(time.Now().Add(5 * time.Second))
+	conn.SetDeadline(time.Now().Add(timeout))
 
 	req := rpcRequest{
 		ID:     "1",
