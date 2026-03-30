@@ -143,16 +143,11 @@ func isIncompleteSession(messages []provider.Message) bool {
 	return true
 }
 
-// resumableSources are non-injected sources worth resuming after a crash.
-// User-visible channels and key system sources carry one-time payloads that
-// would be lost without resume. Self-recovering sources (heartbeat,
-// compression) and self-referential sources (resume) are excluded.
-var resumableSources = map[string]bool{
-	"telegram": true, "discord": true, "feishu": true,
-	"cli": true, "web": true, "wecom": true, "socket": true,
-	"user_active": true, "cron": true, "child_task": true,
-	"child_completed": true, "cron_finished": true, "external": true,
-	"sleep_completed": true,
+// nonResumableSources are sources that should not be resumed after a crash.
+// - heartbeat/compression: self-recovering, the system will re-trigger them
+// - resume: self-referential, resuming a resume would cause infinite loops
+var nonResumableSources = map[string]bool{
+	"heartbeat": true, "compression": true, "resume": true,
 }
 
 // isInjectedMessage checks the YAML frontmatter of a user message for
@@ -173,7 +168,7 @@ func isInjectedMessage(content string) bool {
 func findLastUserMessage(messages []provider.Message) (provider.Message, bool) {
 	for i := len(messages) - 1; i >= 0; i-- {
 		m := messages[i]
-		if m.Role == "user" && resumableSources[m.Source] && !isInjectedMessage(m.Content) {
+		if m.Role == "user" && !nonResumableSources[m.Source] && !isInjectedMessage(m.Content) {
 			return m, true
 		}
 	}
