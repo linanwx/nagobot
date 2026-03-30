@@ -179,6 +179,18 @@ func IsUserVisibleSource(source WakeSource) bool {
 	return false
 }
 
+// IsInjected reports whether this source injects messages into an existing
+// session without initiating new reasoning. These messages are self-recovering
+// (the system will re-trigger them automatically) or self-referential, so they
+// should be skipped when searching for the original user request during resume.
+func (s WakeSource) IsInjected() bool {
+	switch s {
+	case WakeResume, WakeHeartbeat, WakeCompression:
+		return true
+	}
+	return false
+}
+
 // WakeMessage is an item in a thread's wake queue.
 type WakeMessage struct {
 	Source    WakeSource        // Wake source.

@@ -10,7 +10,6 @@ import (
 	"github.com/linanwx/nagobot/provider"
 	"github.com/linanwx/nagobot/session"
 	"github.com/linanwx/nagobot/thread"
-	"github.com/linanwx/nagobot/thread/msg"
 )
 
 const resumeMaxAge = 1 * time.Hour
@@ -144,23 +143,24 @@ func isIncompleteSession(messages []provider.Message) bool {
 	return true
 }
 
-// isParasiticSource returns true for sources that inject messages into an
-// existing session but are never the session's original request. These should
-// be skipped when searching for the user's real message during resume.
-func isParasiticSource(source string) bool {
-	switch msg.WakeSource(source) {
-	case msg.WakeResume, msg.WakeHeartbeat, msg.WakeCompression:
-		return true
+// isInjectedMessage checks the YAML frontmatter of a user message for
+// the `injected: true` field, which marks messages that were injected into
+// an existing session (resume, heartbeat, compression) rather than initiating
+// reasoning.
+func isInjectedMessage(content string) bool {
+	yamlBlock, _, ok := thread.SplitFrontmatter(content)
+	if !ok {
+		return false
 	}
-	return false
+	return thread.ExtractFrontmatterValue(yamlBlock, "injected") == "true"
 }
 
-// findLastUserMessage scans backwards for the last role=user message,
-// skipping parasitic sources (resume, heartbeat, compression) that inject
-// into existing sessions but are never the original request.
+// findLastUserMessage scans backwards for the last role=user message that
+// initiated reasoning, skipping injected messages (marked with `injected: true`
+// in their YAML frontmatter).
 func findLastUserMessage(messages []provider.Message) (provider.Message, bool) {
 	for i := len(messages) - 1; i >= 0; i-- {
-		if messages[i].Role == "user" && !isParasiticSource(messages[i].Source) {
+		if messages[i].Role == "user" && !isInjectedMessage(messages[i].Content) {
 			return messages[i], true
 		}
 	}

@@ -94,20 +94,38 @@ func TestIsIncompleteSession(t *testing.T) {
 	}
 }
 
+// injectedMsg builds a user message Content with `injected: true` in YAML
+// frontmatter, matching what buildWakePayload produces for injected sources.
+func injectedMsg(source, body string) string {
+	return "---\nsource: " + source + "\ninjected: true\n---\n\n" + body
+}
+
+// normalMsg builds a user message Content with normal YAML frontmatter
+// (no injected field), matching what buildWakePayload produces for
+// reasoning-initiating sources.
+func normalMsg(source, body string) string {
+	return "---\nsource: " + source + "\n---\n\n" + body
+}
+
 func TestFindLastUserMessage(t *testing.T) {
 	now := time.Now()
 
 	t.Run("finds last user message", func(t *testing.T) {
 		msgs := []provider.Message{
-			{Role: "user", Content: "first", Source: "telegram", Timestamp: now},
+			{Role: "user", Content: normalMsg("telegram", "first"), Timestamp: now},
 			{Role: "assistant", Content: "reply", Timestamp: now},
-			{Role: "user", Content: "second", Source: "telegram", Timestamp: now},
+			{Role: "user", Content: normalMsg("telegram", "second"), Timestamp: now},
 			{Role: "assistant", Content: "", ToolCalls: []provider.ToolCall{{ID: "tc1"}}, Timestamp: now},
 			{Role: "tool", ToolCallID: "tc1", Content: "result", Timestamp: now},
 		}
 		msg, ok := findLastUserMessage(msgs)
-		if !ok || msg.Content != "second" {
-			t.Fatalf("expected 'second', got %q ok=%v", msg.Content, ok)
+		if !ok {
+			t.Fatal("expected to find user message")
+		}
+		if _, body, fmOk := thread.SplitFrontmatter(msg.Content); fmOk {
+			if body != "\nsecond" {
+				t.Fatalf("expected body 'second', got %q", body)
+			}
 		}
 	})
 
@@ -121,93 +139,119 @@ func TestFindLastUserMessage(t *testing.T) {
 		}
 	})
 
-	t.Run("skips resume messages", func(t *testing.T) {
+	t.Run("skips injected resume messages", func(t *testing.T) {
 		msgs := []provider.Message{
-			{Role: "user", Content: "original request", Source: "telegram", Timestamp: now},
+			{Role: "user", Content: normalMsg("telegram", "original request"), Timestamp: now},
 			{Role: "assistant", Content: "partial", Timestamp: now},
-			{Role: "user", Content: "resume msg 1", Source: "resume", Timestamp: now},
+			{Role: "user", Content: injectedMsg("resume", "resume msg 1"), Timestamp: now},
 			{Role: "assistant", Content: "", ToolCalls: []provider.ToolCall{{ID: "tc1", Type: "function", Function: provider.FunctionCall{Name: "sleep_thread"}}}, Timestamp: now},
 			{Role: "tool", ToolCallID: "tc1", Name: "sleep_thread", Content: "ok", Timestamp: now},
-			{Role: "user", Content: "resume msg 2", Source: "resume", Timestamp: now},
-			{Role: "assistant", Content: "", ToolCalls: []provider.ToolCall{{ID: "tc2", Type: "function", Function: provider.FunctionCall{Name: "sleep_thread"}}}, Timestamp: now},
-			{Role: "tool", ToolCallID: "tc2", Name: "sleep_thread", Content: "ok", Timestamp: now},
+			{Role: "user", Content: injectedMsg("resume", "resume msg 2"), Timestamp: now},
 		}
 		msg, ok := findLastUserMessage(msgs)
-		if !ok || msg.Content != "original request" {
-			t.Fatalf("expected 'original request', got %q ok=%v", msg.Content, ok)
+		if !ok {
+			t.Fatal("expected to find user message")
+		}
+		if _, body, fmOk := thread.SplitFrontmatter(msg.Content); !fmOk || body != "\noriginal request" {
+			t.Fatalf("expected 'original request', got %q", body)
 		}
 	})
 
-	t.Run("skips heartbeat messages", func(t *testing.T) {
+	t.Run("skips injected heartbeat messages", func(t *testing.T) {
 		msgs := []provider.Message{
-			{Role: "user", Content: "user question", Source: "discord", Timestamp: now},
+			{Role: "user", Content: normalMsg("discord", "user question"), Timestamp: now},
 			{Role: "assistant", Content: "thinking...", Timestamp: now},
-			{Role: "user", Content: "heartbeat pulse", Source: "heartbeat", Timestamp: now},
+			{Role: "user", Content: injectedMsg("heartbeat", "heartbeat pulse"), Timestamp: now},
 		}
 		msg, ok := findLastUserMessage(msgs)
-		if !ok || msg.Content != "user question" {
-			t.Fatalf("expected 'user question', got %q ok=%v", msg.Content, ok)
+		if !ok {
+			t.Fatal("expected to find user message")
+		}
+		if _, body, fmOk := thread.SplitFrontmatter(msg.Content); !fmOk || body != "\nuser question" {
+			t.Fatalf("expected 'user question', got %q", body)
 		}
 	})
 
-	t.Run("skips parasitic sources but keeps legitimate ones", func(t *testing.T) {
+	t.Run("skips injected but keeps non-injected system sources", func(t *testing.T) {
 		msgs := []provider.Message{
-			{Role: "user", Content: "real msg", Source: "telegram", Timestamp: now},
-			{Role: "user", Content: "compressed", Source: "compression", Timestamp: now},
-			{Role: "user", Content: "heartbeat", Source: "heartbeat", Timestamp: now},
-			{Role: "user", Content: "resumed", Source: "resume", Timestamp: now},
+			{Role: "user", Content: normalMsg("telegram", "real msg"), Timestamp: now},
+			{Role: "user", Content: injectedMsg("compression", "compressed"), Timestamp: now},
+			{Role: "user", Content: injectedMsg("heartbeat", "heartbeat"), Timestamp: now},
+			{Role: "user", Content: injectedMsg("resume", "resumed"), Timestamp: now},
 		}
 		msg, ok := findLastUserMessage(msgs)
-		if !ok || msg.Content != "real msg" {
-			t.Fatalf("expected 'real msg', got %q ok=%v", msg.Content, ok)
+		if !ok {
+			t.Fatal("expected to find user message")
+		}
+		if _, body, fmOk := thread.SplitFrontmatter(msg.Content); !fmOk || body != "\nreal msg" {
+			t.Fatalf("expected 'real msg', got %q", body)
 		}
 	})
 
 	t.Run("finds cron as original request", func(t *testing.T) {
 		msgs := []provider.Message{
-			{Role: "user", Content: "cron job context", Source: "cron", Timestamp: now},
+			{Role: "user", Content: normalMsg("cron", "cron job context"), Timestamp: now},
 			{Role: "assistant", Content: "", ToolCalls: []provider.ToolCall{{ID: "tc1", Type: "function", Function: provider.FunctionCall{Name: "read_file"}}}, Timestamp: now},
 			{Role: "tool", ToolCallID: "tc1", Content: "file data", Timestamp: now},
 		}
 		msg, ok := findLastUserMessage(msgs)
-		if !ok || msg.Content != "cron job context" {
-			t.Fatalf("expected 'cron job context', got %q ok=%v", msg.Content, ok)
+		if !ok {
+			t.Fatal("expected to find user message")
+		}
+		if _, body, fmOk := thread.SplitFrontmatter(msg.Content); !fmOk || body != "\ncron job context" {
+			t.Fatalf("expected 'cron job context', got %q", body)
 		}
 	})
 
 	t.Run("finds child_task as original request", func(t *testing.T) {
 		msgs := []provider.Message{
-			{Role: "user", Content: "do subtask", Source: "child_task", Timestamp: now},
+			{Role: "user", Content: normalMsg("child_task", "do subtask"), Timestamp: now},
 			{Role: "assistant", Content: "", ToolCalls: []provider.ToolCall{{ID: "tc1", Type: "function", Function: provider.FunctionCall{Name: "read_file"}}}, Timestamp: now},
 			{Role: "tool", ToolCallID: "tc1", Content: "result", Timestamp: now},
 		}
 		msg, ok := findLastUserMessage(msgs)
-		if !ok || msg.Content != "do subtask" {
-			t.Fatalf("expected 'do subtask', got %q ok=%v", msg.Content, ok)
+		if !ok {
+			t.Fatal("expected to find user message")
+		}
+		if _, body, fmOk := thread.SplitFrontmatter(msg.Content); !fmOk || body != "\ndo subtask" {
+			t.Fatalf("expected 'do subtask', got %q", body)
 		}
 	})
 
 	t.Run("finds sleep_completed as wake source", func(t *testing.T) {
 		msgs := []provider.Message{
-			{Role: "user", Content: "original", Source: "telegram", Timestamp: now},
+			{Role: "user", Content: normalMsg("telegram", "original"), Timestamp: now},
 			{Role: "assistant", Content: "scheduled", Timestamp: now},
-			{Role: "user", Content: "timer expired", Source: "sleep_completed", Timestamp: now},
+			{Role: "user", Content: normalMsg("sleep_completed", "timer expired"), Timestamp: now},
 		}
 		msg, ok := findLastUserMessage(msgs)
-		if !ok || msg.Content != "timer expired" {
-			t.Fatalf("expected 'timer expired', got %q ok=%v", msg.Content, ok)
+		if !ok {
+			t.Fatal("expected to find user message")
+		}
+		if _, body, fmOk := thread.SplitFrontmatter(msg.Content); !fmOk || body != "\ntimer expired" {
+			t.Fatalf("expected 'timer expired', got %q", body)
 		}
 	})
 
-	t.Run("all messages are parasitic — returns false", func(t *testing.T) {
+	t.Run("all messages are injected — returns false", func(t *testing.T) {
 		msgs := []provider.Message{
-			{Role: "user", Content: "resume only", Source: "resume", Timestamp: now},
-			{Role: "user", Content: "heartbeat", Source: "heartbeat", Timestamp: now},
-			{Role: "user", Content: "compressed", Source: "compression", Timestamp: now},
+			{Role: "user", Content: injectedMsg("resume", "resume only"), Timestamp: now},
+			{Role: "user", Content: injectedMsg("heartbeat", "heartbeat"), Timestamp: now},
+			{Role: "user", Content: injectedMsg("compression", "compressed"), Timestamp: now},
 		}
 		_, ok := findLastUserMessage(msgs)
 		if ok {
-			t.Fatal("expected ok=false when all user messages are parasitic")
+			t.Fatal("expected ok=false when all user messages are injected")
+		}
+	})
+
+	t.Run("plain text without frontmatter — not injected", func(t *testing.T) {
+		msgs := []provider.Message{
+			{Role: "user", Content: "plain text message", Timestamp: now},
+		}
+		msg, ok := findLastUserMessage(msgs)
+		if !ok || msg.Content != "plain text message" {
+			t.Fatalf("expected 'plain text message', got %q ok=%v", msg.Content, ok)
 		}
 	})
 }

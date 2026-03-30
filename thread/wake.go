@@ -249,6 +249,10 @@ func buildWakePayload(source WakeSource, message, threadID, sessionKey, sessionD
 		Delivery:   delivery,
 		Visibility: messageVisibility(source),
 	}
+	if source.IsInjected() {
+		v := true
+		header.Injected = &v
+	}
 	if hint := wakeActionHint(source); hint != "" {
 		header.Action = hint
 	}
@@ -289,6 +293,7 @@ type wakeHeader struct {
 	Agent          string `yaml:"agent,omitempty"`
 	Delivery       string `yaml:"delivery"`
 	Visibility     string `yaml:"visibility"`
+	Injected       *bool  `yaml:"injected,omitempty"`
 	Action         string `yaml:"action,omitempty"`
 	SupportsVision *bool  `yaml:"supports_vision,omitempty"`
 	SupportsAudio  *bool  `yaml:"supports_audio,omitempty"`
