@@ -108,7 +108,7 @@ func normalMsg(source, body string) string {
 func TestFindLastUserMessage(t *testing.T) {
 	now := time.Now()
 
-	t.Run("finds last non-injected message", func(t *testing.T) {
+	t.Run("finds last resumable message", func(t *testing.T) {
 		msgs := []provider.Message{
 			{Role: "user", Content: normalMsg("telegram", "first"), Source: "telegram", Timestamp: now},
 			{Role: "assistant", Content: "reply", Timestamp: now},
@@ -150,37 +150,54 @@ func TestFindLastUserMessage(t *testing.T) {
 		}
 	})
 
-	t.Run("finds any non-injected source", func(t *testing.T) {
-		// All non-injected messages initiate reasoning and are resumable.
-		for _, source := range []string{"telegram", "discord", "cron", "child_task", "child_completed", "heartbeat", "compression", "resume", "sleep_completed", "external"} {
+	t.Run("resumable sources found", func(t *testing.T) {
+		for _, source := range []string{"telegram", "discord", "feishu", "cli", "web", "wecom", "socket", "user_active", "cron", "child_task", "child_completed", "cron_finished"} {
 			msgs := []provider.Message{
 				{Role: "user", Content: normalMsg(source, "msg"), Source: source, Timestamp: now},
 			}
 			_, ok := findLastUserMessage(msgs)
 			if !ok {
-				t.Errorf("expected to find message with source %q", source)
+				t.Errorf("expected source %q to be resumable", source)
 			}
 		}
 	})
 
-	t.Run("all injected — returns false", func(t *testing.T) {
-		msgs := []provider.Message{
-			{Role: "user", Content: injectedMsg("telegram", "a"), Source: "telegram", Timestamp: now},
-			{Role: "user", Content: injectedMsg("telegram", "b"), Source: "telegram", Timestamp: now},
-		}
-		_, ok := findLastUserMessage(msgs)
-		if ok {
-			t.Fatal("expected ok=false when all user messages are injected")
+	t.Run("non-resumable sources skipped", func(t *testing.T) {
+		for _, source := range []string{"heartbeat", "compression", "resume", "sleep_completed", "external"} {
+			msgs := []provider.Message{
+				{Role: "user", Content: normalMsg(source, "msg"), Source: source, Timestamp: now},
+			}
+			_, ok := findLastUserMessage(msgs)
+			if ok {
+				t.Errorf("expected source %q to be non-resumable", source)
+			}
 		}
 	})
 
-	t.Run("plain text without frontmatter — not injected", func(t *testing.T) {
+	t.Run("skips non-resumable to find resumable", func(t *testing.T) {
 		msgs := []provider.Message{
-			{Role: "user", Content: "plain text message", Source: "telegram", Timestamp: now},
+			{Role: "user", Content: normalMsg("telegram", "original"), Source: "telegram", Timestamp: now},
+			{Role: "user", Content: normalMsg("heartbeat", "pulse"), Source: "heartbeat", Timestamp: now},
+			{Role: "user", Content: normalMsg("compression", "compact"), Source: "compression", Timestamp: now},
 		}
 		msg, ok := findLastUserMessage(msgs)
-		if !ok || msg.Content != "plain text message" {
-			t.Fatalf("expected 'plain text message', got %q ok=%v", msg.Content, ok)
+		if !ok {
+			t.Fatal("expected to find user message")
+		}
+		_, body, _ := thread.SplitFrontmatter(msg.Content)
+		if body != "\noriginal" {
+			t.Fatalf("expected 'original', got %q", body)
+		}
+	})
+
+	t.Run("all non-resumable — returns false", func(t *testing.T) {
+		msgs := []provider.Message{
+			{Role: "user", Content: normalMsg("heartbeat", "h"), Source: "heartbeat", Timestamp: now},
+			{Role: "user", Content: normalMsg("compression", "c"), Source: "compression", Timestamp: now},
+		}
+		_, ok := findLastUserMessage(msgs)
+		if ok {
+			t.Fatal("expected ok=false")
 		}
 	})
 }
