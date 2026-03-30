@@ -187,6 +187,7 @@ func (t *Thread) RunOnce(ctx context.Context) {
 				if canMerge(msg, next) {
 					payload := buildWakePayload(next.Source, next.Message, t.id, t.sessionKey, sessionDir, deliveryLabel, modelLabel, agentName, loc)
 					if payload != "" {
+						payload = markInjected(payload)
 						injected = append(injected, provider.UserMessage(payload))
 						logger.Info("injected mid-execution message",
 							"threadID", t.id,
@@ -249,10 +250,6 @@ func buildWakePayload(source WakeSource, message, threadID, sessionKey, sessionD
 		Delivery:   delivery,
 		Visibility: messageVisibility(source),
 	}
-	if source.IsInjected() {
-		v := true
-		header.Injected = &v
-	}
 	if hint := wakeActionHint(source); hint != "" {
 		header.Action = hint
 	}
@@ -293,10 +290,22 @@ type wakeHeader struct {
 	Agent          string `yaml:"agent,omitempty"`
 	Delivery       string `yaml:"delivery"`
 	Visibility     string `yaml:"visibility"`
-	Injected       *bool  `yaml:"injected,omitempty"`
 	Action         string `yaml:"action,omitempty"`
 	SupportsVision *bool  `yaml:"supports_vision,omitempty"`
 	SupportsAudio  *bool  `yaml:"supports_audio,omitempty"`
+}
+
+// markInjected inserts `injected: true` into the YAML frontmatter of a wake
+// payload. This marks messages that were injected mid-execution (via injectFn)
+// rather than initiating a new reasoning turn.
+func markInjected(payload string) string {
+	// Insert before the closing "---" of the frontmatter.
+	const marker = "\n---\n"
+	if idx := strings.Index(payload[4:], marker); idx >= 0 {
+		pos := 4 + idx
+		return payload[:pos] + "\ninjected: true" + payload[pos:]
+	}
+	return payload
 }
 
 // messageVisibility returns the visibility label for a wake source.
