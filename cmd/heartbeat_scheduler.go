@@ -206,16 +206,31 @@ func (s *heartbeatScheduler) maybeFirePulse(key string, now time.Time, lastActiv
 	prevMtime := st.LastHBMtime
 	s.mu.Unlock()
 
-	// Determine interval: fast if heartbeat.md was modified since last pulse.
+	// Determine interval: fast if heartbeat.md was modified since we last observed it.
 	interval := hbPulseInterval
 	if !prevMtime.IsZero() && !hbMtime.IsZero() && hbMtime.After(prevMtime) {
 		interval = hbFastPulse
+	}
+
+	// Always track the latest observed mtime so that modifications made by
+	// heartbeat-reflect (which writes heartbeat.md every turn) are "consumed"
+	// on this scan. Without this, prevMtime only advances when a pulse fires,
+	// causing hbMtime > prevMtime to remain true across scans and locking the
+	// interval to hbFastPulse (10 min) permanently.
+	mtimeChanged := !hbMtime.IsZero() && hbMtime != prevMtime
+	if mtimeChanged {
+		s.mu.Lock()
+		st.LastHBMtime = hbMtime
+		s.mu.Unlock()
 	}
 
 	// Find the latest trigger point on the timeline that is <= now.
 	trigger := latestDueTrigger(lastActive, interval, now)
 	if trigger.IsZero() {
 		// First pulse not yet due (quiet < hbQuietMin — should be caught earlier).
+		if mtimeChanged {
+			s.saveState()
+		}
 		return
 	}
 
@@ -227,6 +242,9 @@ func (s *heartbeatScheduler) maybeFirePulse(key string, now time.Time, lastActiv
 			"lastPulse", lastPulse.Format(time.RFC3339),
 			"next", nextTrigger.Format(time.RFC3339),
 			"wait", nextTrigger.Sub(now).Round(time.Second))
+		if mtimeChanged {
+			s.saveState()
+		}
 		return
 	}
 
