@@ -10,6 +10,7 @@ import (
 	"github.com/linanwx/nagobot/provider"
 	"github.com/linanwx/nagobot/session"
 	"github.com/linanwx/nagobot/thread"
+	"github.com/linanwx/nagobot/thread/msg"
 )
 
 const resumeMaxAge = 1 * time.Hour
@@ -143,11 +144,13 @@ func isIncompleteSession(messages []provider.Message) bool {
 	return true
 }
 
-// findLastUserMessage scans backwards for the last role=user message,
-// skipping resume-source messages to find the original request.
+// findLastUserMessage scans backwards for the last role=user message
+// from a real user-visible channel (telegram, discord, cli, web, feishu,
+// wecom, socket), skipping all system-injected sources (resume, heartbeat,
+// compression, cron, child_completed, etc.).
 func findLastUserMessage(messages []provider.Message) (provider.Message, bool) {
 	for i := len(messages) - 1; i >= 0; i-- {
-		if messages[i].Role == "user" && messages[i].Source != "resume" {
+		if messages[i].Role == "user" && msg.IsUserVisibleSource(msg.WakeSource(messages[i].Source)) {
 			return messages[i], true
 		}
 	}

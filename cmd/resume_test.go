@@ -99,9 +99,9 @@ func TestFindLastUserMessage(t *testing.T) {
 
 	t.Run("finds last user message", func(t *testing.T) {
 		msgs := []provider.Message{
-			{Role: "user", Content: "first", Timestamp: now},
+			{Role: "user", Content: "first", Source: "telegram", Timestamp: now},
 			{Role: "assistant", Content: "reply", Timestamp: now},
-			{Role: "user", Content: "second", Timestamp: now},
+			{Role: "user", Content: "second", Source: "telegram", Timestamp: now},
 			{Role: "assistant", Content: "", ToolCalls: []provider.ToolCall{{ID: "tc1"}}, Timestamp: now},
 			{Role: "tool", ToolCallID: "tc1", Content: "result", Timestamp: now},
 		}
@@ -138,13 +138,52 @@ func TestFindLastUserMessage(t *testing.T) {
 		}
 	})
 
-	t.Run("all messages are resume — returns false", func(t *testing.T) {
+	t.Run("skips heartbeat messages", func(t *testing.T) {
+		msgs := []provider.Message{
+			{Role: "user", Content: "user question", Source: "discord", Timestamp: now},
+			{Role: "assistant", Content: "thinking...", Timestamp: now},
+			{Role: "user", Content: "heartbeat pulse", Source: "heartbeat", Timestamp: now},
+		}
+		msg, ok := findLastUserMessage(msgs)
+		if !ok || msg.Content != "user question" {
+			t.Fatalf("expected 'user question', got %q ok=%v", msg.Content, ok)
+		}
+	})
+
+	t.Run("skips all system-injected sources", func(t *testing.T) {
+		msgs := []provider.Message{
+			{Role: "user", Content: "real msg", Source: "telegram", Timestamp: now},
+			{Role: "user", Content: "compressed", Source: "compression", Timestamp: now},
+			{Role: "user", Content: "cron job", Source: "cron", Timestamp: now},
+			{Role: "user", Content: "child done", Source: "child_completed", Timestamp: now},
+			{Role: "user", Content: "sleep done", Source: "sleep_completed", Timestamp: now},
+			{Role: "user", Content: "external", Source: "external", Timestamp: now},
+			{Role: "user", Content: "resumed", Source: "resume", Timestamp: now},
+		}
+		msg, ok := findLastUserMessage(msgs)
+		if !ok || msg.Content != "real msg" {
+			t.Fatalf("expected 'real msg', got %q ok=%v", msg.Content, ok)
+		}
+	})
+
+	t.Run("all messages are system-injected — returns false", func(t *testing.T) {
 		msgs := []provider.Message{
 			{Role: "user", Content: "resume only", Source: "resume", Timestamp: now},
+			{Role: "user", Content: "heartbeat", Source: "heartbeat", Timestamp: now},
 		}
 		_, ok := findLastUserMessage(msgs)
 		if ok {
-			t.Fatal("expected ok=false when all user messages are resume")
+			t.Fatal("expected ok=false when all user messages are system-injected")
+		}
+	})
+
+	t.Run("empty source treated as non-user-visible", func(t *testing.T) {
+		msgs := []provider.Message{
+			{Role: "user", Content: "no source", Source: "", Timestamp: now},
+		}
+		_, ok := findLastUserMessage(msgs)
+		if ok {
+			t.Fatal("expected ok=false for empty source")
 		}
 	})
 }
