@@ -60,24 +60,6 @@ func TestLatestDueTrigger(t *testing.T) {
 			nowOffset: 70 * time.Minute,
 			wantPoint: 70 * time.Minute,
 		},
-		{
-			name:      "fast pulse: 20m — trigger is at +20m",
-			interval:  hbFastPulse,
-			nowOffset: 20 * time.Minute,
-			wantPoint: 20 * time.Minute,
-		},
-		{
-			name:      "fast pulse: 25m — trigger is at +20m",
-			interval:  hbFastPulse,
-			nowOffset: 25 * time.Minute,
-			wantPoint: 20 * time.Minute,
-		},
-		{
-			name:      "fast pulse: 30m — trigger is at +30m",
-			interval:  hbFastPulse,
-			nowOffset: 30 * time.Minute,
-			wantPoint: 30 * time.Minute,
-		},
 	}
 
 	for _, tt := range tests {
@@ -378,43 +360,6 @@ func TestScenarioThreadRunningAcrossTwoCycles(t *testing.T) {
 	assertFire(t, "scan@+70m", fire, true)
 }
 
-// TestScenarioFastPulseSwitch simulates heartbeat.md being modified,
-// switching to fast pulse (10m intervals), then switching back.
-func TestScenarioFastPulseSwitch(t *testing.T) {
-	lastActive := time.Date(2025, 1, 1, 12, 0, 0, 0, time.UTC)
-	var lastPulse time.Time
-
-	// Normal first pulse at +10m.
-	fire, _ := shouldFire(lastActive, hbPulseInterval, lastActive.Add(10*time.Minute), lastPulse)
-	assertFire(t, "normal pulse@+10m", fire, true)
-	lastPulse = lastActive.Add(10 * time.Minute)
-
-	// LLM modified heartbeat.md → fast pulse (10m interval).
-	// Fast timeline: +10, +20, +30, +40, ...
-	// At +15m: between +10 and +20, no fire.
-	fire, _ = shouldFire(lastActive, hbFastPulse, lastActive.Add(15*time.Minute), lastPulse)
-	assertFire(t, "fast scan@+15m", fire, false)
-
-	// At +20m: trigger +20m fires.
-	fire, _ = shouldFire(lastActive, hbFastPulse, lastActive.Add(20*time.Minute), lastPulse)
-	assertFire(t, "fast pulse@+20m", fire, true)
-	lastPulse = lastActive.Add(20 * time.Minute)
-
-	// At +30m: trigger +30m fires.
-	fire, _ = shouldFire(lastActive, hbFastPulse, lastActive.Add(30*time.Minute), lastPulse)
-	assertFire(t, "fast pulse@+30m", fire, true)
-	lastPulse = lastActive.Add(30 * time.Minute)
-
-	// heartbeat.md not modified this time → back to normal (30m interval).
-	// Normal timeline: +10, +40, +70. Latest trigger at +35m is +10m.
-	// +10m is not after lastPulse (+30m) → no fire.
-	fire, _ = shouldFire(lastActive, hbPulseInterval, lastActive.Add(35*time.Minute), lastPulse)
-	assertFire(t, "normal scan@+35m", fire, false)
-
-	// At +40m: trigger +40m fires.
-	fire, _ = shouldFire(lastActive, hbPulseInterval, lastActive.Add(40*time.Minute), lastPulse)
-	assertFire(t, "normal pulse@+40m", fire, true)
-}
 
 // TestScenarioUserMessageResetsTimeline simulates multiple user messages
 // shifting the trigger timeline each time.
@@ -603,11 +548,10 @@ func TestStatePersistence(t *testing.T) {
 	statePath := filepath.Join(tmpDir, "heartbeat-state.json")
 
 	now := time.Date(2025, 1, 1, 12, 30, 0, 0, time.UTC)
-	hbMtime := time.Date(2025, 1, 1, 12, 25, 0, 0, time.UTC)
 
 	// Create and populate state.
 	sessions := map[string]*hbSessionState{
-		"telegram:123": {LastPulse: now, LastHBMtime: hbMtime},
+		"telegram:123": {LastPulse: now},
 		"discord:456":  {LastPulse: now.Add(-10 * time.Minute)},
 	}
 
@@ -638,17 +582,14 @@ func TestStatePersistence(t *testing.T) {
 	if !st.LastPulse.Equal(now) {
 		t.Errorf("LastPulse = %v, want %v", st.LastPulse, now)
 	}
-	if !st.LastHBMtime.Equal(hbMtime) {
-		t.Errorf("LastHBMtime = %v, want %v", st.LastHBMtime, hbMtime)
-	}
 
-	// Verify discord:456 (no hbMtime → zero).
+	// Verify discord:456.
 	st2 := reloaded["discord:456"]
 	if st2 == nil {
 		t.Fatal("discord:456 not found after reload")
 	}
-	if !st2.LastHBMtime.IsZero() {
-		t.Errorf("expected zero LastHBMtime for discord:456, got %v", st2.LastHBMtime)
+	if !st2.LastPulse.Equal(now.Add(-10 * time.Minute)) {
+		t.Errorf("LastPulse = %v, want %v", st2.LastPulse, now.Add(-10*time.Minute))
 	}
 }
 
@@ -682,31 +623,6 @@ func TestStatePersistedPulseDedup(t *testing.T) {
 	assertFire(t, "post-restart pulse@+40m", fire, true)
 }
 
-// TestScenarioFastToNormalTransition tests the exact transition point when
-// switching from fast pulse back to normal pulse.
-func TestScenarioFastToNormalTransition(t *testing.T) {
-	lastActive := time.Date(2025, 1, 1, 12, 0, 0, 0, time.UTC)
-	var lastPulse time.Time
-
-	// Pulse at +10m (normal).
-	fire, _ := shouldFire(lastActive, hbPulseInterval, lastActive.Add(10*time.Minute), lastPulse)
-	assertFire(t, "pulse@+10m", fire, true)
-	lastPulse = lastActive.Add(10 * time.Minute)
-
-	// Switch to fast. Pulse at +20m.
-	fire, _ = shouldFire(lastActive, hbFastPulse, lastActive.Add(20*time.Minute), lastPulse)
-	assertFire(t, "fast@+20m", fire, true)
-	lastPulse = lastActive.Add(20 * time.Minute)
-
-	// Switch back to normal. Timeline: +10, +40, +70.
-	// Latest trigger at +25m is +10m. +10m is not after lastPulse (+20m) → no fire.
-	fire, _ = shouldFire(lastActive, hbPulseInterval, lastActive.Add(25*time.Minute), lastPulse)
-	assertFire(t, "normal@+25m", fire, false)
-
-	// At +40m: trigger +40m, after lastPulse (+20m) → fires.
-	fire, _ = shouldFire(lastActive, hbPulseInterval, lastActive.Add(40*time.Minute), lastPulse)
-	assertFire(t, "normal@+40m", fire, true)
-}
 
 func assertFire(t *testing.T, label string, got, want bool) {
 	t.Helper()
