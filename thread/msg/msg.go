@@ -13,10 +13,10 @@ import (
 // BuildSystemMessage constructs a standardized system message using YAML frontmatter.
 // Fields are rendered in sorted order; content goes into the markdown body.
 func BuildSystemMessage(msgType string, fields map[string]string, content string) string {
-	// Build ordered map: type, visibility, then sorted fields.
+	// Build ordered map: type, sender, then sorted fields.
 	header := yaml.Node{Kind: yaml.MappingNode}
 	addYAMLPair(&header, "type", msgType)
-	addYAMLPair(&header, "visibility", "assistant-only")
+	addYAMLPair(&header, "sender", "system")
 
 	if len(fields) > 0 {
 		keys := make([]string, 0, len(fields))

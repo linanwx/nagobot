@@ -13,7 +13,7 @@ The heartbeat items were last modified at heartbeat_modified.
 
 ## Decide: resume, reflect, act, or skip?
 
-- If there is something that needs follow-up (e.g., unfinished tasks, unanswered questions, imperfect answer)
+- If there is something that needs follow-up from last user message (e.g., unfinished tasks, unanswered questions, imperfect answer)
   - Resume by fetching information or using tools. Do not merely repeat existing information. Do NOT reflect or act on heartbeat items — complete the pending work first.
 - Else if heartbeat.md doesn't exist, is empty, or the current context contains new information since `heartbeat_modified`
   - call `use_skill("heartbeat-reflect")`

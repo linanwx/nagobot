@@ -389,7 +389,7 @@ var expiredToolHeaderOnly = map[string]bool{
 }
 
 // computeWakeCompressed returns the Compressed value for a user message with wake YAML frontmatter.
-// Strips redundant fields (thread/session/delivery/action) and compresses large assistant-only bodies.
+// Strips redundant fields (thread/session/delivery/action) and compresses large system-sender bodies.
 // Returns "" if no compression is needed.
 func computeWakeCompressed(m *provider.Message) string {
 	yamlBlock, body, ok := SplitFrontmatter(m.Content)
@@ -409,9 +409,9 @@ func computeWakeCompressed(m *provider.Message) string {
 	trimmedYAML := strings.Join(kept, "\n")
 
 	// Check whether body needs compression: only when actually trimmable.
-	visibility := ExtractFrontmatterValue(yamlBlock, "visibility")
+	sender := ExtractFrontmatterValue(yamlBlock, "sender")
 	bodyRuneLen := runeLen(body)
-	bodyTrimmable := visibility == "assistant-only" &&
+	bodyTrimmable := sender == "system" &&
 		bodyRuneLen > softTrimHeadRunes+softTrimTailRunes &&
 		!strings.Contains(body, "<<media:")
 

@@ -16,7 +16,7 @@ func makeWakeContent(source, thread, session, delivery, action, msg string) stri
 	sb.WriteString("session: " + session + "\n")
 	sb.WriteString("time: \"2026-03-06T10:00:00+08:00 (Thursday, Asia/Shanghai, UTC+08:00)\"\n")
 	sb.WriteString("delivery: " + delivery + "\n")
-	sb.WriteString("visibility: user-visible\n")
+	sb.WriteString("sender: user\n")
 	sb.WriteString("action: " + action + "\n")
 	sb.WriteString("---\n\n")
 	sb.WriteString(msg)
@@ -68,15 +68,15 @@ func TestCompressTier1_WakeTrim(t *testing.T) {
 			if strings.Contains(m.Compressed, "action:") {
 				t.Error("trimmed Compressed still has action field")
 			}
-			// Must preserve source, time, visibility.
+			// Must preserve source, time, sender.
 			if !strings.Contains(m.Compressed, "source:") {
 				t.Error("trimmed Compressed lost source")
 			}
 			if !strings.Contains(m.Compressed, "time:") {
 				t.Error("trimmed Compressed lost time")
 			}
-			if !strings.Contains(m.Compressed, "visibility:") {
-				t.Error("trimmed Compressed lost visibility")
+			if !strings.Contains(m.Compressed, "sender:") {
+				t.Error("trimmed Compressed lost sender")
 			}
 		}
 	}
@@ -281,7 +281,7 @@ func TestCompressTier1_HeartbeatSmall(t *testing.T) {
 func TestCompressTier1_WakeBodyTrimSkipSmall(t *testing.T) {
 	// Wake body barely above 3000 → 95% guard should skip body trim, only YAML trim.
 	body := strings.Repeat("x", 3064)
-	content := "---\nsource: child_completed\nthread: t-1\nsession: s-1\ndelivery: d-1\ntime: \"2026-03-06T10:00:00+08:00\"\nvisibility: assistant-only\naction: hint\n---\n" + body
+	content := "---\nsource: child_completed\nthread: t-1\nsession: s-1\ndelivery: d-1\ntime: \"2026-03-06T10:00:00+08:00\"\nsender: system\naction: hint\n---\n" + body
 
 	messages := []provider.Message{
 		{Role: "user", Content: content},
@@ -454,9 +454,9 @@ func TestSoftTrimWithHint_CJK(t *testing.T) {
 
 func TestComputeWakeCompressed_CJK(t *testing.T) {
 	// Build a wake message with a large CJK body that should trigger body compression.
-	// Need body > softTrimHeadRunes + softTrimTailRunes runes and visibility: assistant-only.
+	// Need body > softTrimHeadRunes + softTrimTailRunes runes and sender: system.
 	body := strings.Repeat("汉", 5000) // 5000 CJK runes
-	content := "---\nsource: child_completed\nthread: t-1\nsession: s-1\ndelivery: d-1\ntime: \"2026-03-06T10:00:00+08:00\"\nvisibility: assistant-only\naction: hint\n---\n" + body
+	content := "---\nsource: child_completed\nthread: t-1\nsession: s-1\ndelivery: d-1\ntime: \"2026-03-06T10:00:00+08:00\"\nsender: system\naction: hint\n---\n" + body
 
 	m := &provider.Message{Content: content, ID: "msg-wake-cjk"}
 	result := computeWakeCompressed(m)

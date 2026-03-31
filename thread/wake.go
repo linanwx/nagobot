@@ -151,7 +151,7 @@ func (t *Thread) RunOnce(ctx context.Context) {
 	}
 	// System-initiated wakes: disable streaming (Chunkable=false) so only
 	// non-streaming delivery in OnMessage fires.
-	if messageVisibility(msg.Source) == "assistant-only" {
+	if messageSender(msg.Source) == "system" {
 		sink = sink.WithoutStreaming()
 	}
 	// Resolve delivery label for the AI prompt.
@@ -222,7 +222,7 @@ func (t *Thread) RunOnce(ctx context.Context) {
 
 // buildWakePayload constructs the user message from a wake source and message.
 // Uses YAML frontmatter + markdown body so the AI knows the wake context
-// and which content the user can see vs assistant-only.
+// and the sender (user vs system).
 func buildWakePayload(source WakeSource, message, threadID, sessionKey, sessionDir, deliveryLabel, model, agent string, loc *time.Location) string {
 	message = strings.TrimSpace(message)
 	if message == "" {
@@ -248,7 +248,7 @@ func buildWakePayload(source WakeSource, message, threadID, sessionKey, sessionD
 		Model:      model,
 		Agent:      agent,
 		Delivery:   delivery,
-		Visibility: messageVisibility(source),
+		Sender: messageSender(source),
 	}
 	if hint := wakeActionHint(source); hint != "" {
 		header.Action = hint
@@ -289,7 +289,7 @@ type wakeHeader struct {
 	Model          string `yaml:"model,omitempty"`
 	Agent          string `yaml:"agent,omitempty"`
 	Delivery       string `yaml:"delivery"`
-	Visibility     string `yaml:"visibility"`
+	Sender         string `yaml:"sender"`
 	Action         string `yaml:"action,omitempty"`
 	SupportsVision *bool  `yaml:"supports_vision,omitempty"`
 	SupportsAudio  *bool  `yaml:"supports_audio,omitempty"`
@@ -308,13 +308,13 @@ func markInjected(payload string) string {
 	return payload
 }
 
-// messageVisibility returns the visibility label for a wake source.
-// User-originated messages are "user-visible"; system messages are "assistant-only".
-func messageVisibility(source WakeSource) string {
+// messageSender returns the sender label for a wake source.
+// User-originated messages are "user"; system messages are "system".
+func messageSender(source WakeSource) string {
 	if sysmsg.IsUserVisibleSource(source) {
-		return "user-visible"
+		return "user"
 	}
-	return "assistant-only"
+	return "system"
 }
 
 func wakeActionHint(source WakeSource) string {

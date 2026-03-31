@@ -46,11 +46,13 @@ exec: {{WORKSPACE}}/bin/nagobot set-summary <key> <summary>
 
 ## Workflow
 
-1. **List sessions**: Run `list-sessions --days 2 --changed-only` to discover recently active sessions that need summaries. The `--changed-only` flag automatically excludes sessions where `changed_since_summary` is `false` or `message_count` is `0`.
+1. **List sessions**: Run `list-sessions --days 2 --changed-only` to discover recently active sessions that need summaries.
 
 2. **For each qualifying session**:
-   - Run `sample-session <key>` to read a representative sample of the conversation. Output shows evenly-spaced messages plus the last 5 recent messages not in the sample. YAML frontmatter in messages is automatically stripped.
-   - Run `set-summary <key> <summary>` with a concise summary (≤200 characters). Capture who the session belongs to and what they are currently doing.
+   - Run `sample-session <key>` to read a conversation. Output shows evenly-spaced messages plus the last 5 recent messages not in the sample. YAML frontmatter in messages is automatically stripped.
+   - Figure out:
+      - Who, What, Why, When, Where
+   - Run `set-summary <key> <summary>` with a concise summary at a high level (≤200 characters).
 
 3. When done (whether or not any sessions were processed), reply with: `SESSION_SUMMARY_OK`
 

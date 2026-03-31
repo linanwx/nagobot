@@ -38,11 +38,11 @@ Key: `resolveProvider()` calls `ProviderFactory.Create()` each time (not cached)
 
 ### WakeMessage Format (`thread/wake.go`)
 
-Wake payloads use YAML frontmatter + markdown body with per-source visibility:
-- User messages (telegram/discord/cli/etc): `visibility: user-visible`
-- System messages (child_completed/cron/sleep/heartbeat/etc): `visibility: assistant-only`
+Wake payloads use YAML frontmatter + markdown body with per-source sender:
+- User messages (telegram/discord/cli/etc): `sender: user`
+- System messages (child_completed/cron/sleep/heartbeat/etc): `sender: system`
 
-Action hints for assistant-only sources explicitly tell the AI to include content in its response.
+Action hints for system sources explicitly tell the AI to include content in its response.
 
 ### Agent Templates (`agent/`)
 
@@ -97,9 +97,9 @@ Three skills collaborate:
 
 ### Timing
 
-- **Quiet threshold**: 10 min after last user-visible message (`hbQuietMin`)
+- **Quiet threshold**: 10 min after last user message (`hbQuietMin`)
 - **Pulse interval**: 30 min (`hbPulseInterval`)
-- **Activity window**: 48h — stops pulsing if no user-visible activity within 48h
+- **Activity window**: 48h — stops pulsing if no user activity within 48h
 - **Schedule**: `lastActive+10m, +40m, +70m, ...` (10 min first pulse, then 30 min gaps)
 
 ### Critical Implementation Details
@@ -123,7 +123,7 @@ Three skills collaborate:
 
 - Tool result compression (use_skill → header-only if outdated/old)
 - Wake payload compression (strip redundant YAML fields)
-- Body compression (large assistant-only content → head+tail)
+- Body compression (large system-sender content → head+tail)
 - **Heartbeat turn trim**: marks entire heartbeat turns for removal if `isHeartbeatSkipTurn` returns true:
   - Requires `sleep_thread` was called (turn was deliberately silent)
   - AND no non-safe tools were called (safe: `sleep_thread`, `use_skill`, `read_file`, `write_file`)
