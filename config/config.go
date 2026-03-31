@@ -331,7 +331,7 @@ type DiscordChannelConfig struct {
 
 // WebChannelConfig contains Web chat configuration.
 type WebChannelConfig struct {
-	Addr string `json:"addr,omitempty" yaml:"addr,omitempty"` // default: 127.0.0.1:8080
+	Addr string `json:"addr,omitempty" yaml:"addr,omitempty"` // default: 127.0.0.1:18080
 }
 
 // WeComChannelConfig contains WeCom (WeChat Work) AI Bot configuration.

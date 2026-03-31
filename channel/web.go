@@ -31,7 +31,7 @@ import (
 const (
 	webMainSessionID     = "cli"
 	webMessageBufferSize = 100
-	webDefaultAddr       = "127.0.0.1:8080"
+	webDefaultAddr       = "127.0.0.1:18080"
 	webShutdownTimeout   = 5 * time.Second
 	sessionsDirName      = "sessions"
 )
