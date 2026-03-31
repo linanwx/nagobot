@@ -1,6 +1,6 @@
 ---
 name: heartbeat-wake
-description: Heartbeat pulse handler — resume pending work, reflect (update heartbeat.md), or act (evaluate items and respond). Triggered automatically by the heartbeat scheduler.
+description: Heartbeat pulse handler — continue pending work, reflect (update heartbeat.md), or act (evaluate items and respond). Triggered automatically by the heartbeat scheduler.
 tags: [heartbeat, internal]
 ---
 # Heartbeat Wake
@@ -11,10 +11,10 @@ Next heartbeat pulse will fire at next_pulse.
 
 The heartbeat items were last modified at heartbeat_modified.
 
-## Decide: resume, reflect, act, or skip?
+## Decide: continue, reflect, act, or skip?
 
-- If there is something that needs follow-up from last user message (e.g., unfinished tasks, unanswered questions, imperfect answer)
-  - Resume by fetching information or using tools. Do not merely repeat existing information. Do NOT reflect or act on heartbeat items — complete the pending work first.
+- If there is something that needs follow-up from last user message (e.g., unfinished tasks, unanswered questions, incomplete answer)
+  - continue by fetching information. Do not merely repeat existing information. Do NOT reflect or act on heartbeat items — complete the pending work first.
 - Else if heartbeat.md doesn't exist, is empty, or the current context contains new information since `heartbeat_modified`
   - call `use_skill("heartbeat-reflect")`
 - Else if heartbeat.md has items that may need attention
