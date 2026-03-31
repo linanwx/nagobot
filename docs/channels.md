@@ -73,5 +73,5 @@ Browser chat UI served over HTTP + WebSocket.
 ```yaml
 channels:
   web:
-    addr: "127.0.0.1:8080"
+    addr: "127.0.0.1:18080"
 ```
