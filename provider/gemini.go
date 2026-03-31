@@ -199,7 +199,7 @@ func (p *GeminiProvider) buildRequest(sysInstruction *gmContent, contents []gmCo
 		GenerationConfig: gmGenerationConfig{
 			MaxOutputTokens: maxTokens,
 			ThinkingConfig: &gmThinkingCfg{
-				ThinkingLevel:   "high",
+				ThinkingLevel:   "medium",
 				IncludeThoughts: true,
 			},
 		},
