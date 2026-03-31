@@ -482,7 +482,7 @@ func TestIsHeartbeatSkipTurn_SleepThread(t *testing.T) {
 	// Classic case: sleep_thread called → should trim.
 	msgs := []provider.Message{
 		{Role: "user", Content: "heartbeat wake", Source: "heartbeat"},
-		{Role: "assistant", Content: "", ToolCalls: []provider.ToolCall{{ID: "c1", Type: "function", Function: provider.FunctionCall{Name: "use_skill", Arguments: `{"name":"heartbeat-reflect"}`}}}},
+		{Role: "assistant", Content: "", ToolCalls: []provider.ToolCall{{ID: "c1", Type: "function", Function: provider.FunctionCall{Name: "use_skill", Arguments: `{"name":"heartbeat-wake"}`}}}},
 		{Role: "tool", Name: "use_skill", ToolCallID: "c1", Content: "skill loaded"},
 		{Role: "assistant", Content: "", ToolCalls: []provider.ToolCall{{ID: "c2", Type: "function", Function: provider.FunctionCall{Name: "sleep_thread", Arguments: `{}`}}}},
 		{Role: "tool", Name: "sleep_thread", ToolCallID: "c2", Content: "ok"},

@@ -90,10 +90,8 @@ The heartbeat makes the bot proactive — monitoring conversations and acting on
 
 A Go goroutine (`heartbeatScheduler`) scans every 30s and fires heartbeat pulses into user sessions. NOT a cron job — the old cron-based dispatcher was removed.
 
-Three skills collaborate:
-- **heartbeat-wake**: thin router — decides reflect or act based on `heartbeat_modified` timestamp
-- **heartbeat-reflect**: silent — reviews conversation, updates `heartbeat.md`, calls `sleep_thread()`
-- **heartbeat-act**: visible — evaluates items, sends message to user if relevant, or `sleep_thread()`
+A single skill handles everything:
+- **heartbeat-wake**: decides continue, reflect, or act based on `heartbeat_modified` timestamp. Reflect (silent: updates `heartbeat.md`, calls `sleep_thread()`) and act (visible: evaluates items, sends message or `sleep_thread()`) are inline sections — no nested `use_skill` calls.
 
 ### Timing
 
