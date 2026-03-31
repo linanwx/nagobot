@@ -318,7 +318,7 @@ func (t *Thread) buildHeartbeatSection() string {
 	}
 	hbPath := filepath.Join(filepath.Dir(sessionPath), "heartbeat.md")
 	absPath, _ := filepath.Abs(hbPath)
-	return fmt.Sprintf("## Heartbeat\n\nHeartbeat automatically wakes the thread to reflect on follow-up items and proactively help users with tasks.\n\nCurrently using `%s`.\n\nUse `use_skill(heartbeat-reflect)` to track items and `use_skill(heartbeat-act)` to proactively help users.", absPath)
+	return fmt.Sprintf("## Heartbeat\n\nHeartbeat automatically wakes the thread to reflect on follow-up items and proactively help users with tasks.\n\nCurrently using `%s`.\n\nUse `use_skill(heartbeat-wake)` to handle heartbeat pulses — it covers both reflection and action.", absPath)
 }
 
 // isUserFacingContent returns true if the content is meaningful for the user,
