@@ -13,8 +13,8 @@ The heartbeat items were last modified at heartbeat_modified.
 
 ## Decide: resume, reflect, act, or skip?
 
-- If there is obviously something that needs follow-up from a previous turn (e.g., a tool call was interrupted, a multi-step plan is partially done, or there's clearly pending work)
-  - Resume and finish it now. Do NOT reflect or act on heartbeat items — complete the pending work first.
+- If there is something that needs follow-up (e.g., unfinished tasks, unanswered questions, imperfect answer)
+  - Resume the work. Fetching or using tools. Do NOT reflect or act on heartbeat items — complete the pending work first.
 - Else if heartbeat.md doesn't exist, is empty, or the current context contains new information since `heartbeat_modified`
   - call `use_skill("heartbeat-reflect")`
 - Else if heartbeat.md has items that may need attention
