@@ -102,12 +102,15 @@ func runSampleSession(_ *cobra.Command, args []string) error {
 	return nil
 }
 
-// bodyFromFrontmatter strips YAML frontmatter if present, returning only the body.
+// bodyFromFrontmatter recursively strips YAML frontmatter layers, returning only the final body.
 func bodyFromFrontmatter(content string) string {
-	if _, body, ok := thread.SplitFrontmatter(content); ok {
-		return body
+	for {
+		_, body, ok := thread.SplitFrontmatter(content)
+		if !ok {
+			return content
+		}
+		content = body
 	}
-	return content
 }
 
 // evenlySpacedIndices returns count evenly-spaced indices from [0, total).
