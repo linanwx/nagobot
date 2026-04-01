@@ -139,7 +139,7 @@ var openRouterModels = map[string]openRouterModelMeta{
 	},
 	"google/gemini-3-flash-preview": {
 		ThinkingOpts: []oaioption.RequestOption{
-			oaioption.WithJSONSet("reasoning", map[string]any{"effort": "high"}),
+			oaioption.WithJSONSet("reasoning", map[string]any{"effort": "medium"}),
 		},
 		ProviderOrder: []string{"google-ai-studio"},
 	},
