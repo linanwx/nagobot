@@ -103,13 +103,14 @@ func runSampleSession(_ *cobra.Command, args []string) error {
 }
 
 // bodyFromFrontmatter recursively strips YAML frontmatter layers, returning only the final body.
+// Trims leading newlines between layers (wake payloads insert a blank line after closing ---).
 func bodyFromFrontmatter(content string) string {
 	for {
 		_, body, ok := thread.SplitFrontmatter(content)
 		if !ok {
 			return content
 		}
-		content = body
+		content = strings.TrimLeft(body, "\n")
 	}
 }
 

@@ -19,13 +19,18 @@ func TestBodyFromFrontmatter(t *testing.T) {
 			want:  "hello",
 		},
 		{
-			name:  "nested frontmatter (child_completed)",
+			name:  "nested frontmatter no gap",
 			input: "---\nsource: child_completed\nsender: system\n---\n---\ntype: child_completed\nsender: system\nagent: search\n---\nActual result content",
 			want:  "Actual result content",
 		},
 		{
-			name:  "triple nested",
-			input: "---\na: 1\n---\n---\nb: 2\n---\n---\nc: 3\n---\ndeep body",
+			name:  "nested frontmatter with blank line (real wake payload)",
+			input: "---\nsource: child_completed\nsender: system\n---\n\n---\ntype: child_completed\nsender: system\nagent: search\n---\nActual result content",
+			want:  "Actual result content",
+		},
+		{
+			name:  "triple nested with gaps",
+			input: "---\na: 1\n---\n\n---\nb: 2\n---\n\n---\nc: 3\n---\ndeep body",
 			want:  "deep body",
 		},
 		{

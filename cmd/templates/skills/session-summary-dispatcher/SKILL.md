@@ -46,7 +46,7 @@ exec: {{WORKSPACE}}/bin/nagobot set-summary <key> <summary>
 
 ## Workflow
 
-1. **List sessions**: Run `list-sessions --days 2 --changed-only` to discover recently active sessions that need summaries.
+1. **List sessions**: Run `list-sessions --need-summary` to discover sessions that need summaries. This flag applies smart filtering (excludes actively-chatting sessions, recently-summarized cron/large sessions, and stale child threads) and returns minimal fields (key, message_count, updated_at).
 
 2. **For each qualifying session**:
    - Run `sample-session <key>` to read a conversation. Output shows evenly-spaced messages plus the last 5 recent messages not in the sample. YAML frontmatter in messages is automatically stripped.
