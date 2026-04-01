@@ -4,6 +4,8 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
+	"strings"
 	"time"
 
 	"github.com/linanwx/nagobot/logger"
@@ -45,7 +47,6 @@ const (
 
 // OnStream sets a callback invoked with each streaming text delta during
 // Chat(). An empty delta signals the end of the stream (Chat() returned).
-// If not set, provider.Chat() runs without streaming (OnTextDelta=nil).
 func (r *Runner) OnStream(fn func(streamID, delta string)) { r.onStream = fn }
 
 // OnEvent sets a callback for lifecycle events (tool calls, etc.).
@@ -111,54 +112,68 @@ func (r *Runner) RunWithMessages(ctx context.Context, messages []provider.Messag
 			messages = r.trimLoopMessages(messages)
 		}
 
-		// Build request; enable streaming only when OnStream is registered.
+		// Build request.
 		chatReq := &provider.Request{
 			Messages: messages,
 			Tools:    toolDefs,
 		}
+
+		result, err := r.provider.Chat(ctx, chatReq)
+		if err != nil {
+			return "", fmt.Errorf("provider error: %w", err)
+		}
+
+		// Pull-based stream consumption: if provider returned a stream,
+		// consume deltas for event detection and optional sink forwarding.
 		var streamID string
 		streamingSignaled := false
 		toolCallSignaled := false
 
-		// Set OnTextDelta when streaming or event detection is needed.
-		if r.onStream != nil || r.onEvent != nil {
-			if r.onStream != nil {
-				streamID = RandomHex(8)
-			}
-			chatReq.OnTextDelta = func(delta string) {
-				if r.onStream != nil {
-					r.onStream(streamID, delta)
+		if stream, ok := result.(provider.StreamChatResult); ok {
+			streamID = RandomHex(8)
+			var repDetector repetitionDetector
+			for {
+				delta, recvErr := stream.Recv()
+				if recvErr == io.EOF {
+					break
 				}
-				if !streamingSignaled && delta != "" && r.onEvent != nil {
-					streamingSignaled = true
-					r.onEvent(EventStreaming, "")
+				if recvErr != nil {
+					stream.Cancel() // unblock producer goroutine
+					return "", fmt.Errorf("stream error: %w", recvErr)
 				}
-			}
-		}
-		// Wire provider-level tool call detection for OnEvent.
-		if r.onEvent != nil {
-			chatReq.OnToolCallStart = func(name string) {
-				if !toolCallSignaled {
-					toolCallSignaled = true
-					r.onEvent(EventToolCalls, name)
+				switch delta.Type {
+				case provider.DeltaText:
+					if r.onStream != nil {
+						r.onStream(streamID, delta.Text)
+					}
+					if !streamingSignaled && r.onEvent != nil {
+						streamingSignaled = true
+						r.onEvent(EventStreaming, "")
+					}
+					// Detect infinite repetition and cancel the stream early.
+					if repDetector.feed(delta.Text) {
+						logger.Warn("stream repetition detected, cancelling", "iterations", r.iterations)
+						stream.Cancel()
+						break
+					}
+				case provider.DeltaToolCall:
+					if !toolCallSignaled && r.onEvent != nil {
+						toolCallSignaled = true
+						r.onEvent(EventToolCalls, delta.ToolName)
+					}
 				}
 			}
 		}
 
-		resp, err := r.provider.Chat(ctx, chatReq)
-
-		// Signal end of stream before any other processing.
-		// Empty delta tells the caller that Chat() returned and all
-		// streaming deltas have been delivered.
-		if r.onStream != nil {
+		// Signal end of stream.
+		if r.onStream != nil && streamID != "" {
 			r.onStream(streamID, "")
 		}
 
-		if err != nil {
-			return "", fmt.Errorf("provider error: %w", err)
+		resp, waitErr := result.Wait()
+		if waitErr != nil {
+			return "", fmt.Errorf("provider error: %w", waitErr)
 		}
-		// Check for context cancellation after Chat() returns — the call
-		// may have succeeded but ctx was cancelled concurrently.
 		if ctx.Err() != nil {
 			return "", ctx.Err()
 		}
@@ -385,4 +400,60 @@ func truncateStr(s string, n int) string {
 		return s
 	}
 	return s[:n] + "..."
+}
+
+// repetitionDetector tracks streaming text and detects infinite repetition.
+// It accumulates text in a buffer and periodically checks whether a substring
+// of 20-100 runes repeats 10+ times consecutively. Zero value is ready to use.
+type repetitionDetector struct {
+	buf       strings.Builder
+	nextCheck int // byte length threshold for next check
+}
+
+// feed appends delta text and returns true if repetition is detected.
+func (d *repetitionDetector) feed(text string) bool {
+	d.buf.WriteString(text)
+	n := d.buf.Len()
+	// Only check every 500 bytes to avoid per-delta overhead.
+	if n < 1000 || n < d.nextCheck {
+		return false
+	}
+	d.nextCheck = n + 500
+
+	runes := []rune(d.buf.String())
+	rn := len(runes)
+	const minPat = 20
+	const maxPat = 100
+	const threshold = 10
+
+	// Check from the end of accumulated text — repetition is at the tail.
+	for patLen := minPat; patLen <= maxPat && patLen <= rn/threshold; patLen++ {
+		// Take the last patLen runes as the candidate pattern.
+		pat := runes[rn-patLen:]
+		count := 1
+		pos := rn - patLen*2
+		for pos >= 0 {
+			if !runesEqual(runes[pos:pos+patLen], pat) {
+				break
+			}
+			count++
+			pos -= patLen
+		}
+		if count >= threshold {
+			return true
+		}
+	}
+	return false
+}
+
+func runesEqual(a, b []rune) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for i := range a {
+		if a[i] != b[i] {
+			return false
+		}
+	}
+	return true
 }

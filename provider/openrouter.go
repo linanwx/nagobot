@@ -483,10 +483,10 @@ func fromOpenAIChatToolCalls(calls []openai.ChatCompletionMessageToolCallUnion) 
 }
 
 // openAIStreamChat executes a streaming chat completion via the OpenAI SDK.
-// It calls onTextDelta for each text content delta and accumulates the full
-// response. Returns the accumulated ChatCompletion and any reasoning content
-// extracted from streaming delta extra fields.
-func openAIStreamChat(ctx context.Context, client openai.Client, params openai.ChatCompletionNewParams, onTextDelta func(string), onToolCallStart func(string), opts ...oaioption.RequestOption) (*openai.ChatCompletion, string, error) {
+// It emits text and tool-call deltas through the adapter and accumulates the
+// full response. Returns the accumulated ChatCompletion and any reasoning
+// content extracted from streaming delta extra fields.
+func openAIStreamChat(ctx context.Context, client openai.Client, params openai.ChatCompletionNewParams, adapter *streamAdapter, opts ...oaioption.RequestOption) (*openai.ChatCompletion, string, error) {
 	stream := client.Chat.Completions.NewStreaming(ctx, params, opts...)
 
 	var acc openai.ChatCompletionAccumulator
@@ -500,13 +500,13 @@ func openAIStreamChat(ctx context.Context, client openai.Client, params openai.C
 			continue
 		}
 		delta := chunk.Choices[0].Delta
-		if delta.Content != "" && onTextDelta != nil {
-			onTextDelta(delta.Content)
+		if delta.Content != "" {
+			adapter.EmitText(delta.Content)
 		}
-		if len(delta.ToolCalls) > 0 && onToolCallStart != nil && !toolCallSignaled {
+		if len(delta.ToolCalls) > 0 && !toolCallSignaled {
 			toolCallSignaled = true
 			if name := delta.ToolCalls[0].Function.Name; name != "" {
-				onToolCallStart(name)
+				adapter.EmitToolCall(name)
 			}
 		}
 		// Accumulate reasoning_content from non-standard extra fields
@@ -526,7 +526,7 @@ func openAIStreamChat(ctx context.Context, client openai.Client, params openai.C
 }
 
 // Chat sends a chat completion request to OpenRouter.
-func (p *OpenRouterProvider) Chat(ctx context.Context, req *Request) (*Response, error) {
+func (p *OpenRouterProvider) Chat(ctx context.Context, req *Request) (ChatResult, error) {
 	start := time.Now()
 	inputChars := inputChars(req.Messages)
 
@@ -577,75 +577,75 @@ func (p *OpenRouterProvider) Chat(ctx context.Context, req *Request) (*Response,
 		)
 	}
 
+	resp := &Response{ProviderLabel: "openrouter", ModelLabel: p.modelName}
+	adapter := newStreamAdapter(ctx, resp)
 
-	var chatResp *openai.ChatCompletion
-	var streamReasoning string
-	if req.OnTextDelta != nil {
-		chatResp, streamReasoning, err = openAIStreamChat(ctx, p.client, chatReq, req.OnTextDelta, req.OnToolCallStart, requestOpts...)
-	} else {
-		chatResp, err = p.client.Chat.Completions.New(ctx, chatReq, requestOpts...)
-	}
-	if err != nil {
-		logger.Error("openrouter request send error", "provider", "openrouter", "err", err)
-		return nil, fmt.Errorf("request failed: %w", err)
-	}
+	go func() {
+		defer adapter.Finish()
 
-	if len(chatResp.Choices) == 0 {
-		logger.Error("openrouter no choices", "provider", "openrouter")
-		return nil, fmt.Errorf("no choices in response")
-	}
+		chatResp, streamReasoning, err := openAIStreamChat(ctx, p.client, chatReq, adapter, requestOpts...)
+		if err != nil {
+			logger.Error("openrouter request send error", "provider", "openrouter", "err", err)
+			adapter.SetError(fmt.Errorf("request failed: %w", err))
+			return
+		}
 
-	choice := chatResp.Choices[0]
-	toolCalls := fromOpenAIChatToolCalls(choice.Message.ToolCalls)
-	reasoningTokens := chatResp.Usage.CompletionTokensDetails.ReasoningTokens
-	rawMessage := choice.Message.RawJSON()
-	rawResponse := chatResp.RawJSON()
-	reasoningText := extractReasoningText(rawMessage)
-	if reasoningText == "" && streamReasoning != "" {
-		reasoningText = streamReasoning
-	}
-	reasoningDetails := extractReasoningDetails(rawMessage)
-	finalContent := choice.Message.Content
-	finalContent = resolveContentWithReasoningFallback(finalContent, reasoningText, "openrouter", toolCalls)
+		if len(chatResp.Choices) == 0 {
+			logger.Error("openrouter no choices", "provider", "openrouter")
+			adapter.SetError(fmt.Errorf("no choices in response"))
+			return
+		}
 
-	cachedTokens := chatResp.Usage.PromptTokensDetails.CachedTokens
-	logger.Info(
-		"openrouter response",
-		"provider", "openrouter",
-		"modelType", p.modelType,
-		"modelName", p.modelName,
-		"finishReason", choice.FinishReason,
-		"reasoningInResponse", reasoningTokens > 0,
-		"hasToolCalls", len(toolCalls) > 0,
-		"toolCallCount", len(toolCalls),
-		"promptTokens", chatResp.Usage.PromptTokens,
-		"completionTokens", chatResp.Usage.CompletionTokens,
-		"reasoningTokens", reasoningTokens,
-		"cachedTokens", cachedTokens,
-		"totalTokens", chatResp.Usage.TotalTokens,
-		"outputChars", len(choice.Message.Content),
-		"latencyMs", time.Since(start).Milliseconds(),
-	)
-	logger.Debug(
-		"openrouter raw output",
-		"rawMessage", rawMessage,
-		"rawResponse", rawResponse,
-		"reasoningText", reasoningText,
-	)
+		choice := chatResp.Choices[0]
+		toolCalls := fromOpenAIChatToolCalls(choice.Message.ToolCalls)
+		reasoningTokens := chatResp.Usage.CompletionTokensDetails.ReasoningTokens
+		rawMessage := choice.Message.RawJSON()
+		rawResponse := chatResp.RawJSON()
+		reasoningText := extractReasoningText(rawMessage)
+		if reasoningText == "" && streamReasoning != "" {
+			reasoningText = streamReasoning
+		}
+		reasoningDetails := extractReasoningDetails(rawMessage)
+		finalContent := choice.Message.Content
+		finalContent = resolveContentWithReasoningFallback(finalContent, reasoningText, "openrouter", toolCalls)
 
-	return &Response{
-		Content:          finalContent,
-		ReasoningContent: reasoningText,
-		ReasoningDetails: reasoningDetails,
-		ToolCalls:        toolCalls,
-		Usage: Usage{
+		cachedTokens := chatResp.Usage.PromptTokensDetails.CachedTokens
+		logger.Info(
+			"openrouter response",
+			"provider", "openrouter",
+			"modelType", p.modelType,
+			"modelName", p.modelName,
+			"finishReason", choice.FinishReason,
+			"reasoningInResponse", reasoningTokens > 0,
+			"hasToolCalls", len(toolCalls) > 0,
+			"toolCallCount", len(toolCalls),
+			"promptTokens", chatResp.Usage.PromptTokens,
+			"completionTokens", chatResp.Usage.CompletionTokens,
+			"reasoningTokens", reasoningTokens,
+			"cachedTokens", cachedTokens,
+			"totalTokens", chatResp.Usage.TotalTokens,
+			"outputChars", len(choice.Message.Content),
+			"latencyMs", time.Since(start).Milliseconds(),
+		)
+		logger.Debug(
+			"openrouter raw output",
+			"rawMessage", rawMessage,
+			"rawResponse", rawResponse,
+			"reasoningText", reasoningText,
+		)
+
+		resp.Content = finalContent
+		resp.ReasoningContent = reasoningText
+		resp.ReasoningDetails = reasoningDetails
+		resp.ToolCalls = toolCalls
+		resp.Usage = Usage{
 			PromptTokens:     int(chatResp.Usage.PromptTokens),
 			CompletionTokens: int(chatResp.Usage.CompletionTokens),
 			TotalTokens:      int(chatResp.Usage.TotalTokens),
 			CachedTokens:     int(cachedTokens),
 			ReasoningTokens:  int(reasoningTokens),
-		},
-		ProviderLabel: "openrouter",
-		ModelLabel:    p.modelName,
-	}, nil
+		}
+	}()
+
+	return adapter.Result(), nil
 }

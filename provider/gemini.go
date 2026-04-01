@@ -159,32 +159,19 @@ func (p *GeminiProvider) streamEndpoint() string {
 }
 
 // Chat sends a chat completion request to Google AI Studio.
-func (p *GeminiProvider) Chat(ctx context.Context, req *Request) (*Response, error) {
+func (p *GeminiProvider) Chat(ctx context.Context, req *Request) (ChatResult, error) {
 	start := time.Now()
 	inputChars := inputChars(req.Messages)
-	streaming := req.OnTextDelta != nil
 
-	logger.Info(
-		"gemini request",
-		"provider", "gemini",
-		"modelType", p.modelType,
-		"modelName", p.modelName,
-		"streaming", streaming,
-		"toolCount", len(req.Tools),
-		"inputChars", inputChars,
-	)
+	logger.Info("gemini request", "provider", "gemini", "modelType", p.modelType,
+		"modelName", p.modelName, "toolCount", len(req.Tools), "inputChars", inputChars)
 
 	sysInstruction, contents, err := toGeminiContents(req.Messages, SupportsVision("gemini", p.modelType), SupportsAudio("gemini", p.modelType))
 	if err != nil {
 		return nil, fmt.Errorf("convert messages: %w", err)
 	}
-
 	gmReq := p.buildRequest(sysInstruction, contents, req.Tools)
-
-	if streaming {
-		return p.chatStream(ctx, req, gmReq, start)
-	}
-	return p.chatSync(ctx, gmReq, start)
+	return p.chatStream(ctx, gmReq, start)
 }
 
 func (p *GeminiProvider) buildRequest(sysInstruction *gmContent, contents []gmContent, tools []ToolDef) gmRequest {
@@ -257,15 +244,15 @@ func (p *GeminiProvider) chatSync(ctx context.Context, gmReq gmRequest, start ti
 }
 
 // chatStream handles streaming completion with SSE.
-func (p *GeminiProvider) chatStream(ctx context.Context, req *Request, gmReq gmRequest, start time.Time) (*Response, error) {
+func (p *GeminiProvider) chatStream(ctx context.Context, gmReq gmRequest, start time.Time) (ChatResult, error) {
 	httpResp, err := p.doPost(ctx, p.streamEndpoint(), gmReq)
 	if err != nil {
 		logger.Error("gemini streaming request error", "provider", "gemini", "err", err)
 		return nil, fmt.Errorf("request failed: %w", err)
 	}
-	defer httpResp.Body.Close()
 
 	if httpResp.StatusCode != http.StatusOK {
+		defer httpResp.Body.Close()
 		body, _ := io.ReadAll(httpResp.Body)
 		var apiResp gmResponse
 		if json.Unmarshal(body, &apiResp) == nil && apiResp.Error != nil {
@@ -274,126 +261,132 @@ func (p *GeminiProvider) chatStream(ctx context.Context, req *Request, gmReq gmR
 		return nil, fmt.Errorf("gemini API error (%d): %s", httpResp.StatusCode, string(body))
 	}
 
-	var (
-		content      strings.Builder
-		reasoning    strings.Builder
-		toolCalls        []ToolCall
-		allParts         []gmPart // accumulate all parts for ReasoningDetails
-		toolCallSignaled bool
-		usage            gmUsageMetadata
-		finishReason     string
-	)
+	resp := &Response{ProviderLabel: "gemini", ModelLabel: p.modelName}
+	adapter := newStreamAdapter(ctx, resp)
 
-	scanner := bufio.NewScanner(httpResp.Body)
-	scanner.Buffer(make([]byte, 0, 64*1024), 1024*1024)
+	go func() {
+		defer httpResp.Body.Close()
+		defer adapter.Finish()
 
-	callIndex := 0
-	for scanner.Scan() {
-		line := scanner.Text()
-		if line == "" || strings.HasPrefix(line, ":") {
-			continue
-		}
-		if !strings.HasPrefix(line, "data: ") {
-			continue
-		}
-		data := line[6:]
+		var (
+			content      strings.Builder
+			reasoning    strings.Builder
+			toolCalls        []ToolCall
+			allParts         []gmPart
+			toolCallSignaled bool
+			usage            gmUsageMetadata
+			finishReason     string
+		)
 
-		var chunk gmResponse
-		if err := json.Unmarshal([]byte(data), &chunk); err != nil {
-			logger.Debug("gemini stream chunk parse skip", "err", err)
-			continue
-		}
+		scanner := bufio.NewScanner(httpResp.Body)
+		scanner.Buffer(make([]byte, 0, 64*1024), 1024*1024)
 
-		if chunk.UsageMetadata != nil {
-			usage = *chunk.UsageMetadata
-		}
-		if len(chunk.Candidates) == 0 {
-			continue
-		}
-
-		candidate := chunk.Candidates[0]
-		if candidate.FinishReason != "" {
-			finishReason = candidate.FinishReason
-		}
-
-		for _, part := range candidate.Content.Parts {
-			allParts = append(allParts, part)
-
-			isThought := part.Thought != nil && *part.Thought
-			if part.Text != "" && (isThought || looksLikeThoughtLeak(part.Text)) {
-				reasoning.WriteString(part.Text)
-			} else if part.Text != "" {
-				content.WriteString(part.Text)
-				req.OnTextDelta(part.Text)
+		callIndex := 0
+		for scanner.Scan() {
+			line := scanner.Text()
+			if line == "" || strings.HasPrefix(line, ":") {
+				continue
 			}
-			if part.FunctionCall != nil {
-				if req.OnToolCallStart != nil && !toolCallSignaled {
-					toolCallSignaled = true
-					req.OnToolCallStart(part.FunctionCall.Name)
+			if !strings.HasPrefix(line, "data: ") {
+				continue
+			}
+			data := line[6:]
+
+			var chunk gmResponse
+			if err := json.Unmarshal([]byte(data), &chunk); err != nil {
+				logger.Debug("gemini stream chunk parse skip", "err", err)
+				continue
+			}
+
+			if chunk.UsageMetadata != nil {
+				usage = *chunk.UsageMetadata
+			}
+			if len(chunk.Candidates) == 0 {
+				continue
+			}
+
+			candidate := chunk.Candidates[0]
+			if candidate.FinishReason != "" {
+				finishReason = candidate.FinishReason
+			}
+
+			for _, part := range candidate.Content.Parts {
+				allParts = append(allParts, part)
+
+				isThought := part.Thought != nil && *part.Thought
+				if part.Text != "" && (isThought || looksLikeThoughtLeak(part.Text)) {
+					reasoning.WriteString(part.Text)
+				} else if part.Text != "" {
+					content.WriteString(part.Text)
+					adapter.EmitText(part.Text)
 				}
-				argsJSON, _ := json.Marshal(part.FunctionCall.Args)
-				toolCalls = append(toolCalls, ToolCall{
-					ID:   fmt.Sprintf("gemini_%s_%d", part.FunctionCall.Name, callIndex),
-					Type: "function",
-					Function: FunctionCall{
-						Name:      part.FunctionCall.Name,
-						Arguments: string(argsJSON),
-					},
-				})
-				callIndex++
+				if part.FunctionCall != nil {
+					if !toolCallSignaled {
+						toolCallSignaled = true
+						adapter.EmitToolCall(part.FunctionCall.Name)
+					}
+					argsJSON, _ := json.Marshal(part.FunctionCall.Args)
+					toolCalls = append(toolCalls, ToolCall{
+						ID:   fmt.Sprintf("gemini_%s_%d", part.FunctionCall.Name, callIndex),
+						Type: "function",
+						Function: FunctionCall{
+							Name:      part.FunctionCall.Name,
+							Arguments: string(argsJSON),
+						},
+					})
+					callIndex++
+				}
 			}
 		}
-	}
 
-	if err := scanner.Err(); err != nil {
-		logger.Error("gemini stream read error", "err", err)
-		return nil, fmt.Errorf("stream read error: %w", err)
-	}
-
-	finalContent := content.String()
-	reasoningText := reasoning.String()
-
-	// Build ReasoningDetails from accumulated parts (for thoughtSignature round-trip).
-	var reasoningDetails json.RawMessage
-	if sigParts := filterSignatureParts(allParts); len(sigParts) > 0 {
-		if data, err := json.Marshal(sigParts); err == nil {
-			reasoningDetails = data
+		if err := scanner.Err(); err != nil {
+			logger.Error("gemini stream read error", "err", err)
+			adapter.SetError(fmt.Errorf("stream read error: %w", err))
 		}
-	}
 
-	logger.Info(
-		"gemini streaming response",
-		"provider", "gemini",
-		"modelType", p.modelType,
-		"modelName", p.modelName,
-		"finishReason", finishReason,
-		"reasoningInResponse", usage.ThoughtsTokenCount > 0 || strings.TrimSpace(reasoningText) != "",
-		"hasToolCalls", len(toolCalls) > 0,
-		"toolCallCount", len(toolCalls),
-		"promptTokens", usage.PromptTokenCount,
-		"candidatesTokens", usage.CandidatesTokenCount,
-		"thoughtsTokens", usage.ThoughtsTokenCount,
-		"cachedTokens", usage.CachedContentTokenCount,
-		"totalTokens", usage.TotalTokenCount,
-		"outputChars", len(finalContent),
-		"latencyMs", time.Since(start).Milliseconds(),
-	)
+		finalContent := content.String()
+		reasoningText := reasoning.String()
 
-	return &Response{
-		Content:          finalContent,
-		ReasoningContent: reasoningText,
-		ReasoningDetails: reasoningDetails,
-		ToolCalls:        toolCalls,
-		Usage: Usage{
+		// Build ReasoningDetails from accumulated parts (for thoughtSignature round-trip).
+		var reasoningDetails json.RawMessage
+		if sigParts := filterSignatureParts(allParts); len(sigParts) > 0 {
+			if data, err := json.Marshal(sigParts); err == nil {
+				reasoningDetails = data
+			}
+		}
+
+		logger.Info(
+			"gemini streaming response",
+			"provider", "gemini",
+			"modelType", p.modelType,
+			"modelName", p.modelName,
+			"finishReason", finishReason,
+			"reasoningInResponse", usage.ThoughtsTokenCount > 0 || strings.TrimSpace(reasoningText) != "",
+			"hasToolCalls", len(toolCalls) > 0,
+			"toolCallCount", len(toolCalls),
+			"promptTokens", usage.PromptTokenCount,
+			"candidatesTokens", usage.CandidatesTokenCount,
+			"thoughtsTokens", usage.ThoughtsTokenCount,
+			"cachedTokens", usage.CachedContentTokenCount,
+			"totalTokens", usage.TotalTokenCount,
+			"outputChars", len(finalContent),
+			"latencyMs", time.Since(start).Milliseconds(),
+		)
+
+		resp.Content = finalContent
+		resp.ReasoningContent = reasoningText
+		resp.ReasoningDetails = reasoningDetails
+		resp.ToolCalls = toolCalls
+		resp.Usage = Usage{
 			PromptTokens:     usage.PromptTokenCount,
 			CompletionTokens: usage.CandidatesTokenCount,
 			TotalTokens:      usage.TotalTokenCount,
 			ReasoningTokens:  usage.ThoughtsTokenCount,
 			CachedTokens:     usage.CachedContentTokenCount,
-		},
-		ProviderLabel: "gemini",
-		ModelLabel:    p.modelName,
-	}, nil
+		}
+	}()
+
+	return adapter.Result(), nil
 }
 
 // parseResponse extracts content, reasoning, tool calls from a sync response.

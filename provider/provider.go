@@ -17,8 +17,9 @@ import (
 
 // Provider is the interface for LLM providers.
 type Provider interface {
-	// Chat sends a chat completion request and returns the response.
-	Chat(ctx context.Context, req *Request) (*Response, error)
+	// Chat sends a chat completion request and returns a ChatResult.
+	// Use type assertion to check for StreamChatResult if streaming is needed.
+	Chat(ctx context.Context, req *Request) (ChatResult, error)
 }
 
 // AccountIDSetter is optionally implemented by providers that need an account ID
@@ -29,10 +30,8 @@ type AccountIDSetter interface {
 
 // Request represents a chat completion request.
 type Request struct {
-	Messages    []Message
-	Tools       []ToolDef
-	OnTextDelta    func(delta string) // Optional: called with each text chunk during streaming generation.
-	OnToolCallStart func(name string) // Optional: called once when the first tool call is detected during streaming.
+	Messages []Message
+	Tools    []ToolDef
 }
 
 // Message represents a chat message in OpenAI format (internal canonical format).

@@ -91,7 +91,7 @@ func newMoonshotProvider(providerName, apiKey, apiBase, defaultBase, modelType, 
 }
 
 // Chat sends a chat completion request to Moonshot.
-func (p *MoonshotProvider) Chat(ctx context.Context, req *Request) (*Response, error) {
+func (p *MoonshotProvider) Chat(ctx context.Context, req *Request) (ChatResult, error) {
 	start := time.Now()
 	inputChars := inputChars(req.Messages)
 
@@ -137,72 +137,74 @@ func (p *MoonshotProvider) Chat(ctx context.Context, req *Request) (*Response, e
 			oaioption.WithJSONSet("extra_body.chat_template_kwargs.thinking", true),
 		)
 	}
-	var chatResp *openai.ChatCompletion
-	var streamReasoning string
-	if req.OnTextDelta != nil {
-		chatResp, streamReasoning, err = openAIStreamChat(ctx, p.client, chatReq, req.OnTextDelta, req.OnToolCallStart, requestOpts...)
-	} else {
-		chatResp, err = p.client.Chat.Completions.New(ctx, chatReq, requestOpts...)
-	}
-	if err != nil {
-		logger.Error("moonshot request send error", "provider", p.providerName, "err", err)
-		return nil, fmt.Errorf("request failed: %w", err)
-	}
 
-	if len(chatResp.Choices) == 0 {
-		logger.Error("moonshot no choices", "provider", p.providerName)
-		return nil, fmt.Errorf("no choices in response")
-	}
+	resp := &Response{ProviderLabel: p.providerName, ModelLabel: p.modelName}
+	adapter := newStreamAdapter(ctx, resp)
 
-	choice := chatResp.Choices[0]
-	toolCalls := fromOpenAIChatToolCalls(choice.Message.ToolCalls)
-	reasoningTokens := chatResp.Usage.CompletionTokensDetails.ReasoningTokens
-	rawMessage := choice.Message.RawJSON()
-	rawResponse := chatResp.RawJSON()
-	reasoningText := extractReasoningText(rawMessage)
-	if reasoningText == "" && streamReasoning != "" {
-		reasoningText = streamReasoning
-	}
-	finalContent := choice.Message.Content
-	finalContent = resolveContentWithReasoningFallback(finalContent, reasoningText, "moonshot", toolCalls)
+	go func() {
+		defer adapter.Finish()
 
-	logger.Info(
-		"moonshot response",
-		"provider", p.providerName,
-		"modelType", p.modelType,
-		"modelName", p.modelName,
-		"finishReason", choice.FinishReason,
-		"reasoningInResponse", reasoningTokens > 0 || strings.TrimSpace(reasoningText) != "",
-		"hasToolCalls", len(toolCalls) > 0,
-		"toolCallCount", len(toolCalls),
-		"promptTokens", chatResp.Usage.PromptTokens,
-		"completionTokens", chatResp.Usage.CompletionTokens,
-		"reasoningTokens", reasoningTokens,
-		"cachedTokens", chatResp.Usage.PromptTokensDetails.CachedTokens,
-		"totalTokens", chatResp.Usage.TotalTokens,
-		"outputChars", len(choice.Message.Content),
-		"latencyMs", time.Since(start).Milliseconds(),
-	)
-	logger.Debug(
-		"moonshot raw output",
-		"provider", p.providerName,
-		"rawMessage", rawMessage,
-		"rawResponse", rawResponse,
-		"reasoningText", reasoningText,
-	)
+		chatResp, streamReasoning, err := openAIStreamChat(ctx, p.client, chatReq, adapter, requestOpts...)
+		if err != nil {
+			logger.Error("moonshot request send error", "provider", p.providerName, "err", err)
+			adapter.SetError(fmt.Errorf("request failed: %w", err))
+			return
+		}
 
-	return &Response{
-		Content:          finalContent,
-		ReasoningContent: reasoningText,
-		ToolCalls:        toolCalls,
-		Usage: Usage{
+		if len(chatResp.Choices) == 0 {
+			logger.Error("moonshot no choices", "provider", p.providerName)
+			adapter.SetError(fmt.Errorf("no choices in response"))
+			return
+		}
+
+		choice := chatResp.Choices[0]
+		toolCalls := fromOpenAIChatToolCalls(choice.Message.ToolCalls)
+		reasoningTokens := chatResp.Usage.CompletionTokensDetails.ReasoningTokens
+		rawMessage := choice.Message.RawJSON()
+		rawResponse := chatResp.RawJSON()
+		reasoningText := extractReasoningText(rawMessage)
+		if reasoningText == "" && streamReasoning != "" {
+			reasoningText = streamReasoning
+		}
+		finalContent := choice.Message.Content
+		finalContent = resolveContentWithReasoningFallback(finalContent, reasoningText, "moonshot", toolCalls)
+
+		logger.Info(
+			"moonshot response",
+			"provider", p.providerName,
+			"modelType", p.modelType,
+			"modelName", p.modelName,
+			"finishReason", choice.FinishReason,
+			"reasoningInResponse", reasoningTokens > 0 || strings.TrimSpace(reasoningText) != "",
+			"hasToolCalls", len(toolCalls) > 0,
+			"toolCallCount", len(toolCalls),
+			"promptTokens", chatResp.Usage.PromptTokens,
+			"completionTokens", chatResp.Usage.CompletionTokens,
+			"reasoningTokens", reasoningTokens,
+			"cachedTokens", chatResp.Usage.PromptTokensDetails.CachedTokens,
+			"totalTokens", chatResp.Usage.TotalTokens,
+			"outputChars", len(choice.Message.Content),
+			"latencyMs", time.Since(start).Milliseconds(),
+		)
+		logger.Debug(
+			"moonshot raw output",
+			"provider", p.providerName,
+			"rawMessage", rawMessage,
+			"rawResponse", rawResponse,
+			"reasoningText", reasoningText,
+		)
+
+		resp.Content = finalContent
+		resp.ReasoningContent = reasoningText
+		resp.ToolCalls = toolCalls
+		resp.Usage = Usage{
 			PromptTokens:     int(chatResp.Usage.PromptTokens),
 			CompletionTokens: int(chatResp.Usage.CompletionTokens),
 			TotalTokens:      int(chatResp.Usage.TotalTokens),
 			CachedTokens:     int(chatResp.Usage.PromptTokensDetails.CachedTokens),
 			ReasoningTokens:  int(reasoningTokens),
-		},
-		ProviderLabel: p.providerName,
-		ModelLabel:    p.modelName,
-	}, nil
+		}
+	}()
+
+	return adapter.Result(), nil
 }

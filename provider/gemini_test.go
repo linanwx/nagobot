@@ -284,6 +284,11 @@ func TestLooksLikeThoughtLeak(t *testing.T) {
 	}
 }
 
+func geminiSSEResponse(resp gmResponse) string {
+	data, _ := json.Marshal(resp)
+	return "data: " + string(data) + "\n\n"
+}
+
 func TestGeminiParseResponse_ThoughtLeak(t *testing.T) {
 	// Simulate a response where thinking leaked without thought:true flag.
 	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -304,8 +309,8 @@ func TestGeminiParseResponse_ThoughtLeak(t *testing.T) {
 				TotalTokenCount:      30,
 			},
 		}
-		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(resp)
+		w.Header().Set("Content-Type", "text/event-stream")
+		w.Write([]byte(geminiSSEResponse(resp)))
 	})
 	server := httptest.NewServer(handler)
 	defer server.Close()
@@ -319,9 +324,13 @@ func TestGeminiParseResponse_ThoughtLeak(t *testing.T) {
 		client:    &http.Client{},
 	}
 
-	result, err := p.Chat(context.Background(), &Request{
+	chatResult, err := p.Chat(context.Background(), &Request{
 		Messages: []Message{{Role: "user", Content: "test"}},
 	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	result, err := chatResult.Wait()
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -333,8 +342,8 @@ func TestGeminiParseResponse_ThoughtLeak(t *testing.T) {
 	}
 }
 
-func TestGeminiSyncResponse(t *testing.T) {
-	// Mock Gemini API server.
+func TestGeminiStreamResponse(t *testing.T) {
+	// Mock Gemini API server returning SSE.
 	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Header.Get("x-goog-api-key") != "test-key" {
 			t.Error("missing or wrong API key header")
@@ -355,8 +364,8 @@ func TestGeminiSyncResponse(t *testing.T) {
 				TotalTokenCount:      15,
 			},
 		}
-		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(resp)
+		w.Header().Set("Content-Type", "text/event-stream")
+		w.Write([]byte(geminiSSEResponse(resp)))
 	})
 	server := httptest.NewServer(handler)
 	defer server.Close()
@@ -370,9 +379,13 @@ func TestGeminiSyncResponse(t *testing.T) {
 		client:    &http.Client{},
 	}
 
-	result, err := p.Chat(context.Background(), &Request{
+	chatResult, err := p.Chat(context.Background(), &Request{
 		Messages: []Message{{Role: "user", Content: "What is 2+2?"}},
 	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	result, err := chatResult.Wait()
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -402,7 +415,8 @@ func TestGeminiToolCallIDSynthesis(t *testing.T) {
 			}},
 			UsageMetadata: &gmUsageMetadata{},
 		}
-		json.NewEncoder(w).Encode(resp)
+		w.Header().Set("Content-Type", "text/event-stream")
+		w.Write([]byte(geminiSSEResponse(resp)))
 	})
 	server := httptest.NewServer(handler)
 	defer server.Close()
@@ -416,9 +430,13 @@ func TestGeminiToolCallIDSynthesis(t *testing.T) {
 		client:    &http.Client{},
 	}
 
-	result, err := p.Chat(context.Background(), &Request{
+	chatResult, err := p.Chat(context.Background(), &Request{
 		Messages: []Message{{Role: "user", Content: "test"}},
 	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	result, err := chatResult.Wait()
 	if err != nil {
 		t.Fatal(err)
 	}

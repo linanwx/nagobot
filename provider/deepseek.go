@@ -172,11 +172,10 @@ func (p *DeepSeekProvider) endpoint() string {
 }
 
 // Chat sends a chat completion request to DeepSeek.
-func (p *DeepSeekProvider) Chat(ctx context.Context, req *Request) (*Response, error) {
+func (p *DeepSeekProvider) Chat(ctx context.Context, req *Request) (ChatResult, error) {
 	start := time.Now()
 	inputChars := inputChars(req.Messages)
 	thinkingEnabled := strings.TrimSpace(p.modelType) == "deepseek-reasoner"
-	streaming := req.OnTextDelta != nil
 
 	logger.Info(
 		"deepseek request",
@@ -184,17 +183,13 @@ func (p *DeepSeekProvider) Chat(ctx context.Context, req *Request) (*Response, e
 		"modelType", p.modelType,
 		"modelName", p.modelName,
 		"thinkingEnabled", thinkingEnabled,
-		"streaming", streaming,
+		"streaming", true,
 		"toolCount", len(req.Tools),
 		"inputChars", inputChars,
 	)
 
-	dsReq := p.buildRequest(req, thinkingEnabled, streaming)
-
-	if streaming {
-		return p.chatStream(ctx, req, dsReq, start)
-	}
-	return p.chatSync(ctx, dsReq, start)
+	dsReq := p.buildRequest(req, thinkingEnabled, true)
+	return p.chatStream(ctx, dsReq, start)
 }
 
 func (p *DeepSeekProvider) buildRequest(req *Request, thinkingEnabled, streaming bool) dsRequest {
@@ -236,7 +231,7 @@ func (p *DeepSeekProvider) doPost(ctx context.Context, body any) (*http.Response
 }
 
 // chatSync handles non-streaming completion.
-func (p *DeepSeekProvider) chatSync(ctx context.Context, dsReq dsRequest, start time.Time) (*Response, error) {
+func (p *DeepSeekProvider) chatSync(ctx context.Context, dsReq dsRequest, start time.Time) (ChatResult, error) {
 	httpResp, err := p.doPost(ctx, dsReq)
 	if err != nil {
 		logger.Error("deepseek request error", "provider", "deepseek", "err", err)
@@ -291,7 +286,7 @@ func (p *DeepSeekProvider) chatSync(ctx context.Context, dsReq dsRequest, start 
 		"latencyMs", time.Since(start).Milliseconds(),
 	)
 
-	return &Response{
+	return NewBasicResult(&Response{
 		Content:          finalContent,
 		ReasoningContent: reasoningText,
 		ToolCalls:        choice.Message.ToolCalls,
@@ -304,19 +299,19 @@ func (p *DeepSeekProvider) chatSync(ctx context.Context, dsReq dsRequest, start 
 		},
 		ProviderLabel: "deepseek",
 		ModelLabel:    p.modelName,
-	}, nil
+	}), nil
 }
 
 // chatStream handles streaming completion with SSE parsing.
-func (p *DeepSeekProvider) chatStream(ctx context.Context, req *Request, dsReq dsRequest, start time.Time) (*Response, error) {
+func (p *DeepSeekProvider) chatStream(ctx context.Context, dsReq dsRequest, start time.Time) (ChatResult, error) {
 	httpResp, err := p.doPost(ctx, dsReq)
 	if err != nil {
 		logger.Error("deepseek streaming request error", "provider", "deepseek", "err", err)
 		return nil, fmt.Errorf("request failed: %w", err)
 	}
-	defer httpResp.Body.Close()
 
 	if httpResp.StatusCode != http.StatusOK {
+		defer httpResp.Body.Close()
 		body, _ := io.ReadAll(httpResp.Body)
 		var apiErr dsErrorResp
 		if json.Unmarshal(body, &apiErr) == nil && apiErr.Error.Message != "" {
@@ -325,145 +320,155 @@ func (p *DeepSeekProvider) chatStream(ctx context.Context, req *Request, dsReq d
 		return nil, fmt.Errorf("deepseek API error (%d): %s", httpResp.StatusCode, string(body))
 	}
 
-	var (
-		content          strings.Builder
-		reasoning        strings.Builder
-		toolCallAcc      = map[int]*streamToolCallAcc{}
-		toolCallSignaled bool
-		usage            dsUsage
-		finishReason     string
-	)
-
-	scanner := bufio.NewScanner(httpResp.Body)
-	scanner.Buffer(make([]byte, 0, 64*1024), 1024*1024)
-
-	for scanner.Scan() {
-		line := scanner.Text()
-
-		// Skip SSE comments (: keep-alive), empty lines, retry directives.
-		if line == "" || strings.HasPrefix(line, ":") || strings.HasPrefix(line, "retry:") {
-			continue
-		}
-		if !strings.HasPrefix(line, "data: ") {
-			continue
-		}
-		data := line[6:]
-		if data == "[DONE]" {
-			break
-		}
-
-		var chunk dsChunk
-		if err := json.Unmarshal([]byte(data), &chunk); err != nil {
-			logger.Debug("deepseek stream chunk parse skip", "err", err)
-			continue
-		}
-
-		if chunk.Usage != nil {
-			usage = *chunk.Usage
-		}
-		if len(chunk.Choices) == 0 {
-			continue
-		}
-
-		delta := chunk.Choices[0].Delta
-
-		if delta.ReasoningContent != "" {
-			reasoning.WriteString(delta.ReasoningContent)
-		}
-		if delta.Content != "" {
-			content.WriteString(delta.Content)
-			req.OnTextDelta(delta.Content)
-		}
-
-		// Accumulate tool calls by index.
-		if len(delta.ToolCalls) > 0 && req.OnToolCallStart != nil && !toolCallSignaled {
-			toolCallSignaled = true
-			if name := delta.ToolCalls[0].Function.Name; name != "" {
-				req.OnToolCallStart(name)
-			}
-		}
-		for _, tc := range delta.ToolCalls {
-			acc, ok := toolCallAcc[tc.Index]
-			if !ok {
-				acc = &streamToolCallAcc{}
-				toolCallAcc[tc.Index] = acc
-			}
-			if tc.ID != "" {
-				acc.id = tc.ID
-			}
-			if tc.Type != "" {
-				acc.typ = tc.Type
-			}
-			if tc.Function.Name != "" {
-				acc.name = tc.Function.Name
-			}
-			acc.args.WriteString(tc.Function.Arguments)
-		}
-
-		if chunk.Choices[0].FinishReason != nil {
-			finishReason = *chunk.Choices[0].FinishReason
-		}
+	resp := &Response{
+		ProviderLabel: "deepseek",
+		ModelLabel:    p.modelName,
 	}
+	adapter := newStreamAdapter(ctx, resp)
 
-	if err := scanner.Err(); err != nil {
-		logger.Error("deepseek stream read error", "err", err)
-		return nil, fmt.Errorf("stream read error: %w", err)
-	}
+	go func() {
+		defer httpResp.Body.Close()
+		defer adapter.Finish()
 
-	// Assemble tool calls from accumulated deltas.
-	var toolCalls []ToolCall
-	for i := 0; i < len(toolCallAcc); i++ {
-		tc := toolCallAcc[i]
-		if tc == nil {
-			continue
+		var (
+			content          strings.Builder
+			reasoning        strings.Builder
+			toolCallAcc      = map[int]*streamToolCallAcc{}
+			toolCallSignaled bool
+			usage            dsUsage
+			finishReason     string
+		)
+
+		scanner := bufio.NewScanner(httpResp.Body)
+		scanner.Buffer(make([]byte, 0, 64*1024), 1024*1024)
+
+		for scanner.Scan() {
+			line := scanner.Text()
+
+			// Skip SSE comments (: keep-alive), empty lines, retry directives.
+			if line == "" || strings.HasPrefix(line, ":") || strings.HasPrefix(line, "retry:") {
+				continue
+			}
+			if !strings.HasPrefix(line, "data: ") {
+				continue
+			}
+			data := line[6:]
+			if data == "[DONE]" {
+				break
+			}
+
+			var chunk dsChunk
+			if err := json.Unmarshal([]byte(data), &chunk); err != nil {
+				logger.Debug("deepseek stream chunk parse skip", "err", err)
+				continue
+			}
+
+			if chunk.Usage != nil {
+				usage = *chunk.Usage
+			}
+			if len(chunk.Choices) == 0 {
+				continue
+			}
+
+			delta := chunk.Choices[0].Delta
+
+			if delta.ReasoningContent != "" {
+				reasoning.WriteString(delta.ReasoningContent)
+			}
+			if delta.Content != "" {
+				content.WriteString(delta.Content)
+				adapter.EmitText(delta.Content)
+			}
+
+			// Accumulate tool calls by index.
+			if len(delta.ToolCalls) > 0 && !toolCallSignaled {
+				toolCallSignaled = true
+				if name := delta.ToolCalls[0].Function.Name; name != "" {
+					adapter.EmitToolCall(name)
+				}
+			}
+			for _, tc := range delta.ToolCalls {
+				acc, ok := toolCallAcc[tc.Index]
+				if !ok {
+					acc = &streamToolCallAcc{}
+					toolCallAcc[tc.Index] = acc
+				}
+				if tc.ID != "" {
+					acc.id = tc.ID
+				}
+				if tc.Type != "" {
+					acc.typ = tc.Type
+				}
+				if tc.Function.Name != "" {
+					acc.name = tc.Function.Name
+				}
+				acc.args.WriteString(tc.Function.Arguments)
+			}
+
+			if chunk.Choices[0].FinishReason != nil {
+				finishReason = *chunk.Choices[0].FinishReason
+			}
 		}
-		toolCalls = append(toolCalls, ToolCall{
-			ID:   tc.id,
-			Type: tc.typ,
-			Function: FunctionCall{
-				Name:      tc.name,
-				Arguments: tc.args.String(),
-			},
-		})
-	}
 
-	finalContent := content.String()
-	reasoningText := reasoning.String()
-	finalContent = resolveContentWithReasoningFallback(finalContent, reasoningText, "deepseek", toolCalls)
+		if err := scanner.Err(); err != nil {
+			logger.Error("deepseek stream read error", "err", err)
+			adapter.SetError(fmt.Errorf("stream read error: %w", err))
+		}
 
-	logger.Info(
-		"deepseek streaming response",
-		"provider", "deepseek",
-		"modelType", p.modelType,
-		"modelName", p.modelName,
-		"finishReason", finishReason,
-		"reasoningInResponse", usage.CompletionTokensDetails.ReasoningTokens > 0 || strings.TrimSpace(reasoningText) != "",
-		"hasToolCalls", len(toolCalls) > 0,
-		"toolCallCount", len(toolCalls),
-		"promptTokens", usage.PromptTokens,
-		"completionTokens", usage.CompletionTokens,
-		"reasoningTokens", usage.CompletionTokensDetails.ReasoningTokens,
-		"totalTokens", usage.TotalTokens,
-		"promptCacheHitTokens", usage.PromptCacheHitTokens,
-		"promptCacheMissTokens", usage.PromptCacheMissTokens,
-		"outputChars", len(finalContent),
-		"latencyMs", time.Since(start).Milliseconds(),
-	)
+		// Assemble tool calls from accumulated deltas.
+		var toolCalls []ToolCall
+		for i := 0; i < len(toolCallAcc); i++ {
+			tc := toolCallAcc[i]
+			if tc == nil {
+				continue
+			}
+			toolCalls = append(toolCalls, ToolCall{
+				ID:   tc.id,
+				Type: tc.typ,
+				Function: FunctionCall{
+					Name:      tc.name,
+					Arguments: tc.args.String(),
+				},
+			})
+		}
 
-	return &Response{
-		Content:          finalContent,
-		ReasoningContent: reasoningText,
-		ToolCalls:        toolCalls,
-		Usage: Usage{
+		finalContent := content.String()
+		reasoningText := reasoning.String()
+		finalContent = resolveContentWithReasoningFallback(finalContent, reasoningText, "deepseek", toolCalls)
+
+		logger.Info(
+			"deepseek streaming response",
+			"provider", "deepseek",
+			"modelType", p.modelType,
+			"modelName", p.modelName,
+			"finishReason", finishReason,
+			"reasoningInResponse", usage.CompletionTokensDetails.ReasoningTokens > 0 || strings.TrimSpace(reasoningText) != "",
+			"hasToolCalls", len(toolCalls) > 0,
+			"toolCallCount", len(toolCalls),
+			"promptTokens", usage.PromptTokens,
+			"completionTokens", usage.CompletionTokens,
+			"reasoningTokens", usage.CompletionTokensDetails.ReasoningTokens,
+			"totalTokens", usage.TotalTokens,
+			"promptCacheHitTokens", usage.PromptCacheHitTokens,
+			"promptCacheMissTokens", usage.PromptCacheMissTokens,
+			"outputChars", len(finalContent),
+			"latencyMs", time.Since(start).Milliseconds(),
+		)
+
+		// Fill resp fields before Finish closes the channel.
+		resp.Content = finalContent
+		resp.ReasoningContent = reasoningText
+		resp.ToolCalls = toolCalls
+		resp.Usage = Usage{
 			PromptTokens:     usage.PromptTokens,
 			CompletionTokens: usage.CompletionTokens,
 			TotalTokens:      usage.TotalTokens,
 			CachedTokens:     usage.PromptCacheHitTokens,
 			ReasoningTokens:  usage.CompletionTokensDetails.ReasoningTokens,
-		},
-		ProviderLabel: "deepseek",
-		ModelLabel:    p.modelName,
-	}, nil
+		}
+	}()
+
+	return adapter.Result(), nil
 }
 
 // ---------- helpers ----------

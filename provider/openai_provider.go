@@ -87,7 +87,7 @@ func newOpenAIProvider(apiKey, apiBase, modelType, modelName string, maxTokens i
 }
 
 // Chat sends a request to the OpenAI Responses API (streaming).
-func (p *OpenAIProvider) Chat(ctx context.Context, req *Request) (*Response, error) {
+func (p *OpenAIProvider) Chat(ctx context.Context, req *Request) (ChatResult, error) {
 	start := time.Now()
 	inputChars := inputChars(req.Messages)
 
@@ -127,47 +127,55 @@ func (p *OpenAIProvider) Chat(ctx context.Context, req *Request) (*Response, err
 		logger.Error("openai request error", "provider", "openai", "err", err)
 		return nil, fmt.Errorf("request failed: %w", err)
 	}
-	defer httpResp.Body.Close()
 
 	if httpResp.StatusCode != http.StatusOK {
+		defer httpResp.Body.Close()
 		errBody, _ := io.ReadAll(httpResp.Body)
 		logger.Error("openai request error", "provider", "openai", "status", httpResp.StatusCode, "body", string(errBody))
 		return nil, fmt.Errorf("request failed: %d %s", httpResp.StatusCode, string(errBody))
 	}
 
-	resp, err := p.parseSSEStream(httpResp, req.OnTextDelta, req.OnToolCallStart)
-	if err != nil {
-		return nil, fmt.Errorf("failed to parse response: %w", err)
-	}
-
-	// Extract rate-limit quota from response headers (OAuth mode only).
+	providerLabel := "openai"
 	if p.accountID != "" {
-		resp.Quota = extractQuota(httpResp.Header)
+		providerLabel = "openai-oauth"
 	}
 
-	resp.ProviderLabel = "openai"
-	resp.ModelLabel = p.modelName
-	if p.accountID != "" {
-		resp.ProviderLabel = "openai-oauth"
-	}
+	resp := &Response{ProviderLabel: providerLabel, ModelLabel: p.modelName}
+	adapter := newStreamAdapter(ctx, resp)
 
-	logger.Info(
-		"openai response",
-		"provider", resp.ProviderLabel,
-		"modelType", p.modelType,
-		"modelName", p.modelName,
-		"hasToolCalls", len(resp.ToolCalls) > 0,
-		"toolCallCount", len(resp.ToolCalls),
-		"promptTokens", resp.Usage.PromptTokens,
-		"completionTokens", resp.Usage.CompletionTokens,
-		"reasoningTokens", resp.Usage.ReasoningTokens,
-		"cachedTokens", resp.Usage.CachedTokens,
-		"totalTokens", resp.Usage.TotalTokens,
-		"outputChars", len(resp.Content),
-		"latencyMs", time.Since(start).Milliseconds(),
-	)
+	go func() {
+		defer httpResp.Body.Close()
+		defer adapter.Finish()
 
-	return resp, nil
+		if err := p.parseSSEStream(httpResp, adapter); err != nil {
+			logger.Error("openai SSE parse error", "provider", providerLabel, "err", err)
+			adapter.SetError(err)
+			return
+		}
+
+		// Extract rate-limit quota from response headers (OAuth mode only).
+		if p.accountID != "" {
+			resp.Quota = extractQuota(httpResp.Header)
+		}
+
+		logger.Info(
+			"openai response",
+			"provider", resp.ProviderLabel,
+			"modelType", p.modelType,
+			"modelName", p.modelName,
+			"hasToolCalls", len(resp.ToolCalls) > 0,
+			"toolCallCount", len(resp.ToolCalls),
+			"promptTokens", resp.Usage.PromptTokens,
+			"completionTokens", resp.Usage.CompletionTokens,
+			"reasoningTokens", resp.Usage.ReasoningTokens,
+			"cachedTokens", resp.Usage.CachedTokens,
+			"totalTokens", resp.Usage.TotalTokens,
+			"outputChars", len(resp.Content),
+			"latencyMs", time.Since(start).Milliseconds(),
+		)
+	}()
+
+	return adapter.Result(), nil
 }
 
 // buildRequestBody converts internal Request to Responses API JSON.
@@ -345,16 +353,17 @@ func (p *OpenAIProvider) buildRequestBody(req *Request) ([]byte, error) {
 }
 
 // parseSSEStream reads an SSE event stream and assembles the complete response.
+// It populates the adapter's Response directly and emits deltas via the adapter.
 // We collect response.output_text.delta events for streaming text delivery,
 // response.output_item.done events for complete output items, and
 // response.completed for usage data.
-func (p *OpenAIProvider) parseSSEStream(httpResp *http.Response, onTextDelta func(string), onToolCallStart func(string)) (*Response, error) {
+func (p *OpenAIProvider) parseSSEStream(httpResp *http.Response, adapter *streamAdapter) error {
+	resp := adapter.resp
 	var content strings.Builder
 	var reasoning strings.Builder
 	var reasoningItems []json.RawMessage
 	var toolCallSignaled bool
 	var toolCalls []ToolCall
-	var usage Usage
 
 	scanner := bufio.NewScanner(httpResp.Body)
 	// Increase buffer for large events.
@@ -397,22 +406,20 @@ func (p *OpenAIProvider) parseSSEStream(httpResp *http.Response, onTextDelta fun
 
 		switch event.Type {
 		case "response.output_text.delta":
-			if onTextDelta != nil && event.Delta != "" {
-				onTextDelta(event.Delta)
-			}
+			adapter.EmitText(event.Delta)
 
 		case "response.output_item.done":
 			if itemType, _ := event.Item["type"].(string); itemType == "function_call" {
-				if onToolCallStart != nil && !toolCallSignaled {
+				if !toolCallSignaled {
 					toolCallSignaled = true
 					name, _ := event.Item["name"].(string)
-					onToolCallStart(name)
+					adapter.EmitToolCall(name)
 				}
 			}
 			p.extractOutputItem(event.Item, &content, &toolCalls, &reasoning, &reasoningItems)
 
 		case "response.completed", "response.done":
-			usage = Usage{
+			resp.Usage = Usage{
 				PromptTokens:     event.Response.Usage.InputTokens,
 				CompletionTokens: event.Response.Usage.OutputTokens,
 				TotalTokens:      event.Response.Usage.TotalTokens,
@@ -423,29 +430,26 @@ func (p *OpenAIProvider) parseSSEStream(httpResp *http.Response, onTextDelta fun
 		case "response.failed":
 			errInfo := event.Response.Error
 			if errInfo != nil {
-				return nil, fmt.Errorf("API error [%s]: %s", errInfo.Code, errInfo.Message)
+				return fmt.Errorf("API error [%s]: %s", errInfo.Code, errInfo.Message)
 			}
-			return nil, fmt.Errorf("API returned response.failed")
+			return fmt.Errorf("API returned response.failed")
 		}
 	}
 
 	if err := scanner.Err(); err != nil {
-		return nil, fmt.Errorf("reading SSE stream: %w", err)
+		return fmt.Errorf("reading SSE stream: %w", err)
 	}
 
 	// Pack all reasoning items into a single JSON array for round-trip in ReasoningDetails.
-	var reasoningDetails json.RawMessage
 	if len(reasoningItems) > 0 {
-		reasoningDetails, _ = json.Marshal(reasoningItems)
+		resp.ReasoningDetails, _ = json.Marshal(reasoningItems)
 	}
 
-	return &Response{
-		Content:          content.String(),
-		ReasoningContent: reasoning.String(),
-		ReasoningDetails: reasoningDetails,
-		ToolCalls:        toolCalls,
-		Usage:            usage,
-	}, nil
+	resp.Content = content.String()
+	resp.ReasoningContent = reasoning.String()
+	resp.ToolCalls = toolCalls
+
+	return nil
 }
 
 // extractOutputItem processes a single completed output item from the stream.

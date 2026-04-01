@@ -425,7 +425,7 @@ func toAnthropicMessages(messages []Message) (string, []anthropic.MessageParam, 
 }
 
 // Chat sends a chat completion request to Anthropic.
-func (p *AnthropicProvider) Chat(ctx context.Context, req *Request) (*Response, error) {
+func (p *AnthropicProvider) Chat(ctx context.Context, req *Request) (ChatResult, error) {
 	start := time.Now()
 
 	systemPrompt, messages, err := toAnthropicMessages(req.Messages)
@@ -499,30 +499,30 @@ func (p *AnthropicProvider) Chat(ctx context.Context, req *Request) (*Response, 
 		)
 	}
 
-	var content string
-	var reasoningContent string
-	var reasoningDetailsJSON json.RawMessage
-	var toolCalls []ToolCall
-	var promptTokens, completionTokens, cacheCreationTokens, cacheReadTokens int64
-	var stopReason string
+	resp := &Response{ProviderLabel: "anthropic", ModelLabel: p.modelName}
+	adapter := newStreamAdapter(ctx, resp)
 
-	if req.OnTextDelta != nil {
-		// Streaming path.
+	go func() {
+		defer adapter.Finish()
+
 		stream := p.client.Messages.NewStreaming(ctx, params)
 		var textParts []string
 		var toolCallSignaled bool
 		var reasoningParts []string
 		var thinkingDetails []anthropicThinkingDetail
+		var toolCalls []ToolCall
+		var promptTokens, completionTokens, cacheCreationTokens, cacheReadTokens int64
+		var stopReason string
 
 		// Per-block accumulators, keyed by block index.
 		type blockState struct {
 			blockType string
-			id, name  string            // tool_use
-			thinking  strings.Builder   // thinking
-			signature strings.Builder   // thinking signature
-			data      string            // redacted_thinking
-			args      strings.Builder   // tool_use input_json
-			text      strings.Builder   // text
+			id, name  string          // tool_use
+			thinking  strings.Builder // thinking
+			signature strings.Builder // thinking signature
+			data      string          // redacted_thinking
+			args      strings.Builder // tool_use input_json
+			text      strings.Builder // text
 		}
 		blocks := make(map[int64]*blockState)
 
@@ -540,9 +540,9 @@ func (p *AnthropicProvider) Chat(ctx context.Context, req *Request) (*Response, 
 				case "tool_use":
 					bs.id = event.ContentBlock.ID
 					bs.name = event.ContentBlock.Name
-					if req.OnToolCallStart != nil && !toolCallSignaled {
+					if !toolCallSignaled {
 						toolCallSignaled = true
-						req.OnToolCallStart(event.ContentBlock.Name)
+						adapter.EmitToolCall(event.ContentBlock.Name)
 					}
 				case "redacted_thinking":
 					bs.data = event.ContentBlock.Data
@@ -557,9 +557,7 @@ func (p *AnthropicProvider) Chat(ctx context.Context, req *Request) (*Response, 
 				switch event.Delta.Type {
 				case "text_delta":
 					bs.text.WriteString(event.Delta.Text)
-					if event.Delta.Text != "" {
-						req.OnTextDelta(event.Delta.Text)
-					}
+					adapter.EmitText(event.Delta.Text)
 				case "thinking_delta":
 					bs.thinking.WriteString(event.Delta.Thinking)
 				case "signature_delta":
@@ -612,104 +610,48 @@ func (p *AnthropicProvider) Chat(ctx context.Context, req *Request) (*Response, 
 		}
 		if err := stream.Err(); err != nil {
 			logger.Error("anthropic stream error", "provider", "anthropic", "err", err)
-			return nil, fmt.Errorf("request failed: %w", err)
+			adapter.SetError(fmt.Errorf("request failed: %w", err))
 		}
 
-		content = strings.Join(textParts, "\n")
-		reasoningContent = strings.Join(reasoningParts, "\n")
+		content := strings.Join(textParts, "\n")
+		reasoningContent := strings.Join(reasoningParts, "\n")
+		var reasoningDetailsJSON json.RawMessage
 		if len(thinkingDetails) > 0 {
 			if data, err := json.Marshal(thinkingDetails); err == nil {
 				reasoningDetailsJSON = data
 			}
 		}
-	} else {
-		// Non-streaming path.
-		messageResp, err := p.client.Messages.New(ctx, params)
-		if err != nil {
-			logger.Error("anthropic request send error", "provider", "anthropic", "err", err)
-			return nil, fmt.Errorf("request failed: %w", err)
-		}
 
-		var textParts []string
-		var reasoningParts []string
-		var thinkingDetails []anthropicThinkingDetail
-		for _, block := range messageResp.Content {
-			switch block.Type {
-			case "text":
-				if block.Text != "" {
-					textParts = append(textParts, block.Text)
-				}
-			case "thinking":
-				if strings.TrimSpace(block.Thinking) != "" {
-					reasoningParts = append(reasoningParts, strings.TrimSpace(block.Thinking))
-				}
-				thinkingDetails = append(thinkingDetails, anthropicThinkingDetail{
-					Type:      "thinking",
-					Thinking:  block.Thinking,
-					Signature: block.Signature,
-				})
-			case "redacted_thinking":
-				reasoningParts = append(reasoningParts, "[redacted_thinking]")
-				thinkingDetails = append(thinkingDetails, anthropicThinkingDetail{
-					Type: "redacted_thinking",
-					Data: block.Data,
-				})
-			case "tool_use":
-				toolCalls = append(toolCalls, ToolCall{
-					ID:   block.ID,
-					Type: "function",
-					Function: FunctionCall{
-						Name:      block.Name,
-						Arguments: string(block.Input),
-					},
-				})
-			}
-		}
-		content = strings.Join(textParts, "\n")
-		reasoningContent = strings.Join(reasoningParts, "\n")
-		if len(thinkingDetails) > 0 {
-			if data, err := json.Marshal(thinkingDetails); err == nil {
-				reasoningDetailsJSON = data
-			}
-		}
-		promptTokens = messageResp.Usage.InputTokens
-		completionTokens = messageResp.Usage.OutputTokens
-		cacheCreationTokens = messageResp.Usage.CacheCreationInputTokens
-		cacheReadTokens = messageResp.Usage.CacheReadInputTokens
-		stopReason = string(messageResp.StopReason)
-	}
+		totalInput := int(promptTokens + cacheCreationTokens + cacheReadTokens)
+		logger.Info(
+			"anthropic response",
+			"provider", "anthropic",
+			"modelType", p.modelType,
+			"modelName", p.modelName,
+			"finishReason", stopReason,
+			"reasoningInResponse", strings.TrimSpace(reasoningContent) != "",
+			"hasToolCalls", len(toolCalls) > 0,
+			"toolCallCount", len(toolCalls),
+			"promptTokens", promptTokens,
+			"completionTokens", completionTokens,
+			"cacheCreationTokens", cacheCreationTokens,
+			"cacheReadTokens", cacheReadTokens,
+			"totalTokens", promptTokens+cacheCreationTokens+cacheReadTokens+completionTokens,
+			"outputChars", len(content),
+			"latencyMs", time.Since(start).Milliseconds(),
+		)
 
-	totalInput := int(promptTokens + cacheCreationTokens + cacheReadTokens)
-	logger.Info(
-		"anthropic response",
-		"provider", "anthropic",
-		"modelType", p.modelType,
-		"modelName", p.modelName,
-		"finishReason", stopReason,
-		"reasoningInResponse", strings.TrimSpace(reasoningContent) != "",
-		"hasToolCalls", len(toolCalls) > 0,
-		"toolCallCount", len(toolCalls),
-		"promptTokens", promptTokens,
-		"completionTokens", completionTokens,
-		"cacheCreationTokens", cacheCreationTokens,
-		"cacheReadTokens", cacheReadTokens,
-		"totalTokens", promptTokens+cacheCreationTokens+cacheReadTokens+completionTokens,
-		"outputChars", len(content),
-		"latencyMs", time.Since(start).Milliseconds(),
-	)
-
-	return &Response{
-		Content:          content,
-		ReasoningContent: reasoningContent,
-		ReasoningDetails: reasoningDetailsJSON,
-		ToolCalls:        toolCalls,
-		Usage: Usage{
+		resp.Content = content
+		resp.ReasoningContent = reasoningContent
+		resp.ReasoningDetails = reasoningDetailsJSON
+		resp.ToolCalls = toolCalls
+		resp.Usage = Usage{
 			PromptTokens:     totalInput,
 			CompletionTokens: int(completionTokens),
 			TotalTokens:      totalInput + int(completionTokens),
 			CachedTokens:     int(cacheReadTokens),
-		},
-		ProviderLabel: "anthropic",
-		ModelLabel:    p.modelName,
-	}, nil
+		}
+	}()
+
+	return adapter.Result(), nil
 }

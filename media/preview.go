@@ -164,7 +164,11 @@ func (p *LLMPreviewer) Preview(ctx context.Context, filePath string, mediaType M
 				},
 			},
 		}
-		resp, err := prov.Chat(ctx, req)
+		result, err := prov.Chat(ctx, req)
+		if err != nil {
+			return "", fmt.Errorf("preview LLM call failed (%s/%s): %w", selectedCandidate.ProviderName, selectedCandidate.ModelType, err)
+		}
+		resp, err := result.Wait()
 		if err != nil {
 			return "", fmt.Errorf("preview LLM call failed (%s/%s): %w", selectedCandidate.ProviderName, selectedCandidate.ModelType, err)
 		}
