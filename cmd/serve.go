@@ -272,9 +272,13 @@ func runServe(cmd *cobra.Command, args []string) error {
 }
 
 // buildDefaultAgentFor returns a factory that resolves the default agent name for a given session key.
+// Always returns a non-empty name: the configured agent if mapped, otherwise "soul".
 func buildDefaultAgentFor(cfg *config.Config) func(string) string {
 	return func(sessionKey string) string {
-		return cfg.SessionAgent(sessionKey)
+		if name := cfg.SessionAgent(sessionKey); name != "" {
+			return name
+		}
+		return "soul"
 	}
 }
 
