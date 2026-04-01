@@ -20,6 +20,7 @@ var (
 	listSessionsUserOnly    bool
 	listSessionsChangedOnly bool
 	listSessionsFields      string
+	listSessionsNeedSummary bool
 )
 
 var listSessionsCmd = &cobra.Command{
@@ -34,6 +35,7 @@ func init() {
 	listSessionsCmd.Flags().BoolVar(&listSessionsUserOnly, "user-only", false, "Exclude cron:*, :threads:, and sessions without user activity")
 	listSessionsCmd.Flags().BoolVar(&listSessionsChangedOnly, "changed-only", false, "Exclude sessions with changed_since_summary=false or message_count=0")
 	listSessionsCmd.Flags().StringVar(&listSessionsFields, "fields", "", "Comma-separated list of fields to include (e.g. key,is_running,has_heartbeat)")
+	listSessionsCmd.Flags().BoolVar(&listSessionsNeedSummary, "need-summary", false, "Smart filter: only sessions that need a summary update (implies --changed-only, minimal fields)")
 	rootCmd.AddCommand(listSessionsCmd)
 }
 
@@ -68,24 +70,36 @@ func runListSessions(_ *cobra.Command, _ []string) error {
 	opts := listSessionsOpts{
 		Days:        listSessionsDays,
 		UserOnly:    listSessionsUserOnly,
-		ChangedOnly: listSessionsChangedOnly,
+		ChangedOnly: listSessionsChangedOnly || listSessionsNeedSummary, // --need-summary implies --changed-only
+		NeedSummary: listSessionsNeedSummary,
 	}
+
+	var output *listSessionsOutput
 
 	// Try RPC to running serve process first.
 	result, err := rpcCall("sessions.list", opts)
 	if err == nil {
-		var output listSessionsOutput
-		if jsonErr := json.Unmarshal(result, &output); jsonErr == nil {
-			applyPostFilters(&output, opts)
-			return encodeSessionsOutput(&output)
+		var rpcOutput listSessionsOutput
+		if jsonErr := json.Unmarshal(result, &rpcOutput); jsonErr == nil {
+			applyPostFilters(&rpcOutput, opts)
+			output = &rpcOutput
 		}
 	}
 
-	// Fallback to file scanning.
-	output, err := collectSessions(cfg, opts)
-	if err != nil {
-		return err
+	if output == nil {
+		// Fallback to file scanning.
+		output, err = collectSessions(cfg, opts)
+		if err != nil {
+			return err
+		}
 	}
+
+	if listSessionsNeedSummary {
+		applyNeedSummaryFilter(output, time.Now())
+		// Force minimal fields
+		listSessionsFields = "key,message_count,updated_at"
+	}
+
 	return encodeSessionsOutput(output)
 }
 
@@ -94,6 +108,7 @@ type listSessionsOpts struct {
 	Days        int  `json:"days"`
 	UserOnly    bool `json:"user_only,omitempty"`
 	ChangedOnly bool `json:"changed_only,omitempty"`
+	NeedSummary bool `json:"need_summary,omitempty"`
 }
 
 // encodeSessionsOutput writes the output as JSON, applying --fields filtering if set.
@@ -266,6 +281,45 @@ func applyPostFilters(output *listSessionsOutput, opts listSessionsOpts) {
 		if opts.ChangedOnly && (!s.ChangedSinceSummary || s.MessageCount == 0) {
 			continue
 		}
+		filtered = append(filtered, s)
+	}
+	output.Sessions = filtered
+	output.ShownSessions = len(filtered)
+}
+
+// applyNeedSummaryFilter removes sessions that don't need a summary update right now.
+// Rules:
+//   - updated <1h ago → still active, skip
+//   - cron: + summary <2d → cron changes slowly, skip
+//   - total_messages >500 + summary <24h → large session recently summarized, skip
+//   - :threads: + updated >12h → ephemeral child thread gone stale, skip
+func applyNeedSummaryFilter(output *listSessionsOutput, now time.Time) {
+	filtered := output.Sessions[:0]
+	for _, s := range output.Sessions {
+		updatedAt, _ := time.Parse(time.RFC3339, s.UpdatedAt)
+		summaryAt, _ := time.Parse(time.RFC3339, s.SummaryAt)
+		hasSummary := s.SummaryAt != ""
+
+		// Rule 1: updated <1h — actively in use
+		if !updatedAt.IsZero() && now.Sub(updatedAt) < time.Hour {
+			continue
+		}
+
+		// Rule 2: cron sessions — summary <2d
+		if strings.HasPrefix(s.Key, "cron:") && hasSummary && now.Sub(summaryAt) < 48*time.Hour {
+			continue
+		}
+
+		// Rule 3: large sessions — total_messages >500 + summary <24h
+		if s.TotalMessages > 500 && hasSummary && now.Sub(summaryAt) < 24*time.Hour {
+			continue
+		}
+
+		// Rule 4: child threads — updated >12h ago
+		if strings.Contains(s.Key, ":threads:") && !updatedAt.IsZero() && now.Sub(updatedAt) > 12*time.Hour {
+			continue
+		}
+
 		filtered = append(filtered, s)
 	}
 	output.Sessions = filtered
