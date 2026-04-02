@@ -6,13 +6,13 @@ tags: [session, summary, internal]
 
 ## Workflow
 
-1. **List sessions**: Run `list-sessions --need-summary` to discover sessions that need summaries. This flag applies smart filtering (excludes actively-chatting sessions, recently-summarized cron/large sessions, and stale child threads) and returns minimal fields (key, message_count, updated_at).
+1. **List sessions**: Run `exec: {{WORKSPACE}}/bin/nagobot list-sessions --need-summary` to discover sessions that need summaries. This flag applies smart filtering (excludes actively-chatting sessions, recently-summarized cron/large sessions, and stale child threads) and returns minimal fields (key, message_count, updated_at).
 
 2. **For each qualifying session**:
-   - Run `sample-session <key>` to read a conversation. Output shows evenly-spaced messages plus the last 5 recent messages not in the sample. YAML frontmatter in messages is automatically stripped.
+   - Run `exec: {{WORKSPACE}}/bin/nagobot sample-session <key>` to read a conversation. Output shows evenly-spaced messages plus the last 5 recent messages not in the sample. YAML frontmatter in messages is automatically stripped.
    - Figure out:
       - Who, What, Why, When, Where
-   - Run `set-summary <key> <summary>` with a concise summary at a high level (≤200 characters).
+   - Run `exec: {{WORKSPACE}}/bin/nagobot set-summary <key> <summary>` with a concise summary at a high level (≤200 characters).
 
 3. When done (whether or not any sessions were processed), reply with: `SESSION_SUMMARY_OK`
 
