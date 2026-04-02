@@ -543,12 +543,17 @@ func openAIStreamChat(ctx context.Context, client openai.Client, params openai.C
 				adapter.EmitToolCall(name)
 			}
 		}
-		// Accumulate reasoning_content from non-standard extra fields
-		// (used by OpenRouter, Moonshot, Zhipu, Minimax via various backends).
-		if rc := delta.JSON.ExtraFields["reasoning_content"]; rc.Valid() {
-			var s string
-			if json.Unmarshal([]byte(rc.Raw()), &s) == nil {
-				reasoning.WriteString(s)
+		// Accumulate reasoning from non-standard extra fields.
+		// Models return reasoning text in different delta fields:
+		//   - "reasoning_content": DeepSeek, Moonshot, Zhipu, Minimax
+		//   - "reasoning": Qwen via OpenRouter (and other Alibaba-routed models)
+		for _, field := range []string{"reasoning_content", "reasoning"} {
+			if rc := delta.JSON.ExtraFields[field]; rc.Valid() {
+				var s string
+				if json.Unmarshal([]byte(rc.Raw()), &s) == nil {
+					reasoning.WriteString(s)
+					break
+				}
 			}
 		}
 	}
