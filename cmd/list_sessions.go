@@ -310,8 +310,8 @@ func applyNeedSummaryFilter(output *listSessionsOutput, now time.Time) {
 			continue
 		}
 
-		// Rule 3: large sessions — total_messages >500 + summary <24h
-		if s.TotalMessages > 500 && hasSummary && now.Sub(summaryAt) < 24*time.Hour {
+		// Rule 3: large sessions — total_messages >500 + summary <2d
+		if s.TotalMessages > 500 && hasSummary && now.Sub(summaryAt) < 48*time.Hour {
 			continue
 		}
 

@@ -17,10 +17,10 @@ func TestNeedSummaryFilter(t *testing.T) {
 		{Key: "cron:daily-check", UpdatedAt: fmtTime(now.Add(-3 * time.Hour)), SummaryAt: fmtTime(now.Add(-20 * time.Hour)), ChangedSinceSummary: true, MessageCount: 50},
 		// Should INCLUDE: cron + summary >2d
 		{Key: "cron:old-task", UpdatedAt: fmtTime(now.Add(-3 * time.Hour)), SummaryAt: fmtTime(now.Add(-72 * time.Hour)), ChangedSinceSummary: true, MessageCount: 80},
-		// Should EXCLUDE: total_messages >500 + summary <24h
-		{Key: "discord:big", UpdatedAt: fmtTime(now.Add(-2 * time.Hour)), SummaryAt: fmtTime(now.Add(-12 * time.Hour)), TotalMessages: 700, ChangedSinceSummary: true, MessageCount: 200},
-		// Should INCLUDE: total_messages >500 but summary >24h
-		{Key: "discord:big-stale", UpdatedAt: fmtTime(now.Add(-2 * time.Hour)), SummaryAt: fmtTime(now.Add(-48 * time.Hour)), TotalMessages: 700, ChangedSinceSummary: true, MessageCount: 300},
+		// Should EXCLUDE: total_messages >500 + summary <2d
+		{Key: "discord:big", UpdatedAt: fmtTime(now.Add(-2 * time.Hour)), SummaryAt: fmtTime(now.Add(-36 * time.Hour)), TotalMessages: 700, ChangedSinceSummary: true, MessageCount: 200},
+		// Should INCLUDE: total_messages >500 but summary >2d
+		{Key: "discord:big-stale", UpdatedAt: fmtTime(now.Add(-2 * time.Hour)), SummaryAt: fmtTime(now.Add(-72 * time.Hour)), TotalMessages: 700, ChangedSinceSummary: true, MessageCount: 300},
 		// Should EXCLUDE: thread + updated >12h
 		{Key: "telegram:123:threads:2026-03-31-10-00-00-abc", UpdatedAt: fmtTime(now.Add(-14 * time.Hour)), ChangedSinceSummary: true, MessageCount: 40},
 		// Should INCLUDE: thread + updated <12h
