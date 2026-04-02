@@ -345,6 +345,20 @@ func toOpenAIChatMessages(messages []Message, visionCapable, audioCapable bool) 
 					}
 				}
 				if len(parts) > 0 {
+					// Build descriptive hint listing each media file.
+					var hint strings.Builder
+					hint.WriteString("[Media returned by the tool call above:")
+					for _, marker := range markers {
+						hint.WriteString("\n- ")
+						hint.WriteString(marker.FilePath)
+						hint.WriteString(" (")
+						hint.WriteString(marker.MimeType)
+						hint.WriteString(")")
+					}
+					hint.WriteString("]")
+					parts = append([]openai.ChatCompletionContentPartUnionParam{
+						openai.TextContentPart(hint.String()),
+					}, parts...)
 					result = append(result, openai.ChatCompletionMessageParamUnion{
 						OfUser: &openai.ChatCompletionUserMessageParam{
 							Content: openai.ChatCompletionUserMessageParamContentUnion{
@@ -393,6 +407,19 @@ func toOpenAIChatMessages(messages []Message, visionCapable, audioCapable bool) 
 					}
 				}
 				if len(mediaParts) > 0 {
+					var hint strings.Builder
+					hint.WriteString("[Media returned by the tool call above:")
+					for _, marker := range mediaMarkers {
+						hint.WriteString("\n- ")
+						hint.WriteString(marker.FilePath)
+						hint.WriteString(" (")
+						hint.WriteString(marker.MimeType)
+						hint.WriteString(")")
+					}
+					hint.WriteString("]")
+					mediaParts = append([]openai.ChatCompletionContentPartUnionParam{
+						openai.TextContentPart(hint.String()),
+					}, mediaParts...)
 					result = append(result, openai.ChatCompletionMessageParamUnion{
 						OfUser: &openai.ChatCompletionUserMessageParam{
 							Content: openai.ChatCompletionUserMessageParamContentUnion{
