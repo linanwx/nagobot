@@ -135,7 +135,13 @@ var openRouterModels = map[string]openRouterModelMeta{
 		ThinkingOpts: []oaioption.RequestOption{
 			oaioption.WithJSONSet("reasoning", map[string]any{"effort": "high"}),
 		},
-		ProviderOrder: []string{"qwen"},
+		ProviderOrder: []string{"alibaba"},
+	},
+	"qwen/qwen3.6-plus:free": {
+		ThinkingOpts: []oaioption.RequestOption{
+			oaioption.WithJSONSet("reasoning", map[string]any{"effort": "high"}),
+		},
+		ProviderOrder: []string{"alibaba"},
 	},
 	"google/gemini-3-flash-preview": {
 		ThinkingOpts: []oaioption.RequestOption{
@@ -178,8 +184,8 @@ var openRouterModels = map[string]openRouterModelMeta{
 
 func init() {
 	RegisterProvider("openrouter", ProviderRegistration{
-		Models:       []string{"moonshotai/kimi-k2.5", "anthropic/claude-sonnet-4.6", "anthropic/claude-opus-4.6", "anthropic/claude-haiku-4.5", "z-ai/glm-5", "z-ai/glm-5-turbo", "minimax/minimax-m2.5", "minimax/minimax-m2.7", "qwen/qwen3.5-35b-a3b", "google/gemini-3-flash-preview", "google/gemini-3.1-flash-lite-preview", "x-ai/grok-4.1-fast", "openai/gpt-5.4-mini", "xiaomi/mimo-v2-pro", "xiaomi/mimo-v2-omni"},
-		VisionModels: []string{"moonshotai/kimi-k2.5", "anthropic/claude-sonnet-4.6", "anthropic/claude-opus-4.6", "anthropic/claude-haiku-4.5", "qwen/qwen3.5-35b-a3b", "google/gemini-3-flash-preview", "google/gemini-3.1-flash-lite-preview", "x-ai/grok-4.1-fast", "openai/gpt-5.4-mini", "xiaomi/mimo-v2-pro", "xiaomi/mimo-v2-omni"},
+		Models:       []string{"moonshotai/kimi-k2.5", "anthropic/claude-sonnet-4.6", "anthropic/claude-opus-4.6", "anthropic/claude-haiku-4.5", "z-ai/glm-5", "z-ai/glm-5-turbo", "minimax/minimax-m2.5", "minimax/minimax-m2.7", "qwen/qwen3.5-35b-a3b", "qwen/qwen3.6-plus:free", "google/gemini-3-flash-preview", "google/gemini-3.1-flash-lite-preview", "x-ai/grok-4.1-fast", "openai/gpt-5.4-mini", "xiaomi/mimo-v2-pro", "xiaomi/mimo-v2-omni"},
+		VisionModels: []string{"moonshotai/kimi-k2.5", "anthropic/claude-sonnet-4.6", "anthropic/claude-opus-4.6", "anthropic/claude-haiku-4.5", "qwen/qwen3.5-35b-a3b", "qwen/qwen3.6-plus:free", "google/gemini-3-flash-preview", "google/gemini-3.1-flash-lite-preview", "x-ai/grok-4.1-fast", "openai/gpt-5.4-mini", "xiaomi/mimo-v2-pro", "xiaomi/mimo-v2-omni"},
 		AudioModels:  []string{"google/gemini-3-flash-preview", "google/gemini-3.1-flash-lite-preview", "xiaomi/mimo-v2-omni"},
 		ContextWindows: map[string]int{
 			"moonshotai/kimi-k2.5":          262144,
@@ -190,6 +196,7 @@ func init() {
 			"minimax/minimax-m2.5":          196608,
 			"minimax/minimax-m2.7":          204800,
 			"qwen/qwen3.5-35b-a3b":         262144,
+			"qwen/qwen3.6-plus:free":       1000000,
 			"google/gemini-3-flash-preview":      1048576,
 			"google/gemini-3.1-flash-lite-preview": 1048576,
 			"x-ai/grok-4.1-fast":                  2000000,
