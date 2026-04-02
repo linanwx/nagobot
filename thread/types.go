@@ -113,10 +113,11 @@ type Thread struct {
 	mgr *Manager
 	*agent.Agent
 
-	sessionKey string
-	parent     *Thread // nil for root threads; set by SpawnChild
-	provider   provider.Provider
-	tools      *tools.Registry
+	sessionKey    string
+	parent        *Thread // nil for root threads; set by SpawnChild
+	agentExplicit bool    // true when agent was set by an explicit name (not DefaultAgentFor); skips hot-reload
+	provider      provider.Provider
+	tools         *tools.Registry
 
 	// State machine fields.
 	state  threadState

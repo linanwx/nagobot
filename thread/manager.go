@@ -11,6 +11,7 @@ import (
 	"github.com/linanwx/nagobot/cron"
 	"github.com/linanwx/nagobot/logger"
 	"github.com/linanwx/nagobot/provider"
+	"github.com/linanwx/nagobot/session"
 	"github.com/linanwx/nagobot/thread/msg"
 	"github.com/linanwx/nagobot/tools"
 )
@@ -181,14 +182,26 @@ func (m *Manager) NewThread(sessionKey, agentName string) (*Thread, error) {
 		lastActiveAt:     time.Now(),
 		lastUserActiveAt: time.Now(),
 	}
-	if strings.TrimSpace(agentName) == "" && m.cfg.DefaultAgentFor != nil {
-		agentName = m.cfg.DefaultAgentFor(sessionKey)
+	explicit := strings.TrimSpace(agentName) != ""
+	if !explicit {
+		// Restore persisted agent from a previous explicit assignment
+		// (survives thread GC and restarts).
+		if persisted := m.loadPersistedAgent(sessionKey); persisted != "" {
+			agentName = persisted
+			explicit = true
+		} else if m.cfg.DefaultAgentFor != nil {
+			agentName = m.cfg.DefaultAgentFor(sessionKey)
+		}
 	}
 	a, err := m.cfg.Agents.New(agentName)
 	if err != nil {
 		return nil, err
 	}
 	t.Agent = a
+	t.agentExplicit = explicit
+	if explicit {
+		m.persistAgent(sessionKey, agentName)
+	}
 	t.provider = m.cfg.DefaultProvider
 	if m.cfg.DefaultSinkFor != nil {
 		t.defaultSink = m.cfg.DefaultSinkFor(sessionKey)
@@ -328,4 +341,22 @@ func threadInfo(t *Thread) tools.ThreadInfo {
 	t.mu.Unlock()
 
 	return info
+}
+
+// persistAgent writes the agent name to {sessionDir}/meta.json so it
+// survives thread GC and restarts. Only called for explicitly-specified agents.
+func (m *Manager) persistAgent(sessionKey, agentName string) {
+	dir := m.SessionDir(sessionKey)
+	if dir == "" {
+		return
+	}
+	session.UpdateMeta(dir, func(meta *session.Meta) {
+		meta.Agent = agentName
+	})
+}
+
+// loadPersistedAgent reads the agent name from {sessionDir}/meta.json.
+// Returns "" if no persisted agent exists.
+func (m *Manager) loadPersistedAgent(sessionKey string) string {
+	return session.MetaAgent(m.SessionDir(sessionKey))
 }

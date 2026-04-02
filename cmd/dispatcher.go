@@ -3,10 +3,8 @@ package cmd
 import (
 	"bytes"
 	"context"
-	"encoding/json"
 	"fmt"
 	"os"
-	"path/filepath"
 	"regexp"
 	"strings"
 
@@ -438,8 +436,8 @@ func (d *Dispatcher) wakeSource(ch channel.Channel) thread.WakeSource {
 	return thread.WakeSource(ch.Name())
 }
 
-// persistChannelRouting writes channel.json to the session directory for
-// channels that need routing metadata beyond what the session key provides
+// persistChannelRouting writes channel routing metadata to meta.json for
+// channels that need routing info beyond what the session key provides
 // (e.g., Discord DM needs "dm:{userID}" to create a DM channel on send,
 // WeCom needs req_id to reply after service restart).
 func persistChannelRouting(sessionsDir, sessionKey string, msg *channel.Message) {
@@ -447,42 +445,27 @@ func persistChannelRouting(sessionsDir, sessionKey string, msg *channel.Message)
 		return
 	}
 
-	var data map[string]any
+	sessionDir := session.SessionDir(sessionsDir, sessionKey)
 
 	// Discord DM: persist reply_to for DM channel creation.
 	chatType := strings.TrimSpace(msg.Metadata["chat_type"])
 	if chatType == "dm" && strings.HasPrefix(msg.ChannelID, "discord:") {
 		if userID := strings.TrimSpace(msg.UserID); userID != "" {
-			data = map[string]any{
-				"discord_dm": map[string]string{
-					"channel":  "discord",
-					"reply_to": "dm:" + userID,
-					"user_id":  userID,
-				},
-			}
+			session.UpdateMeta(sessionDir, func(m *session.Meta) {
+				m.DiscordDM = &session.DiscordDMMeta{
+					ReplyTo: "dm:" + userID,
+					UserID:  userID,
+				}
+			})
 		}
 	}
 
 	// WeCom: persist req_id so heartbeat can reply after restart.
 	if reqID := strings.TrimSpace(msg.Metadata[channel.MetaWeComReqID]); reqID != "" && strings.HasPrefix(sessionKey, "wecom:") {
-		data = map[string]any{
-			"wecom": map[string]string{
-				"req_id": reqID,
-			},
-		}
+		session.UpdateMeta(sessionDir, func(m *session.Meta) {
+			m.WeCom = &session.WeComMeta{ReqID: reqID}
+		})
 	}
-
-	if data == nil {
-		return
-	}
-
-	sessionDir := session.SessionDir(sessionsDir, sessionKey)
-	raw, err := json.MarshalIndent(data, "", "  ")
-	if err != nil {
-		return
-	}
-	_ = os.MkdirAll(sessionDir, 0755)
-	_ = os.WriteFile(filepath.Join(sessionDir, "channel.json"), raw, 0644)
 }
 
 // truncate shortens s to at most maxLen runes. It prefers cutting at a

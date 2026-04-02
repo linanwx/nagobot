@@ -282,26 +282,9 @@ func buildDefaultAgentFor(cfg *config.Config) func(string) string {
 	}
 }
 
-// channelRouting is the on-disk shape of {sessionDir}/channel.json.
-type channelRouting struct {
-	DiscordDM *struct {
-		ReplyTo string `json:"reply_to"`
-	} `json:"discord_dm"`
-	WeCom *struct {
-		ReqID string `json:"req_id"`
-	} `json:"wecom"`
-}
-
-// readChannelRouting loads channel.json from the session directory.
-func readChannelRouting(sessionsDir, sessionKey string) channelRouting {
-	sessionDir := session.SessionDir(sessionsDir, sessionKey)
-	data, err := os.ReadFile(filepath.Join(sessionDir, "channel.json"))
-	if err != nil {
-		return channelRouting{}
-	}
-	var r channelRouting
-	_ = json.Unmarshal(data, &r)
-	return r
+// readSessionMeta loads meta.json from the session directory.
+func readSessionMeta(sessionsDir, sessionKey string) session.Meta {
+	return session.ReadMeta(session.SessionDir(sessionsDir, sessionKey))
 }
 
 // buildDefaultSinkFor returns a factory that resolves the fallback sink for a given session key.
@@ -394,7 +377,7 @@ func buildDefaultSinkFor(chMgr *channel.Manager, cfg *config.Config, sessionsDir
 			channelID := strings.TrimPrefix(sessionKey, "discord:")
 			if channelID != "" {
 				replyTo := channelID
-				if r := readChannelRouting(sessionsDir, sessionKey); r.DiscordDM != nil && r.DiscordDM.ReplyTo != "" {
+				if r := readSessionMeta(sessionsDir, sessionKey); r.DiscordDM != nil && r.DiscordDM.ReplyTo != "" {
 					replyTo = r.DiscordDM.ReplyTo
 				}
 				return thread.Sink{
@@ -420,7 +403,7 @@ func buildDefaultSinkFor(chMgr *channel.Manager, cfg *config.Config, sessionsDir
 				}
 				// Read persisted req_id once at sink creation (survives restart).
 				var persistedReqID string
-				if r := readChannelRouting(sessionsDir, sessionKey); r.WeCom != nil {
+				if r := readSessionMeta(sessionsDir, sessionKey); r.WeCom != nil {
 					persistedReqID = r.WeCom.ReqID
 				}
 				return thread.Sink{
