@@ -1,6 +1,7 @@
 package provider
 
 import (
+	"encoding/json"
 	"testing"
 	"time"
 )
@@ -115,6 +116,58 @@ func TestSanitizeMessages_KeepsAssistantWithCompressed(t *testing.T) {
 	}
 	if got[1].Compressed != "compressed reply" {
 		t.Fatalf("Messages[1].Compressed = %q, want %q", got[1].Compressed, "compressed reply")
+	}
+}
+
+func TestStripReasoningKeepSignatures_GeminiFormat(t *testing.T) {
+	// Gemini-style: text+sig, functionCall+sig, thought part.
+	details := json.RawMessage(`[
+		{"text":"hello","thoughtSignature":"sig1"},
+		{"functionCall":{"name":"sleep_thread","args":{}},"thoughtSignature":"sig2"},
+		{"text":"thinking...","thought":true}
+	]`)
+	got := StripReasoningKeepSignatures(details)
+	if got == nil {
+		t.Fatal("expected non-nil result for Gemini format with functionCall+sig")
+	}
+	// Should keep only the functionCall+sig part.
+	var parts []json.RawMessage
+	if err := json.Unmarshal(got, &parts); err != nil {
+		t.Fatalf("unmarshal result: %v", err)
+	}
+	if len(parts) != 1 {
+		t.Fatalf("expected 1 kept part, got %d", len(parts))
+	}
+	var p struct {
+		FunctionCall     *struct{ Name string } `json:"functionCall"`
+		ThoughtSignature string                 `json:"thoughtSignature"`
+	}
+	if err := json.Unmarshal(parts[0], &p); err != nil {
+		t.Fatalf("unmarshal part: %v", err)
+	}
+	if p.FunctionCall == nil || p.FunctionCall.Name != "sleep_thread" {
+		t.Fatalf("expected functionCall sleep_thread, got %+v", p.FunctionCall)
+	}
+	if p.ThoughtSignature != "sig2" {
+		t.Fatalf("expected sig2, got %s", p.ThoughtSignature)
+	}
+}
+
+func TestStripReasoningKeepSignatures_NonGeminiFormat(t *testing.T) {
+	// Anthropic-style: no functionCall fields.
+	details := json.RawMessage(`[{"type":"thinking","thinking":"deep thought","signature":"abc"}]`)
+	got := StripReasoningKeepSignatures(details)
+	if got != nil {
+		t.Fatalf("expected nil for non-Gemini format, got %s", got)
+	}
+}
+
+func TestStripReasoningKeepSignatures_Empty(t *testing.T) {
+	if got := StripReasoningKeepSignatures(nil); got != nil {
+		t.Fatalf("expected nil for nil input, got %s", got)
+	}
+	if got := StripReasoningKeepSignatures(json.RawMessage(`[]`)); got != nil {
+		t.Fatalf("expected nil for empty array, got %s", got)
 	}
 }
 

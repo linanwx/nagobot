@@ -382,6 +382,47 @@ func SanitizeMessages(messages []Message) []Message {
 	return result
 }
 
+// StripReasoningKeepSignatures removes reasoning content from ReasoningDetails
+// while preserving function-call signatures required by Gemini API round-trip.
+// For non-Gemini formats (Anthropic, OpenAI, OpenRouter) this returns nil.
+func StripReasoningKeepSignatures(details json.RawMessage) json.RawMessage {
+	if len(details) == 0 {
+		return nil
+	}
+	// Probe for Gemini-style parts: look for functionCall + thoughtSignature.
+	type probeFC struct {
+		Name string         `json:"name"`
+		Args map[string]any `json:"args,omitempty"`
+	}
+	type probePart struct {
+		FunctionCall     *probeFC `json:"functionCall,omitempty"`
+		ThoughtSignature string   `json:"thoughtSignature,omitempty"`
+	}
+	var parts []probePart
+	if err := json.Unmarshal(details, &parts); err != nil {
+		return nil
+	}
+	// Keep raw JSON of parts that have both functionCall and thoughtSignature.
+	var rawParts []json.RawMessage
+	if err := json.Unmarshal(details, &rawParts); err != nil {
+		return nil
+	}
+	var kept []json.RawMessage
+	for i, p := range parts {
+		if p.FunctionCall != nil && p.ThoughtSignature != "" {
+			kept = append(kept, rawParts[i])
+		}
+	}
+	if len(kept) == 0 {
+		return nil
+	}
+	result, err := json.Marshal(kept)
+	if err != nil {
+		return nil
+	}
+	return result
+}
+
 // MediaMarker represents an embedded media reference in tool output.
 type MediaMarker struct {
 	MimeType string

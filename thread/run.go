@@ -351,7 +351,7 @@ func ApplyCompressed(msgs []provider.Message) []provider.Message {
 		}
 		if m.ReasoningTrimmed {
 			m.ReasoningContent = ""
-			m.ReasoningDetails = nil
+			m.ReasoningDetails = provider.StripReasoningKeepSignatures(m.ReasoningDetails)
 		}
 		result = append(result, m)
 	}
@@ -365,7 +365,7 @@ func ApplyCompressedMessage(m provider.Message) provider.Message {
 	}
 	if m.ReasoningTrimmed {
 		m.ReasoningContent = ""
-		m.ReasoningDetails = nil
+		m.ReasoningDetails = provider.StripReasoningKeepSignatures(m.ReasoningDetails)
 	}
 	return m
 }
