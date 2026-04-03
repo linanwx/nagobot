@@ -234,6 +234,9 @@ func (r *Runner) RunWithMessages(ctx context.Context, messages []provider.Messag
 				logger.Error("tool error", "tool", tc.Function.Name, "err", result)
 			}
 			toolMsg := provider.ToolResultMessage(tc.ID, tc.Function.Name, result)
+			if yamlBlock, _, ok := SplitFrontmatter(result); ok && ExtractFrontmatterValue(yamlBlock, "skip_trim") == "true" {
+				toolMsg.SkipTrim = true
+			}
 			messages = append(messages, toolMsg)
 			if r.onMessage != nil {
 				r.onMessage(toolMsg)

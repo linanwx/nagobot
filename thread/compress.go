@@ -222,6 +222,10 @@ func compressTier1(messages []provider.Message, keepLastAssistants int) (bool, [
 	for i := 0; i < protectFrom; i++ {
 		m := &result[i]
 
+		// Skip messages marked as no-trim (e.g. compression summary tool results).
+		if m.SkipTrim {
+			continue
+		}
 		// Skip messages already marked by heartbeat trim pass.
 		if m.HeartbeatTrim || (m.Role == "user" && strings.HasPrefix(m.Compressed, "[heartbeat_")) {
 			continue
@@ -364,13 +368,6 @@ func computeToolCompressed(m *provider.Message, idx int, lastSkillLoad map[strin
 		}
 		return ""
 	}
-	// Never compress compression results — they ARE the session summary.
-	// Uses Contains because skip_trim lives inside a nested YAML block
-	// (compress-session output wrapped by exec tool header).
-	if strings.Contains(m.Content, "\nskip_trim: true\n") {
-		return ""
-	}
-
 	// Expired: stale tool results → header-only after compressExpireAge.
 	// read_file content may be outdated; web results are certainly stale.
 	if expiredToolHeaderOnly[m.Name] && !m.Timestamp.IsZero() && time.Since(m.Timestamp) > compressExpireAge {

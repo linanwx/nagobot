@@ -45,6 +45,21 @@ func toolError(tool, message string) string {
 	return sb.String()
 }
 
+// hasYAMLHeaderLine checks if a YAML-frontmatter string contains a specific line in its header.
+func hasYAMLHeaderLine(content, target string) bool {
+	if !strings.HasPrefix(content, "---\n") {
+		return false
+	}
+	if idx := strings.Index(content[4:], "\n---"); idx >= 0 {
+		for _, line := range strings.Split(content[4:4+idx], "\n") {
+			if strings.TrimSpace(line) == target {
+				return true
+			}
+		}
+	}
+	return false
+}
+
 // IsToolError checks whether a tool result represents an error.
 // Supports YAML format (status: error) and legacy format (Error: prefix).
 func IsToolError(result string) bool {

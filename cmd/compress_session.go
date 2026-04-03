@@ -145,16 +145,6 @@ func runCompressSession(_ *cobra.Command, args []string) error {
 		}
 	}
 
-	logger.Info("compress-session completed",
-		"sessionKey", orig.Key,
-		"messagesBefore", origCount,
-		"messagesAfter", len(orig.Messages),
-		"estimatedTokens", record.EstimatedTokens,
-		"totalChars", record.TotalChars,
-		"maxMsgChars", record.MaxMsgChars,
-		"backup", backupPath,
-		"session", sessionFile,
-	)
 	fields := map[string]any{
 		"messages_before": origCount,
 		"messages_after":  len(orig.Messages),

@@ -213,6 +213,10 @@ func (t *ExecTool) run(ctx context.Context, a execArgs, timeout int) string {
 	if truncated {
 		fields["truncated"] = true
 	}
+	// Propagate skip_trim from command output YAML header to exec tool header.
+	if hasYAMLHeaderLine(result, "skip_trim: true") {
+		fields["skip_trim"] = true
+	}
 
 	return toolResult("exec", fields, result)
 }

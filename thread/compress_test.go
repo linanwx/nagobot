@@ -568,11 +568,9 @@ func TestRuneLen(t *testing.T) {
 	}
 }
 
-func TestCompressTier1_SkipsCompressionResult(t *testing.T) {
-	// A tool result with skip_trim: true should never be compressed,
-	// even if it's large and old — it IS the compression summary.
-	content := "---\ntool: exec\nstatus: ok\nexit_code: 0\n---\n\n" +
-		"---\ncommand: compress-session\nstatus: ok\nskip_trim: true\nmessages_before: 500\nmessages_after: 120\n---\n\n" +
+func TestCompressTier1_SkipsMessageWithSkipTrim(t *testing.T) {
+	// Messages with SkipTrim=true should never be compressed, regardless of size or age.
+	content := "---\ntool: exec\nstatus: ok\nskip_trim: true\n---\n\n" +
 		strings.Repeat("这是压缩摘要内容。", 500)
 
 	messages := []provider.Message{
@@ -580,12 +578,36 @@ func TestCompressTier1_SkipsCompressionResult(t *testing.T) {
 		{Role: "assistant", Content: "", ToolCalls: []provider.ToolCall{
 			{ID: "tc1", Type: "function", Function: provider.FunctionCall{Name: "exec", Arguments: "{}"}},
 		}},
-		{Role: "tool", ToolCallID: "tc1", Name: "exec", Content: content, Timestamp: time.Now().Add(-4 * time.Hour)},
+		{Role: "tool", ToolCallID: "tc1", Name: "exec", Content: content, SkipTrim: true, Timestamp: time.Now().Add(-4 * time.Hour)},
 		{Role: "assistant", Content: "COMPRESS_OK"},
 	}
 
 	_, result := compressTier1(messages, 3)
 	if result[2].Compressed != "" {
-		t.Errorf("skip_trim tool message should not be compressed, got: %s", result[2].Compressed[:100])
+		t.Errorf("SkipTrim message should not be compressed, got: %s", result[2].Compressed[:100])
+	}
+}
+
+func TestCompressTier1_DoesNotFalsePositiveSkipTrim(t *testing.T) {
+	// Content containing "skip_trim: true" but without SkipTrim field set
+	// must still be compressed normally (e.g. read_file of source code).
+	body := strings.Repeat("some code\n", 100) +
+		"\nskip_trim: true\n" +
+		strings.Repeat("more code\n", 100)
+	content := "---\ntool: read_file\nstatus: ok\n---\n\n" + body
+
+	messages := []provider.Message{
+		{Role: "user", Content: "hello"},
+		{Role: "assistant", Content: "", ToolCalls: []provider.ToolCall{
+			{ID: "tc1", Type: "function", Function: provider.FunctionCall{Name: "read_file", Arguments: "{}"}},
+		}},
+		// SkipTrim NOT set — field check only, not content scan
+		{Role: "tool", ToolCallID: "tc1", Name: "read_file", Content: content, Timestamp: time.Now().Add(-4 * time.Hour)},
+		{Role: "assistant", Content: "done"},
+	}
+
+	_, result := compressTier1(messages, 3)
+	if result[2].Compressed == "" {
+		t.Error("read_file with skip_trim in body should still be compressed (SkipTrim field not set)")
 	}
 }

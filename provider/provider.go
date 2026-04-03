@@ -50,6 +50,7 @@ type Message struct {
 	ReasoningTrimmed bool       `json:"reasoning_trimmed,omitempty"` // Tier 1 flag: reasoning marked for send-time exclusion (original data preserved)
 	ReasoningTokens  int        `json:"reasoning_tokens,omitempty"`  // precise reasoning token count from provider API
 	HeartbeatTrim    bool       `json:"heartbeat_trim,omitempty"`    // Tier 1 flag: heartbeat turn marked for send-time removal
+	SkipTrim         bool       `json:"skip_trim,omitempty"`         // tool result must not be compressed (e.g. compression summary)
 	Source           string     `json:"source,omitempty"`            // wake source that triggered this message
 }
 
