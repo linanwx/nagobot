@@ -77,6 +77,29 @@ func ReadFile(path string) (*Session, error) {
 	return s, nil
 }
 
+// ReadFileRaw reads a session JSONL file without sanitizing messages.
+// Use for data migration (compress-session) where the caller needs the exact
+// on-disk state, including in-progress tool calls not yet answered.
+func ReadFileRaw(path string) (*Session, error) {
+	f, err := os.Open(path)
+	if err != nil {
+		return nil, err
+	}
+	defer f.Close()
+
+	messages, err := readJSONL(f)
+	if err != nil {
+		return nil, err
+	}
+	if messages == nil {
+		messages = []provider.Message{}
+	}
+
+	s := &Session{Messages: messages}
+	deriveTimestamps(s)
+	return s, nil
+}
+
 // WriteFile atomically writes a session to a JSONL file (temp + rename).
 func WriteFile(path string, s *Session) error {
 	EnsureMessageIDs(s.Key, s.Messages)

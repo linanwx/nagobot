@@ -46,8 +46,8 @@ func runCompressSession(_ *cobra.Command, args []string) error {
 		return fmt.Errorf("input file required (or use --clear)")
 	}
 
-	// 1. Read original session.
-	orig, err := session.ReadFile(sessionFile)
+	// 1. Read original session (raw — no sanitize, preserves in-progress tool calls).
+	orig, err := session.ReadFileRaw(sessionFile)
 	if err != nil {
 		return fmt.Errorf("failed to read session file: %w", err)
 	}
