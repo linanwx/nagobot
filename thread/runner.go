@@ -216,6 +216,20 @@ func (r *Runner) RunWithMessages(ctx context.Context, messages []provider.Messag
 			r.onEvent(EventToolCalls, resp.ToolCalls[0].Function.Name)
 		}
 
+		// Sanitize malformed tool call arguments before persistence.
+		// Some models (e.g. Qwen) occasionally produce invalid JSON in streaming.
+		// Replace with "{}" so the session history stays valid; generate a
+		// descriptive error result instead of executing the tool.
+		invalidArgs := make(map[string]string) // tc.ID → original malformed args
+		for i, tc := range resp.ToolCalls {
+			if !json.Valid([]byte(tc.Function.Arguments)) {
+				invalidArgs[tc.ID] = tc.Function.Arguments
+				resp.ToolCalls[i].Function.Arguments = "{}"
+				logger.Warn("sanitized malformed tool call arguments",
+					"tool", tc.Function.Name, "original", tc.Function.Arguments)
+			}
+		}
+
 		assistantMsg := provider.AssistantMessageWithTools(resp.Content, resp.ReasoningContent, resp.ReasoningDetails, resp.ToolCalls)
 		assistantMsg.ReasoningTokens = resp.Usage.ReasoningTokens
 		messages = append(messages, assistantMsg)
@@ -229,7 +243,12 @@ func (r *Runner) RunWithMessages(ctx context.Context, messages []provider.Messag
 			}
 
 			start := time.Now()
-			result := r.tools.Run(ctx, tc.Function.Name, json.RawMessage(tc.Function.Arguments))
+			var result string
+			if orig, bad := invalidArgs[tc.ID]; bad {
+				result = fmt.Sprintf("Error: malformed tool call arguments (invalid JSON).\nOriginal: %s\nExpected: valid JSON object for %s.", orig, tc.Function.Name)
+			} else {
+				result = r.tools.Run(ctx, tc.Function.Name, json.RawMessage(tc.Function.Arguments))
+			}
 			if tools.IsToolError(result) {
 				logger.Error("tool error", "tool", tc.Function.Name, "err", result)
 			}

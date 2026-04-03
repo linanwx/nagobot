@@ -230,7 +230,7 @@ func parseFunctionArguments(arguments string) any {
 
 	var parsed any
 	if err := json.Unmarshal([]byte(arguments), &parsed); err != nil {
-		return arguments
+		return map[string]any{} // invalid JSON → empty object (safe for API)
 	}
 	return parsed
 }

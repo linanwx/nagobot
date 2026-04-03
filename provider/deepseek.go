@@ -504,7 +504,16 @@ func toDSMessages(messages []Message) []dsMessage {
 			} else {
 				dm.ReasoningContent = &empty
 			}
-			dm.ToolCalls = m.ToolCalls
+			if len(m.ToolCalls) > 0 {
+				tcs := make([]ToolCall, len(m.ToolCalls))
+				copy(tcs, m.ToolCalls)
+				for j := range tcs {
+					if !json.Valid([]byte(tcs[j].Function.Arguments)) {
+						tcs[j].Function.Arguments = "{}"
+					}
+				}
+				dm.ToolCalls = tcs
+			}
 		default: // system, user, tool
 			dm.Content = &m.Content
 		}

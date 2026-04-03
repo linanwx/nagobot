@@ -244,11 +244,15 @@ func (p *OpenAIProvider) buildRequestBody(req *Request) ([]byte, error) {
 				}
 			}
 			for _, tc := range msg.ToolCalls {
+				args := tc.Function.Arguments
+				if !json.Valid([]byte(args)) {
+					args = "{}"
+				}
 				input = append(input, map[string]any{
 					"type":      "function_call",
 					"call_id":   tc.ID,
 					"name":      tc.Function.Name,
-					"arguments": tc.Function.Arguments,
+					"arguments": args,
 				})
 			}
 

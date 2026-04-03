@@ -459,12 +459,16 @@ func toOpenAIChatMessages(messages []Message, visionCapable, audioCapable bool) 
 					if tc.Type != "" && tc.Type != "function" {
 						return nil, fmt.Errorf("unsupported assistant tool call type: %s", tc.Type)
 					}
+					args := tc.Function.Arguments
+					if !json.Valid([]byte(args)) {
+						args = "{}"
+					}
 					assistant.ToolCalls = append(assistant.ToolCalls, openai.ChatCompletionMessageToolCallUnionParam{
 						OfFunction: &openai.ChatCompletionMessageFunctionToolCallParam{
 							ID: tc.ID,
 							Function: openai.ChatCompletionMessageFunctionToolCallFunctionParam{
 								Name:      tc.Function.Name,
-								Arguments: tc.Function.Arguments,
+								Arguments: args,
 							},
 						},
 					})
