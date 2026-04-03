@@ -12,7 +12,7 @@ import (
 	"github.com/linanwx/nagobot/monitor"
 	"github.com/linanwx/nagobot/provider"
 	"github.com/linanwx/nagobot/session"
-	"github.com/linanwx/nagobot/thread/msg"
+	"github.com/linanwx/nagobot/tools"
 	"github.com/spf13/cobra"
 )
 
@@ -53,6 +53,7 @@ func runCompressSession(_ *cobra.Command, args []string) error {
 	}
 	orig.Key = session.DeriveKeyFromPath(sessionFile)
 	origCount := len(orig.Messages)
+	var content string // summary text, set in compress path
 	origMessages := make([]provider.Message, origCount)
 	copy(origMessages, orig.Messages)
 
@@ -82,7 +83,7 @@ func runCompressSession(_ *cobra.Command, args []string) error {
 		if err != nil {
 			return fmt.Errorf("failed to read input file: %w", err)
 		}
-		content := strings.TrimSpace(string(inputData))
+		content = strings.TrimSpace(string(inputData))
 		if content == "" {
 			return fmt.Errorf("input file is empty")
 		}
@@ -101,10 +102,8 @@ func runCompressSession(_ *cobra.Command, args []string) error {
 			cutoff++
 		}
 		tail := orig.Messages[cutoff:]
-		newMessages := make([]provider.Message, 0, len(tail)+1)
+		newMessages := make([]provider.Message, 0, len(tail))
 		newMessages = append(newMessages, tail...)
-		wrappedContent := msg.BuildSystemMessage("compression_summary", nil, content)
-		newMessages = append(newMessages, provider.Message{Role: "assistant", Content: wrappedContent, Timestamp: now, Source: "compression"})
 		orig.Messages = newMessages
 
 		// 4. Append summary to daily memory file.
@@ -156,8 +155,19 @@ func runCompressSession(_ *cobra.Command, args []string) error {
 		"backup", backupPath,
 		"session", sessionFile,
 	)
-	fmt.Printf("---\ncommand: compress-session\nstatus: ok\nmessages_before: %d\nmessages_after: %d\nestimated_tokens: %d\nbackup: %s\nsession: %s\n---\n",
-		origCount, len(orig.Messages), record.EstimatedTokens, backupPath, sessionFile)
+	fields := map[string]any{
+		"messages_before": origCount,
+		"messages_after":  len(orig.Messages),
+		"backup":          backupPath,
+		"session":         sessionFile,
+	}
+	if content != "" {
+		fields["skip_trim"] = true
+		fields["estimated_tokens"] = record.EstimatedTokens
+		fmt.Print(tools.CmdResult("compress-session", fields, content))
+	} else {
+		fmt.Print(tools.CmdResult("compress-session", fields, ""))
+	}
 	return nil
 }
 

@@ -567,3 +567,25 @@ func TestRuneLen(t *testing.T) {
 		t.Errorf("runeLen empty: got %d, want 0", got)
 	}
 }
+
+func TestCompressTier1_SkipsCompressionResult(t *testing.T) {
+	// A tool result with skip_trim: true should never be compressed,
+	// even if it's large and old — it IS the compression summary.
+	content := "---\ntool: exec\nstatus: ok\nexit_code: 0\n---\n\n" +
+		"---\ncommand: compress-session\nstatus: ok\nskip_trim: true\nmessages_before: 500\nmessages_after: 120\n---\n\n" +
+		strings.Repeat("这是压缩摘要内容。", 500)
+
+	messages := []provider.Message{
+		{Role: "user", Content: "hello"},
+		{Role: "assistant", Content: "", ToolCalls: []provider.ToolCall{
+			{ID: "tc1", Type: "function", Function: provider.FunctionCall{Name: "exec", Arguments: "{}"}},
+		}},
+		{Role: "tool", ToolCallID: "tc1", Name: "exec", Content: content, Timestamp: time.Now().Add(-4 * time.Hour)},
+		{Role: "assistant", Content: "COMPRESS_OK"},
+	}
+
+	_, result := compressTier1(messages, 3)
+	if result[2].Compressed != "" {
+		t.Errorf("skip_trim tool message should not be compressed, got: %s", result[2].Compressed[:100])
+	}
+}

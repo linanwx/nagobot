@@ -364,6 +364,13 @@ func computeToolCompressed(m *provider.Message, idx int, lastSkillLoad map[strin
 		}
 		return ""
 	}
+	// Never compress compression results — they ARE the session summary.
+	// Uses Contains because skip_trim lives inside a nested YAML block
+	// (compress-session output wrapped by exec tool header).
+	if strings.Contains(m.Content, "\nskip_trim: true\n") {
+		return ""
+	}
+
 	// Expired: stale tool results → header-only after compressExpireAge.
 	// read_file content may be outdated; web results are certainly stale.
 	if expiredToolHeaderOnly[m.Name] && !m.Timestamp.IsZero() && time.Since(m.Timestamp) > compressExpireAge {

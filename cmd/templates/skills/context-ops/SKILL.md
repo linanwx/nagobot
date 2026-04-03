@@ -19,7 +19,8 @@ Compress the current session to free up token budget while preserving continuity
    ```
    {{WORKSPACE}}/bin/nagobot compress-session <session_file> <temp_file>
    ```
-5. Continue the original task.
+   The command replaces the session file with only the tail messages and prints your summary back in the output. This summary becomes the permanent context anchor — it will not be trimmed by the system.
+5. Reply with COMPRESS_OK after seeing the successful result. Then continue the original task if any.
 
 ### Compression Guidance
 
