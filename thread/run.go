@@ -308,7 +308,12 @@ func (t *Thread) buildUserSection() string {
 	if text == "" {
 		return fmt.Sprintf("---\ntype: user_preference\nfile_path: %s\nprompt: Append to store.\n---", absPath)
 	}
-	return fmt.Sprintf("---\ntype: user_preference\nfile_path: %s\nprompt: Append to store.\n---\n\n%s", absPath, text)
+	prompt := "Append to store."
+	lineCount := strings.Count(text, "\n") + 1
+	if lineCount > 200 {
+		prompt += " WARNING: this file exceeds 200 lines. On next update, remove outdated entries or consolidate existing content to keep it concise."
+	}
+	return fmt.Sprintf("---\ntype: user_preference\nfile_path: %s\nprompt: %s\n---\n\n%s", absPath, prompt, text)
 }
 
 // buildHeartbeatSection resolves the per-session heartbeat.md into a YAML-frontmattered section.

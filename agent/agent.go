@@ -71,8 +71,17 @@ func (a *Agent) Build() string {
 		}
 	}
 
-	// ── Stage 3: Global instruction (own block with file path) ──
+	// ── Stage 3: File-backed blocks (own YAML header with file path) ──
 	if a.workspace != "" {
+		// World Knowledge — written by cron, updated periodically.
+		wkContent := buildWorldKnowledge(a.workspace)
+		if wkContent != "" {
+			wkPath, _ := filepath.Abs(filepath.Join(a.workspace, "system", "world_knowledge.md"))
+			wkHeader := fmt.Sprintf("---\ntype: world_knowledge\nfile_path: %s\nprompt: Recent events beyond model training cutoff.\n---", wkPath)
+			prompt += "\n\n" + wkHeader + "\n\n" + wkContent
+		}
+
+		// Global instruction — user-editable, never overwritten by onboard --sync.
 		globalContent := buildGlobal(a.workspace)
 		if globalContent != "" {
 			globalPath, _ := filepath.Abs(filepath.Join(a.workspace, "system", "GLOBAL.md"))
@@ -101,7 +110,6 @@ func (a *Agent) Build() string {
 		prompt = strings.ReplaceAll(prompt, "{{WORKSPACE}}", a.workspace)
 		prompt = strings.ReplaceAll(prompt, "{{AGENTS}}", buildAgentsPromptSection(a.workspace))
 		prompt = strings.ReplaceAll(prompt, "{{SESSIONS_SUMMARY}}", buildSessionsSummary(a.workspace))
-		prompt = replaceWithHeadingAlign(prompt, "{{WORLD_KNOWLEDGE}}", buildWorldKnowledge(a.workspace))
 	}
 
 	now := time.Now()
