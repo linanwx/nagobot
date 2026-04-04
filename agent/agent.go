@@ -58,13 +58,16 @@ func (a *Agent) Build() string {
 	}
 
 	// ── Stage 1: Agent personality ──
-	prompt := a.readTemplate()
+	body := a.readTemplate()
+	agentHeader := fmt.Sprintf("---\ntype: agent_identity\nfile_path: %s\nprompt: This is your identity and behavioral guidelines.\n---", a.templatePath())
+	prompt := agentHeader + "\n\n" + strings.TrimSpace(body)
 
 	// ── Stage 2: Core sections (unconditional auto-append) ──
 	if a.sections != nil {
 		a.sections.Reload()
 		if a.sections.Count() > 0 {
-			prompt = strings.TrimSpace(prompt) + "\n\n" + a.sections.Assemble()
+			coreHeader := "---\ntype: core_mechanism\nfile_path: internal\nprompt: This describes how the nagobot system works.\n---"
+			prompt = strings.TrimSpace(prompt) + "\n\n" + coreHeader + "\n\n" + a.sections.Assemble()
 		}
 	}
 
@@ -251,7 +254,7 @@ func buildWorldKnowledge(workspace string) string {
 	return content
 }
 
-// buildGlobal reads system/GLOBAL.md and returns its content as a YAML-frontmattered section.
+// buildGlobal reads system/GLOBAL.md and returns its content for prompt injection.
 // This file is never overwritten by onboard --sync, providing a stable customization point.
 func buildGlobal(workspace string) string {
 	if strings.TrimSpace(workspace) == "" {
@@ -265,7 +268,7 @@ func buildGlobal(workspace string) string {
 	if content == "" {
 		return ""
 	}
-	return fmt.Sprintf("---\ntype: global_instruction\nfile_path: internal\nprompt: follow the instruction\n---\n\n%s", content)
+	return content
 }
 
 // buildSessionsSummary reads system/sessions_summary.json and formats it for prompt injection.
