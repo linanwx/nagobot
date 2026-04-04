@@ -71,7 +71,17 @@ func (a *Agent) Build() string {
 		}
 	}
 
-	// ── Stage 3: Per-session sections (frontmatter opt-in) ──
+	// ── Stage 3: Global instruction (own block with file path) ──
+	if a.workspace != "" {
+		globalContent := buildGlobal(a.workspace)
+		if globalContent != "" {
+			globalPath, _ := filepath.Abs(filepath.Join(a.workspace, "system", "GLOBAL.md"))
+			globalHeader := fmt.Sprintf("---\ntype: global_instruction\nfile_path: %s\nprompt: follow the instruction\n---", globalPath)
+			prompt += "\n\n" + globalHeader + "\n\n" + globalContent
+		}
+	}
+
+	// ── Stage 4: Per-session sections (frontmatter opt-in) ──
 	var consumed map[string]bool
 	if len(a.meta.Sections) > 0 {
 		consumed = make(map[string]bool, len(a.meta.Sections))
@@ -86,13 +96,12 @@ func (a *Agent) Build() string {
 		}
 	}
 
-	// ── Stage 4: Resolve all remaining placeholders ──
+	// ── Stage 5: Resolve all remaining placeholders ──
 	if a.workspace != "" {
 		prompt = strings.ReplaceAll(prompt, "{{WORKSPACE}}", a.workspace)
 		prompt = strings.ReplaceAll(prompt, "{{AGENTS}}", buildAgentsPromptSection(a.workspace))
 		prompt = strings.ReplaceAll(prompt, "{{SESSIONS_SUMMARY}}", buildSessionsSummary(a.workspace))
 		prompt = replaceWithHeadingAlign(prompt, "{{WORLD_KNOWLEDGE}}", buildWorldKnowledge(a.workspace))
-		prompt = replaceWithHeadingAlign(prompt, "{{GLOBAL}}", buildGlobal(a.workspace))
 	}
 
 	now := time.Now()
