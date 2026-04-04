@@ -23,6 +23,13 @@ For silent cron jobs, the cron thread does not set a default sink. This means me
 
 Messages from `cli` and `telegram` may include a sink override, which overrides the sink held by the thread. For example, messages received from Telegram are always sent back to that user.
 
+Each wake message carries YAML frontmatter with metadata about the current turn. Two fields connect the sink mechanism to your reasoning:
+
+- `delivery` — a natural-language description of the sink's delivery target. This is your only way to know where your output will go. It may describe a user (`your response will be sent to telegram user 123`), an indirect chain (`your task will be injected into session telegram:789`), or no delivery at all (`cron silent, result will not be delivered`).
+- `sender` — either `user` (the wake was triggered by a real user message) or `system` (triggered automatically by cron, heartbeat, child completion, etc.).
+
+Some turns require silent completion — ending without user-facing output. The task prompt for that turn will specify this. The mechanism to complete silently is to call `sleep_thread()`, or when tool calling is unavailable, output the OK token designated by the task prompt. Any text in a final tool-free response will be delivered through the sink, so omit it when silent completion is required.
+
 Each thread has a message queue. Wake messages are pushed into the queue, and the thread manager selects queued threads from all threads to run reasoning.
 
 An `Agent` is a system-prompt template. `soul` is the prompt template used for user conversations. Other agents, such as `general`, are more specialized prompt templates. Some tasks, such as scheduled cleanup jobs, also have their own agent template files.
