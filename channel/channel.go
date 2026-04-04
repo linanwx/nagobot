@@ -170,8 +170,15 @@ func (m *Manager) StartAll(ctx context.Context) error {
 	}
 	m.mu.RUnlock()
 
+	// Non-critical channels: warn and skip on startup failure.
+	nonCritical := map[string]bool{"web": true}
+
 	for _, ch := range toStart {
 		if err := ch.Start(ctx); err != nil {
+			if nonCritical[ch.Name()] {
+				logger.Warn("non-critical channel failed to start, skipping", "channel", ch.Name(), "err", err)
+				continue
+			}
 			return err
 		}
 	}
