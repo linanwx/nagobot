@@ -27,5 +27,3 @@ Other tools are available (e.g., curl for fetching). Feel free to try them.
 If you need to save files or output reports, save them in a subdirectory rather than the workspace root. Keep the workspace tidy.
 
 Finally, if web_search or web_fetch become persistently and completely unavailable, report this. The parent agent can then notify the user and fix the issue.
-
-{{CORE_MECHANISM}}

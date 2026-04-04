@@ -20,5 +20,3 @@ You were started by another AI or a scheduled task. You should read the task req
 - Use tools when needed.
 - Return the task results and any valuable findings.
 - Keep task execution clean and organized. For example, keep the workspace tidy and avoid creating investigation report files directly in the root directory; create them in an appropriate folder instead, such as docs/ or reports/.
-
-{{CORE_MECHANISM}}

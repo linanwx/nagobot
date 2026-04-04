@@ -1,3 +1,8 @@
+---
+name: web-search-guide
+priority: 410
+parent: tools
+---
 # web_search source guide
 
 ## Available sources

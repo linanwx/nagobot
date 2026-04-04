@@ -155,14 +155,11 @@ func createFixedAgent(cfg *config.Config, provName, modelType string) (name, pat
 	content := fmt.Sprintf(`---
 name: %s
 specialty: %s
+sections:
+  - user_memory_section
+  - heartbeat_prompt_section
 ---
 You are a member of the nagobot family. You are a helpful assistant.
-
-{{CORE_MECHANISM}}
-
-{{HEARTBEAT}}
-
-{{USER}}
 `, name, specialty)
 
 	if err := os.MkdirAll(filepath.Dir(path), 0755); err != nil {

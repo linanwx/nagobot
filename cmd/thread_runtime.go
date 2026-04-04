@@ -285,5 +285,13 @@ func buildThreadManager(cfg *config.Config, enableSessions bool) (*thread.Manage
 		},
 		SessionTimezoneFor:  cfg.SessionTimezone,
 		MetricsStore:        metricsStore,
+		Sections:            initSectionRegistry(workspace),
 	}), searchHealthChecker, nil
+}
+
+func initSectionRegistry(workspace string) *agent.SectionRegistry {
+	dir := filepath.Join(workspace, "system", "sections")
+	reg := agent.NewSectionRegistry(dir)
+	reg.Load() // initial load; subsequent reloads happen per-turn via dirSnapshot
+	return reg
 }

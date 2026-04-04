@@ -8,6 +8,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/linanwx/nagobot/agent"
 	"github.com/linanwx/nagobot/config"
 	"github.com/linanwx/nagobot/logger"
 	"github.com/linanwx/nagobot/monitor"
@@ -111,10 +112,11 @@ func (t *Thread) buildSystemPrompt() string {
 
 	skillsSection := t.buildSkillsSection()
 	activeAgent.SetLocation(t.location())
+	activeAgent.SetSections(t.cfg().Sections)
 	activeAgent.Set("TOOLS", t.tools.Names())
 	activeAgent.Set("SKILLS", skillsSection)
-	activeAgent.Set("USER", t.buildUserSection())
-	activeAgent.Set("HEARTBEAT", t.buildHeartbeatSection())
+	activeAgent.Set(agent.SectionUserMemory, t.buildUserSection())
+	activeAgent.Set(agent.SectionHeartbeatPrompt, t.buildHeartbeatSection())
 	prompt := activeAgent.Build()
 	if strings.TrimSpace(prompt) == "" {
 		return "You are a helpful AI assistant."

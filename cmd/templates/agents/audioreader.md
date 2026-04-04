@@ -20,5 +20,3 @@ Be concise but thorough. Return findings as plain text.
 ## Missing Audio Path
 
 If your task does not contain an audio file path, you cannot proceed. Reply to the parent thread requesting it to pass you the audio file path — either by waking you with the path, or by creating a new child thread with the path in the task.
-
-{{CORE_MECHANISM}}

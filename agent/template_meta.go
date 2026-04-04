@@ -8,11 +8,12 @@ import (
 
 // TemplateMeta holds the YAML frontmatter fields of an agent template.
 type TemplateMeta struct {
-	Name        string `yaml:"name"`
-	Description string `yaml:"description"`
-	Specialty   string `yaml:"specialty"`
-	Provider    string `yaml:"provider"`
-	Model       string `yaml:"model"` // deprecated: use Specialty; kept for backward compatibility
+	Name        string   `yaml:"name"`
+	Description string   `yaml:"description"`
+	Specialty   string   `yaml:"specialty"`
+	Provider    string   `yaml:"provider"`
+	Model       string   `yaml:"model"`              // deprecated: use Specialty; kept for backward compatibility
+	Sections    []string `yaml:"sections,omitempty"`  // per-session sections to auto-append (e.g. user_memory_section)
 }
 
 // ParseTemplate extracts YAML frontmatter and body from a template string.
@@ -32,13 +33,6 @@ func ParseTemplate(content string) (meta TemplateMeta, body string, hasHeader bo
 	return meta, body, true, nil
 }
 
-func stripFrontMatter(content string) string {
-	_, body, hasHeader, err := ParseTemplate(content)
-	if err != nil || !hasHeader {
-		return content
-	}
-	return strings.TrimLeft(body, "\n")
-}
 
 func splitFrontMatter(content string) (header string, body string, ok bool) {
 	normalized := strings.ReplaceAll(content, "\r\n", "\n")

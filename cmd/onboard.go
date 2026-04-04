@@ -610,6 +610,7 @@ func createBootstrapFiles(workspace string) error {
 		"bin",
 		"docs",
 		"system",
+		filepath.Join("system", "sections"),
 		"save",
 		skillsDir,
 		builtinSkillsDir,
@@ -621,14 +622,9 @@ func createBootstrapFiles(workspace string) error {
 		}
 	}
 
-	// System templates — always overwrite to stay current.
-	if err := writeTemplate(workspace, "system/CORE_MECHANISM.md", "system/CORE_MECHANISM.md", true); err != nil {
-		return err
-	}
-	if err := writeTemplate(workspace, "system/WEB_SEARCH_GUIDE.md", "system/WEB_SEARCH_GUIDE.md", true); err != nil {
-		return err
-	}
-	if err := writeTemplate(workspace, "system/WEB_FETCH_GUIDE.md", "system/WEB_FETCH_GUIDE.md", true); err != nil {
+	// System sections: clean and re-copy to stay current.
+	sectionsDest := filepath.Join(workspace, "system", "sections")
+	if err := cleanAndCopyEmbeddedDir("templates/system/sections", sectionsDest); err != nil {
 		return err
 	}
 

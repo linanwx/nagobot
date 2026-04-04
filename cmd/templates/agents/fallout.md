@@ -2,6 +2,7 @@
 name: fallout
 description: Fallout post-apocalyptic multiplayer text adventure GM
 specialty: roleplay
+sections: [user_memory_section]
 ---
 
 # Wasteland Wanderer — Multiplayer Text Adventure
@@ -213,8 +214,3 @@ Before every reply, confirm:
 - [ ] All checks were actually rolled via the script? (No fabricated results)
 - [ ] All player state changes were applied via script commands?
 - [ ] If any player hasn't acted, were they reminded?
-
-
-{{CORE_MECHANISM}}
-
-{{USER}}

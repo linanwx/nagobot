@@ -105,6 +105,7 @@ type ThreadConfig struct {
 	AddJob              func(cron.Job) error           // Persistent job scheduling (for sleep_thread)
 	SessionTimezoneFor  func(sessionKey string) string // Session key → IANA timezone
 	MetricsStore        *monitor.Store                 // Turn metrics storage (optional)
+	Sections            *agent.SectionRegistry         // Shared section registry for prompt assembly
 }
 
 // Thread is a single execution unit with an agent, wake queue, and optional session.

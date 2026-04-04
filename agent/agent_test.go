@@ -16,32 +16,40 @@ func setupWorkspace(t *testing.T) string {
 	srcDir := filepath.Join("..", "cmd", "templates")
 	ws := t.TempDir()
 
-	// Copy system files.
-	for _, name := range []string{"system/CORE_MECHANISM.md"} {
-		data, err := os.ReadFile(filepath.Join(srcDir, name))
+	// Copy sections directory.
+	sectionsSrc := filepath.Join(srcDir, "system", "sections")
+	sectionsDst := filepath.Join(ws, "system", "sections")
+	if err := os.MkdirAll(sectionsDst, 0755); err != nil {
+		t.Fatal(err)
+	}
+	entries, err := os.ReadDir(sectionsSrc)
+	if err != nil {
+		t.Fatalf("read sections dir: %v", err)
+	}
+	for _, e := range entries {
+		if e.IsDir() || !strings.HasSuffix(e.Name(), ".md") {
+			continue
+		}
+		data, err := os.ReadFile(filepath.Join(sectionsSrc, e.Name()))
 		if err != nil {
-			t.Fatalf("read %s: %v", name, err)
+			t.Fatalf("read %s: %v", e.Name(), err)
 		}
-		dest := filepath.Join(ws, name)
-		if err := os.MkdirAll(filepath.Dir(dest), 0755); err != nil {
-			t.Fatalf("mkdir %s: %v", filepath.Dir(dest), err)
-		}
-		if err := os.WriteFile(dest, data, 0644); err != nil {
-			t.Fatalf("write %s: %v", name, err)
+		if err := os.WriteFile(filepath.Join(sectionsDst, e.Name()), data, 0644); err != nil {
+			t.Fatalf("write %s: %v", e.Name(), err)
 		}
 	}
 
-	// Copy agents directory
+	// Copy agents directory.
 	agentsSrc := filepath.Join(srcDir, "agents")
 	agentsDst := filepath.Join(ws, "agents")
 	if err := os.MkdirAll(agentsDst, 0755); err != nil {
 		t.Fatal(err)
 	}
-	entries, err := os.ReadDir(agentsSrc)
+	agentEntries, err := os.ReadDir(agentsSrc)
 	if err != nil {
 		t.Fatalf("read agents dir: %v", err)
 	}
-	for _, e := range entries {
+	for _, e := range agentEntries {
 		if e.IsDir() || !strings.HasSuffix(e.Name(), ".md") {
 			continue
 		}
@@ -85,6 +93,12 @@ func TestAllAgentsBuild_NoUnresolvedPlaceholders(t *testing.T) {
 	reg := NewRegistry(ws)
 	now := time.Now()
 
+	// Create shared SectionRegistry.
+	secReg := NewSectionRegistry(filepath.Join(ws, "system", "sections"))
+	if err := secReg.Load(); err != nil {
+		t.Fatalf("load sections: %v", err)
+	}
+
 	for _, name := range agentNames(t, ws) {
 		t.Run(name, func(t *testing.T) {
 			a, err := reg.New(name)
@@ -92,13 +106,13 @@ func TestAllAgentsBuild_NoUnresolvedPlaceholders(t *testing.T) {
 				t.Fatalf("New(%q): %v", name, err)
 			}
 
-			// Set all runtime vars that thread/run.go would set.
+			a.SetSections(secReg)
 			a.SetLocation(now.Location())
 			a.Set("TOOLS", "tool_a, tool_b, tool_c")
 			a.Set("SKILLS", "skill_x: does X\nskill_y: does Y")
 			a.Set("TASK", "Test task content")
-			a.Set("USER", "## User Preferences\n\nTest user preferences")
-			a.Set("HEARTBEAT", "## Heartbeat\n\nTest heartbeat section")
+			a.Set(SectionUserMemory, "## User Preferences\n\nTest user preferences")
+			a.Set(SectionHeartbeatPrompt, "## Heartbeat\n\nTest heartbeat section")
 
 			prompt := a.Build()
 
@@ -108,30 +122,27 @@ func TestAllAgentsBuild_NoUnresolvedPlaceholders(t *testing.T) {
 
 			// Check no unresolved {{...}} placeholders remain.
 			if idx := strings.Index(prompt, "{{"); idx >= 0 {
-				// Extract the placeholder name for a clear error message.
 				end := strings.Index(prompt[idx:], "}}")
 				placeholder := prompt[idx:]
 				if end >= 0 {
 					placeholder = prompt[idx : idx+end+2]
 				}
-				// Show surrounding context.
 				start := max(idx-40, 0)
 				stop := min(idx+60, len(prompt))
 				t.Errorf("unresolved placeholder %s\ncontext: ...%s...", placeholder, prompt[start:stop])
 			}
 
-			// Verify key content from CORE_MECHANISM was injected.
 			if !strings.Contains(prompt, "tool_a, tool_b, tool_c") {
-				t.Error("{{TOOLS}} was not resolved in prompt")
+				t.Error("{{TOOLS}} was not resolved")
 			}
 			if !strings.Contains(prompt, "skill_x: does X") {
-				t.Error("{{SKILLS}} was not resolved in prompt")
+				t.Error("{{SKILLS}} was not resolved")
 			}
 			if !strings.Contains(prompt, now.Format("2006-01-02")) {
-				t.Error("{{DATE}} was not resolved in prompt")
+				t.Error("{{DATE}} was not resolved")
 			}
 			if !strings.Contains(prompt, "Available agents") {
-				t.Error("{{AGENTS}} was not resolved in prompt")
+				t.Error("{{AGENTS}} was not resolved")
 			}
 
 			t.Logf("prompt length: %d chars", len(prompt))

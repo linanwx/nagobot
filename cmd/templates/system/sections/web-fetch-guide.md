@@ -1,3 +1,8 @@
+---
+name: web-fetch-guide
+priority: 420
+parent: tools
+---
 # web_fetch source guide
 
 ## Available sources

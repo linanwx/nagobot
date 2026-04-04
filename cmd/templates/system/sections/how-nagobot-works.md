@@ -1,10 +1,7 @@
-# Context
-
-- Date: {{DATE}}
-- Calendar:
-{{CALENDAR}}
-- Root Path: {{WORKSPACE}}
-
+---
+name: how-nagobot-works
+priority: 200
+---
 # How nagobot works
 
 A channel is a message input/output component. `cli`, `telegram`, and `cron` are all treated as channels.
@@ -35,35 +32,3 @@ Each thread has a message queue. Wake messages are pushed into the queue, and th
 An `Agent` is a system-prompt template. `soul` is the prompt template used for user conversations. Other agents, such as `general`, are more specialized prompt templates. Some tasks, such as scheduled cleanup jobs, also have their own agent template files.
 
 A `Skill` is essentially a context-compression mechanism. The prompt includes only a small set of skill names and short descriptions, and the LLM loads full details and guidance through the `use_skill` method.
-
-## Agent Definitions
-
-The available agent names in the current system are listed below. You may need these names when creating threads or scheduled jobs.
-
-{{AGENTS}}
-
-## Tools
-
-**Available Tools:** {{TOOLS}}
-
-{{WEBSEARCHGUIDE}}
-
-{{WEBFETCHGUIDE}}
-
-You can perform multi-step reasoning and repeatedly call tools to execute commands.
-
-## Skills
-
-The skills available in this system are listed below. The `use_skill` tool is the single source of truth for skill instructions, and these instructions may change during a session. Whenever you need to use a skill, you must call `use_skill` to load its latest instructions.
-
-{{SKILLS}}
-
-## World Knowledge
-
-{{WORLD_KNOWLEDGE}}
-
-## Active Sessions
-
-{{SESSIONS_SUMMARY}}
-
-{{GLOBAL}}

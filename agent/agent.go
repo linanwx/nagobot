@@ -21,8 +21,15 @@ const dateLayout = "2006-01-02 (Monday)"
 type Agent struct {
 	Name      string
 	workspace string
-	loc       *time.Location // session timezone; nil = local
-	vars      map[string]any // lazy placeholder overrides, applied at Build time
+	loc       *time.Location    // session timezone; nil = local
+	vars      map[string]any    // lazy placeholder overrides, applied at Build time
+	meta      TemplateMeta      // parsed frontmatter (includes Sections)
+	sections  *SectionRegistry  // shared core section registry
+}
+
+// SetSections sets the shared SectionRegistry for core section assembly.
+func (a *Agent) SetSections(s *SectionRegistry) {
+	a.sections = s
 }
 
 // SetLocation sets the timezone used for {{DATE}} and {{CALENDAR}} resolution.
@@ -40,30 +47,51 @@ func (a *Agent) Set(key string, value any) *Agent {
 	return a
 }
 
-// Build constructs the final prompt: reads template, applies vars.
-// {{DATE}} and {{CALENDAR}} are auto-resolved from the current time and agent timezone.
-// For "TASK": if {{TASK}} is not found in the prompt, appends the task.
+// Build constructs the final prompt via a 4-stage pipeline:
+//  1. Agent personality (read template)
+//  2. Core sections (auto-append from SectionRegistry)
+//  3. Per-session sections (append those declared in frontmatter Sections)
+//  4. Resolve all remaining placeholders
 func (a *Agent) Build() string {
 	if a == nil {
 		return ""
 	}
+
+	// ── Stage 1: Agent personality ──
 	prompt := a.readTemplate()
 
+	// ── Stage 2: Core sections (unconditional auto-append) ──
+	if a.sections != nil {
+		a.sections.Reload()
+		if a.sections.Count() > 0 {
+			prompt = strings.TrimSpace(prompt) + "\n\n" + a.sections.Assemble()
+		}
+	}
+
+	// ── Stage 3: Per-session sections (frontmatter opt-in) ──
+	var consumed map[string]bool
+	if len(a.meta.Sections) > 0 {
+		consumed = make(map[string]bool, len(a.meta.Sections))
+		for _, name := range a.meta.Sections {
+			if val, ok := a.vars[name]; ok {
+				formatted := formatVar(val)
+				if strings.TrimSpace(formatted) != "" {
+					prompt += "\n\n" + formatted
+				}
+				consumed[name] = true
+			}
+		}
+	}
+
+	// ── Stage 4: Resolve all remaining placeholders ──
 	if a.workspace != "" {
-		// Expand CORE_MECHANISM first so its placeholders are available for subsequent replacements.
-		coreContent, _ := os.ReadFile(filepath.Join(a.workspace, "system", "CORE_MECHANISM.md"))
-		prompt = strings.ReplaceAll(prompt, "{{CORE_MECHANISM}}", strings.TrimSpace(string(coreContent)))
 		prompt = strings.ReplaceAll(prompt, "{{WORKSPACE}}", a.workspace)
-		// {{USER}} is resolved as a runtime var in thread/run.go (per-session).
 		prompt = strings.ReplaceAll(prompt, "{{AGENTS}}", buildAgentsPromptSection(a.workspace))
 		prompt = strings.ReplaceAll(prompt, "{{SESSIONS_SUMMARY}}", buildSessionsSummary(a.workspace))
 		prompt = strings.ReplaceAll(prompt, "{{WORLD_KNOWLEDGE}}", buildWorldKnowledge(a.workspace))
-		prompt = strings.ReplaceAll(prompt, "{{WEBSEARCHGUIDE}}", buildFileSection(a.workspace, "system", "WEB_SEARCH_GUIDE.md"))
-		prompt = strings.ReplaceAll(prompt, "{{WEBFETCHGUIDE}}", buildFileSection(a.workspace, "system", "WEB_FETCH_GUIDE.md"))
 		prompt = strings.ReplaceAll(prompt, "{{GLOBAL}}", buildGlobal(a.workspace))
 	}
 
-	// Auto-resolve {{DATE}} and {{CALENDAR}} from current time + agent timezone.
 	now := time.Now()
 	if a.loc != nil {
 		now = now.In(a.loc)
@@ -72,6 +100,9 @@ func (a *Agent) Build() string {
 	prompt = strings.ReplaceAll(prompt, "{{CALENDAR}}", formatCalendar(now))
 
 	for key, value := range a.vars {
+		if consumed != nil && consumed[key] {
+			continue
+		}
 		formatted := formatVar(value)
 		placeholder := "{{" + key + "}}"
 		if strings.Contains(prompt, placeholder) {
@@ -136,7 +167,11 @@ func (a *Agent) readTemplate() string {
 		logger.Warn("agent template read failed, using fallback prompt", "name", a.Name, "path", path, "err", err)
 		return "You are nagobot, a helpful AI assistant."
 	}
-	return stripFrontMatter(string(tpl))
+	meta, body, hasHeader, _ := ParseTemplate(string(tpl))
+	if hasHeader {
+		a.meta = meta
+	}
+	return strings.TrimLeft(body, "\n")
 }
 
 func formatCalendar(now time.Time) string {
@@ -231,19 +266,6 @@ func buildGlobal(workspace string) string {
 		return ""
 	}
 	return content
-}
-
-// buildFileSection reads a file under workspace and returns its trimmed content (empty string if missing/empty).
-func buildFileSection(workspace string, pathParts ...string) string {
-	if strings.TrimSpace(workspace) == "" {
-		return ""
-	}
-	parts := append([]string{workspace}, pathParts...)
-	data, err := os.ReadFile(filepath.Join(parts...))
-	if err != nil {
-		return ""
-	}
-	return strings.TrimSpace(string(data))
 }
 
 // buildSessionsSummary reads system/sessions_summary.json and formats it for prompt injection.
