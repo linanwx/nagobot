@@ -316,12 +316,17 @@ func (d *DiscordChannel) handleMessageCreate(s *discordgo.Session, m *discordgo.
 			} else if strings.HasPrefix(att.ContentType, "audio/") {
 				mediaType = "audio"
 			}
-			// Download images and audio to local media directory so LLM can read them directly.
-			if mediaType == "image" || mediaType == "audio" {
+			// Download images, audio, and PDFs to local media directory so LLM can read them directly.
+			if att.ContentType == "application/pdf" {
+				mediaType = "document"
+			}
+			if mediaType == "image" || mediaType == "audio" || mediaType == "document" {
 				if localPath := downloadMedia(d.mediaDir, att.URL); localPath != "" {
 					pathKey := "image_path"
 					if mediaType == "audio" {
 						pathKey = "audio_path"
+					} else if mediaType == "document" {
+						pathKey = "document_path"
 					}
 					summaries = append(summaries, MediaSummary(mediaType,
 						"file_name", att.Filename,

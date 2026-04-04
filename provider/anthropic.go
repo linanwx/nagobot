@@ -79,6 +79,7 @@ func init() {
 	RegisterProvider("anthropic", ProviderRegistration{
 		Models:       []string{"claude-sonnet-4-6", "claude-opus-4-6", "claude-haiku-4-5"},
 		VisionModels: []string{"claude-sonnet-4-6", "claude-opus-4-6", "claude-haiku-4-5"},
+		PDFModels:    []string{"claude-sonnet-4-6", "claude-opus-4-6", "claude-haiku-4-5"},
 		ContextWindows: map[string]int{
 			"claude-sonnet-4-6": 1048576,
 			"claude-opus-4-6":   1048576,
@@ -315,12 +316,24 @@ func toAnthropicMessages(messages []Message) (string, []anthropic.MessageParam, 
 				_, markers := ParseMediaMarkers(strings.Join(m.Media, "\n"))
 				blocks := []anthropic.ContentBlockParamUnion{anthropic.NewTextBlock(m.Content)}
 				for _, marker := range markers {
-					if !strings.HasPrefix(marker.MimeType, "image/") {
-						continue // Anthropic only supports image media
-					}
 					b64, err := ReadFileAsBase64(marker.FilePath)
 					if err != nil {
 						continue
+					}
+					if marker.MimeType == "application/pdf" {
+						blocks = append(blocks, anthropic.ContentBlockParamUnion{
+							OfDocument: &anthropic.DocumentBlockParam{
+								Source: anthropic.DocumentBlockParamSourceUnion{
+									OfBase64: &anthropic.Base64PDFSourceParam{
+										Data: b64,
+									},
+								},
+							},
+						})
+						continue
+					}
+					if !strings.HasPrefix(marker.MimeType, "image/") {
+						continue // Anthropic only supports image and PDF media
 					}
 					blocks = append(blocks, anthropic.ContentBlockParamUnion{
 						OfImage: &anthropic.ImageBlockParam{
@@ -372,6 +385,18 @@ func toAnthropicMessages(messages []Message) (string, []anthropic.MessageParam, 
 				if err != nil {
 					continue // File missing or unreadable; skip silently.
 				}
+				if marker.MimeType == "application/pdf" {
+					content = append(content, anthropic.ToolResultBlockParamContentUnion{
+						OfDocument: &anthropic.DocumentBlockParam{
+							Source: anthropic.DocumentBlockParamSourceUnion{
+								OfBase64: &anthropic.Base64PDFSourceParam{
+									Data: b64,
+								},
+							},
+						},
+					})
+					continue
+				}
 				content = append(content, anthropic.ToolResultBlockParamContentUnion{
 					OfImage: &anthropic.ImageBlockParam{
 						Source: anthropic.ImageBlockParamSourceUnion{
@@ -387,12 +412,24 @@ func toAnthropicMessages(messages []Message) (string, []anthropic.MessageParam, 
 			if len(m.Media) > 0 {
 				_, mediaMarkers := ParseMediaMarkers(strings.Join(m.Media, "\n"))
 				for _, marker := range mediaMarkers {
-					if !strings.HasPrefix(marker.MimeType, "image/") {
-						continue // Anthropic only supports image media
-					}
 					b64, err := ReadFileAsBase64(marker.FilePath)
 					if err != nil {
 						continue
+					}
+					if marker.MimeType == "application/pdf" {
+						content = append(content, anthropic.ToolResultBlockParamContentUnion{
+							OfDocument: &anthropic.DocumentBlockParam{
+								Source: anthropic.DocumentBlockParamSourceUnion{
+									OfBase64: &anthropic.Base64PDFSourceParam{
+										Data: b64,
+									},
+								},
+							},
+						})
+						continue
+					}
+					if !strings.HasPrefix(marker.MimeType, "image/") {
+						continue // Anthropic only supports image and PDF media
 					}
 					content = append(content, anthropic.ToolResultBlockParamContentUnion{
 						OfImage: &anthropic.ImageBlockParam{

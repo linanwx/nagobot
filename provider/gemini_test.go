@@ -16,7 +16,7 @@ func TestToGeminiContents_BasicConversation(t *testing.T) {
 		{Role: "assistant", Content: "Hi there!"},
 		{Role: "user", Content: "How are you?"},
 	}
-	sys, contents, err := toGeminiContents(msgs, false, false)
+	sys, contents, err := toGeminiContents(msgs, false, false, false)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -42,7 +42,7 @@ func TestToGeminiContents_MergesConsecutiveRoles(t *testing.T) {
 		{Role: "user", Content: "Hello"},
 		{Role: "user", Content: "World"},
 	}
-	_, contents, err := toGeminiContents(msgs, false, false)
+	_, contents, err := toGeminiContents(msgs, false, false, false)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -71,7 +71,7 @@ func TestToGeminiContents_ToolCallRoundTrip(t *testing.T) {
 		},
 		{Role: "tool", Content: `{"temp":"20C"}`, Name: "get_weather", ToolCallID: "call_1"},
 	}
-	_, contents, err := toGeminiContents(msgs, false, false)
+	_, contents, err := toGeminiContents(msgs, false, false, false)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -126,7 +126,7 @@ func TestToGeminiContents_ThoughtSignatureRoundTrip(t *testing.T) {
 		},
 		{Role: "tool", Content: `{"temp":"20C"}`, Name: "get_weather", ToolCallID: "gemini_get_weather_0"},
 	}
-	_, contents, err := toGeminiContents(msgs, false, false)
+	_, contents, err := toGeminiContents(msgs, false, false, false)
 	if err != nil {
 		t.Fatal(err)
 	}

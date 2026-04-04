@@ -106,6 +106,34 @@ func TestDetectFileType_Binary(t *testing.T) {
 	}
 }
 
+func TestDetectFileType_PDF(t *testing.T) {
+	dir := t.TempDir()
+	pdfPath := filepath.Join(dir, "test.pdf")
+	os.WriteFile(pdfPath, []byte("%PDF-1.4\n1 0 obj\n<< >>\nendobj\n"), 0644)
+
+	ft, mime := DetectFileType(pdfPath)
+	if ft != FileTypePDF {
+		t.Errorf("got FileType %d, want FileTypePDF (%d)", ft, FileTypePDF)
+	}
+	if mime != "application/pdf" {
+		t.Errorf("got mime %q, want application/pdf", mime)
+	}
+}
+
+func TestDetectFileType_PDFByMagic(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "mystery.bin")
+	os.WriteFile(path, []byte("%PDF-1.7 something"), 0644)
+
+	ft, mime := DetectFileType(path)
+	if ft != FileTypePDF {
+		t.Errorf("got FileType %d, want FileTypePDF", ft)
+	}
+	if mime != "application/pdf" {
+		t.Errorf("got mime %q, want application/pdf", mime)
+	}
+}
+
 func TestDetectFileType_UTF8WithSpecialChars(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "chinese.txt")

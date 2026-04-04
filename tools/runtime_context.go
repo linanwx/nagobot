@@ -14,8 +14,10 @@ type RuntimeContext struct {
 	Workspace              string
 	SupportsVision         bool
 	SupportsAudio          bool
+	SupportsPDF            bool
 	ImageReaderConfigured  bool // true if an 'imagereader' agent is available
 	AudioReaderConfigured  bool // true if an 'audioreader' agent is available
+	PDFReaderConfigured    bool // true if a 'pdfreader' agent is available
 }
 
 // WithRuntimeContext injects tool runtime metadata into context.

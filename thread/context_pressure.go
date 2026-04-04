@@ -117,6 +117,8 @@ func EstimateMessageTokens(message provider.Message) int {
 		for _, m := range markers {
 			if strings.HasPrefix(m.MimeType, "audio/") {
 				tokens += provider.EstimateAudioTokens(m.FilePath)
+			} else if m.MimeType == "application/pdf" {
+				tokens += provider.EstimatePDFTokens(m.FilePath)
 			} else {
 				tokens += provider.EstimateImageTokens(m.FilePath)
 			}

@@ -133,6 +133,7 @@ type ProviderRegistration struct {
 	Models         []string
 	VisionModels   []string       // Subset of Models that support image input.
 	AudioModels    []string       // Subset of Models that support audio input.
+	PDFModels      []string       // Subset of Models that support PDF document input.
 	ContextWindows map[string]int // model key -> context window size in tokens
 	EnvKey         string
 	EnvBase        string
@@ -150,6 +151,9 @@ var visionCapable = map[string]bool{}
 
 // audioCapable tracks provider:model pairs that support audio input.
 var audioCapable = map[string]bool{}
+
+// pdfCapable tracks provider:model pairs that support PDF document input.
+var pdfCapable = map[string]bool{}
 
 // modelContextWindows maps model keys to context window size in tokens.
 var modelContextWindows = map[string]int{}
@@ -186,6 +190,12 @@ func RegisterProvider(name string, reg ProviderRegistration) {
 		am = strings.TrimSpace(am)
 		if am != "" {
 			audioCapable[name+":"+am] = true
+		}
+	}
+	for _, pm := range reg.PDFModels {
+		pm = strings.TrimSpace(pm)
+		if pm != "" {
+			pdfCapable[name+":"+pm] = true
 		}
 	}
 	for k, v := range reg.ContextWindows {
@@ -244,6 +254,11 @@ func SupportsVision(providerName, modelType string) bool {
 // SupportsAudio reports whether a provider+model combination supports audio input.
 func SupportsAudio(providerName, modelType string) bool {
 	return audioCapable[providerName+":"+modelType]
+}
+
+// SupportsPDF reports whether a provider+model combination supports PDF document input.
+func SupportsPDF(providerName, modelType string) bool {
+	return pdfCapable[providerName+":"+modelType]
 }
 
 // ContextWindowForModel returns the context window size in tokens for a model.

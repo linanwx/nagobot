@@ -59,8 +59,10 @@ func (t *Thread) run(ctx context.Context, userMessage string, sink Sink, injectF
 		Workspace:             cfg.Workspace,
 		SupportsVision:        t.currentModelSupportsVision(),
 		SupportsAudio:         t.currentModelSupportsAudio(),
+		SupportsPDF:           t.currentModelSupportsPDF(),
 		ImageReaderConfigured: cfg.Agents != nil && cfg.Agents.Def("imagereader") != nil,
 		AudioReaderConfigured: cfg.Agents != nil && cfg.Agents.Def("audioreader") != nil,
+		PDFReaderConfigured:   cfg.Agents != nil && cfg.Agents.Def("pdfreader") != nil,
 	})
 	t.resetHaltLoop()
 	p := t.resolveProvider()
@@ -488,6 +490,15 @@ func (t *Thread) currentModelSupportsAudio() bool {
 	}
 	cfg := t.cfg()
 	return provider.SupportsAudio(cfg.ProviderName, cfg.ModelName)
+}
+
+func (t *Thread) currentModelSupportsPDF() bool {
+	mc := t.resolvedModelConfig()
+	if mc != nil {
+		return provider.SupportsPDF(mc.Provider, mc.ModelType)
+	}
+	cfg := t.cfg()
+	return provider.SupportsPDF(cfg.ProviderName, cfg.ModelName)
 }
 
 // resolveProvider returns the provider for the current agent's model type,

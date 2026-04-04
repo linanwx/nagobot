@@ -111,6 +111,8 @@ func (t *ReadFileTool) run(ctx context.Context, args json.RawMessage) string {
 		return t.handleImage(ctx, resolvedPath, mimeType, info.Size())
 	case FileTypeAudio:
 		return t.handleAudio(ctx, resolvedPath, mimeType, info.Size())
+	case FileTypePDF:
+		return t.handlePDF(ctx, resolvedPath, mimeType, info.Size())
 	case FileTypeBinary:
 		return toolError("read_file", fmt.Sprintf("binary file (%s), cannot read as text: %s", mimeType, resolvedPath))
 	default:
@@ -153,6 +155,25 @@ func (t *ReadFileTool) handleAudio(ctx context.Context, absPath, mimeType string
 			"This is an audio file. You cannot listen to audio directly. "+
 				"Use the spawn_thread tool to delegate to the 'audioreader' agent, "+
 				"passing the audio file path as the task.")
+	}
+	return toolResult("read_file", fields, fmt.Sprintf("<<media:%s:%s>>", mimeType, absPath))
+}
+
+// handlePDF returns PDF data for PDF-capable models or delegation guidance.
+func (t *ReadFileTool) handlePDF(ctx context.Context, absPath, mimeType string, size int64) string {
+	fields := map[string]any{"path": absPath, "type": mimeType, "size": size}
+	rt := RuntimeContextFrom(ctx)
+	if !rt.SupportsPDF {
+		if !rt.PDFReaderConfigured {
+			return toolResult("read_file", fields,
+				"This is a PDF document. Your current model does not support PDF input, "+
+					"and the 'pdfreader' agent is not configured. "+
+					"To enable PDF reading, configure a PDF-capable model or set up a pdfreader agent.")
+		}
+		return toolResult("read_file", fields,
+			"This is a PDF document. You cannot read PDFs directly. "+
+				"Use the spawn_thread tool to delegate to the 'pdfreader' agent, "+
+				"passing the original user message as the task.")
 	}
 	return toolResult("read_file", fields, fmt.Sprintf("<<media:%s:%s>>", mimeType, absPath))
 }

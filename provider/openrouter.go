@@ -187,6 +187,7 @@ func init() {
 		Models:       []string{"moonshotai/kimi-k2.5", "anthropic/claude-sonnet-4.6", "anthropic/claude-opus-4.6", "anthropic/claude-haiku-4.5", "z-ai/glm-5", "z-ai/glm-5-turbo", "minimax/minimax-m2.5", "minimax/minimax-m2.7", "qwen/qwen3.5-35b-a3b", "qwen/qwen3.6-plus:free", "google/gemini-3-flash-preview", "google/gemini-3.1-flash-lite-preview", "x-ai/grok-4.1-fast", "openai/gpt-5.4-mini", "xiaomi/mimo-v2-pro", "xiaomi/mimo-v2-omni"},
 		VisionModels: []string{"moonshotai/kimi-k2.5", "anthropic/claude-sonnet-4.6", "anthropic/claude-opus-4.6", "anthropic/claude-haiku-4.5", "qwen/qwen3.5-35b-a3b", "qwen/qwen3.6-plus:free", "google/gemini-3-flash-preview", "google/gemini-3.1-flash-lite-preview", "x-ai/grok-4.1-fast", "openai/gpt-5.4-mini", "xiaomi/mimo-v2-pro", "xiaomi/mimo-v2-omni"},
 		AudioModels:  []string{"google/gemini-3-flash-preview", "google/gemini-3.1-flash-lite-preview", "xiaomi/mimo-v2-omni"},
+		PDFModels:    []string{"anthropic/claude-sonnet-4.6", "anthropic/claude-opus-4.6", "anthropic/claude-haiku-4.5", "google/gemini-3-flash-preview", "google/gemini-3.1-flash-lite-preview"},
 		ContextWindows: map[string]int{
 			"moonshotai/kimi-k2.5":          262144,
 			"anthropic/claude-sonnet-4.6":   1048576,
@@ -253,7 +254,7 @@ func newOpenRouterProvider(apiKey, apiBase, modelType, modelName string, maxToke
 
 
 
-func toOpenAIChatMessages(messages []Message, visionCapable, audioCapable bool) ([]openai.ChatCompletionMessageParamUnion, error) {
+func toOpenAIChatMessages(messages []Message, visionCapable, audioCapable, pdfCapable bool) ([]openai.ChatCompletionMessageParamUnion, error) {
 	result := make([]openai.ChatCompletionMessageParamUnion, 0, len(messages))
 
 	for _, m := range messages {
@@ -268,17 +269,18 @@ func toOpenAIChatMessages(messages []Message, visionCapable, audioCapable bool) 
 				for _, marker := range markers {
 					isImage := strings.HasPrefix(marker.MimeType, "image/")
 					isAudio := strings.HasPrefix(marker.MimeType, "audio/")
-					if (isImage && !visionCapable) || (isAudio && !audioCapable) {
+					isPDF := marker.MimeType == "application/pdf"
+					if (isImage && !visionCapable) || (isAudio && !audioCapable) || (isPDF && !pdfCapable) {
 						continue
 					}
-					if !isImage && !isAudio {
+					if !isImage && !isAudio && !isPDF {
 						continue
 					}
 					b64, err := ReadFileAsBase64(marker.FilePath)
 					if err != nil {
 						continue
 					}
-					if isImage {
+					if isImage || isPDF {
 						parts = append(parts, openai.ChatCompletionContentPartUnionParam{
 							OfImageURL: &openai.ChatCompletionContentPartImageParam{
 								ImageURL: openai.ChatCompletionContentPartImageImageURLParam{
@@ -319,17 +321,18 @@ func toOpenAIChatMessages(messages []Message, visionCapable, audioCapable bool) 
 				for _, marker := range markers {
 					isImage := strings.HasPrefix(marker.MimeType, "image/")
 					isAudio := strings.HasPrefix(marker.MimeType, "audio/")
-					if (isImage && !visionCapable) || (isAudio && !audioCapable) {
+					isPDF := marker.MimeType == "application/pdf"
+					if (isImage && !visionCapable) || (isAudio && !audioCapable) || (isPDF && !pdfCapable) {
 						continue
 					}
-					if !isImage && !isAudio {
+					if !isImage && !isAudio && !isPDF {
 						continue
 					}
 					b64, err := ReadFileAsBase64(marker.FilePath)
 					if err != nil {
 						continue
 					}
-					if isImage {
+					if isImage || isPDF {
 						parts = append(parts, openai.ChatCompletionContentPartUnionParam{
 							OfImageURL: &openai.ChatCompletionContentPartImageParam{
 								ImageURL: openai.ChatCompletionContentPartImageImageURLParam{
@@ -382,17 +385,18 @@ func toOpenAIChatMessages(messages []Message, visionCapable, audioCapable bool) 
 				for _, marker := range mediaMarkers {
 					isImage := strings.HasPrefix(marker.MimeType, "image/")
 					isAudio := strings.HasPrefix(marker.MimeType, "audio/")
-					if (isImage && !visionCapable) || (isAudio && !audioCapable) {
+					isPDF := marker.MimeType == "application/pdf"
+					if (isImage && !visionCapable) || (isAudio && !audioCapable) || (isPDF && !pdfCapable) {
 						continue
 					}
-					if !isImage && !isAudio {
+					if !isImage && !isAudio && !isPDF {
 						continue
 					}
 					b64, err := ReadFileAsBase64(marker.FilePath)
 					if err != nil {
 						continue
 					}
-					if isImage {
+					if isImage || isPDF {
 						mediaParts = append(mediaParts, openai.ChatCompletionContentPartUnionParam{
 							OfImageURL: &openai.ChatCompletionContentPartImageParam{
 								ImageURL: openai.ChatCompletionContentPartImageImageURLParam{
@@ -575,7 +579,7 @@ func (p *OpenRouterProvider) Chat(ctx context.Context, req *Request) (ChatResult
 	start := time.Now()
 	inputChars := inputChars(req.Messages)
 
-	messages, err := toOpenAIChatMessages(req.Messages, SupportsVision("openrouter", p.modelType), SupportsAudio("openrouter", p.modelType))
+	messages, err := toOpenAIChatMessages(req.Messages, SupportsVision("openrouter", p.modelType), SupportsAudio("openrouter", p.modelType), SupportsPDF("openrouter", p.modelType))
 	if err != nil {
 		return nil, fmt.Errorf("failed to convert messages: %w", err)
 	}

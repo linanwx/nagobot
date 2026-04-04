@@ -21,6 +21,7 @@ func init() {
 		Models:       []string{"gemini-3-flash-preview", "gemini-3.1-flash-lite-preview"},
 		VisionModels: []string{"gemini-3-flash-preview", "gemini-3.1-flash-lite-preview"},
 		AudioModels:  []string{"gemini-3-flash-preview", "gemini-3.1-flash-lite-preview"},
+		PDFModels:    []string{"gemini-3-flash-preview", "gemini-3.1-flash-lite-preview"},
 		ContextWindows: map[string]int{
 			"gemini-3-flash-preview":       1048576,
 			"gemini-3.1-flash-lite-preview": 1048576,
@@ -166,7 +167,7 @@ func (p *GeminiProvider) Chat(ctx context.Context, req *Request) (ChatResult, er
 	logger.Info("gemini request", "provider", "gemini", "modelType", p.modelType,
 		"modelName", p.modelName, "toolCount", len(req.Tools), "inputChars", inputChars)
 
-	sysInstruction, contents, err := toGeminiContents(req.Messages, SupportsVision("gemini", p.modelType), SupportsAudio("gemini", p.modelType))
+	sysInstruction, contents, err := toGeminiContents(req.Messages, SupportsVision("gemini", p.modelType), SupportsAudio("gemini", p.modelType), SupportsPDF("gemini", p.modelType))
 	if err != nil {
 		return nil, fmt.Errorf("convert messages: %w", err)
 	}
@@ -480,7 +481,7 @@ func (p *GeminiProvider) parseResponse(resp gmResponse, start time.Time) (*Respo
 
 // toGeminiContents converts canonical Messages to Gemini API format.
 // Returns (systemInstruction, contents, error).
-func toGeminiContents(messages []Message, visionCapable, audioCapable bool) (*gmContent, []gmContent, error) {
+func toGeminiContents(messages []Message, visionCapable, audioCapable, pdfCapable bool) (*gmContent, []gmContent, error) {
 	var sysInstruction *gmContent
 	var contents []gmContent
 	var pendingParts []gmPart
@@ -516,10 +517,11 @@ func toGeminiContents(messages []Message, visionCapable, audioCapable bool) (*gm
 				for _, marker := range markers {
 					isImage := strings.HasPrefix(marker.MimeType, "image/")
 					isAudio := strings.HasPrefix(marker.MimeType, "audio/")
-					if (isImage && !visionCapable) || (isAudio && !audioCapable) {
+					isPDF := marker.MimeType == "application/pdf"
+					if (isImage && !visionCapable) || (isAudio && !audioCapable) || (isPDF && !pdfCapable) {
 						continue
 					}
-					if !isImage && !isAudio {
+					if !isImage && !isAudio && !isPDF {
 						continue
 					}
 					b64, err := ReadFileAsBase64(marker.FilePath)
@@ -565,14 +567,15 @@ func toGeminiContents(messages []Message, visionCapable, audioCapable bool) (*gm
 					Response: map[string]any{"result": cleanedText},
 				},
 			})
-			// Append media from Content markers (images if vision-capable, audio if audio-capable).
+			// Append media from Content markers (images if vision-capable, audio if audio-capable, PDF if pdf-capable).
 			for _, marker := range markers {
 				isImage := strings.HasPrefix(marker.MimeType, "image/")
 				isAudio := strings.HasPrefix(marker.MimeType, "audio/")
-				if (isImage && !visionCapable) || (isAudio && !audioCapable) {
+				isPDF := marker.MimeType == "application/pdf"
+				if (isImage && !visionCapable) || (isAudio && !audioCapable) || (isPDF && !pdfCapable) {
 					continue
 				}
-				if !isImage && !isAudio {
+				if !isImage && !isAudio && !isPDF {
 					continue
 				}
 				b64, err := ReadFileAsBase64(marker.FilePath)
@@ -589,10 +592,11 @@ func toGeminiContents(messages []Message, visionCapable, audioCapable bool) (*gm
 				for _, marker := range mediaMarkers {
 					isImage := strings.HasPrefix(marker.MimeType, "image/")
 					isAudio := strings.HasPrefix(marker.MimeType, "audio/")
-					if (isImage && !visionCapable) || (isAudio && !audioCapable) {
+					isPDF := marker.MimeType == "application/pdf"
+					if (isImage && !visionCapable) || (isAudio && !audioCapable) || (isPDF && !pdfCapable) {
 						continue
 					}
-					if !isImage && !isAudio {
+					if !isImage && !isAudio && !isPDF {
 						continue
 					}
 					b64, err := ReadFileAsBase64(marker.FilePath)

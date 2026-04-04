@@ -263,6 +263,9 @@ func (p *OpenAIProvider) buildRequestBody(req *Request) ([]byte, error) {
 				{"type": "input_text", "text": cleanedText},
 			}
 			for _, marker := range markers {
+				if !strings.HasPrefix(marker.MimeType, "image/") {
+					continue // OpenAI only supports image media
+				}
 				b64, err := ReadFileAsBase64(marker.FilePath)
 				if err != nil {
 					continue

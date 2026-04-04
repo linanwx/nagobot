@@ -67,6 +67,8 @@ func downloadMedia(mediaDir, url string) string {
 		prefix = "audio"
 	case strings.HasPrefix(ct, "video/"):
 		prefix = "video"
+	case ct == "application/pdf":
+		prefix = "pdf"
 	}
 
 	buf := make([]byte, 4)

@@ -15,6 +15,7 @@ const (
 	FileTypeText   FileType = iota // Valid UTF-8 text
 	FileTypeImage                  // Recognized image format
 	FileTypeAudio                  // Recognized audio format
+	FileTypePDF                    // Recognized PDF document
 	FileTypeBinary                 // Non-text, non-image binary
 )
 
@@ -29,6 +30,11 @@ func DetectFileType(path string) (FileType, string) {
 	// Try audio detection (extension + magic bytes).
 	if m := detectAudioMime(path); m != "" {
 		return FileTypeAudio, m
+	}
+
+	// Try PDF detection (extension + magic bytes).
+	if detectPDF(path) {
+		return FileTypePDF, "application/pdf"
 	}
 
 	// Read a sample to check if the file is valid UTF-8 text.
@@ -149,6 +155,22 @@ func detectAudioMimeByMagic(path string) string {
 	}
 
 	return ""
+}
+
+// detectPDF returns true if the file is a PDF (by extension or magic bytes).
+func detectPDF(path string) bool {
+	ext := strings.ToLower(filepath.Ext(path))
+	if ext == ".pdf" {
+		return true
+	}
+	f, err := os.Open(path)
+	if err != nil {
+		return false
+	}
+	defer f.Close()
+	header := make([]byte, 5)
+	n, _ := f.Read(header)
+	return n >= 5 && header[0] == '%' && header[1] == 'P' && header[2] == 'D' && header[3] == 'F' && header[4] == '-'
 }
 
 // detectImageMimeByMagic reads the first bytes of a file to identify the image format.

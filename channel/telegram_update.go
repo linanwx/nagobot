@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"strconv"
+	"strings"
 
 	"github.com/go-telegram/bot"
 	"github.com/go-telegram/bot/models"
@@ -82,10 +83,25 @@ func (t *TelegramChannel) handleUpdate(ctx context.Context, b *bot.Bot, update *
 			text = "[GIF received]"
 		}
 	case msg.Document != nil:
-		metadata["media_summary"] = MediaSummary("document",
-			"file_name", msg.Document.FileName,
-			"mime_type", msg.Document.MimeType,
-			"file_url", t.getFileURL(ctx, b, msg.Document.FileID))
+		fileURL := t.getFileURL(ctx, b, msg.Document.FileID)
+		mimeType := strings.TrimSpace(msg.Document.MimeType)
+		if mimeType == "application/pdf" {
+			if localPath := downloadMedia(t.mediaDir, fileURL); localPath != "" {
+				metadata["media_summary"] = MediaSummary("document",
+					"file_name", msg.Document.FileName,
+					"document_path", localPath)
+			} else {
+				metadata["media_summary"] = MediaSummary("document",
+					"file_name", msg.Document.FileName,
+					"mime_type", mimeType,
+					"file_url", fileURL)
+			}
+		} else {
+			metadata["media_summary"] = MediaSummary("document",
+				"file_name", msg.Document.FileName,
+				"mime_type", mimeType,
+				"file_url", fileURL)
+		}
 		if text == "" {
 			text = msg.Caption
 		}

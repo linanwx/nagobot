@@ -24,7 +24,12 @@ var audioBitrateEstimates = map[string]int{
 
 // EstimateAudioTokens estimates the token cost of an audio file.
 // Uses file size and MIME type to estimate duration, then applies 32 tokens/sec.
+// Results are cached by file path.
 func EstimateAudioTokens(filePath string) int {
+	return cachedEstimate(filePath, computeAudioTokens)
+}
+
+func computeAudioTokens(filePath string) int {
 	info, err := os.Stat(filePath)
 	if err != nil {
 		return audioTokensFallback
@@ -34,12 +39,11 @@ func EstimateAudioTokens(filePath string) int {
 		return audioTokensFallback
 	}
 
-	// Determine MIME type from extension for bitrate lookup.
 	ext := strings.ToLower(filepath.Ext(filePath))
 	mime := extensionToAudioMime(ext)
 	bytesPerSec, ok := audioBitrateEstimates[mime]
 	if !ok {
-		bytesPerSec = 8000 // Conservative default: ~64kbps
+		bytesPerSec = 8000
 	}
 
 	durationSec := size / bytesPerSec

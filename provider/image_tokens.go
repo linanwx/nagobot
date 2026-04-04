@@ -18,7 +18,12 @@ const (
 // Reads only the file header to get dimensions, then applies:
 // scale longest edge to 1568 if larger, tokens = (w*h)/750.
 // Returns a conservative fallback (1000) if the file cannot be read.
+// Results are cached by file path.
 func EstimateImageTokens(filePath string) int {
+	return cachedEstimate(filePath, computeImageTokens)
+}
+
+func computeImageTokens(filePath string) int {
 	f, err := os.Open(filePath)
 	if err != nil {
 		return imageTokensFallback
