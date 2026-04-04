@@ -21,7 +21,7 @@ After=network-online.target
 ExecStart={{.BinPath}} serve
 Restart=on-failure
 RestartSec=5
-Environment=HOME={{.Home}}
+Environment=HOME={{.Home}} PATH={{.Home}}/.local/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin
 
 [Install]
 WantedBy={{.WantedBy}}
