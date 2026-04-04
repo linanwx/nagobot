@@ -335,7 +335,7 @@ func (d *Dispatcher) resolveAgentName(sessionKey string, msg *channel.Message) (
 
 	agentName := strings.TrimSpace(msg.Metadata["agent"])
 	if agentName == "" {
-		agentName = d.cfg.SessionAgent(sessionKey)
+		agentName = session.MetaAgent(d.threads.SessionDir(sessionKey))
 	}
 	if agentName == "" {
 		return "", nil

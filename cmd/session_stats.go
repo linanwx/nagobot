@@ -11,6 +11,7 @@ import (
 	"github.com/linanwx/nagobot/agent"
 	"github.com/linanwx/nagobot/config"
 	"github.com/linanwx/nagobot/provider"
+	"github.com/linanwx/nagobot/session"
 	"github.com/linanwx/nagobot/thread"
 	"github.com/spf13/cobra"
 )
@@ -207,12 +208,13 @@ func resolveModelChain(cfg *config.Config, registry *agent.AgentRegistry, sessio
 
 	result.Note = "Static config inference only. Actual agent may vary per wake via WakeMessage.AgentName."
 
-	// Step 1: session key → agent name
-	agentName := cfg.SessionAgent(sessionKey)
+	// Step 1: session key → agent name (from meta.json)
+	sessionsDir, _ := cfg.SessionsDir()
+	agentName := session.MetaAgent(session.SessionDir(sessionsDir, sessionKey))
 	if agentName != "" {
 		steps = append(steps, resolutionStep{
 			Step:   "session_agent",
-			Lookup: fmt.Sprintf("sessionAgents[%q]", sessionKey),
+			Lookup: fmt.Sprintf("meta.json[%q].agent", sessionKey),
 			Found:  agentName,
 			Status: "hit",
 		})

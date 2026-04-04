@@ -157,7 +157,6 @@ type TreeEntry struct {
 
 // ChannelsInfo contains active channel configuration for health output.
 type ChannelsInfo struct {
-	SessionAgents map[string]string `json:"sessionAgents,omitempty" yaml:"session_agents,omitempty"`
 	Telegram    *TelegramInfo     `json:"telegram,omitempty" yaml:"telegram,omitempty"`
 	Discord     *DiscordInfo      `json:"discord,omitempty" yaml:"discord,omitempty"`
 	Feishu      *FeishuInfo       `json:"feishu,omitempty" yaml:"feishu,omitempty"`

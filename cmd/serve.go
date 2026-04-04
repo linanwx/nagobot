@@ -173,7 +173,7 @@ func runServe(cmd *cobra.Command, args []string) error {
 	defer cancel()
 
 	// Set default agent/sink factories: resolve fallback agent and sink per session key.
-	threadMgr.SetDefaultAgentFor(buildDefaultAgentFor(cfg))
+	threadMgr.SetDefaultAgentFor(buildDefaultAgentFor(threadMgr))
 	sessionsDir, _ := cfg.SessionsDir()
 	threadMgr.SetDefaultSinkFor(buildDefaultSinkFor(chManager, cfg, sessionsDir,
 		func(key string, msg *thread.WakeMessage) { threadMgr.Wake(key, msg) },
@@ -272,10 +272,10 @@ func runServe(cmd *cobra.Command, args []string) error {
 }
 
 // buildDefaultAgentFor returns a factory that resolves the default agent name for a given session key.
-// Always returns a non-empty name: the configured agent if mapped, otherwise "soul".
-func buildDefaultAgentFor(cfg *config.Config) func(string) string {
+// Always returns a non-empty name: the persisted agent from meta.json if set, otherwise "soul".
+func buildDefaultAgentFor(mgr *thread.Manager) func(string) string {
 	return func(sessionKey string) string {
-		if name := cfg.SessionAgent(sessionKey); name != "" {
+		if name := session.MetaAgent(mgr.SessionDir(sessionKey)); name != "" {
 			return name
 		}
 		return "soul"

@@ -8,6 +8,7 @@ import (
 
 	"github.com/linanwx/nagobot/config"
 	"github.com/linanwx/nagobot/provider"
+	sessionPkg "github.com/linanwx/nagobot/session"
 	"github.com/spf13/cobra"
 )
 
@@ -112,22 +113,19 @@ func runSetAgent(_ *cobra.Command, _ []string) error {
 		}
 	}
 
-	if cfg.Channels == nil {
-		cfg.Channels = &config.ChannelsConfig{}
+	// Persist agent assignment to meta.json (per-session, survives restarts).
+	sessionsDir, err := cfg.SessionsDir()
+	if err != nil {
+		return fmt.Errorf("failed to get sessions dir: %w", err)
 	}
-	if cfg.Channels.SessionAgents == nil {
-		cfg.Channels.SessionAgents = make(map[string]string)
-	}
-
-	if agentArg == "" && modelArg == "" {
-		delete(cfg.Channels.SessionAgents, session)
-	} else {
-		cfg.Channels.SessionAgents[session] = agentArg
-	}
-
-	if err := cfg.Save(); err != nil {
-		return fmt.Errorf("failed to save config: %w", err)
-	}
+	sessionDir := sessionPkg.SessionDir(sessionsDir, session)
+	sessionPkg.UpdateMeta(sessionDir, func(m *sessionPkg.Meta) {
+		if agentArg == "" && modelArg == "" {
+			m.Agent = ""
+		} else {
+			m.Agent = agentArg
+		}
+	})
 
 	if agentArg == "" && modelArg == "" {
 		fmt.Printf("---\ncommand: set-agent\nstatus: ok\nsession: %s\nagent: cleared\n---\n\nCleared agent for session %q.\n", session, session)

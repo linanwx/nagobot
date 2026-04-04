@@ -34,60 +34,10 @@ type Config struct {
 	Cron      []cronpkg.Job   `json:"cron,omitempty" yaml:"cron,omitempty"`
 	SkillHub SkillHubConfig `json:"skillHub,omitempty" yaml:"skillHub,omitempty"`
 
-	// Hot-reload support for sessionAgents.
-	sessionAgentsMu       sync.Mutex        `yaml:"-" json:"-"`
-	sessionAgentsCache    map[string]string  `yaml:"-" json:"-"`
-	sessionAgentsFileTime time.Time          `yaml:"-" json:"-"`
-
 	// Hot-reload support for sessionTimezones.
 	sessionTimezonesMu       sync.Mutex        `yaml:"-" json:"-"`
 	sessionTimezonesCache    map[string]string  `yaml:"-" json:"-"`
 	sessionTimezonesFileTime time.Time          `yaml:"-" json:"-"`
-}
-
-// SessionAgent returns the agent name for the given session key.
-// It lazily reloads sessionAgents from config.yaml when the file changes on disk.
-func (c *Config) SessionAgent(key string) string {
-	if c == nil {
-		return ""
-	}
-	c.sessionAgentsMu.Lock()
-	defer c.sessionAgentsMu.Unlock()
-
-	path, err := ConfigPath()
-	if err != nil {
-		// Fallback to in-memory config.
-		if c.Channels == nil {
-			return ""
-		}
-		return c.Channels.SessionAgents[key]
-	}
-
-	info, err := os.Stat(path)
-	if err != nil || info.ModTime().Equal(c.sessionAgentsFileTime) {
-		return c.sessionAgentsCache[key]
-	}
-
-	// File changed on disk — reload sessionAgents only.
-	c.reloadSessionAgents(path, info.ModTime())
-	return c.sessionAgentsCache[key]
-}
-
-// reloadSessionAgents reads only the channels.sessionAgents section from config.yaml.
-func (c *Config) reloadSessionAgents(path string, modTime time.Time) {
-	data, err := os.ReadFile(path)
-	if err != nil {
-		return
-	}
-	var raw struct {
-		Channels struct {
-			SessionAgents map[string]string `yaml:"sessionAgents"`
-		} `yaml:"channels"`
-	}
-	if yaml.Unmarshal(data, &raw) == nil {
-		c.sessionAgentsCache = raw.Channels.SessionAgents
-	}
-	c.sessionAgentsFileTime = modTime
 }
 
 // SessionTimezone returns the IANA timezone for the given session key.
@@ -298,7 +248,6 @@ type ExecToolsConfig struct {
 
 // ChannelsConfig contains channel configurations.
 type ChannelsConfig struct {
-	SessionAgents    map[string]string `json:"sessionAgents,omitempty" yaml:"sessionAgents,omitempty"`       // sessionKey or userID → agent name
 	SessionTimezones map[string]string `json:"sessionTimezones,omitempty" yaml:"sessionTimezones,omitempty"` // sessionKey → IANA timezone (e.g. "Asia/Shanghai")
 	Telegram    *TelegramChannelConfig `json:"telegram" yaml:"telegram"`
 	Feishu      *FeishuChannelConfig   `json:"feishu,omitempty" yaml:"feishu,omitempty"`

@@ -225,9 +225,7 @@ func buildThreadManager(cfg *config.Config, enableSessions bool) (*thread.Manage
 		if ch == nil {
 			return nil
 		}
-		info := &tools.HealthChannelsInfo{
-			SessionAgents: ch.SessionAgents,
-		}
+		info := &tools.HealthChannelsInfo{}
 		if ch.Telegram != nil {
 			info.Telegram = &tools.HealthTelegramInfo{
 				Configured: ch.Telegram.Token != "",
