@@ -251,7 +251,7 @@ func buildWorldKnowledge(workspace string) string {
 	return content
 }
 
-// buildGlobal reads system/GLOBAL.md and returns its content for prompt injection.
+// buildGlobal reads system/GLOBAL.md and returns its content as a YAML-frontmattered section.
 // This file is never overwritten by onboard --sync, providing a stable customization point.
 func buildGlobal(workspace string) string {
 	if strings.TrimSpace(workspace) == "" {
@@ -265,7 +265,7 @@ func buildGlobal(workspace string) string {
 	if content == "" {
 		return ""
 	}
-	return content
+	return fmt.Sprintf("---\ntype: global_instruction\nfile_path: internal\nprompt: follow the instruction\n---\n\n%s", content)
 }
 
 // buildSessionsSummary reads system/sessions_summary.json and formats it for prompt injection.

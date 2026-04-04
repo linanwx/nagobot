@@ -291,28 +291,27 @@ func (t *Thread) executeRunner(ctx, runCtx context.Context, p provider.Provider,
 	return response, intermediates, usage, runner.LastQuota(), providerLabel, modelLabel, nil
 }
 
-// buildUserSection resolves the per-session USER.md into a formatted section.
+// buildUserSection resolves the per-session USER.md into a YAML-frontmattered section.
 func (t *Thread) buildUserSection() string {
 	sessionPath, ok := t.sessionFilePath()
 	if !ok {
-		return "## User Preferences\n\nNo session path available."
+		return ""
 	}
 	userPath := filepath.Join(filepath.Dir(sessionPath), "USER.md")
 	absPath, _ := filepath.Abs(userPath)
 
 	content, err := os.ReadFile(userPath)
 	if err != nil {
-		return fmt.Sprintf("## User Preferences\n\n`%s` does not exist. Create it to store user preferences.", absPath)
+		return fmt.Sprintf("---\ntype: user_preference\nfile_path: %s\nprompt: Append to store.\n---", absPath)
 	}
 	text := strings.TrimSpace(string(content))
 	if text == "" {
-		return fmt.Sprintf("## User Preferences\n\n`%s` is empty. Append to store user preferences.", absPath)
+		return fmt.Sprintf("---\ntype: user_preference\nfile_path: %s\nprompt: Append to store.\n---", absPath)
 	}
-	return fmt.Sprintf("## User Preferences\n\nCurrently using `%s` as preferences. Append to store.\n\n%s", absPath, text)
+	return fmt.Sprintf("---\ntype: user_preference\nfile_path: %s\nprompt: Append to store.\n---\n\n%s", absPath, text)
 }
 
-// buildHeartbeatSection resolves the per-session heartbeat.md path into a formatted section.
-// Content is NOT included — heartbeat.md changes frequently and would break prompt caching.
+// buildHeartbeatSection resolves the per-session heartbeat.md into a YAML-frontmattered section.
 func (t *Thread) buildHeartbeatSection() string {
 	sessionPath, ok := t.sessionFilePath()
 	if !ok {
@@ -320,7 +319,17 @@ func (t *Thread) buildHeartbeatSection() string {
 	}
 	hbPath := filepath.Join(filepath.Dir(sessionPath), "heartbeat.md")
 	absPath, _ := filepath.Abs(hbPath)
-	return fmt.Sprintf("## Heartbeat\n\nHeartbeat automatically wakes the thread to reflect on follow-up items and proactively help users with tasks.\n\nCurrently using `%s`.\n\nUse `use_skill(heartbeat-wake)` to handle heartbeat pulses — it covers both reflection and action.", absPath)
+
+	var body string
+	if data, err := os.ReadFile(hbPath); err == nil {
+		body = strings.TrimSpace(string(data))
+	}
+
+	header := fmt.Sprintf("---\ntype: heartbeat_information\nfile_path: %s\nprompt: Heartbeat automatically wakes the thread to reflect on follow-up items and proactively help users with tasks. Use `use_skill(heartbeat-wake)` to handle heartbeat pulses — it covers both reflection and action.\n---", absPath)
+	if body == "" {
+		return header
+	}
+	return header + "\n\n" + body
 }
 
 // isUserFacingContent returns true if the content is meaningful for the user,
