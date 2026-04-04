@@ -88,8 +88,8 @@ func (a *Agent) Build() string {
 		prompt = strings.ReplaceAll(prompt, "{{WORKSPACE}}", a.workspace)
 		prompt = strings.ReplaceAll(prompt, "{{AGENTS}}", buildAgentsPromptSection(a.workspace))
 		prompt = strings.ReplaceAll(prompt, "{{SESSIONS_SUMMARY}}", buildSessionsSummary(a.workspace))
-		prompt = strings.ReplaceAll(prompt, "{{WORLD_KNOWLEDGE}}", buildWorldKnowledge(a.workspace))
-		prompt = strings.ReplaceAll(prompt, "{{GLOBAL}}", buildGlobal(a.workspace))
+		prompt = replaceWithHeadingAlign(prompt, "{{WORLD_KNOWLEDGE}}", buildWorldKnowledge(a.workspace))
+		prompt = replaceWithHeadingAlign(prompt, "{{GLOBAL}}", buildGlobal(a.workspace))
 	}
 
 	now := time.Now()

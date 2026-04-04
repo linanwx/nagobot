@@ -103,6 +103,29 @@ func TestNormalizeHeadings(t *testing.T) {
 	}
 }
 
+func TestReplaceWithHeadingAlign(t *testing.T) {
+	text := "# Top\n## Section\n{{CONTENT}}\n## Other"
+	content := "# Injected Title\n## Sub\nBody"
+	got := replaceWithHeadingAlign(text, "{{CONTENT}}", content)
+	// Nearest heading before {{CONTENT}} is ## Section (H2), so content starts at H3
+	if !strings.Contains(got, "### Injected Title") {
+		t.Errorf("expected ### Injected Title, got:\n%s", got)
+	}
+	if !strings.Contains(got, "#### Sub") {
+		t.Errorf("expected #### Sub, got:\n%s", got)
+	}
+}
+
+func TestReplaceWithHeadingAlign_NoContext(t *testing.T) {
+	text := "No headings here\n{{X}}"
+	content := "# Title\nBody"
+	got := replaceWithHeadingAlign(text, "{{X}}", content)
+	// No preceding heading → insert as-is
+	if !strings.Contains(got, "# Title") {
+		t.Errorf("expected # Title unchanged, got:\n%s", got)
+	}
+}
+
 func TestSectionRegistry_Assemble(t *testing.T) {
 	dir := t.TempDir()
 

@@ -115,6 +115,36 @@ func normalizeHeadings(content string, targetLevel int) string {
 	return sb.String()
 }
 
+// replaceWithHeadingAlign replaces placeholder in text with content,
+// normalizing content headings to nest under the nearest preceding heading.
+// If the nearest heading before the placeholder is H2, content's top-level
+// headings become H3. If no heading is found, content is inserted as-is.
+func replaceWithHeadingAlign(text, placeholder, content string) string {
+	if content == "" || !strings.Contains(text, placeholder) {
+		return strings.ReplaceAll(text, placeholder, content)
+	}
+	idx := strings.Index(text, placeholder)
+	contextLevel := findNearestHeadingLevel(text[:idx])
+	if contextLevel == 0 {
+		return strings.ReplaceAll(text, placeholder, content)
+	}
+	target := contextLevel + 1
+	normalized := normalizeHeadings(content, target)
+	return strings.ReplaceAll(text, placeholder, normalized)
+}
+
+// findNearestHeadingLevel scans backwards from the end of text
+// and returns the level of the last markdown heading found.
+func findNearestHeadingLevel(text string) int {
+	lines := strings.Split(text, "\n")
+	for i := len(lines) - 1; i >= 0; i-- {
+		if lvl := headingLevel(lines[i]); lvl > 0 {
+			return lvl
+		}
+	}
+	return 0
+}
+
 func abs(x int) int {
 	if x < 0 {
 		return -x
