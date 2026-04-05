@@ -88,7 +88,7 @@ func Query(store *Store, window Window) *MetricsSummary {
 
 	for _, r := range records {
 		totalDur += r.DurationMs
-		totalTokens += r.TotalTokens
+		totalTokens += r.AccTotalTokens
 		if r.Error {
 			errorCount++
 		}
@@ -103,10 +103,10 @@ func Query(store *Store, window Window) *MetricsSummary {
 		}
 		ps.Turns++
 		ps.AvgDurMs += r.DurationMs
-		ps.PromptTokens += r.PromptTokens
-		ps.CachedTokens += r.CachedTokens
+		ps.PromptTokens += r.AccPromptTokens
+		ps.CachedTokens += r.AccCachedTokens
 		if cacheReliable {
-			ps.CacheEligiblePromptTokens += r.PromptTokens
+			ps.CacheEligiblePromptTokens += r.AccPromptTokens
 		}
 		ms, ok := ps.Models[r.Model]
 		if !ok {
@@ -115,10 +115,10 @@ func Query(store *Store, window Window) *MetricsSummary {
 		}
 		ms.Turns++
 		ms.AvgDurMs += r.DurationMs
-		ms.PromptTokens += r.PromptTokens
-		ms.CachedTokens += r.CachedTokens
+		ms.PromptTokens += r.AccPromptTokens
+		ms.CachedTokens += r.AccCachedTokens
 		if cacheReliable {
-			ms.CacheEligiblePromptTokens += r.PromptTokens
+			ms.CacheEligiblePromptTokens += r.AccPromptTokens
 		}
 
 		// By agent
@@ -130,10 +130,10 @@ func Query(store *Store, window Window) *MetricsSummary {
 			}
 			as.Turns++
 			as.AvgDurMs += r.DurationMs
-			as.PromptTokens += r.PromptTokens
-			as.CachedTokens += r.CachedTokens
+			as.PromptTokens += r.AccPromptTokens
+			as.CachedTokens += r.AccCachedTokens
 			if cacheReliable {
-				as.CacheEligiblePromptTokens += r.PromptTokens
+				as.CacheEligiblePromptTokens += r.AccPromptTokens
 			}
 		}
 
@@ -146,10 +146,10 @@ func Query(store *Store, window Window) *MetricsSummary {
 			}
 			ss.Turns++
 			ss.AvgDurMs += r.DurationMs
-			ss.PromptTokens += r.PromptTokens
-			ss.CachedTokens += r.CachedTokens
+			ss.PromptTokens += r.AccPromptTokens
+			ss.CachedTokens += r.AccCachedTokens
 			if cacheReliable {
-				ss.CacheEligiblePromptTokens += r.PromptTokens
+				ss.CacheEligiblePromptTokens += r.AccPromptTokens
 			}
 		}
 	}

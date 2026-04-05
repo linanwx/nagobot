@@ -413,6 +413,9 @@ func (r *Runner) logEstimationAccuracy(messages []provider.Message, resp *provid
 		r.metrics.PromptEstimated = estimatedPrompt
 		r.metrics.ReasoningEstimated = estimatedReasoning
 		r.metrics.LastPromptActual = actual.PromptTokens
+		r.metrics.LastCompletionActual = actual.CompletionTokens
+		r.metrics.LastTotalActual = actual.TotalTokens
+		r.metrics.LastCachedActual = actual.CachedTokens
 		r.metrics.LastReasoningActual = actual.ReasoningTokens
 		media = r.metrics.Media
 	}

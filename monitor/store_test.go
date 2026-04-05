@@ -20,7 +20,7 @@ func TestStoreRecordAndLoad(t *testing.T) {
 		SessionKey: "telegram:123",
 		Iterations: 2,
 		ToolCalls:  3,
-		TotalTokens: 500,
+		AccTotalTokens: 500,
 	})
 	store.Record(TurnRecord{
 		Timestamp:  now.Add(-2 * time.Hour),
@@ -31,7 +31,7 @@ func TestStoreRecordAndLoad(t *testing.T) {
 		SessionKey: "discord:456",
 		Iterations: 1,
 		ToolCalls:  0,
-		TotalTokens: 200,
+		AccTotalTokens: 200,
 	})
 
 	// Load all
@@ -63,7 +63,7 @@ func TestQuery(t *testing.T) {
 			Model:      "qwen/qwen3.5-35b-a3b",
 			Agent:      "soul",
 			SessionKey: "telegram:123",
-			TotalTokens: 100,
+			AccTotalTokens: 100,
 		})
 	}
 	store.Record(TurnRecord{
@@ -73,7 +73,7 @@ func TestQuery(t *testing.T) {
 		Model:      "deepseek-chat",
 		Agent:      "fallout",
 		SessionKey: "discord:456",
-		TotalTokens: 300,
+		AccTotalTokens: 300,
 		Error:      true,
 	})
 

@@ -152,12 +152,15 @@ type ExecMetrics struct {
 	CurrentTool    string           // empty when not executing a tool
 	ToolCalls      []ToolCallRecord
 
-	// Last-turn token data — overwritten (not accumulated) each iteration by the runner.
-	PromptEstimated    int
-	ReasoningEstimated int
-	LastPromptActual   int
+	// Last-turn token data — overwritten (not accumulated) each LLM call by the runner.
+	PromptEstimated     int
+	ReasoningEstimated  int
+	LastPromptActual    int
+	LastCompletionActual int
+	LastTotalActual     int
+	LastCachedActual    int
 	LastReasoningActual int
-	Media              MediaBreakdown
+	Media               MediaBreakdown
 }
 
 // StartIteration increments the iteration counter and clears the current tool.

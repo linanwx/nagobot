@@ -17,32 +17,41 @@ const (
 	retentionDays   = 7
 )
 
-// TurnRecord captures metrics for a single thread turn.
+// TurnRecord captures metrics for a single run (wake → completion).
 type TurnRecord struct {
-	Timestamp        time.Time `json:"ts"`
-	DurationMs       int64     `json:"durationMs"`
-	Provider         string    `json:"provider"`
-	Model            string    `json:"model"`
-	Agent            string    `json:"agent"`
-	SessionKey       string    `json:"sessionKey"`
-	Iterations       int       `json:"iterations"`
-	ToolCalls        int       `json:"toolCalls"`
-	PromptTokens     int       `json:"promptTokens"`
-	CompletionTokens int       `json:"completionTokens"`
-	TotalTokens      int       `json:"totalTokens"`
-	CachedTokens     int       `json:"cachedTokens,omitempty"`
-	ReasoningTokens  int       `json:"reasoningTokens,omitempty"`
-	Error            bool      `json:"error,omitempty"`
+	Timestamp  time.Time `json:"ts"`
+	DurationMs int64     `json:"durationMs"`
+	Provider   string    `json:"provider"`
+	Model      string    `json:"model"`
+	Agent      string    `json:"agent"`
+	SessionKey string    `json:"sessionKey"`
+	Iterations int       `json:"iterations"`
+	ToolCalls  int       `json:"toolCalls"`
+	Error      bool      `json:"error,omitempty"`
 
-	// Client-side token estimates for calibration.
-	PromptEstimated    int `json:"promptEstimated,omitempty"`
-	ReasoningEstimated int `json:"reasoningEstimated,omitempty"`
-	MediaImageCount    int `json:"mediaImageCount,omitempty"`
-	MediaImageEst      int `json:"mediaImageEst,omitempty"`
-	MediaAudioCount    int `json:"mediaAudioCount,omitempty"`
-	MediaAudioEst      int `json:"mediaAudioEst,omitempty"`
-	MediaPDFCount      int `json:"mediaPDFCount,omitempty"`
-	MediaPDFEst        int `json:"mediaPDFEst,omitempty"`
+	// Last-turn: values from the final API call in this run.
+	LastPromptTokens     int `json:"lastPromptTokens,omitempty"`
+	LastCompletionTokens int `json:"lastCompletionTokens,omitempty"`
+	LastTotalTokens      int `json:"lastTotalTokens,omitempty"`
+	LastCachedTokens     int `json:"lastCachedTokens,omitempty"`
+	LastReasoningTokens  int `json:"lastReasoningTokens,omitempty"`
+
+	// Accumulated: sum across all API calls in this run.
+	AccPromptTokens     int `json:"accPromptTokens,omitempty"`
+	AccCompletionTokens int `json:"accCompletionTokens,omitempty"`
+	AccTotalTokens      int `json:"accTotalTokens,omitempty"`
+	AccCachedTokens     int `json:"accCachedTokens,omitempty"`
+	AccReasoningTokens  int `json:"accReasoningTokens,omitempty"`
+
+	// Client-side estimates (last turn).
+	EstPromptTokens    int `json:"estPromptTokens,omitempty"`
+	EstReasoningTokens int `json:"estReasoningTokens,omitempty"`
+	EstMediaImageCount int `json:"estMediaImageCount,omitempty"`
+	EstMediaImageTokens int `json:"estMediaImageTokens,omitempty"`
+	EstMediaAudioCount int `json:"estMediaAudioCount,omitempty"`
+	EstMediaAudioTokens int `json:"estMediaAudioTokens,omitempty"`
+	EstMediaPDFCount   int `json:"estMediaPDFCount,omitempty"`
+	EstMediaPDFTokens  int `json:"estMediaPDFTokens,omitempty"`
 }
 
 // Store persists and queries turn metrics.
