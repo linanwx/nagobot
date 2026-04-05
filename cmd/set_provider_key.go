@@ -60,31 +60,33 @@ func runSetProviderKey(_ *cobra.Command, _ []string) error {
 			if strings.TrimSpace(pc.APIKey) != "" {
 				status = maskKey(pc.APIKey)
 			}
-			// Show OAuth status for providers that support it.
-			if tok := cfg.GetOAuthToken(name); tok != nil && tok.AccessToken != "" {
-				oauthStatus := "oauth"
-				if tok.ExpiresAt > 0 {
-					remaining := tok.ExpiresAt - time.Now().Unix()
-					if remaining <= 0 {
-						if tok.RefreshToken != "" {
-							oauthStatus = "oauth (expired, has refresh token)"
+			// Show OAuth status only for OAuth-variant providers.
+			if strings.HasSuffix(name, "-oauth") {
+				if tok := cfg.GetOAuthToken(name); tok != nil && tok.AccessToken != "" {
+					oauthStatus := "oauth"
+					if tok.ExpiresAt > 0 {
+						remaining := tok.ExpiresAt - time.Now().Unix()
+						if remaining <= 0 {
+							if tok.RefreshToken != "" {
+								oauthStatus = "oauth (expired, has refresh token)"
+							} else {
+								oauthStatus = "oauth (expired)"
+							}
 						} else {
-							oauthStatus = "oauth (expired)"
-						}
-					} else {
-						days := remaining / 86400
-						if days > 0 {
-							oauthStatus = fmt.Sprintf("oauth (expires in %dd)", days)
-						} else {
-							hours := remaining / 3600
-							oauthStatus = fmt.Sprintf("oauth (expires in %dh)", hours)
+							days := remaining / 86400
+							if days > 0 {
+								oauthStatus = fmt.Sprintf("oauth (expires in %dd)", days)
+							} else {
+								hours := remaining / 3600
+								oauthStatus = fmt.Sprintf("oauth (expires in %dh)", hours)
+							}
 						}
 					}
-				}
-				if status == "not configured" {
-					status = oauthStatus
-				} else {
-					status += " + " + oauthStatus
+					if status == "not configured" {
+						status = oauthStatus
+					} else {
+						status += " + " + oauthStatus
+					}
 				}
 			}
 			marker := "  "
