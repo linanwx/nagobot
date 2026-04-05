@@ -1,6 +1,6 @@
 ---
 name: audioreader
-description: Transcribes and describes audio files. Requires an audio file path passed via the task.
+description: Use this agent when the current model does not support audio and you need to transcribe or listen to audio. This agent bridges capabilities across different models.
 specialty: audio
 ---
 

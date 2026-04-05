@@ -1,6 +1,6 @@
 ---
 name: imagereader
-description: Analyzes images and returns detailed descriptions. Requires an image file path passed via the task.
+description: Use this agent when the current model does not support vision and you need to analyze or describe images. This agent bridges capabilities across different models.
 specialty: image
 ---
 

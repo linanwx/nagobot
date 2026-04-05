@@ -1,6 +1,6 @@
 ---
 name: pdfreader
-description: Reads and summarizes PDF documents. Requires a PDF file path passed via the task.
+description: Use this agent when the current model does not support PDF and you need to read or summarize PDF documents. This agent bridges capabilities across different models.
 specialty: pdf
 ---
 
