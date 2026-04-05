@@ -162,7 +162,8 @@ func validateProviderModel(cfg *config.Config, provName, modelName, cmdPrefix st
 
 	pc := cfg.EnsureProviderConfigFor(provName)
 	hasKey := strings.TrimSpace(pc.APIKey) != ""
-	hasOAuth := (provName == "openai" || provName == "openai-oauth") && cfg.Providers.OpenAIOAuth != nil && cfg.Providers.OpenAIOAuth.AccessToken != ""
+	oauthToken := cfg.GetOAuthToken(provName)
+	hasOAuth := oauthToken != nil && oauthToken.AccessToken != ""
 	if !hasKey && !hasOAuth {
 		return fmt.Errorf("provider %q has no API key configured.\nFix: nagobot set-provider-key --provider %s --api-key YOUR_KEY", provName, provName)
 	}
