@@ -20,6 +20,7 @@ type Runner struct {
 	tools          *tools.Registry
 	metrics        *ExecMetrics              // optional; nil disables metrics collection
 	totalUsage     provider.Usage            // accumulated usage across all Chat calls
+	lastTurnUsage  provider.Usage            // usage from the most recent Chat call (not accumulated)
 	lastQuota      *provider.Quota           // last non-nil quota from provider response
 	contextBudget  int                       // contextWindow - maxCompletionTokens; 0 = no guard
 	toolDefsTokens int                       // cached token estimate for tool definitions
@@ -72,6 +73,9 @@ func (r *Runner) SetUserVisible(v bool) { r.userVisible = v }
 
 // TotalUsage returns the accumulated token usage across all Chat calls in the loop.
 func (r *Runner) TotalUsage() provider.Usage { return r.totalUsage }
+
+// LastTurnUsage returns the usage from the most recent Chat call.
+func (r *Runner) LastTurnUsage() provider.Usage { return r.lastTurnUsage }
 
 // LastQuota returns the last non-nil quota snapshot from provider responses.
 func (r *Runner) LastQuota() *provider.Quota { return r.lastQuota }
@@ -177,6 +181,7 @@ func (r *Runner) RunWithMessages(ctx context.Context, messages []provider.Messag
 		if ctx.Err() != nil {
 			return "", ctx.Err()
 		}
+		r.lastTurnUsage = resp.Usage
 		r.totalUsage.PromptTokens += resp.Usage.PromptTokens
 		r.totalUsage.CompletionTokens += resp.Usage.CompletionTokens
 		r.totalUsage.TotalTokens += resp.Usage.TotalTokens
@@ -405,8 +410,10 @@ func (r *Runner) logEstimationAccuracy(messages []provider.Message, resp *provid
 
 	var media MediaBreakdown
 	if r.metrics != nil {
-		r.metrics.PromptEstimated += estimatedPrompt
-		r.metrics.ReasoningEstimated += estimatedReasoning
+		r.metrics.PromptEstimated = estimatedPrompt
+		r.metrics.ReasoningEstimated = estimatedReasoning
+		r.metrics.LastPromptActual = actual.PromptTokens
+		r.metrics.LastReasoningActual = actual.ReasoningTokens
 		media = r.metrics.Media
 	}
 

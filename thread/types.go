@@ -152,9 +152,11 @@ type ExecMetrics struct {
 	CurrentTool    string           // empty when not executing a tool
 	ToolCalls      []ToolCallRecord
 
-	// Token estimation snapshot — set after buildMessageHistory, read by recordTurn.
+	// Last-turn token data — overwritten (not accumulated) each iteration by the runner.
 	PromptEstimated    int
 	ReasoningEstimated int
+	LastPromptActual   int
+	LastReasoningActual int
 	Media              MediaBreakdown
 }
 
