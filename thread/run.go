@@ -45,8 +45,6 @@ func (t *Thread) run(ctx context.Context, userMessage string, sink Sink, injectF
 
 	// Set up execution metrics for observability by other threads.
 	metrics := &ExecMetrics{TurnStart: time.Now()}
-	// Snapshot token estimates for structured recording in TurnRecord.
-	metrics.PromptEstimated = EstimateMessagesTokens(messages) + EstimateToolDefsTokens(t.tools.Defs())
 	metrics.Media = CollectMediaBreakdown(messages)
 	t.mu.Lock()
 	t.execMetrics = metrics

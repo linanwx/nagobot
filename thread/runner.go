@@ -403,12 +403,10 @@ func (r *Runner) logEstimationAccuracy(messages []provider.Message, resp *provid
 		reasoningDelta = fmt.Sprintf("%+.1f%%", pct)
 	}
 
-	if r.metrics != nil {
-		r.metrics.ReasoningEstimated += estimatedReasoning
-	}
-
 	var media MediaBreakdown
 	if r.metrics != nil {
+		r.metrics.PromptEstimated += estimatedPrompt
+		r.metrics.ReasoningEstimated += estimatedReasoning
 		media = r.metrics.Media
 	}
 
