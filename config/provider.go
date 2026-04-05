@@ -260,7 +260,7 @@ func (c *Config) EnsureProviderConfigFor(providerName string) *ProviderConfig {
 		c.Providers.OpenAI = pc
 	case "openrouter":
 		c.Providers.OpenRouter = pc
-	case "anthropic", "anthropic-oauth":
+	case "anthropic":
 		c.Providers.Anthropic = pc
 	case "deepseek":
 		c.Providers.DeepSeek = pc

@@ -55,9 +55,9 @@ func runSetProviderKey(_ *cobra.Command, _ []string) error {
 	if provKeyList {
 		fmt.Printf("---\ncommand: set-provider-key\nmode: list\n---\n\nLLM provider key status:\n")
 		for _, name := range supported {
-			pc := cfg.EnsureProviderConfigFor(name)
+			pc := cfg.Providers.GetProviderConfig(name)
 			status := "not configured"
-			if strings.TrimSpace(pc.APIKey) != "" {
+			if pc != nil && strings.TrimSpace(pc.APIKey) != "" {
 				status = maskKey(pc.APIKey)
 			}
 			// Show OAuth status only for OAuth-variant providers.
