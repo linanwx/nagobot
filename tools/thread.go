@@ -223,7 +223,12 @@ func (t *CheckThreadTool) run(_ context.Context, args json.RawMessage) string {
 			"You can call sleep_thread to end this turn, or tell the user results will follow shortly."
 	case "idle":
 		hint = "Thread is idle — it has finished its current task. " +
-			"If you expected a child_completed message and didn't receive one, the result may have already been delivered."
+			"If you expected a child_completed message and didn't receive one, " +
+			"the message may still be in the message queue. " +
+			"You MUST end the current request (call sleep_thread) or output a reply with no tool calls to receive it. " +
+			"Otherwise you cannot process that message. " +
+			"This usually happens because you just spawned the thread and are polling synchronously to wait for the result, " +
+			"instead of telling the user you will follow up later."
 	}
 	return toolResult("check_thread", fields, hint)
 }
