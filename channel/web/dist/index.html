@@ -594,6 +594,22 @@
         font-size: 13px;
       }
 
+      .load-older-btn {
+        padding: 8px 16px;
+        text-align: center;
+        color: var(--accent-blue);
+        font-size: 12px;
+        cursor: pointer;
+        border: 1px dashed var(--border);
+        border-radius: 4px;
+        margin-bottom: 4px;
+        transition: background 0.15s;
+        flex-shrink: 0;
+      }
+      .load-older-btn:hover {
+        background: var(--bg-elevated);
+      }
+
       .msg-card {
         background: var(--bg-surface);
         border: 1px solid var(--border);
@@ -1332,6 +1348,10 @@
       let sessions = [];
       let sessionRefreshTimer = null;
       let userAtBottom = true;
+      let allMessages = [];       // All messages for current session
+      const PAGE_SIZE = 200;      // Messages per page
+      let renderedStart = 0;      // Index into allMessages of earliest rendered message
+      let loadingOlder = false;   // Guard against concurrent loads
 
       // ── DOM refs ───────────────────────────────────────────
       const $ = (id) => document.getElementById(id);
@@ -2132,13 +2152,13 @@
             })
             .catch(() => { statsBar.classList.remove("visible"); tokenBreakdown.classList.remove("visible"); });
 
-          // Simple virtualization: if > 500 messages, only render last 500
-          const renderMsgs = msgs.length > 500 ? msgs.slice(msgs.length - 500) : msgs;
-          if (msgs.length > 500) {
-            const notice = document.createElement("div");
-            notice.style.cssText = "padding:8px;text-align:center;color:var(--text-tertiary);font-size:11px;";
-            notice.textContent = "Showing last 500 of " + msgs.length + " messages";
-            messagesContainer.appendChild(notice);
+          // Pagination: render last PAGE_SIZE, load older on demand
+          allMessages = msgs;
+          renderedStart = Math.max(0, msgs.length - PAGE_SIZE);
+          const renderMsgs = msgs.slice(renderedStart);
+
+          if (renderedStart > 0) {
+            messagesContainer.appendChild(createLoadOlderBtn());
           }
 
           const fragment = document.createDocumentFragment();
@@ -2152,6 +2172,56 @@
         } catch (err) {
           messagesEmpty.textContent = "Error loading session: " + err.message;
         }
+      }
+
+      // ── Pagination helpers ─────────────────────────────────
+
+      function createLoadOlderBtn() {
+        const btn = document.createElement("div");
+        btn.className = "load-older-btn";
+        btn.textContent = "Load older messages (" + renderedStart + " remaining)";
+        btn.addEventListener("click", loadOlderMessages);
+        return btn;
+      }
+
+      function loadOlderMessages() {
+        if (loadingOlder || renderedStart <= 0) return;
+        loadingOlder = true;
+
+        const prevEnd = renderedStart;
+        renderedStart = Math.max(0, renderedStart - PAGE_SIZE);
+        const olderMsgs = allMessages.slice(renderedStart, prevEnd);
+
+        // Remove existing "Load older" button
+        const oldBtn = messagesContainer.querySelector(".load-older-btn");
+
+        // Preserve scroll position: measure before insert
+        const scrollH = messagesContainer.scrollHeight;
+        const scrollT = messagesContainer.scrollTop;
+
+        const fragment = document.createDocumentFragment();
+        for (const msg of olderMsgs) {
+          fragment.appendChild(renderMessageCard(msg));
+        }
+
+        // Insert older messages after the button (or at start)
+        const insertBefore = oldBtn ? oldBtn.nextSibling : messagesContainer.firstChild;
+        messagesContainer.insertBefore(fragment, insertBefore);
+
+        // Update or remove button
+        if (oldBtn) {
+          if (renderedStart > 0) {
+            oldBtn.textContent = "Load older messages (" + renderedStart + " remaining)";
+          } else {
+            oldBtn.remove();
+          }
+        }
+
+        // Restore scroll position
+        const newScrollH = messagesContainer.scrollHeight;
+        messagesContainer.scrollTop = scrollT + (newScrollH - scrollH);
+
+        loadingOlder = false;
       }
 
       // ── Message rendering ──────────────────────────────────
