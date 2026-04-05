@@ -8,87 +8,96 @@ import (
 	"github.com/linanwx/nagobot/thread"
 )
 
-func TestIsIncompleteSession(t *testing.T) {
+func TestIsUserTurnComplete(t *testing.T) {
 	now := time.Now()
 
 	tests := []struct {
-		name     string
-		messages []provider.Message
-		want     bool
+		name       string
+		messages   []provider.Message
+		userMsgIdx int
+		want       bool
 	}{
 		{
-			name:     "empty session",
-			messages: nil,
-			want:     false,
+			name: "user message is last — no response, incomplete",
+			messages: []provider.Message{
+				{Role: "user", Content: "hello", Timestamp: now},
+			},
+			userMsgIdx: 0,
+			want:       false,
 		},
 		{
-			name: "ends with assistant no tool_calls — complete",
+			name: "assistant replied without tool_calls — complete",
 			messages: []provider.Message{
 				{Role: "user", Content: "hello", Timestamp: now},
 				{Role: "assistant", Content: "hi there", Timestamp: now},
 			},
-			want: false,
+			userMsgIdx: 0,
+			want:       true,
 		},
 		{
-			name: "ends with user message — incomplete",
-			messages: []provider.Message{
-				{Role: "user", Content: "hello", Timestamp: now},
-			},
-			want: true,
-		},
-		{
-			name: "ends with tool result — incomplete",
-			messages: []provider.Message{
-				{Role: "user", Content: "read this", Timestamp: now},
-				{Role: "assistant", Content: "", ToolCalls: []provider.ToolCall{{ID: "tc1", Type: "function", Function: provider.FunctionCall{Name: "read_file"}}}, Timestamp: now},
-				{Role: "tool", ToolCallID: "tc1", Content: "file contents", Timestamp: now},
-			},
-			want: true,
-		},
-		{
-			name: "ends with user after sanitize drops empty assistant — incomplete",
-			messages: []provider.Message{
-				{Role: "user", Content: "do something", Timestamp: now},
-			},
-			want: true,
-		},
-		{
-			name: "partial tool results after sanitize — ends with tool, incomplete",
-			messages: []provider.Message{
-				{Role: "user", Content: "do two things", Timestamp: now},
-				{Role: "assistant", Content: "", ToolCalls: []provider.ToolCall{
-					{ID: "tc1", Type: "function", Function: provider.FunctionCall{Name: "read_file"}},
-				}, Timestamp: now},
-				{Role: "tool", ToolCallID: "tc1", Content: "result1", Timestamp: now},
-			},
-			want: true,
-		},
-		{
-			name: "complete after tool round — assistant final response",
+			name: "tool round then final response — complete",
 			messages: []provider.Message{
 				{Role: "user", Content: "read this", Timestamp: now},
 				{Role: "assistant", Content: "", ToolCalls: []provider.ToolCall{{ID: "tc1", Type: "function", Function: provider.FunctionCall{Name: "read_file"}}}, Timestamp: now},
 				{Role: "tool", ToolCallID: "tc1", Content: "file contents", Timestamp: now},
 				{Role: "assistant", Content: "Here is the file", Timestamp: now},
 			},
-			want: false,
+			userMsgIdx: 0,
+			want:       true,
 		},
 		{
-			name: "ends with sleep_thread — deliberate completion, not interrupted",
+			name: "tool round interrupted — ends with tool result, incomplete",
+			messages: []provider.Message{
+				{Role: "user", Content: "read this", Timestamp: now},
+				{Role: "assistant", Content: "", ToolCalls: []provider.ToolCall{{ID: "tc1", Type: "function", Function: provider.FunctionCall{Name: "read_file"}}}, Timestamp: now},
+				{Role: "tool", ToolCallID: "tc1", Content: "file contents", Timestamp: now},
+			},
+			userMsgIdx: 0,
+			want:       false,
+		},
+		{
+			name: "ends with sleep_thread — deliberate completion",
 			messages: []provider.Message{
 				{Role: "user", Content: "hello", Timestamp: now},
 				{Role: "assistant", Content: "", ToolCalls: []provider.ToolCall{{ID: "tc1", Type: "function", Function: provider.FunctionCall{Name: "sleep_thread"}}}, Timestamp: now},
 				{Role: "tool", ToolCallID: "tc1", Name: "sleep_thread", Content: "ok", Timestamp: now},
 			},
-			want: false,
+			userMsgIdx: 0,
+			want:       true,
+		},
+		{
+			name: "user turn complete but heartbeat interrupted after — scoped to user turn only",
+			messages: []provider.Message{
+				{Role: "user", Content: normalMsg("telegram", "hello"), Source: "telegram", Timestamp: now},
+				{Role: "assistant", Content: "hi there", Timestamp: now},
+				// heartbeat starts a new turn
+				{Role: "user", Content: normalMsg("heartbeat", "pulse"), Source: "heartbeat", Timestamp: now},
+				{Role: "assistant", Content: "", ToolCalls: []provider.ToolCall{{ID: "tc1", Type: "function", Function: provider.FunctionCall{Name: "some_tool"}}}, Timestamp: now},
+				{Role: "tool", ToolCallID: "tc1", Content: "result", Timestamp: now},
+				// heartbeat interrupted here — but user turn at idx 0 is complete
+			},
+			userMsgIdx: 0,
+			want:       true,
+		},
+		{
+			name: "injected message does not end the turn scope",
+			messages: []provider.Message{
+				{Role: "user", Content: normalMsg("telegram", "do stuff"), Source: "telegram", Timestamp: now},
+				{Role: "assistant", Content: "", ToolCalls: []provider.ToolCall{{ID: "tc1", Type: "function", Function: provider.FunctionCall{Name: "read_file"}}}, Timestamp: now},
+				{Role: "tool", ToolCallID: "tc1", Content: "file contents", Timestamp: now},
+				{Role: "user", Content: injectedMsg("telegram", "follow-up"), Source: "telegram", Timestamp: now},
+				{Role: "assistant", Content: "done", Timestamp: now},
+			},
+			userMsgIdx: 0,
+			want:       true,
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got := isIncompleteSession(tt.messages)
+			got := isUserTurnComplete(tt.messages, tt.userMsgIdx)
 			if got != tt.want {
-				t.Errorf("isIncompleteSession() = %v, want %v", got, tt.want)
+				t.Errorf("isUserTurnComplete() = %v, want %v", got, tt.want)
 			}
 		})
 	}
@@ -114,9 +123,12 @@ func TestFindLastUserMessage(t *testing.T) {
 			{Role: "assistant", Content: "reply", Timestamp: now},
 			{Role: "user", Content: normalMsg("telegram", "second"), Source: "telegram", Timestamp: now},
 		}
-		msg, ok := findLastUserMessage(msgs)
+		msg, idx, ok := findLastUserMessage(msgs)
 		if !ok {
 			t.Fatal("expected to find user message")
+		}
+		if idx != 2 {
+			t.Fatalf("expected idx 2, got %d", idx)
 		}
 		_, body, _ := thread.SplitFrontmatter(msg.Content)
 		if body != "\nsecond" {
@@ -128,7 +140,7 @@ func TestFindLastUserMessage(t *testing.T) {
 		msgs := []provider.Message{
 			{Role: "assistant", Content: "solo", Timestamp: now},
 		}
-		_, ok := findLastUserMessage(msgs)
+		_, _, ok := findLastUserMessage(msgs)
 		if ok {
 			t.Fatal("expected ok=false")
 		}
@@ -140,9 +152,12 @@ func TestFindLastUserMessage(t *testing.T) {
 			{Role: "assistant", Content: "working...", Timestamp: now},
 			{Role: "user", Content: injectedMsg("telegram", "follow-up"), Source: "telegram", Timestamp: now},
 		}
-		msg, ok := findLastUserMessage(msgs)
+		msg, idx, ok := findLastUserMessage(msgs)
 		if !ok {
 			t.Fatal("expected to find user message")
+		}
+		if idx != 0 {
+			t.Fatalf("expected idx 0, got %d", idx)
 		}
 		_, body, _ := thread.SplitFrontmatter(msg.Content)
 		if body != "\noriginal request" {
@@ -155,7 +170,7 @@ func TestFindLastUserMessage(t *testing.T) {
 			msgs := []provider.Message{
 				{Role: "user", Content: normalMsg(source, "msg"), Source: source, Timestamp: now},
 			}
-			_, ok := findLastUserMessage(msgs)
+			_, _, ok := findLastUserMessage(msgs)
 			if ok {
 				t.Errorf("expected source %q to be non-resumable", source)
 			}
@@ -167,7 +182,7 @@ func TestFindLastUserMessage(t *testing.T) {
 			msgs := []provider.Message{
 				{Role: "user", Content: normalMsg(source, "msg"), Source: source, Timestamp: now},
 			}
-			_, ok := findLastUserMessage(msgs)
+			_, _, ok := findLastUserMessage(msgs)
 			if !ok {
 				t.Errorf("expected source %q to be resumable", source)
 			}
@@ -180,9 +195,12 @@ func TestFindLastUserMessage(t *testing.T) {
 			{Role: "user", Content: normalMsg("heartbeat", "pulse"), Source: "heartbeat", Timestamp: now},
 			{Role: "user", Content: normalMsg("compression", "compact"), Source: "compression", Timestamp: now},
 		}
-		msg, ok := findLastUserMessage(msgs)
+		msg, idx, ok := findLastUserMessage(msgs)
 		if !ok {
 			t.Fatal("expected to find user message")
+		}
+		if idx != 0 {
+			t.Fatalf("expected idx 0, got %d", idx)
 		}
 		_, body, _ := thread.SplitFrontmatter(msg.Content)
 		if body != "\noriginal" {
@@ -195,7 +213,7 @@ func TestFindLastUserMessage(t *testing.T) {
 			{Role: "user", Content: normalMsg("heartbeat", "h"), Source: "heartbeat", Timestamp: now},
 			{Role: "user", Content: normalMsg("compression", "c"), Source: "compression", Timestamp: now},
 		}
-		_, ok := findLastUserMessage(msgs)
+		_, _, ok := findLastUserMessage(msgs)
 		if ok {
 			t.Fatal("expected ok=false")
 		}
@@ -238,7 +256,7 @@ func TestExtractAgentFromLastMessage(t *testing.T) {
 			{Role: "assistant", Content: "reply"},
 			{Role: "user", Content: "---\nsource: telegram\nagent: soul\n---\n\nnew msg", Source: "telegram"},
 		}
-		msg, ok := findLastUserMessage(msgs)
+		msg, _, ok := findLastUserMessage(msgs)
 		if !ok {
 			t.Fatal("expected to find user message")
 		}
@@ -256,7 +274,7 @@ func TestExtractAgentFromLastMessage(t *testing.T) {
 		msgs := []provider.Message{
 			{Role: "user", Content: "plain text message", Source: "telegram"},
 		}
-		msg, ok := findLastUserMessage(msgs)
+		msg, _, ok := findLastUserMessage(msgs)
 		if !ok {
 			t.Fatal("expected to find user message")
 		}

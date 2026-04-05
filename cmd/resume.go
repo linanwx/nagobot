@@ -16,7 +16,7 @@ const resumeMaxAge = 1 * time.Hour
 
 // resumableChannelPrefixes are session key prefixes for channels with
 // persistent delivery (defaultSink can reach the user after restart).
-var resumableChannelPrefixes = []string{"telegram:", "discord:", "feishu:", "cron:"}
+var resumableChannelPrefixes = []string{"telegram:", "discord:", "feishu:", "wecom:", "cron:"}
 
 // resumeCandidate holds the data needed to wake an interrupted session.
 type resumeCandidate struct {
@@ -52,34 +52,29 @@ func scanInterruptedSessions(sessionsDir string) []resumeCandidate {
 			return nil
 		}
 
-		// Quick exit: if last message is assistant without tool_calls, session completed normally.
-		if lastMsg.Role == "assistant" && len(lastMsg.ToolCalls) == 0 {
-			return nil
-		}
-
-		// Layer 3: full load for definitive check.
-		// ReadFile returns already-sanitized messages, so no need to re-sanitize.
+		// Layer 3: full load → find the resumable user message, then check
+		// if that specific turn completed. We must NOT check the absolute last
+		// message, because a system turn (e.g. heartbeat) may have been
+		// interrupted after the user's turn already completed — checking the
+		// tail would incorrectly resume with an old user message.
 		sess, err := session.ReadFile(path)
 		if err != nil {
 			return nil
 		}
-		if !isIncompleteSession(sess.Messages) {
+
+		origMsg, userIdx, ok := findLastUserMessage(sess.Messages)
+		body := ""
+		agent := ""
+		if !ok || isUserTurnComplete(sess.Messages, userIdx) {
 			return nil
 		}
 
-		// Find the original user message — extract both body and agent from
-		// the same message to guarantee consistency (#108).
-		origMsg, ok := findLastUserMessage(sess.Messages)
-		body := ""
-		agent := ""
-		if ok {
-			body = origMsg.Content
-			if runes := []rune(body); len(runes) > 1000 {
-				body = string(runes[:1000]) + "\n... (truncated)"
-			}
-			if yamlBlock, _, fmOk := thread.SplitFrontmatter(origMsg.Content); fmOk {
-				agent = thread.ExtractFrontmatterValue(yamlBlock, "agent")
-			}
+		body = origMsg.Content
+		if runes := []rune(body); len(runes) > 1000 {
+			body = string(runes[:1000]) + "\n... (truncated)"
+		}
+		if yamlBlock, _, fmOk := thread.SplitFrontmatter(origMsg.Content); fmOk {
+			agent = thread.ExtractFrontmatterValue(yamlBlock, "agent")
 		}
 
 		logger.Info("found interrupted session",
@@ -124,23 +119,30 @@ func isResumableSessionKey(key string) bool {
 	return false
 }
 
-// isIncompleteSession returns true if the sanitized message history indicates
-// an interrupted turn. Expects already-sanitized messages (from session.ReadFile).
-func isIncompleteSession(messages []provider.Message) bool {
-	if len(messages) == 0 {
+// isUserTurnComplete checks whether the turn that started at userMsgIdx
+// completed. The turn's scope extends from the user message until the next
+// non-injected user message (a new turn) or end of session.
+func isUserTurnComplete(messages []provider.Message, userMsgIdx int) bool {
+	// Find end of this turn: the next non-injected user message starts a new turn.
+	turnEnd := len(messages)
+	for j := userMsgIdx + 1; j < len(messages); j++ {
+		if messages[j].Role == "user" && !isInjectedMessage(messages[j].Content) {
+			turnEnd = j
+			break
+		}
+	}
+	// No response at all after the user message → incomplete.
+	if turnEnd <= userMsgIdx+1 {
 		return false
 	}
-	last := messages[len(messages)-1]
-	// A completed turn ends with an assistant message that has no tool_calls.
+	last := messages[turnEnd-1]
 	if last.Role == "assistant" && len(last.ToolCalls) == 0 {
-		return false
+		return true
 	}
-	// A turn ending with sleep_thread is a deliberate completion (e.g., heartbeat,
-	// compression, or a resume that the LLM chose to skip). Not an interruption.
 	if last.Role == "tool" && last.Name == "sleep_thread" {
-		return false
+		return true
 	}
-	return true
+	return false
 }
 
 // nonResumableSources are sources that should not be resumed after a crash.
@@ -162,16 +164,17 @@ func isInjectedMessage(content string) bool {
 }
 
 // findLastUserMessage scans backwards for the last role=user message that
-// initiated a reasoning turn worth resuming. Skips:
+// initiated a reasoning turn worth resuming. Returns the message and its index.
+// Skips:
 //   - Mid-execution injected messages (injected: true in frontmatter)
-//   - Non-resumable sources (heartbeat, compression, resume, sleep_completed, external)
-func findLastUserMessage(messages []provider.Message) (provider.Message, bool) {
+//   - Non-resumable sources (heartbeat, compression, resume)
+func findLastUserMessage(messages []provider.Message) (provider.Message, int, bool) {
 	for i := len(messages) - 1; i >= 0; i-- {
 		m := messages[i]
 		if m.Role == "user" && !nonResumableSources[m.Source] && !isInjectedMessage(m.Content) {
-			return m, true
+			return m, i, true
 		}
 	}
-	return provider.Message{}, false
+	return provider.Message{}, -1, false
 }
 
