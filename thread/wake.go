@@ -120,10 +120,10 @@ func (t *Thread) RunOnce(ctx context.Context) {
 			t.Agent = a
 			t.mu.Unlock()
 		}
-	} else if fn := t.cfg().DefaultAgentFor; fn != nil && !t.agentExplicit {
-		// No explicit agent override in the wake message — check if the default
-		// agent for this session has changed (hot-reload from set-agent).
-		// Skip for threads created with an explicit agent (child threads, cron).
+	} else if fn := t.cfg().DefaultAgentFor; fn != nil {
+		// No explicit agent override in the wake message — hot-reload from
+		// meta.json (set-agent / manual edit). DefaultAgentFor reads meta.json
+		// each call, falling back to "soul" if empty.
 		if newAgent := fn(t.sessionKey); newAgent != "" {
 			t.mu.Lock()
 			currentName := ""

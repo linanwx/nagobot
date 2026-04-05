@@ -182,26 +182,19 @@ func (m *Manager) NewThread(sessionKey, agentName string) (*Thread, error) {
 		lastActiveAt:     time.Now(),
 		lastUserActiveAt: time.Now(),
 	}
-	explicit := strings.TrimSpace(agentName) != ""
-	if !explicit {
-		// Restore persisted agent from a previous explicit assignment
-		// (survives thread GC and restarts).
-		if persisted := m.loadPersistedAgent(sessionKey); persisted != "" {
-			agentName = persisted
-			explicit = true
-		} else if m.cfg.DefaultAgentFor != nil {
-			agentName = m.cfg.DefaultAgentFor(sessionKey)
-		}
+	if strings.TrimSpace(agentName) != "" {
+		// Explicit agent from WakeMessage — persist to meta.json so it
+		// survives thread GC and restarts.
+		m.persistAgent(sessionKey, agentName)
+	} else if m.cfg.DefaultAgentFor != nil {
+		// No explicit agent — read from meta.json (falls back to "soul").
+		agentName = m.cfg.DefaultAgentFor(sessionKey)
 	}
 	a, err := m.cfg.Agents.New(agentName)
 	if err != nil {
 		return nil, err
 	}
 	t.Agent = a
-	t.agentExplicit = explicit
-	if explicit {
-		m.persistAgent(sessionKey, agentName)
-	}
 	t.provider = m.cfg.DefaultProvider
 	if m.cfg.DefaultSinkFor != nil {
 		t.defaultSink = m.cfg.DefaultSinkFor(sessionKey)
@@ -355,8 +348,3 @@ func (m *Manager) persistAgent(sessionKey, agentName string) {
 	})
 }
 
-// loadPersistedAgent reads the agent name from {sessionDir}/meta.json.
-// Returns "" if no persisted agent exists.
-func (m *Manager) loadPersistedAgent(sessionKey string) string {
-	return session.MetaAgent(m.SessionDir(sessionKey))
-}
