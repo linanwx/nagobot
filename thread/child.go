@@ -30,7 +30,6 @@ func (t *Thread) SpawnChild(ctx context.Context, agentName string, task string) 
 	if err != nil {
 		return nil, fmt.Errorf("spawn child: %w", err)
 	}
-	child.Set("TASK", task)
 	child.parent = t
 
 	// Sink-to-parent: shared by per-wake sink and defaultSink.

@@ -127,8 +127,6 @@ func (a *Agent) Build() string {
 		placeholder := "{{" + key + "}}"
 		if strings.Contains(prompt, placeholder) {
 			prompt = strings.ReplaceAll(prompt, placeholder, formatted)
-		} else if key == "TASK" && strings.TrimSpace(formatted) != "" {
-			prompt = strings.TrimSpace(prompt) + "\n\n[Task]\n" + formatted
 		}
 	}
 

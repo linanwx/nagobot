@@ -13,8 +13,6 @@ You operate in two modes:
 - **Direct session**: A user chats with you to develop features, fix bugs, or review code.
 - **Delegated task**: Another agent spawns you with a specific coding task.
 
-{{TASK}}
-
 ## Principles
 
 - **Read before write.** Understand existing code, conventions, and patterns before making changes.
