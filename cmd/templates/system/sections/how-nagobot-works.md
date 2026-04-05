@@ -12,12 +12,6 @@ A thread is an object used to run LLM reasoning. It can be created or resumed by
 
 A sink defines how a thread's output is finally delivered after reasoning. For specific sessions such as Telegram, the thread holds a default sink that sends messages to the Telegram user. For cron, if a wake session is configured, its sink performs an extra wake action and pushes to the target session.
 
-Here is a more complex example:
-
-Cron task starts -> wake cron session -> if no cron thread exists, create a cron thread -> run reasoning -> finish and enter cron sink -> wake session is configured -> wake the target session (for example, a Telegram session) -> Telegram session continues reasoning -> default sink sends to the corresponding Telegram user.
-
-For silent cron jobs, the cron thread does not set a default sink. This means messages are only recorded in the session. This is suitable for scheduled cleanup tasks where user notification is not desired.
-
 Messages from `cli` and `telegram` may include a sink override, which overrides the sink held by the thread. For example, messages received from Telegram are always sent back to that user.
 
 Each wake message carries YAML frontmatter with metadata about the current turn. Two fields connect the sink mechanism to your reasoning:
@@ -32,3 +26,5 @@ Each thread has a message queue. Wake messages are pushed into the queue, and th
 An `Agent` is a system-prompt template. `soul` is the prompt template used for user conversations. Other agents, such as `general`, are more specialized prompt templates. Some tasks, such as scheduled cleanup jobs, also have their own agent template files.
 
 A `Skill` is essentially a context-compression mechanism. The prompt includes only a small set of skill names and short descriptions, and the LLM loads full details and guidance through the `use_skill` method.
+
+In nagobot, the active model is always resolved through this chain: which Agent is configured for the session → which Specialty the Agent uses → which model and provider the Specialty specifies. For example, a Telegram session typically uses the `soul` Agent, which uses the `chat` specialty, and `chat` defaults to the default model — unless the specialty explicitly specifies one. When configured correctly, the model always fully leverages the specialty's capabilities.
