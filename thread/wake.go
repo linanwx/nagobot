@@ -266,6 +266,10 @@ func buildWakePayload(source WakeSource, message, threadID, sessionKey, sessionD
 				a := true
 				header.SupportsAudio = &a
 			}
+			if provider.SupportsPDF(prov, mod) {
+				p := true
+				header.SupportsPDF = &p
+			}
 		}
 	}
 
@@ -294,6 +298,7 @@ type wakeHeader struct {
 	Action         string `yaml:"action,omitempty"`
 	SupportsVision *bool  `yaml:"supports_vision,omitempty"`
 	SupportsAudio  *bool  `yaml:"supports_audio,omitempty"`
+	SupportsPDF    *bool  `yaml:"supports_pdf,omitempty"`
 }
 
 // markInjected inserts `injected: true` into the YAML frontmatter of a wake

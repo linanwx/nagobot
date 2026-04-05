@@ -45,6 +45,9 @@ func (t *Thread) run(ctx context.Context, userMessage string, sink Sink, injectF
 
 	// Set up execution metrics for observability by other threads.
 	metrics := &ExecMetrics{TurnStart: time.Now()}
+	// Snapshot token estimates for structured recording in TurnRecord.
+	metrics.PromptEstimated = EstimateMessagesTokens(messages) + EstimateToolDefsTokens(t.tools.Defs())
+	metrics.Media = CollectMediaBreakdown(messages)
 	t.mu.Lock()
 	t.execMetrics = metrics
 	t.mu.Unlock()
@@ -457,19 +460,28 @@ func (t *Thread) recordTurn(metrics *ExecMetrics, providerName, modelName, agent
 		return
 	}
 	cfg.MetricsStore.Record(monitor.TurnRecord{
-		Timestamp:        metrics.TurnStart,
-		DurationMs:       time.Since(metrics.TurnStart).Milliseconds(),
-		Provider:         providerName,
-		Model:            modelName,
-		Agent:            agentName,
-		SessionKey:       t.sessionKey,
-		Iterations:       metrics.Iterations,
-		ToolCalls:        metrics.TotalToolCalls,
-		PromptTokens:     usage.PromptTokens,
-		CompletionTokens: usage.CompletionTokens,
-		TotalTokens:      usage.TotalTokens,
-		CachedTokens:     usage.CachedTokens,
-		Error:            isError,
+		Timestamp:          metrics.TurnStart,
+		DurationMs:         time.Since(metrics.TurnStart).Milliseconds(),
+		Provider:           providerName,
+		Model:              modelName,
+		Agent:              agentName,
+		SessionKey:         t.sessionKey,
+		Iterations:         metrics.Iterations,
+		ToolCalls:          metrics.TotalToolCalls,
+		PromptTokens:       usage.PromptTokens,
+		CompletionTokens:   usage.CompletionTokens,
+		TotalTokens:        usage.TotalTokens,
+		CachedTokens:       usage.CachedTokens,
+		ReasoningTokens:    usage.ReasoningTokens,
+		Error:              isError,
+		PromptEstimated:    metrics.PromptEstimated,
+		ReasoningEstimated: metrics.ReasoningEstimated,
+		MediaImageCount:    metrics.Media.ImageCount,
+		MediaImageEst:      metrics.Media.ImageEst,
+		MediaAudioCount:    metrics.Media.AudioCount,
+		MediaAudioEst:      metrics.Media.AudioEst,
+		MediaPDFCount:      metrics.Media.PDFCount,
+		MediaPDFEst:        metrics.Media.PDFEst,
 	})
 }
 

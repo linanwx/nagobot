@@ -95,9 +95,13 @@ func EstimateMessageTokens(message provider.Message) int {
 	tokens += EstimateTextTokens(message.Content)
 	// Reasoning estimation: skip if trimmed (reasoning cleared at send time).
 	// Always use pure estimation — no API feedback values.
+	// Count ReasoningContent OR ReasoningDetails, not both — ReasoningContent
+	// is extracted from ReasoningDetails for some providers (GPT-5.4 summary
+	// text, Gemini thought text), so counting both double-counts.
 	if !message.ReasoningTrimmed {
-		tokens += EstimateTextTokens(message.ReasoningContent)
-		if len(message.ReasoningDetails) > 0 {
+		if message.ReasoningContent != "" {
+			tokens += EstimateTextTokens(message.ReasoningContent)
+		} else if len(message.ReasoningDetails) > 0 {
 			tokens += len(message.ReasoningDetails) / 3
 		}
 	}
@@ -113,20 +117,48 @@ func EstimateMessageTokens(message provider.Message) int {
 	}
 
 	// Estimate media tokens from <<media:mime:path>> markers.
-	if _, markers := provider.ParseMediaMarkers(message.Content); len(markers) > 0 {
-		for _, m := range markers {
-			if strings.HasPrefix(m.MimeType, "audio/") {
-				tokens += provider.EstimateAudioTokens(m.FilePath)
-			} else if m.MimeType == "application/pdf" {
-				tokens += provider.EstimatePDFTokens(m.FilePath)
-			} else {
-				tokens += provider.EstimateImageTokens(m.FilePath)
-			}
-		}
-	}
+	tokens += CollectMediaBreakdown([]provider.Message{message}).TotalEst()
 
 	return tokens
 }
+
+// MediaBreakdown holds per-type media token estimates extracted from messages.
+type MediaBreakdown struct {
+	ImageCount int
+	ImageEst   int
+	AudioCount int
+	AudioEst   int
+	PDFCount   int
+	PDFEst     int
+}
+
+// CollectMediaBreakdown scans messages for <<media:...>> markers and returns
+// per-type counts and estimated tokens.
+func CollectMediaBreakdown(messages []provider.Message) MediaBreakdown {
+	var b MediaBreakdown
+	for _, msg := range messages {
+		_, markers := provider.ParseMediaMarkers(msg.Content)
+		for _, m := range markers {
+			if strings.HasPrefix(m.MimeType, "audio/") {
+				b.AudioCount++
+				b.AudioEst += provider.EstimateAudioTokens(m.FilePath)
+			} else if m.MimeType == "application/pdf" {
+				b.PDFCount++
+				b.PDFEst += provider.EstimatePDFTokens(m.FilePath)
+			} else {
+				b.ImageCount++
+				b.ImageEst += provider.EstimateImageTokens(m.FilePath)
+			}
+		}
+	}
+	return b
+}
+
+// TotalEst returns the sum of all media estimated tokens.
+func (b MediaBreakdown) TotalEst() int { return b.ImageEst + b.AudioEst + b.PDFEst }
+
+// HasMedia returns true if any media was found.
+func (b MediaBreakdown) HasMedia() bool { return b.ImageCount+b.AudioCount+b.PDFCount > 0 }
 
 // EstimateToolDefsTokens returns a tiktoken-based token estimate for tool definitions.
 func EstimateToolDefsTokens(defs []provider.ToolDef) int {

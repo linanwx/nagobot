@@ -389,14 +389,12 @@ func (r *Runner) logEstimationAccuracy(messages []provider.Message, resp *provid
 		promptDelta = fmt.Sprintf("%+.1f%%", pct)
 	}
 
-	// Reasoning estimation: use the same formula as EstimateMessageTokens
-	// (tiktoken on ReasoningContent + len/3 on ReasoningDetails) so the delta
-	// accurately reflects what the estimator would compute for this message.
+	// Reasoning estimation: mirrors EstimateMessageTokens — count
+	// ReasoningContent OR ReasoningDetails, not both (avoids double-counting).
 	estimatedReasoning := 0
 	if resp.ReasoningContent != "" {
 		estimatedReasoning += EstimateTextTokens(resp.ReasoningContent)
-	}
-	if len(resp.ReasoningDetails) > 0 {
+	} else if len(resp.ReasoningDetails) > 0 {
 		estimatedReasoning += len(resp.ReasoningDetails) / 3
 	}
 	reasoningDelta := "N/A"
@@ -405,7 +403,16 @@ func (r *Runner) logEstimationAccuracy(messages []provider.Message, resp *provid
 		reasoningDelta = fmt.Sprintf("%+.1f%%", pct)
 	}
 
-	logger.Info("token_estimate",
+	if r.metrics != nil {
+		r.metrics.ReasoningEstimated += estimatedReasoning
+	}
+
+	var media MediaBreakdown
+	if r.metrics != nil {
+		media = r.metrics.Media
+	}
+
+	fields := []any{
 		"prompt_estimated", estimatedPrompt,
 		"prompt_actual", actual.PromptTokens,
 		"prompt_delta", promptDelta,
@@ -413,7 +420,19 @@ func (r *Runner) logEstimationAccuracy(messages []provider.Message, resp *provid
 		"reasoning_actual", actual.ReasoningTokens,
 		"reasoning_delta", reasoningDelta,
 		"completion_actual", actual.CompletionTokens,
-	)
+	}
+	if media.HasMedia() {
+		fields = append(fields,
+			"image_count", media.ImageCount,
+			"image_est", media.ImageEst,
+			"audio_count", media.AudioCount,
+			"audio_est", media.AudioEst,
+			"pdf_count", media.PDFCount,
+			"pdf_est", media.PDFEst,
+			"media_est_total", media.TotalEst(),
+		)
+	}
+	logger.Info("token_estimate", fields...)
 }
 
 // truncateStr returns the first n characters of s, appending "..." if truncated.

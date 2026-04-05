@@ -151,6 +151,11 @@ type ExecMetrics struct {
 	TotalToolCalls int
 	CurrentTool    string           // empty when not executing a tool
 	ToolCalls      []ToolCallRecord
+
+	// Token estimation snapshot — set after buildMessageHistory, read by recordTurn.
+	PromptEstimated    int
+	ReasoningEstimated int
+	Media              MediaBreakdown
 }
 
 // StartIteration increments the iteration counter and clears the current tool.

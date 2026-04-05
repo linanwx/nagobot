@@ -31,7 +31,18 @@ type TurnRecord struct {
 	CompletionTokens int       `json:"completionTokens"`
 	TotalTokens      int       `json:"totalTokens"`
 	CachedTokens     int       `json:"cachedTokens,omitempty"`
+	ReasoningTokens  int       `json:"reasoningTokens,omitempty"`
 	Error            bool      `json:"error,omitempty"`
+
+	// Client-side token estimates for calibration.
+	PromptEstimated    int `json:"promptEstimated,omitempty"`
+	ReasoningEstimated int `json:"reasoningEstimated,omitempty"`
+	MediaImageCount    int `json:"mediaImageCount,omitempty"`
+	MediaImageEst      int `json:"mediaImageEst,omitempty"`
+	MediaAudioCount    int `json:"mediaAudioCount,omitempty"`
+	MediaAudioEst      int `json:"mediaAudioEst,omitempty"`
+	MediaPDFCount      int `json:"mediaPDFCount,omitempty"`
+	MediaPDFEst        int `json:"mediaPDFEst,omitempty"`
 }
 
 // Store persists and queries turn metrics.
