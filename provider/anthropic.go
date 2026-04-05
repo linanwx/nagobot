@@ -76,7 +76,7 @@ func anthropicRateLimitMiddleware(req *http.Request, next aoption.MiddlewareNext
 }
 
 func init() {
-	RegisterProvider("anthropic", ProviderRegistration{
+	shared := ProviderRegistration{
 		Models:       []string{"claude-sonnet-4-6", "claude-opus-4-6", "claude-haiku-4-5"},
 		VisionModels: []string{"claude-sonnet-4-6", "claude-opus-4-6", "claude-haiku-4-5"},
 		PDFModels:    []string{"claude-sonnet-4-6", "claude-opus-4-6", "claude-haiku-4-5"},
@@ -85,12 +85,20 @@ func init() {
 			"claude-opus-4-6":   1048576,
 			"claude-haiku-4-5":  200000,
 		},
-		EnvKey:  "ANTHROPIC_API_KEY",
-		EnvBase: "ANTHROPIC_API_BASE",
 		Constructor: func(apiKey, apiBase, modelType, modelName string, maxTokens int, temperature float64) Provider {
 			return newAnthropicProvider(apiKey, apiBase, modelType, modelName, maxTokens, temperature)
 		},
-	})
+	}
+
+	// "anthropic" — API key auth (env var or static config key).
+	apiKeyReg := shared
+	apiKeyReg.EnvKey = "ANTHROPIC_API_KEY"
+	apiKeyReg.EnvBase = "ANTHROPIC_API_BASE"
+	RegisterProvider("anthropic", apiKeyReg)
+
+	// "anthropic-oauth" — OAuth token auth (no env var, no API base override).
+	oauthReg := shared
+	RegisterProvider("anthropic-oauth", oauthReg)
 }
 
 // AnthropicProvider implements the Provider interface for Anthropic.
@@ -140,6 +148,11 @@ func anthropicThinkingBudget(maxTokens int) (int64, bool) {
 	return int64(budget), true
 }
 
+// isAnthropicOAuthToken returns true if the key is an Anthropic OAuth token.
+func isAnthropicOAuthToken(key string) bool {
+	return strings.HasPrefix(key, "sk-ant-oat")
+}
+
 // newAnthropicProvider creates a new Anthropic provider.
 func newAnthropicProvider(apiKey, apiBase, modelType, modelName string, maxTokens int, temperature float64) *AnthropicProvider {
 	if modelName == "" {
@@ -148,12 +161,22 @@ func newAnthropicProvider(apiKey, apiBase, modelType, modelName string, maxToken
 
 	baseURL := normalizeSDKBaseURL(apiBase, anthropicAPIBase, "/v1/messages")
 
-	client := anthropic.NewClient(
-		aoption.WithAPIKey(apiKey),
+	opts := []aoption.RequestOption{
 		aoption.WithBaseURL(baseURL),
 		aoption.WithMaxRetries(sdkMaxRetries),
 		aoption.WithMiddleware(anthropicRateLimitMiddleware),
-	)
+	}
+	if isAnthropicOAuthToken(apiKey) {
+		// OAuth token: use Bearer auth + required beta/identity headers.
+		opts = append(opts,
+			aoption.WithAuthToken(apiKey),
+			aoption.WithHeader("anthropic-beta", "claude-code-20250219,oauth-2025-04-20"),
+		)
+	} else {
+		opts = append(opts, aoption.WithAPIKey(apiKey))
+	}
+
+	client := anthropic.NewClient(opts...)
 
 	return &AnthropicProvider{
 		apiKey:      apiKey,
@@ -536,7 +559,11 @@ func (p *AnthropicProvider) Chat(ctx context.Context, req *Request) (ChatResult,
 		)
 	}
 
-	resp := &Response{ProviderLabel: "anthropic", ModelLabel: p.modelName}
+	providerLabel := "anthropic"
+	if isAnthropicOAuthToken(p.apiKey) {
+		providerLabel = "anthropic-oauth"
+	}
+	resp := &Response{ProviderLabel: providerLabel, ModelLabel: p.modelName}
 	adapter := newStreamAdapter(ctx, resp)
 
 	go func() {

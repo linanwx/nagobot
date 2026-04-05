@@ -40,6 +40,7 @@ var providerURLs = map[string]string{
 	"deepseek":        "https://platform.deepseek.com",
 	"openrouter":      "https://openrouter.ai/keys",
 	"anthropic":       "https://console.anthropic.com",
+	"anthropic-oauth": "https://claude.com",
 	"moonshot-cn":     "https://platform.moonshot.cn",
 	"moonshot-global": "https://platform.moonshot.ai",
 	"zhipu-cn":        "https://open.bigmodel.cn",
@@ -748,13 +749,18 @@ func authenticateProvider(existing *config.Config, providerName string) error {
 	}
 
 	_, supportsOAuth := authProviders[providerName]
-	if supportsOAuth {
+	supportsPasteToken := pasteTokenProviders[providerName]
+	if supportsOAuth || supportsPasteToken {
+		oauthLabel := "Login with OAuth (use your existing account)"
+		if supportsPasteToken {
+			oauthLabel = "Paste setup-token (run 'claude setup-token' first)"
+		}
 		authChoice := "oauth"
 		err := huh.NewForm(huh.NewGroup(
 			huh.NewSelect[string]().
 				Title("How to authenticate with " + providerName + "?").
 				Options(
-					huh.NewOption("Login with OAuth (use your existing account)", "oauth"),
+					huh.NewOption(oauthLabel, "oauth"),
 					huh.NewOption("Enter API key manually", "apikey"),
 				).
 				Value(&authChoice),
@@ -763,6 +769,9 @@ func authenticateProvider(existing *config.Config, providerName string) error {
 			return err
 		}
 		if authChoice == "oauth" {
+			if supportsPasteToken {
+				return runPasteTokenLogin(providerName)
+			}
 			return runOAuthLogin(providerName)
 		}
 	}

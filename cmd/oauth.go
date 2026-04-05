@@ -50,10 +50,16 @@ var openaiOAuthConfig = &oauthConfig{
 	Scopes:   []string{"openid", "profile", "email", "offline_access"},
 }
 
-// authProviders is the registry of providers that support OAuth login.
+// authProviders is the registry of providers that support PKCE OAuth login.
 var authProviders = map[string]*oauthConfig{
 	"openai":       openaiOAuthConfig,
 	"openai-oauth": openaiOAuthConfig,
+}
+
+// pasteTokenProviders lists providers that use paste-token auth (no PKCE).
+var pasteTokenProviders = map[string]bool{
+	"anthropic":       true,
+	"anthropic-oauth": true,
 }
 
 var authCmd = &cobra.Command{
@@ -89,10 +95,19 @@ var authOpenAICmd = &cobra.Command{
 	},
 }
 
+var authAnthropicCmd = &cobra.Command{
+	Use:   "anthropic",
+	Short: "Login with Anthropic/Claude account via setup-token",
+	RunE: func(cmd *cobra.Command, args []string) error {
+		return runPasteTokenLogin("anthropic")
+	},
+}
+
 func init() {
 	authCmd.AddCommand(authStatusCmd)
 	authCmd.AddCommand(authLogoutCmd)
 	authCmd.AddCommand(authOpenAICmd)
+	authCmd.AddCommand(authAnthropicCmd)
 	rootCmd.AddCommand(authCmd)
 
 	// Wire OAuth token refresh into the provider factory.
@@ -230,14 +245,57 @@ func runOAuthLogin(providerName string) error {
 	return nil
 }
 
+// runPasteTokenLogin handles paste-token authentication for providers like Anthropic.
+// The user runs `claude setup-token` separately, then pastes the resulting token here.
+func runPasteTokenLogin(providerName string) error {
+	if !pasteTokenProviders[providerName] {
+		return fmt.Errorf("unsupported paste-token provider: %s", providerName)
+	}
+
+	cfg, err := config.Load()
+	if err != nil {
+		return fmt.Errorf("failed to load config: %w", err)
+	}
+
+	fmt.Println("To get a setup-token, run in a separate terminal:")
+	fmt.Println()
+	fmt.Println("  claude setup-token")
+	fmt.Println()
+
+	var token string
+	fmt.Print("Paste your setup-token (sk-ant-oat01-...): ")
+	if _, err := fmt.Scanln(&token); err != nil {
+		return fmt.Errorf("failed to read token: %w", err)
+	}
+	token = strings.TrimSpace(token)
+
+	if !strings.HasPrefix(token, "sk-ant-oat") {
+		return fmt.Errorf("invalid token: must start with sk-ant-oat")
+	}
+
+	cfg.SetOAuthToken(providerName, &config.OAuthTokenConfig{
+		AccessToken: token,
+		TokenType:   "bearer",
+	})
+	if err := cfg.Save(); err != nil {
+		return fmt.Errorf("failed to save config: %w", err)
+	}
+
+	fmt.Printf("\nSuccessfully authenticated with %s!\n", providerName)
+	return nil
+}
+
 func runAuthStatus(_ *cobra.Command, _ []string) error {
 	cfg, err := config.Load()
 	if err != nil {
 		return fmt.Errorf("failed to load config: %w", err)
 	}
 
-	names := make([]string, 0, len(authProviders))
+	names := make([]string, 0, len(authProviders)+len(pasteTokenProviders))
 	for name := range authProviders {
+		names = append(names, name)
+	}
+	for name := range pasteTokenProviders {
 		names = append(names, name)
 	}
 	sort.Strings(names)
@@ -279,9 +337,14 @@ func runAuthStatus(_ *cobra.Command, _ []string) error {
 
 func runAuthLogout(_ *cobra.Command, args []string) error {
 	providerName := strings.TrimSpace(args[0])
-	if _, ok := authProviders[providerName]; !ok {
-		names := make([]string, 0, len(authProviders))
+	_, inOAuth := authProviders[providerName]
+	_, inPaste := pasteTokenProviders[providerName]
+	if !inOAuth && !inPaste {
+		names := make([]string, 0, len(authProviders)+len(pasteTokenProviders))
 		for name := range authProviders {
+			names = append(names, name)
+		}
+		for name := range pasteTokenProviders {
 			names = append(names, name)
 		}
 		sort.Strings(names)
@@ -334,10 +397,12 @@ func buildAuthURL(oa *oauthConfig, redirectURI, challenge, state string) string 
 		"response_type":         {"code"},
 		"client_id":             {oa.ClientID},
 		"redirect_uri":          {redirectURI},
-		"scope":                 {strings.Join(oa.Scopes, " ")},
 		"state":                 {state},
 		"code_challenge":        {challenge},
 		"code_challenge_method": {"S256"},
+	}
+	if len(oa.Scopes) > 0 {
+		params.Set("scope", strings.Join(oa.Scopes, " "))
 	}
 	return oa.AuthURL + "?" + params.Encode()
 }

@@ -161,7 +161,8 @@ type ProvidersConfig struct {
 	MinimaxCN      *ProviderConfig   `json:"minimaxCN,omitempty" yaml:"minimaxCN,omitempty"`
 	MinimaxGlobal  *ProviderConfig   `json:"minimaxGlobal,omitempty" yaml:"minimaxGlobal,omitempty"`
 	OpenAI         *ProviderConfig   `json:"openai,omitempty" yaml:"openai,omitempty"`
-	OpenAIOAuth *OAuthTokenConfig `json:"openaiOAuth,omitempty" yaml:"openaiOAuth,omitempty"`
+	OpenAIOAuth     *OAuthTokenConfig `json:"openaiOAuth,omitempty" yaml:"openaiOAuth,omitempty"`
+	AnthropicOAuth  *OAuthTokenConfig `json:"anthropicOAuth,omitempty" yaml:"anthropicOAuth,omitempty"`
 	Gemini         *ProviderConfig   `json:"gemini,omitempty" yaml:"gemini,omitempty"`
 }
 

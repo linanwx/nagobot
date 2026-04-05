@@ -224,6 +224,8 @@ func (c *Config) GetOAuthToken(providerName string) *OAuthTokenConfig {
 	switch providerName {
 	case "openai", "openai-oauth":
 		return c.Providers.OpenAIOAuth
+	case "anthropic", "anthropic-oauth":
+		return c.Providers.AnthropicOAuth
 	}
 	return nil
 }
@@ -233,6 +235,8 @@ func (c *Config) SetOAuthToken(providerName string, token *OAuthTokenConfig) {
 	switch providerName {
 	case "openai", "openai-oauth":
 		c.Providers.OpenAIOAuth = token
+	case "anthropic", "anthropic-oauth":
+		c.Providers.AnthropicOAuth = token
 	}
 }
 
@@ -256,7 +260,7 @@ func (c *Config) EnsureProviderConfigFor(providerName string) *ProviderConfig {
 		c.Providers.OpenAI = pc
 	case "openrouter":
 		c.Providers.OpenRouter = pc
-	case "anthropic":
+	case "anthropic", "anthropic-oauth":
 		c.Providers.Anthropic = pc
 	case "deepseek":
 		c.Providers.DeepSeek = pc
