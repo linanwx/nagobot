@@ -167,10 +167,13 @@ func newAnthropicProvider(apiKey, apiBase, modelType, modelName string, maxToken
 		aoption.WithMiddleware(anthropicRateLimitMiddleware),
 	}
 	if isAnthropicOAuthToken(apiKey) {
-		// OAuth token: use Bearer auth + required beta headers.
+		// OAuth token: use Bearer auth + required beta/identity headers.
+		// Must match Claude Code's request signature for Anthropic to accept.
 		opts = append(opts,
 			aoption.WithAuthToken(apiKey),
 			aoption.WithHeader("anthropic-beta", "claude-code-20250219,oauth-2025-04-20"),
+			aoption.WithHeader("user-agent", "claude-cli/2.1.92"),
+			aoption.WithHeader("x-app", "cli"),
 		)
 	} else {
 		opts = append(opts, aoption.WithAPIKey(apiKey))
