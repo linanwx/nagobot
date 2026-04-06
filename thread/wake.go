@@ -392,14 +392,12 @@ func wakeActionHint(source WakeSource) string {
 }
 
 func rephraseLengthAdvice(lineCount int) string {
-	switch {
-	case lineCount > 60:
-		return "The message is way too long — you MUST aggressively cut it down. "
-	case lineCount > 40:
-		return "The message is quite long — trim it significantly. "
-	case lineCount > 20:
-		return "The message is slightly long — shorten where possible. "
-	default:
+	if lineCount <= 20 {
 		return ""
 	}
+	if lineCount <= 40 {
+		return "The message is slightly long — shorten where possible. "
+	}
+	pct := (lineCount - 40) * 100 / lineCount
+	return fmt.Sprintf("The message is too long (target: ~40 lines, cut ~%d%%). Aggressively trim redundant content. ", pct)
 }
