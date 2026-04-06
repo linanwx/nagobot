@@ -446,6 +446,7 @@ func computeWakeCompressed(m *provider.Message) string {
 // wakeTrimKeys are the wake YAML frontmatter fields stripped from older messages.
 var wakeTrimKeys = map[string]bool{
 	"thread": true, "session": true, "session_dir": true, "delivery": true, "action": true, "agent": true,
+	"supports_vision": true, "supports_audio": true, "supports_pdf": true,
 }
 
 // SplitFrontmatter splits a YAML-frontmatter-wrapped string into its YAML block and body.
