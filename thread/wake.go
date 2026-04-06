@@ -288,7 +288,7 @@ func buildWakePayload(source WakeSource, message, threadID, sessionKey, sessionD
 			hint = strings.ReplaceAll(hint, "{{LINE_COUNT}}", fmt.Sprintf("%d", lineCount))
 			hint = strings.ReplaceAll(hint, "{{LENGTH_ADVICE}}", rephraseLengthAdvice(lineCount))
 			if lineCount > 20 && charCount/lineCount <= 20 {
-				hint += " CRITICAL WARNING: The AI output has excessive line breaks with very short lines. You MUST collapse and merge these lines into proper paragraphs."
+				hint += " WARNING: The AI output has excessive line breaks with very short lines. You can collapse and merge these lines into proper paragraphs if needed."
 			}
 			if len(vars) > 0 {
 				if preview, ok := vars[0]["ORIGINAL_PREVIEW"]; ok && preview != "" {
