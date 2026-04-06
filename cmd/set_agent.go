@@ -136,8 +136,11 @@ func runSetAgent(_ *cobra.Command, _ []string) error {
 		}
 	})
 
-	if agentArg == "" && modelArg == "" {
+	if agentArg == "" && modelArg == "" && setAgentRephrase == "" {
 		fmt.Printf("---\ncommand: set-agent\nstatus: ok\nsession: %s\nagent: cleared\n---\n\nCleared agent for session %q.\n", session, session)
+	} else if agentArg == "" && modelArg == "" && setAgentRephrase != "" {
+		rephraseVal := strings.ToLower(strings.TrimSpace(setAgentRephrase))
+		fmt.Printf("---\ncommand: set-agent\nstatus: ok\nsession: %s\nrephrase: %s\n---\n\nSet rephrase=%s for session %q.\n", session, rephraseVal, rephraseVal, session)
 	} else if modelArg == "" {
 		fmt.Printf("---\ncommand: set-agent\nstatus: ok\nsession: %s\nagent: %s\n---\n\nSet agent %q for session %q.\n", session, agentArg, agentArg, session)
 		printAgentModelRouting(cfg, agentArg)
