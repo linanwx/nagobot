@@ -421,8 +421,8 @@ func rephrasePreview(userMsg string) string {
 	cleaned := strings.ReplaceAll(strings.ReplaceAll(userMsg, "\n", " "), "\r", "")
 	cleaned = strings.TrimSpace(cleaned)
 	runes := []rune(cleaned)
-	if len(runes) > 50 {
-		return string(runes[:50]) + "..."
+	if len(runes) > 300 {
+		return string(runes[:300]) + "..."
 	}
 	return cleaned
 }
