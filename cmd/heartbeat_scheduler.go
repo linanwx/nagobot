@@ -19,8 +19,8 @@ import (
 
 const (
 	hbScanInterval   = 30 * time.Second
-	hbQuietMin       = 10 * time.Minute // User must be quiet for at least this long.
-	hbPulseInterval  = 30 * time.Minute // Gap between pulses.
+	hbQuietMin       = 15 * time.Minute // User must be quiet for at least this long.
+	hbPulseInterval  = 45 * time.Minute // Gap between pulses.
 	hbActivityWindow = 48 * time.Hour   // Only pulse sessions active within this window.
 )
 
