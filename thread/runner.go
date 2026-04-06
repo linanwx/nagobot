@@ -287,7 +287,7 @@ func (r *Runner) RunWithMessages(ctx context.Context, messages []provider.Messag
 
 		// Hint: after 2 tool-call iterations in a user-visible turn,
 		// nudge the model to prefer spawn_thread for remaining work.
-		if r.userVisible && r.iterations == 3 {
+		if r.userVisible && r.iterations == 5 {
 			hint := msg.BuildSystemMessage("context_hint", nil,
 				"Over 2 tool-call rounds in this turn. For tasks requiring multiple tool calls, prefer using spawn_thread to reduce main session context pressure.")
 			hintMsg := provider.Message{Role: "user", Content: hint, Source: "system"}
