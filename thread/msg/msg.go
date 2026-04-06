@@ -165,8 +165,9 @@ const (
 	WakeCronFinished   WakeSource = "cron_finished"
 	WakeExternal       WakeSource = "external"
 	WakeCompression      WakeSource = "compression"
-	WakeHeartbeat WakeSource = "heartbeat"
-	WakeResume    WakeSource = "resume"
+	WakeHeartbeat  WakeSource = "heartbeat"
+	WakeResume     WakeSource = "resume"
+	WakeRephrase   WakeSource = "rephrase"
 )
 
 // IsUserVisibleSource reports whether the given source represents a real

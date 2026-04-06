@@ -29,10 +29,11 @@ Examples:
 }
 
 var (
-	setAgentSession  string
-	setAgentName     string
-	setAgentProvider string
-	setAgentModel    string
+	setAgentSession   string
+	setAgentName      string
+	setAgentProvider  string
+	setAgentModel     string
+	setAgentRephrase  string
 )
 
 func init() {
@@ -40,6 +41,7 @@ func init() {
 	setAgentCmd.Flags().StringVar(&setAgentName, "agent", "", "Agent name (empty to clear)")
 	setAgentCmd.Flags().StringVar(&setAgentProvider, "provider", "", "Provider for model-pinned agent (used with --model)")
 	setAgentCmd.Flags().StringVar(&setAgentModel, "model", "", "Model type — auto-creates a fixed agent (used with --provider)")
+	setAgentCmd.Flags().StringVar(&setAgentRephrase, "rephrase", "", "Enable/disable rephrase agent (true/false)")
 	_ = setAgentCmd.MarkFlagRequired("session")
 	rootCmd.AddCommand(setAgentCmd)
 }
@@ -121,10 +123,16 @@ func runSetAgent(_ *cobra.Command, _ []string) error {
 	}
 	sessionDir := sessionPkg.SessionDir(sessionsDir, session)
 	sessionPkg.UpdateMeta(sessionDir, func(m *sessionPkg.Meta) {
-		if agentArg == "" && modelArg == "" {
+		if agentArg == "" && modelArg == "" && setAgentRephrase == "" {
 			m.Agent = ""
-		} else {
+		} else if agentArg != "" || modelArg != "" {
 			m.Agent = agentArg
+		}
+		switch strings.ToLower(strings.TrimSpace(setAgentRephrase)) {
+		case "true", "1", "yes":
+			m.Rephrase = true
+		case "false", "0", "no":
+			m.Rephrase = false
 		}
 	})
 

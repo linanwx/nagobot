@@ -2293,6 +2293,26 @@
           });
         }
 
+        // Rephrase badge — toggle between rephrased and original content
+        if (msg.original_content) {
+          const rb = document.createElement("span");
+          rb.className = "compressed-badge";
+          rb.textContent = "original";
+          rb.title = "Click to toggle rephrased/original view";
+          rb.style.background = "#6366f1";
+          header.appendChild(rb);
+
+          let showingOrig = false;
+          rb.addEventListener("click", () => {
+            showingOrig = !showingOrig;
+            const bodyEl = card.querySelector(".msg-body");
+            if (bodyEl) {
+              bodyEl.textContent = showingOrig ? msg.original_content : (msg.compressed || msg.content || "");
+              rb.textContent = showingOrig ? "rephrased" : "original";
+            }
+          });
+        }
+
         // Message ID
         if (msg.id) {
           const idEl = document.createElement("span");

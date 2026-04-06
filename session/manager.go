@@ -202,6 +202,45 @@ func (m *Manager) Append(key string, msgs ...provider.Message) error {
 	return nil
 }
 
+// RephraseLastAssistant finds the last assistant message without OriginalContent,
+// moves its Content to OriginalContent, and sets Content to the rephrased text.
+// Holds the session lock across load→modify→save to prevent concurrent Append
+// from losing data between Reload and Save.
+func (m *Manager) RephraseLastAssistant(key, rephrased string) error {
+	key = normalizeSessionKey(key)
+
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	// Load from disk under lock to get the latest state.
+	sess, err := m.loadFromDisk(key)
+	if err != nil {
+		return fmt.Errorf("rephrase: load session %s: %w", key, err)
+	}
+	// Find last assistant message that hasn't been rephrased yet.
+	found := false
+	for i := len(sess.Messages) - 1; i >= 0; i-- {
+		msg := &sess.Messages[i]
+		if msg.Role == "assistant" && msg.OriginalContent == "" && msg.Content != "" {
+			msg.OriginalContent = msg.Content
+			msg.Content = rephrased
+			found = true
+			break
+		}
+	}
+	if !found {
+		return nil
+	}
+
+	// Write atomically and update cache under the same lock.
+	path := m.sessionPath(key)
+	if err := WriteFile(path, sess); err != nil {
+		return fmt.Errorf("rephrase: save session %s: %w", key, err)
+	}
+	m.cache[key] = sess
+	return nil
+}
+
 func (m *Manager) sessionPath(key string) string {
 	return filepath.Join(SessionDir(m.sessionsDir, key), SessionFileName)
 }

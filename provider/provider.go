@@ -52,6 +52,7 @@ type Message struct {
 	HeartbeatTrim    bool       `json:"heartbeat_trim,omitempty"`    // Tier 1 flag: heartbeat turn marked for send-time removal
 	SkipTrim         bool       `json:"skip_trim,omitempty"`         // tool result must not be compressed (e.g. compression summary)
 	Source           string     `json:"source,omitempty"`            // wake source that triggered this message
+	OriginalContent  string     `json:"original_content,omitempty"`  // pre-rephrase content (set by rephrase agent)
 }
 
 // GetContent returns the compressed content if available, otherwise the original content.

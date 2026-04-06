@@ -10,9 +10,13 @@ import (
 
 const metaFileName = "meta.json"
 
+// RephraseSessionSuffix is the session key suffix for rephrase sibling sessions.
+const RephraseSessionSuffix = ":rephrase"
+
 // Meta holds per-session metadata persisted to {sessionDir}/meta.json.
 type Meta struct {
 	Agent     string          `json:"agent,omitempty"`      // Explicitly assigned agent name.
+	Rephrase  bool            `json:"rephrase,omitempty"`   // Enable rephrase agent for this session.
 	DiscordDM *DiscordDMMeta  `json:"discord_dm,omitempty"` // Discord DM routing.
 	WeCom     *WeComMeta      `json:"wecom,omitempty"`      // WeCom routing.
 }

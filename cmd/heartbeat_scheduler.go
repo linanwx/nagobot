@@ -152,6 +152,9 @@ func (s *heartbeatScheduler) scan(ctx context.Context) {
 			return
 		}
 
+		if strings.HasSuffix(se.Key, session.RephraseSessionSuffix) {
+			continue
+		}
 		if se.LastUserActiveAt == nil {
 			logger.Debug("heartbeat skip: no user activity", "key", se.Key)
 			continue

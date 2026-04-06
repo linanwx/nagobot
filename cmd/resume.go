@@ -107,6 +107,9 @@ func sendResumeWakes(mgr *thread.Manager, candidates []resumeCandidate) {
 // isResumableSessionKey returns true if the session key belongs to a channel
 // with persistent delivery. For child threads, checks the parent key.
 func isResumableSessionKey(key string) bool {
+	if strings.HasSuffix(key, session.RephraseSessionSuffix) {
+		return false
+	}
 	checkKey := key
 	if idx := strings.Index(key, ":threads:"); idx >= 0 {
 		checkKey = key[:idx]

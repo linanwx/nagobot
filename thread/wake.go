@@ -8,6 +8,7 @@ import (
 
 	"github.com/linanwx/nagobot/logger"
 	"github.com/linanwx/nagobot/provider"
+	"github.com/linanwx/nagobot/session"
 	sysmsg "github.com/linanwx/nagobot/thread/msg"
 	"gopkg.in/yaml.v3"
 )
@@ -155,6 +156,32 @@ func (t *Thread) RunOnce(ctx context.Context) {
 	if messageSender(msg.Source) == "system" {
 		sink = sink.WithoutStreaming()
 	}
+	// Rephrase: wrap sink to route output through rephrase session.
+	// Only when rephrase is enabled, sink is non-zero, and this isn't already a rephrase session.
+	if !sink.IsZero() && !isRephraseSession(t.sessionKey) {
+		sessionDir := t.mgr.SessionDir(t.sessionKey)
+		meta := session.ReadMeta(sessionDir)
+		if meta.Rephrase {
+			originalSink := sink
+			parentKey := t.sessionKey
+			mgr := t.mgr
+			sink = Sink{
+				Label:     "rephrase → " + originalSink.Label,
+				React:     originalSink.React,
+				Chunkable: false,
+				Send: func(ctx context.Context, response string) error {
+					mgr.Wake(parentKey+session.RephraseSessionSuffix, &WakeMessage{
+						Source:    WakeRephrase,
+						Message:   response,
+						AgentName: "rephrase",
+						Sink:      rephraseCompoundSink(originalSink, parentKey, mgr.cfg.Sessions),
+					})
+					return nil
+				},
+			}
+		}
+	}
+
 	// Resolve delivery label for the AI prompt.
 	deliveryLabel := ""
 	if !msg.Sink.IsZero() {
@@ -348,6 +375,8 @@ func wakeActionHint(source WakeSource) string {
 		return "Heartbeat pulse. Load the heartbeat-wake skill and follow its instructions."
 	case WakeResume:
 		return "The system restarted while your previous turn was in progress. The original request is included below. Continue processing where you left off. If you believe the request is no longer relevant, call sleep_thread to skip."
+	case WakeRephrase:
+		return "Rephrase the following AI assistant message into a natural, conversational tone suitable for a chat channel. Output ONLY the rephrased message, nothing else."
 	default:
 		return "Process this wake message and continue."
 	}
