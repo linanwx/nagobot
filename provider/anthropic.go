@@ -530,7 +530,19 @@ func (p *AnthropicProvider) Chat(ctx context.Context, req *Request) (ChatResult,
 		Messages:  messages,
 		Tools:     tools,
 	}
-	if systemPrompt != "" {
+	if isAnthropicOAuthToken(p.apiKey) {
+		// OAuth requires Claude Code identity in the system prompt.
+		blocks := []anthropic.TextBlockParam{{
+			Text: "You are Claude Code, Anthropic's official CLI for Claude.",
+		}}
+		if systemPrompt != "" {
+			blocks = append(blocks, anthropic.TextBlockParam{
+				Text:         systemPrompt,
+				CacheControl: anthropic.NewCacheControlEphemeralParam(),
+			})
+		}
+		params.System = blocks
+	} else if systemPrompt != "" {
 		params.System = []anthropic.TextBlockParam{{
 			Text:         systemPrompt,
 			CacheControl: anthropic.NewCacheControlEphemeralParam(),
