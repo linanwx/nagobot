@@ -165,6 +165,7 @@ func (t *Thread) RunOnce(ctx context.Context) {
 			originalSink := sink
 			parentKey := t.sessionKey
 			mgr := t.mgr
+			originalUserMsg := msg.Message // capture for preview
 			sink = Sink{
 				Label:     "rephrase → " + originalSink.Label,
 				React:     originalSink.React,
@@ -175,6 +176,7 @@ func (t *Thread) RunOnce(ctx context.Context) {
 						Message:   response,
 						AgentName: "rephrase",
 						Sink:      rephraseCompoundSink(originalSink, parentKey, mgr.cfg.Sessions),
+						Vars:      map[string]string{"ORIGINAL_PREVIEW": rephrasePreview(originalUserMsg)},
 					})
 					return nil
 				},
@@ -251,7 +253,7 @@ func (t *Thread) RunOnce(ctx context.Context) {
 // buildWakePayload constructs the user message from a wake source and message.
 // Uses YAML frontmatter + markdown body so the AI knows the wake context
 // and the sender (user vs system).
-func buildWakePayload(source WakeSource, message, threadID, sessionKey, sessionDir, deliveryLabel, model, agent string, loc *time.Location) string {
+func buildWakePayload(source WakeSource, message, threadID, sessionKey, sessionDir, deliveryLabel, model, agent string, loc *time.Location, vars ...map[string]string) string {
 	message = strings.TrimSpace(message)
 	if message == "" {
 		return ""
@@ -287,6 +289,11 @@ func buildWakePayload(source WakeSource, message, threadID, sessionKey, sessionD
 			hint = strings.ReplaceAll(hint, "{{LENGTH_ADVICE}}", rephraseLengthAdvice(lineCount))
 			if lineCount > 20 && charCount/lineCount <= 20 {
 				hint += " CRITICAL WARNING: The AI output has excessive line breaks with very short lines. You MUST collapse and merge these lines into proper paragraphs."
+			}
+			if len(vars) > 0 {
+				if preview, ok := vars[0]["ORIGINAL_PREVIEW"]; ok && preview != "" {
+					hint += " Original user message preview: " + preview
+				}
 			}
 		}
 		header.Action = hint
@@ -403,4 +410,19 @@ func rephraseLengthAdvice(lineCount int) string {
 	}
 	pct := (lineCount - 40) * 100 / lineCount
 	return fmt.Sprintf("The message is too long (target: ~40 lines, cut ~%d%%). Aggressively trim redundant content. ", pct)
+}
+
+// rephrasePreview strips newlines from the original user message and returns the first 50 runes.
+func rephrasePreview(userMsg string) string {
+	// Strip YAML frontmatter if present.
+	if _, body, ok := SplitFrontmatter(userMsg); ok {
+		userMsg = body
+	}
+	cleaned := strings.ReplaceAll(strings.ReplaceAll(userMsg, "\n", " "), "\r", "")
+	cleaned = strings.TrimSpace(cleaned)
+	runes := []rune(cleaned)
+	if len(runes) > 50 {
+		return string(runes[:50]) + "..."
+	}
+	return cleaned
 }
