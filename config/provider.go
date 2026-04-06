@@ -254,6 +254,7 @@ func (c *Config) EnsureProviderConfigFor(providerName string) *ProviderConfig {
 		return pc
 	}
 	// Provider not found or field is nil — allocate and set it.
+	// OAuth-only providers (e.g. "anthropic-oauth") have no ProviderConfig.
 	pc := &ProviderConfig{}
 	switch providerName {
 	case "openai", "openai-oauth":
@@ -278,6 +279,8 @@ func (c *Config) EnsureProviderConfigFor(providerName string) *ProviderConfig {
 		c.Providers.MinimaxGlobal = pc
 	case "gemini":
 		c.Providers.Gemini = pc
+	default:
+		return nil
 	}
 	return pc
 }

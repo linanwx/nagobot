@@ -1,6 +1,7 @@
 package cmd
 
 import (
+	"bufio"
 	"context"
 	"crypto/rand"
 	"crypto/sha256"
@@ -12,6 +13,7 @@ import (
 	"net"
 	"net/http"
 	"net/url"
+	"os"
 	"os/exec"
 	"runtime"
 	"sort"
@@ -58,7 +60,6 @@ var authProviders = map[string]*oauthConfig{
 
 // pasteTokenProviders lists providers that use paste-token auth (no PKCE).
 var pasteTokenProviders = map[string]bool{
-	"anthropic":       true,
 	"anthropic-oauth": true,
 }
 
@@ -99,7 +100,7 @@ var authAnthropicCmd = &cobra.Command{
 	Use:   "anthropic",
 	Short: "Login with Anthropic/Claude account via setup-token",
 	RunE: func(cmd *cobra.Command, args []string) error {
-		return runPasteTokenLogin("anthropic")
+		return runPasteTokenLogin("anthropic-oauth")
 	},
 }
 
@@ -262,12 +263,12 @@ func runPasteTokenLogin(providerName string) error {
 	fmt.Println("  claude setup-token")
 	fmt.Println()
 
-	var token string
 	fmt.Print("Paste your setup-token (sk-ant-oat01-...): ")
-	if _, err := fmt.Scanln(&token); err != nil {
-		return fmt.Errorf("failed to read token: %w", err)
+	scanner := bufio.NewScanner(os.Stdin)
+	if !scanner.Scan() {
+		return fmt.Errorf("failed to read token: %w", scanner.Err())
 	}
-	token = strings.TrimSpace(token)
+	token := strings.TrimSpace(scanner.Text())
 
 	if !strings.HasPrefix(token, "sk-ant-oat") {
 		return fmt.Errorf("invalid token: must start with sk-ant-oat")
@@ -285,12 +286,8 @@ func runPasteTokenLogin(providerName string) error {
 	return nil
 }
 
-func runAuthStatus(_ *cobra.Command, _ []string) error {
-	cfg, err := config.Load()
-	if err != nil {
-		return fmt.Errorf("failed to load config: %w", err)
-	}
-
+// allAuthProviderNames returns a sorted list of all provider names that support any form of OAuth/token auth.
+func allAuthProviderNames() []string {
 	names := make([]string, 0, len(authProviders)+len(pasteTokenProviders))
 	for name := range authProviders {
 		names = append(names, name)
@@ -299,6 +296,16 @@ func runAuthStatus(_ *cobra.Command, _ []string) error {
 		names = append(names, name)
 	}
 	sort.Strings(names)
+	return names
+}
+
+func runAuthStatus(_ *cobra.Command, _ []string) error {
+	cfg, err := config.Load()
+	if err != nil {
+		return fmt.Errorf("failed to load config: %w", err)
+	}
+
+	names := allAuthProviderNames()
 
 	found := false
 	for _, name := range names {
@@ -340,15 +347,7 @@ func runAuthLogout(_ *cobra.Command, args []string) error {
 	_, inOAuth := authProviders[providerName]
 	_, inPaste := pasteTokenProviders[providerName]
 	if !inOAuth && !inPaste {
-		names := make([]string, 0, len(authProviders)+len(pasteTokenProviders))
-		for name := range authProviders {
-			names = append(names, name)
-		}
-		for name := range pasteTokenProviders {
-			names = append(names, name)
-		}
-		sort.Strings(names)
-		return fmt.Errorf("unsupported provider: %s (supported: %s)", providerName, strings.Join(names, ", "))
+		return fmt.Errorf("unsupported provider: %s (supported: %s)", providerName, strings.Join(allAuthProviderNames(), ", "))
 	}
 
 	cfg, err := config.Load()

@@ -110,7 +110,11 @@ func runSetProviderKey(_ *cobra.Command, _ []string) error {
 
 	// --clear: remove key
 	if provKeyClear {
-		pc := cfg.EnsureProviderConfigFor(provName)
+		pc := cfg.Providers.GetProviderConfig(provName)
+		if pc == nil {
+			fmt.Printf("Provider %q has no API key config to clear.\n", provName)
+			return nil
+		}
 		pc.APIKey = ""
 		pc.APIBase = ""
 		if err := cfg.Save(); err != nil {
@@ -123,8 +127,8 @@ func runSetProviderKey(_ *cobra.Command, _ []string) error {
 	apiKey := strings.TrimSpace(provKeyAPIKey)
 	if apiKey == "" {
 		// Show status for this provider
-		pc := cfg.EnsureProviderConfigFor(provName)
-		hasKey := strings.TrimSpace(pc.APIKey) != ""
+		pc := cfg.Providers.GetProviderConfig(provName)
+		hasKey := pc != nil && strings.TrimSpace(pc.APIKey) != ""
 		tok := cfg.GetOAuthToken(provName)
 		hasOAuth := tok != nil && tok.AccessToken != ""
 		configured := hasKey || hasOAuth
@@ -139,7 +143,7 @@ func runSetProviderKey(_ *cobra.Command, _ []string) error {
 			if hasOAuth {
 				fmt.Printf("Provider %q: oauth configured\n", provName)
 			}
-			if pc.APIBase != "" {
+			if pc != nil && pc.APIBase != "" {
 				fmt.Printf("  API base: %s\n", pc.APIBase)
 			}
 		}
@@ -148,6 +152,9 @@ func runSetProviderKey(_ *cobra.Command, _ []string) error {
 
 	// Set key (and optionally base)
 	pc := cfg.EnsureProviderConfigFor(provName)
+	if pc == nil {
+		return fmt.Errorf("provider %q does not support API key configuration", provName)
+	}
 	pc.APIKey = apiKey
 	if provKeyAPIBase != "" {
 		pc.APIBase = strings.TrimSpace(provKeyAPIBase)

@@ -167,7 +167,7 @@ func newAnthropicProvider(apiKey, apiBase, modelType, modelName string, maxToken
 		aoption.WithMiddleware(anthropicRateLimitMiddleware),
 	}
 	if isAnthropicOAuthToken(apiKey) {
-		// OAuth token: use Bearer auth + required beta/identity headers.
+		// OAuth token: use Bearer auth + required beta headers.
 		opts = append(opts,
 			aoption.WithAuthToken(apiKey),
 			aoption.WithHeader("anthropic-beta", "claude-code-20250219,oauth-2025-04-20"),

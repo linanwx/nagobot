@@ -741,8 +741,8 @@ func authenticateProvider(existing *config.Config, providerName string) error {
 		existing.GetOAuthToken(providerName).AccessToken != ""
 
 	// Check existing API key.
-	pc := existing.EnsureProviderConfigFor(providerName)
-	hasAPIKey := strings.TrimSpace(pc.APIKey) != ""
+	pc := existing.Providers.GetProviderConfig(providerName)
+	hasAPIKey := pc != nil && strings.TrimSpace(pc.APIKey) != ""
 
 	if hasOAuth || hasAPIKey {
 		return nil // Already authenticated.
@@ -795,7 +795,9 @@ func authenticateProvider(existing *config.Config, providerName string) error {
 	if err != nil {
 		return err
 	}
-	existing.EnsureProviderConfigFor(providerName).APIKey = strings.TrimSpace(apiKey)
+	if pc := existing.EnsureProviderConfigFor(providerName); pc != nil {
+		pc.APIKey = strings.TrimSpace(apiKey)
+	}
 	return nil
 }
 

@@ -160,8 +160,8 @@ func validateProviderModel(cfg *config.Config, provName, modelName, cmdPrefix st
 		return fmt.Errorf("%w\nSupported models for %s: %s\nFix: %s --provider %s --model <model>", err, provName, strings.Join(models, ", "), cmdPrefix, provName)
 	}
 
-	pc := cfg.EnsureProviderConfigFor(provName)
-	hasKey := strings.TrimSpace(pc.APIKey) != ""
+	pc := cfg.Providers.GetProviderConfig(provName)
+	hasKey := pc != nil && strings.TrimSpace(pc.APIKey) != ""
 	oauthToken := cfg.GetOAuthToken(provName)
 	hasOAuth := oauthToken != nil && oauthToken.AccessToken != ""
 	if !hasKey && !hasOAuth {
@@ -207,9 +207,10 @@ func listModelRouting(cfg *config.Config) error {
 	// Only shows providers with configured API keys.
 	fmt.Println("\nImplicit specialty routing (use as agent specialty, no config needed):")
 	for _, prov := range provider.SupportedProviders() {
-		pc := cfg.EnsureProviderConfigFor(prov)
-		hasKey := strings.TrimSpace(pc.APIKey) != ""
-		hasOAuth := (prov == "openai" || prov == "openai-oauth") && cfg.Providers.OpenAIOAuth != nil && cfg.Providers.OpenAIOAuth.AccessToken != ""
+		pc := cfg.Providers.GetProviderConfig(prov)
+		hasKey := pc != nil && strings.TrimSpace(pc.APIKey) != ""
+		oauthTok := cfg.GetOAuthToken(prov)
+		hasOAuth := oauthTok != nil && oauthTok.AccessToken != ""
 		if !hasKey && !hasOAuth {
 			continue // skip unconfigured providers
 		}

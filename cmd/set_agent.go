@@ -74,9 +74,10 @@ func runSetAgent(_ *cobra.Command, _ []string) error {
 		if err := provider.ValidateProviderModelType(providerArg, modelArg); err != nil {
 			return fmt.Errorf("invalid provider/model: %w", err)
 		}
-		pc := cfg.EnsureProviderConfigFor(providerArg)
-		hasKey := strings.TrimSpace(pc.APIKey) != ""
-		hasOAuth := (providerArg == "openai" || providerArg == "openai-oauth") && cfg.Providers.OpenAIOAuth != nil && cfg.Providers.OpenAIOAuth.AccessToken != ""
+		pc := cfg.Providers.GetProviderConfig(providerArg)
+		hasKey := pc != nil && strings.TrimSpace(pc.APIKey) != ""
+		oauthTok := cfg.GetOAuthToken(providerArg)
+		hasOAuth := oauthTok != nil && oauthTok.AccessToken != ""
 		if !hasKey && !hasOAuth {
 			return fmt.Errorf("provider %q has no API key configured.\nFix: nagobot set-provider-key --provider %s --api-key YOUR_KEY", providerArg, providerArg)
 		}
