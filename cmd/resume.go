@@ -147,9 +147,12 @@ func isUserTurnComplete(messages []provider.Message, userMsgIdx int) bool {
 
 // nonResumableSources are sources that should not be resumed after a crash.
 // - heartbeat/compression: self-recovering, the system will re-trigger them
-// - resume: self-referential, resuming a resume would cause infinite loops
+// Note: "resume" is intentionally NOT excluded. A completed resume's turn
+// passes isUserTurnComplete, so it won't be re-triggered. Excluding it
+// would cause the original interrupted message to be found instead,
+// leading to infinite resume loops.
 var nonResumableSources = map[string]bool{
-	"heartbeat": true, "compression": true, "resume": true,
+	"heartbeat": true, "compression": true,
 }
 
 // isInjectedMessage checks the YAML frontmatter of a user message for
