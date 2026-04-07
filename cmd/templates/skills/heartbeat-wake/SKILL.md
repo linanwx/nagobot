@@ -21,7 +21,7 @@ If there is something that needs follow-up (e.g., unfinished tasks, unanswered q
 
 ### Greetings
 
-If you haven't greeted the user today
+If you haven't greeted the user today and it's an appropriate time to greet
   - greet user based on time of day (morning/afternoon/evening)
 
 ### Update USER.md
