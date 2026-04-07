@@ -17,8 +17,7 @@ To end this turn without sending anything to the user, call `sleep_thread()`. If
 
 ## Decide: continue, reflect, or act?
 
-- If there is something that needs follow-up from last user message (e.g., unfinished tasks, unanswered questions, incomplete answer)
-  - **continue** by fetching information. Do not merely repeat existing information. Do NOT reflect or act on heartbeat items — complete the pending work first.
+- If there is something that needs follow-up (e.g., unfinished tasks, unanswered questions) — complete the pending work first.
 - Else if heartbeat.md doesn't exist, is empty, or the current context contains new information since `heartbeat_modified`
   - **reflect** (see below)
 - Else if heartbeat.md has items that may need attention
@@ -32,51 +31,52 @@ To end this turn without sending anything to the user, call `sleep_thread()`. If
 
 ## Reflect
 
-This is silent — the user will not see your output.
-
-Without heartbeat, you only react. With heartbeat, you anticipate. Your job is to notice what matters and remember it — so that future you can act on it at the right moment.
-
-**Bias toward action.** If something might be worth tracking, track it. Removing a stale item later costs nothing; missing a commitment costs trust. When in doubt, add it.
-
 ### Steps
 
-1. The current heartbeat.md content is already in the wake message above. Use it directly.
-2. Review conversation above (do NOT read_file session file; you already have all info)
-   - Scan for anything you can help with in the background:
-     - Any help you can give
-     - Weather/news/traffic/interests they may care about
-   - Scan for user profile updates → update USER.md (read it first with read_file):
-     - New preferences, corrections, habits, background facts (location, job, tools, interests)
-     - Mistakes you made, lessons learned — you are a pretrained model, updating prompts is your only way to learn online. Record it to make yourself better.
-     - USER.md is injected into ALL future conversations as context — write for a stranger who knows nothing about this user
-     - Merge duplicates, remove outdated info, keep ≤200 lines
-     - Do NOT put tasks/follow-ups here — those go in heartbeat.md
-3. Predict user's future
-   - Next 2 days, what they might do
-4. heartbeat.md is your task list for when the user is away — things to follow up, check, or remind. Do NOT put user profile info here — those go in USER.md.
-   existing_items = items from heartbeat.md
-   new_items = items found in conversation
-   cron_items = `{{WORKSPACE}}/bin/nagobot cron list` (check if needed)
-   - for each item in existing_items:
-     - if item is outdated || item is already handled by cron
-       - remove item
-     - else if item won't trigger within next 2 days
-       - remove from heartbeat.md
-       - create one-time cron job to handle this instead using heartbeat system
-   - if heartbeat.md is nothing, reconsider: am I too passive?
-5. heartbeat.md = predict_future + set(existing_items + new_items - removed_items)
-6. append a summary log of what you have done during this reflect step in heartbeat.md (remove old logs)
-7. if no items remain && current file is not empty → write empty string to clear file
-8. if heartbeat pulse is running too frequently:
-   - call `exec` to run: `{{WORKSPACE}}/bin/nagobot heartbeat postpone <session-key> <duration>`
-   - Valid durations: 15m to 6h (e.g., "4h" for nothing interesting until afternoon)
-9. Call `sleep_thread()` — this ends the turn silently. Do NOT reply with text.
+#### Part 1: Update heartbeat.md items
+
+Define `history_has(x)` = whether the current conversation history discusses topic x.
+
+- If `history_has(recent or upcoming weather)`:
+  - Insert a weather-check item into heartbeat.md. Include: trigger time (e.g. every morning or afternoon), location, and what the user likely cares about. Use web search or weather skill to get details.
+
+- If `history_has(successfully read user's email)`:
+  - Insert an email-check item. Time: e.g. morning/afternoon/evening. Content: check important unread emails.
+
+- If `history_has(successfully read user's calendar)`:
+  - Insert a calendar-check item. Time: e.g. morning/afternoon/evening. Content: check today's or upcoming schedule.
+
+- If `history_has(successfully read user's todo list)`:
+  - Insert a todo-check item. Time: e.g. morning/afternoon/evening. Content: check todos and remind user.
+
+- List topics the user recently discussed. Pick the most important one the user might care about.
+  - Insert an item to deep-research this topic and find useful information. Time: next morning/afternoon/evening.
+
+- Think about the user's routine. Predict their likely schedule for tomorrow and the day after. Update heartbeat.md's Schedule section.
+  - Include: places the user might visit, activities they might do.
+
+- Update the `Update at` timestamp in heartbeat.md.
+
+- If heartbeat.md exceeds 50 lines, clean up stale data.
+
+#### Part 2: Update user profile
+
+Review conversation above (do NOT read_file session file; you already have all info).
+- Scan for user profile updates → update USER.md (read it first with read_file):
+  - New preferences, corrections, habits, background facts (location, job, tools, interests)
+  - Mistakes you made, lessons learned — you are a pretrained model, updating prompts is your only way to learn online. Record it to make yourself better.
+  - USER.md is injected into ALL future conversations as context — write for a stranger who knows nothing about this user
+  - Merge duplicates, remove outdated info, keep ≤200 lines
+
+#### Part 3: Finalize
+
+1. Append a summary log of what you did during this reflect step in heartbeat.md (remove old logs).
+2. If no items remain and the current file is not empty, write empty string to clear it.
+3. Call `sleep_thread()` — this ends the turn silently. Do NOT reply with text.
 
 ---
 
 ## Act
-
-Your output goes directly to the user — treat this like walking into someone's room. Don't do it unless you're bringing something they'll be glad to hear.
 
 ### Steps
 
@@ -127,6 +127,8 @@ Record only facts the user explicitly stated. Do NOT infer, assume, or extrapola
 ## heartbeat.md format
 
 ```markdown
+Update at: xxxx-xx-xx xx:xx
+
 # Schedule
 
 - 2026-03-12
@@ -138,6 +140,7 @@ Record only facts the user explicitly stated. Do NOT infer, assume, or extrapola
 
 - Check Beijing weather for user (they mentioned going out tomorrow)
   created: 2026-03-11
+  when: 2026-03-12 morning
   moved_on: after 2026-03-12 (the outing day has passed)
   reason: xxx
 
