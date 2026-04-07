@@ -14,7 +14,7 @@ The heartbeat items were last modified at heartbeat_modified.
 ## Decide: continue, reflect, or act?
 
 - If there is something that needs follow-up (e.g., unfinished tasks, unanswered questions) — complete the pending work first.
-- Else if the current context contains new information need to be recorded in heartbeat.md or USER.md
+- Else if the current context contains new information need attention
   - **reflect** (see below)
 - Else if heartbeat.md has items that may need attention
   - **act** (see below)
@@ -34,19 +34,22 @@ The heartbeat items were last modified at heartbeat_modified.
 Define `history_has(x)` = whether the current conversation history discusses topic x.
 
 - If `history_has(recent or upcoming weather)`:
-  - Insert a weather-check item into heartbeat.md. Include: trigger time (e.g. every morning or afternoon), location, and what the user likely cares about. Use web search or weather skill to get details.
+  - Insert a weather-check item into heartbeat.md. Include: trigger time (e.g. XXXX-XX-XX XX-XX), location, and what the user likely cares about. Use web search or weather skill to get details.
 
 - If `history_has(successfully read user's email)`:
-  - Insert an email-check item. Time: e.g. morning/afternoon/evening. Content: check important unread emails.
+  - Insert an email-check item. Time: e.g. XXXX-XX-XX XX-XX. Content: check important unread emails.
 
 - If `history_has(successfully read user's calendar)`:
-  - Insert a calendar-check item. Time: e.g. morning/afternoon/evening. Content: check today's or upcoming schedule.
+  - Insert a calendar-check item. Time: e.g. XXXX-XX-XX XX-XX. Content: check today's or upcoming schedule.
 
 - If `history_has(successfully read user's todo list)`:
-  - Insert a todo-check item. Time: e.g. morning/afternoon/evening. Content: check todos and remind user.
+  - Insert a todo-check item. Time: e.g. XXXX-XX-XX XX-XX. Content: check todos and remind user.
+
+- If `history_has(future plans or events)`:
+  - Insert a plan-check item. Time: e.g. XXXX-XX-XX XX-XX. Content: Remind user about the plan.
 
 - List topics the user recently discussed. Pick the most important one the user might care about.
-  - Insert an item to deep-research this topic and find useful information. Time: next morning/afternoon/evening.
+  - Insert an item to deep-research this topic and find useful information. Time: XXXX-XX-XX XX-XX.
 
 - Think about the user's routine. Predict their likely schedule for tomorrow and the day after. Update heartbeat.md's Schedule section.
   - Include: places the user might visit, activities they might do.
