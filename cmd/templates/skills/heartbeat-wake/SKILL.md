@@ -14,9 +14,9 @@ The heartbeat items were last modified at heartbeat_modified.
 ## Decide: continue, reflect, or act?
 
 - If there is something that needs follow-up (e.g., unfinished tasks, unanswered questions) — complete the pending work first.
-- Else if the current context contains new information need attention
+- Else if the current context contains new information that needs attention
   - **reflect** (see below)
-- Else if heartbeat.md has items that may need attention
+- Else if heartbeat.md has items that need acting on
   - **act** (see below)
 - Else
   - If the heartbeat pulse is too frequent, you can postpone it:
@@ -58,7 +58,7 @@ Define `history_has(x)` = whether the current conversation history discusses top
 
 - If heartbeat.md exceeds 50 lines, clean up stale data.
 
-- Remove stale item in 'Schedule' and 'Follow Up'. Remove 'Follow Up' items that do not have a valid trigger time
+- Remove stale items in 'Schedule' and 'Follow Up'. Remove 'Follow Up' items that do not have a valid trigger time.
 
 #### Part 2: Update user profile
 
@@ -72,6 +72,10 @@ Review conversation above (do NOT read_file session file; you already have all i
 #### Part 3: Finalize
 
 1. Append a summary log of what you did during this reflect step in heartbeat.md (remove old logs).
+  - Include:
+    - What you have checked.
+    - What you added.
+    - If you decided not to add anything to heartbeat.md, include why (reasoning).
 2. If no items remain and the current file is not empty, write empty string to clear it.
 3. Call `sleep_thread()` — this ends the turn silently. Do NOT reply with text.
 
