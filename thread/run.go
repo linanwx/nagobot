@@ -58,6 +58,7 @@ func (t *Thread) run(ctx context.Context, userMessage string, sink Sink, injectF
 	runCtx := tools.WithRuntimeContext(ctx, tools.RuntimeContext{
 		SessionKey:            t.sessionKey,
 		Workspace:             cfg.Workspace,
+		SessionDir:            t.mgr.SessionDir(t.sessionKey),
 		SupportsVision:        t.currentModelSupportsVision(),
 		SupportsAudio:         t.currentModelSupportsAudio(),
 		SupportsPDF:           t.currentModelSupportsPDF(),

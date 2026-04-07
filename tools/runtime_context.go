@@ -12,6 +12,7 @@ type runtimeContextKey struct{}
 type RuntimeContext struct {
 	SessionKey             string
 	Workspace              string
+	SessionDir             string
 	SupportsVision         bool
 	SupportsAudio          bool
 	SupportsPDF            bool

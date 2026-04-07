@@ -1,115 +1,78 @@
 ---
 name: heartbeat-wake
 description: Heartbeat pulse handler — continue pending work, reflect (update heartbeat.md), or act (evaluate items and respond). Triggered automatically by the heartbeat scheduler.
-tags: [heartbeat, internal]
 ---
 # Heartbeat Wake
 
-You are handling a heartbeat pulse.
+You are handling a heartbeat pulse. Next heartbeat pulse will fire at next_pulse. Follow the instructions below to handle this pulse.
 
-Next heartbeat pulse will fire at next_pulse.
+## Step 1
 
-The heartbeat items were last modified at heartbeat_modified.
+Read file `{{SESSIONDIR}}/heartbeat_log.md`
 
-## Decide: continue, reflect, or act?
+## Step 2
 
-- If there is something that needs follow-up (e.g., unfinished tasks, unanswered questions) — complete the pending work first.
-- Else if the current context contains new information that needs attention
-  - **reflect** (see below)
-- Else if heartbeat.md has items that need acting on
-  - **act** (see below)
-- Else
-  - If the heartbeat pulse is too frequent, you can postpone it:
-    - `exec: {{WORKSPACE}}/bin/nagobot heartbeat postpone <session-key> <duration>` (range: 15m to 6h)
-  - Either way, call `sleep_thread()` to skip this pulse.
+You need to choose one of the following actions. Pick the first one that meets its condition. You only need to do one of them per pulse.
 
----
+### Follow up on pending work
 
-## Reflect
+If there is something that needs follow-up (e.g., unfinished tasks, unanswered questions) 
+  - complete the pending work first.
 
-### Steps
+### Greetings
 
-#### Part 1: Update heartbeat.md items
+If you haven't greeted the user today
+  - greet user based on time of day (morning/afternoon/evening)
 
-Define `history_has(x)` = whether the current conversation history discusses topic x.
+### Update USER.md
 
-- If `history_has(recent or upcoming weather)`:
-  - Insert a weather-check item into heartbeat.md. Include: trigger time (e.g. XXXX-XX-XX XX:XX), location, and what the user likely cares about. Use web search or weather skill to get details.
-
-- If `history_has(successfully read user's email)`:
-  - Insert an email-check item. Time: e.g. XXXX-XX-XX XX:XX. Content: check important unread emails.
-
-- If `history_has(successfully read user's calendar)`:
-  - Insert a calendar-check item. Time: e.g. XXXX-XX-XX XX:XX. Content: check today's or upcoming schedule.
-
-- If `history_has(successfully read user's todo list)`:
-  - Insert a todo-check item. Time: e.g. XXXX-XX-XX XX:XX. Content: check todos and remind user.
-
-- If `history_has(future plans or events)`:
-  - Insert a plan-check item. Time: e.g. XXXX-XX-XX XX:XX. Content: remind user about the plan.
-
-- List topics the user recently discussed. Pick the most important one the user might care about.
-  - Insert an item to deep-research this topic and find useful information. Time: XXXX-XX-XX XX:XX.
-
-- Think about the user's routine. Predict their likely schedule for tomorrow and the day after. Update heartbeat.md's Schedule section.
-  - Include: places the user might visit, activities they might do.
-
-- Update the `Update at` timestamp in heartbeat.md.
-
-- If heartbeat.md exceeds 50 lines, clean up stale data.
-
-- Remove stale items in 'Schedule' and 'Follow Up'. Remove 'Follow Up' items that do not have a valid trigger time.
-
-#### Part 2: Update user profile
-
+Do not choose this action if it was handled in the last 2 hours (according to the logs).
 Review conversation above (do NOT read_file session file; you already have all info).
-- Scan for user profile updates → update USER.md (read it first with read_file):
+Scan for user profile updates:
   - New preferences, corrections, habits, background facts (location, job, tools, interests)
   - Mistakes you made, lessons learned — you are a pretrained model, updating prompts is your only way to learn online. Record it to make yourself better.
-  - USER.md is injected into ALL future conversations as context — write for a stranger who knows nothing about this user
-  - Merge duplicates, remove outdated info, keep ≤200 lines
+If you found anything that needs updating
+  - update `{{SESSIONDIR}}/USER.md` (read it first with read_file)
 
-#### Part 3: Finalize
+### Update heartbeat.md
 
-1. Append a summary log of what you did during this reflect step in heartbeat.md (remove old logs).
-  - Include:
-    - What you have checked.
-    - What you added.
-    - If you decided not to add anything to heartbeat.md, include why (reasoning).
-2. If no items remain and the current file is not empty, write empty string to clear it.
-3. Call `sleep_thread()` — this ends the turn silently. Do NOT reply with text.
+Review conversation above (do NOT read_file session file; you already have all info).
+Scan for future actions:
+  - Checking email, weather, news, topics, etc.
+  - Arrange future todos.
+  - update `{{SESSIONDIR}}/heartbeat.md`
 
----
+### Pick up items from heartbeat.md
 
-## Act
+Scan for `{{SESSIONDIR}}/heartbeat.md` items that can be acted on.
+Do not pick up items that were handled today.
+If you find an item that can be acted on now
+  - act on it
 
-### Steps
+### Skip this pulse
 
-- heartbeat.md content is already in the wake message above — use it directly
-- if heartbeat.md is empty || doesn't exist
-   - call `sleep_thread()` to skip this pulse/turn
-- else if you haven't greeted the user today
-   - greet user based on time of day (morning/afternoon/evening)
-- else
-   - act_items = []
-   - for each item in heartbeat.md:
-      - think what you can do to help with this item
-         - do actions (search emails, weather, websites, calendars, or just deep-think etc.)
-      - if you find something valuable and worth sharing
-         - add to act_items
-   - append a summary log of what you have done during this act step in heartbeat.md (remove old logs)
-   - if act_items is empty
-      - if heartbeat pulse is running too frequently:
-         - call `exec` to run: `{{WORKSPACE}}/bin/nagobot heartbeat postpone <session-key> <duration>`
-         - Valid durations: 15m to 6h (e.g., "4h" for nothing interesting until afternoon)
-      - anyway, do not disturb user, do not send nonsense messages like "nothing to report, keeping silent" — instead call `sleep_thread()`
-   - else
-      - ready to say something to user
-      - compose one response covering all act_items and generate an appropriate report
+If none of the above conditions are met
+  - append_file `{{SESSIONDIR}}/heartbeat_skip_log.md` with message explaining why you are skipping this pulse
+    - format: `- <timestamp>: skipped because <reason>`
+    - User will check it regularly
+  - If user is going to sleep, calculate sleep duration and postpone heartbeat pulse until then:
+    - `exec: {{WORKSPACE}}/bin/nagobot heartbeat postpone <session-key> <duration>` (range: 15m to 6h)
 
----
+## Step 3
 
-## USER.md format
+Append a log entry to `{{SESSIONDIR}}/heartbeat_log.md` describing what you did, with the following format:
+
+```markdown
+- <timestamp>: heartbeat pulse handled, action taken: <action description>
+```
+
+Clean up old log entries older than 2 days.
+
+## Step 4
+
+If you have sent a message to the user, skip step 4. Otherwise, call `sleep_thread()` to end this pulse silently.
+
+# USER.md format
 
 Record only facts the user explicitly stated. Do NOT infer, assume, or extrapolate. If the user said "I'm in Dublin", write that — do not add "probably Irish" or "likely works in tech".
 
@@ -127,34 +90,16 @@ Record only facts the user explicitly stated. Do NOT infer, assume, or extrapola
   created: 2026-03-20
 ```
 
----
-
-## heartbeat.md format
+# heartbeat.md format
 
 ```markdown
-Update at: xxxx-xx-xx xx:xx
-
-# Schedule
-
-- 2026-03-12
-   - morning
-      - might go to XXX
-      - reason: xxx
-
-# Follow Up
-
 - Check Beijing weather for user (they mentioned going out tomorrow)
   created: 2026-03-11
   when: 2026-03-12 morning
   moved_on: after 2026-03-12 (the outing day has passed)
   reason: xxx
-
-# Last 5 logs
-
-- xxxx-xx-xx xx-xx-xx: did xxx
-- xxxx-xx-xx xx-xx-xx: did xxx
 ```
 
-## Silent exit
+# Silent exit
 
-To end this turn without sending anything to the user, call `sleep_thread()`. If tool calling is unavailable or fails, output `SLEEP_THREAD_OK` in your response text instead — the system treats this identically to calling sleep_thread.
+To end a turn without sending anything to the user, call `sleep_thread()`. If tool calling is unavailable or fails, output `SLEEP_THREAD_OK` in your response text instead — the system treats this identically to calling sleep_thread. Append SLEEP_THREAD_OK at the end of your response if you forget to call the function.
