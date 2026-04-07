@@ -34,22 +34,22 @@ The heartbeat items were last modified at heartbeat_modified.
 Define `history_has(x)` = whether the current conversation history discusses topic x.
 
 - If `history_has(recent or upcoming weather)`:
-  - Insert a weather-check item into heartbeat.md. Include: trigger time (e.g. XXXX-XX-XX XX-XX), location, and what the user likely cares about. Use web search or weather skill to get details.
+  - Insert a weather-check item into heartbeat.md. Include: trigger time (e.g. XXXX-XX-XX XX:XX), location, and what the user likely cares about. Use web search or weather skill to get details.
 
 - If `history_has(successfully read user's email)`:
-  - Insert an email-check item. Time: e.g. XXXX-XX-XX XX-XX. Content: check important unread emails.
+  - Insert an email-check item. Time: e.g. XXXX-XX-XX XX:XX. Content: check important unread emails.
 
 - If `history_has(successfully read user's calendar)`:
-  - Insert a calendar-check item. Time: e.g. XXXX-XX-XX XX-XX. Content: check today's or upcoming schedule.
+  - Insert a calendar-check item. Time: e.g. XXXX-XX-XX XX:XX. Content: check today's or upcoming schedule.
 
 - If `history_has(successfully read user's todo list)`:
-  - Insert a todo-check item. Time: e.g. XXXX-XX-XX XX-XX. Content: check todos and remind user.
+  - Insert a todo-check item. Time: e.g. XXXX-XX-XX XX:XX. Content: check todos and remind user.
 
 - If `history_has(future plans or events)`:
-  - Insert a plan-check item. Time: e.g. XXXX-XX-XX XX-XX. Content: Remind user about the plan.
+  - Insert a plan-check item. Time: e.g. XXXX-XX-XX XX:XX. Content: remind user about the plan.
 
 - List topics the user recently discussed. Pick the most important one the user might care about.
-  - Insert an item to deep-research this topic and find useful information. Time: XXXX-XX-XX XX-XX.
+  - Insert an item to deep-research this topic and find useful information. Time: XXXX-XX-XX XX:XX.
 
 - Think about the user's routine. Predict their likely schedule for tomorrow and the day after. Update heartbeat.md's Schedule section.
   - Include: places the user might visit, activities they might do.
@@ -95,7 +95,7 @@ Review conversation above (do NOT read_file session file; you already have all i
    - for each item in heartbeat.md:
       - think what you can do to help with this item
          - do actions (search emails, weather, websites, calendars, or just deep-think etc.)
-      - if find something valuable and worth sharing
+      - if you find something valuable and worth sharing
          - add to act_items
    - append a summary log of what you have done during this act step in heartbeat.md (remove old logs)
    - if act_items is empty
