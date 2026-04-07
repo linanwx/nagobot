@@ -11,14 +11,10 @@ Next heartbeat pulse will fire at next_pulse.
 
 The heartbeat items were last modified at heartbeat_modified.
 
-## Silent exit
-
-To end this turn without sending anything to the user, call `sleep_thread()`. If tool calling is unavailable or fails, output `SLEEP_THREAD_OK` in your response text instead — the system treats this identically to calling sleep_thread.
-
 ## Decide: continue, reflect, or act?
 
 - If there is something that needs follow-up (e.g., unfinished tasks, unanswered questions) — complete the pending work first.
-- Else if heartbeat.md doesn't exist, is empty, or the current context contains new information since `heartbeat_modified`
+- Else if the current context contains new information need to be recorded in heartbeat.md or USER.md
   - **reflect** (see below)
 - Else if heartbeat.md has items that may need attention
   - **act** (see below)
@@ -58,6 +54,8 @@ Define `history_has(x)` = whether the current conversation history discusses top
 - Update the `Update at` timestamp in heartbeat.md.
 
 - If heartbeat.md exceeds 50 lines, clean up stale data.
+
+- Remove stale item in 'Schedule' and 'Follow Up'. Remove 'Follow Up' items that do not have a valid trigger time
 
 #### Part 2: Update user profile
 
@@ -149,3 +147,7 @@ Update at: xxxx-xx-xx xx:xx
 - xxxx-xx-xx xx-xx-xx: did xxx
 - xxxx-xx-xx xx-xx-xx: did xxx
 ```
+
+## Silent exit
+
+To end this turn without sending anything to the user, call `sleep_thread()`. If tool calling is unavailable or fails, output `SLEEP_THREAD_OK` in your response text instead — the system treats this identically to calling sleep_thread.
