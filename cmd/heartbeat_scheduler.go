@@ -20,7 +20,8 @@ import (
 const (
 	hbScanInterval   = 30 * time.Second
 	hbQuietMin       = 15 * time.Minute // User must be quiet for at least this long.
-	hbPulseInterval  = 45 * time.Minute // Gap between pulses.
+	hbPulseInterval  = 45 * time.Minute // Base gap between pulses (grows by hbPulseGrowth each cycle).
+	hbPulseGrowth    = 10 * time.Minute // Each subsequent interval grows by this amount.
 	hbActivityWindow = 48 * time.Hour   // Only pulse sessions active within this window.
 )
 
@@ -31,9 +32,9 @@ type hbSessionState struct {
 
 // heartbeatScheduler fires heartbeat pulses into user sessions.
 //
-// Trigger timeline is aligned to user's last message:
+// Trigger timeline uses growing intervals aligned to user's last message:
 //
-//	lastActive+10m, +40m, +70m, ... (30m interval)
+//	lastActive+15m, +60m, +115m, +180m, ... (45m base, +10m each cycle)
 //
 // lastPulse is persisted to disk and only used to prevent duplicate firing
 // within the same cycle. It does NOT determine the trigger schedule.
@@ -205,14 +206,14 @@ func (s *heartbeatScheduler) maybeFirePulse(key string, now time.Time, lastActiv
 	s.mu.Unlock()
 
 	// Find the latest trigger point on the timeline that is <= now.
-	trigger := latestDueTrigger(lastActive, hbPulseInterval, now)
+	trigger, nextInterval := latestDueTrigger(lastActive, now)
 	if trigger.IsZero() {
 		return
 	}
 
 	// Only fire if this trigger point hasn't been fired yet.
 	if !trigger.After(lastPulse) {
-		nextTrigger := trigger.Add(hbPulseInterval)
+		nextTrigger := trigger.Add(nextInterval)
 		logger.Debug("heartbeat skip: already fired this cycle", "key", key,
 			"trigger", trigger.Format(time.RFC3339),
 			"lastPulse", lastPulse.Format(time.RFC3339),
@@ -228,7 +229,7 @@ func (s *heartbeatScheduler) maybeFirePulse(key string, now time.Time, lastActiv
 	}
 	hbMtime := hbFileMtime(hbPath)
 
-	nextTrigger := trigger.Add(hbPulseInterval)
+	nextTrigger := trigger.Add(nextInterval)
 	nextPulse := nextTrigger.UTC().Format(time.RFC3339)
 	mdModified := ""
 	if !hbMtime.IsZero() {
@@ -252,16 +253,23 @@ func (s *heartbeatScheduler) maybeFirePulse(key string, now time.Time, lastActiv
 }
 
 // latestDueTrigger returns the latest trigger point on the timeline
-// (lastActive+10m, +10m+interval, +10m+2*interval, ...) that is <= now.
-// Returns zero time if no trigger point is due yet.
-func latestDueTrigger(lastActive time.Time, interval time.Duration, now time.Time) time.Time {
-	firstPulse := lastActive.Add(hbQuietMin)
-	if now.Before(firstPulse) {
-		return time.Time{}
+// (lastActive+quietMin, +quietMin+base, +quietMin+base+(base+growth), ...)
+// that is <= now, along with the interval to the next trigger point.
+// Returns zero time and zero duration if no trigger point is due yet.
+func latestDueTrigger(lastActive time.Time, now time.Time) (time.Time, time.Duration) {
+	t := lastActive.Add(hbQuietMin)
+	if now.Before(t) {
+		return time.Time{}, 0
 	}
-	elapsed := now.Sub(firstPulse)
-	n := int(elapsed / interval)
-	return firstPulse.Add(time.Duration(n) * interval)
+	interval := hbPulseInterval
+	for {
+		next := t.Add(interval)
+		if now.Before(next) {
+			return t, interval
+		}
+		t = next
+		interval += hbPulseGrowth
+	}
 }
 
 // hbStatusEntry represents one session's heartbeat status.
@@ -340,7 +348,7 @@ func (s *heartbeatScheduler) Status() []hbStatusEntry {
 		}
 		s.mu.Unlock()
 
-		trigger := latestDueTrigger(lastActive, hbPulseInterval, now)
+		trigger, nextInterval := latestDueTrigger(lastActive, now)
 		if trigger.IsZero() {
 			e.Status = "user active"
 			e.NextPulse = lastActive.Add(hbQuietMin).Local().Format("15:04")
@@ -352,7 +360,7 @@ func (s *heartbeatScheduler) Status() []hbStatusEntry {
 			e.Status = "due now"
 			e.NextPulse = now.Local().Format("15:04:05")
 		} else {
-			nextTrigger := trigger.Add(hbPulseInterval)
+			nextTrigger := trigger.Add(nextInterval)
 			e.NextPulse = nextTrigger.Local().Format("15:04:05")
 			e.Status = fmt.Sprintf("waiting (%s)", nextTrigger.Sub(now).Round(time.Second))
 		}

@@ -98,13 +98,13 @@ A single skill handles everything:
 ### Timing
 
 - **Quiet threshold**: 15 min after last user message (`hbQuietMin`)
-- **Pulse interval**: 45 min (`hbPulseInterval`)
-- **Activity window**: 48h — stops pulsing if no user activity within 48h
-- **Schedule**: `lastActive+15m, +60m, +105m, ...` (15 min first pulse, then 45 min gaps)
+- **Pulse interval**: 45 min base, +10 min each cycle (`hbPulseInterval`, `hbPulseGrowth`)
+- **Activity window**: 48h — stops pulsing if no user activity within 48h (~21 pulses max)
+- **Schedule**: `lastActive+15m, +60m, +115m, +180m, ...` (15 min first pulse, then 45/55/65/... growing gaps)
 
 ### Critical Implementation Details
 
-**Trigger timeline**: The pulse schedule is derived from `lastActive` (user's last message), NOT from `lastPulse`. `latestDueTrigger(lastActive, interval, now)` computes trigger points: `lastActive+15m, +60m, +105m, ...`. A pulse fires only when the latest trigger point > `lastPulse`. This means `lastPulse` is purely a dedup guard — it prevents re-firing within the same cycle but never determines when the next pulse should be.
+**Trigger timeline**: The pulse schedule is derived from `lastActive` (user's last message), NOT from `lastPulse`. `latestDueTrigger(lastActive, now)` returns `(trigger, nextInterval)` by iterating growing intervals: `lastActive+15m, +60m, +115m, +180m, ...`. A pulse fires only when the latest trigger point > `lastPulse`. This means `lastPulse` is purely a dedup guard — it prevents re-firing within the same cycle but never determines when the next pulse should be.
 
 **State persistence**: `lastPulse` is persisted to `{workspace}/system/heartbeat-state.json`. State survives restarts — no cold-start alignment logic needed.
 
