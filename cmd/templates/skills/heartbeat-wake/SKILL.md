@@ -45,11 +45,12 @@ If you find an item that can be acted on now
 
 ### Update heartbeat.md
 
-Review conversation above (do NOT read_file session file; you already have all info).
-Scan for future actions (you do not need the user's permission to add items to heartbeat.md):
+Be proactively engaged in helping users. Review conversation above (do NOT read_file session file; you already have all info).
+Scan for future actions:
   - Check email, weather, news, topics, and todos; for example, check the todo list and remind the user.
   - Arrange future todos.
   - Arrange an interest topic for future deep research.
+  - Look for a suitable time to do this.
   - update `{{SESSIONDIR}}/heartbeat.md`
 
 ### Explain when there are too many skip logs
