@@ -15,7 +15,7 @@ func TestBuildWakePayload_SupportsVisionAudio(t *testing.T) {
 		"Hello with image",
 		"thread-1", "telegram:123", "/tmp/sessions/telegram:123",
 		"telegram delivery", "gemini/gemini-3-flash-preview", "soul",
-		loc,
+		loc, "user",
 	)
 
 	if !strings.Contains(payload, "supports_vision: true") {
@@ -35,7 +35,7 @@ func TestBuildWakePayload_SystemSource_WithCapabilities(t *testing.T) {
 		"Heartbeat pulse",
 		"thread-1", "telegram:123", "/tmp/sessions/telegram:123",
 		"", "gemini/gemini-3-flash-preview", "soul",
-		loc,
+		loc, "system",
 	)
 
 	if !strings.Contains(payload, "supports_vision: true") {
@@ -52,7 +52,7 @@ func TestBuildWakePayload_NoModel_NoMultimodalInfo(t *testing.T) {
 		"Hello",
 		"thread-1", "telegram:123", "/tmp/sessions/telegram:123",
 		"telegram delivery", "", "soul",
-		loc,
+		loc, "",
 	)
 
 	if strings.Contains(payload, "supports_vision") {
@@ -70,7 +70,7 @@ func TestBuildWakePayload_FalseCapabilities_Omitted(t *testing.T) {
 		"Hello",
 		"thread-1", "telegram:123", "/tmp/sessions/telegram:123",
 		"telegram delivery", "openrouter/z-ai/glm-5", "soul",
-		loc,
+		loc, "",
 	)
 
 	if strings.Contains(payload, "supports_vision") {

@@ -187,4 +187,5 @@ type WakeMessage struct {
 	Sink     Sink              // Per-wake sink. Zero value = no per-wake delivery.
 	AgentName string           // Optional agent name override for this wake.
 	Vars     map[string]string // Optional vars override for this wake.
+	Sender   string            // Optional sender override (e.g. rephrase inherits original sender).
 }

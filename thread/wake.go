@@ -177,6 +177,7 @@ func (t *Thread) RunOnce(ctx context.Context) {
 						AgentName: "rephrase",
 						Sink:      rephraseCompoundSink(originalSink, parentKey, mgr.cfg.Sessions),
 						Vars:      map[string]string{"ORIGINAL_PREVIEW": rephrasePreview(originalUserMsg)},
+						Sender:    senderOrDefault(msg.Sender, msg.Source),
 					})
 					return nil
 				},
@@ -203,7 +204,8 @@ func (t *Thread) RunOnce(ctx context.Context) {
 		agentName = t.Agent.Name
 	}
 	t.mu.Unlock()
-	userMessage := buildWakePayload(msg.Source, msg.Message, t.id, t.sessionKey, sessionDir, deliveryLabel, modelLabel, agentName, loc, msg.Vars)
+	sender := senderOrDefault(msg.Sender, msg.Source)
+	userMessage := buildWakePayload(msg.Source, msg.Message, t.id, t.sessionKey, sessionDir, deliveryLabel, modelLabel, agentName, loc, sender, msg.Vars)
 
 	// Build injection function: between tool iterations, drain inbox for
 	// mergeable user messages and inject them into the LLM conversation.
@@ -215,7 +217,7 @@ func (t *Thread) RunOnce(ctx context.Context) {
 			select {
 			case next := <-t.inbox:
 				if canMerge(msg, next) {
-					payload := buildWakePayload(next.Source, next.Message, t.id, t.sessionKey, sessionDir, deliveryLabel, modelLabel, agentName, loc)
+					payload := buildWakePayload(next.Source, next.Message, t.id, t.sessionKey, sessionDir, deliveryLabel, modelLabel, agentName, loc, senderOrDefault(next.Sender, next.Source))
 					if payload != "" {
 						payload = markInjected(payload)
 						injected = append(injected, provider.UserMessage(payload))
@@ -253,7 +255,7 @@ func (t *Thread) RunOnce(ctx context.Context) {
 // buildWakePayload constructs the user message from a wake source and message.
 // Uses YAML frontmatter + markdown body so the AI knows the wake context
 // and the sender (user vs system).
-func buildWakePayload(source WakeSource, message, threadID, sessionKey, sessionDir, deliveryLabel, model, agent string, loc *time.Location, vars ...map[string]string) string {
+func buildWakePayload(source WakeSource, message, threadID, sessionKey, sessionDir, deliveryLabel, model, agent string, loc *time.Location, sender string, vars ...map[string]string) string {
 	message = strings.TrimSpace(message)
 	if message == "" {
 		return ""
@@ -278,7 +280,7 @@ func buildWakePayload(source WakeSource, message, threadID, sessionKey, sessionD
 		Model:      model,
 		Agent:      agent,
 		Delivery:   delivery,
-		Sender: messageSender(source),
+		Sender: sender,
 	}
 	if hint := wakeActionHint(source); hint != "" {
 		if source == WakeRephrase {
@@ -365,6 +367,13 @@ func messageSender(source WakeSource) string {
 		return "user"
 	}
 	return "system"
+}
+
+func senderOrDefault(override string, source WakeSource) string {
+	if override != "" {
+		return override
+	}
+	return messageSender(source)
 }
 
 func wakeActionHint(source WakeSource) string {
