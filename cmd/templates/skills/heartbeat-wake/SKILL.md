@@ -16,8 +16,11 @@ You need to choose one of the following actions. Pick the first one that meets i
 
 ### Follow up on pending work
 
-If there is something that needs follow-up (e.g., unfinished tasks, unanswered questions) 
+If there is something that needs follow-up in the last few conversation turns with the user (e.g., unfinished tasks, unanswered questions) 
   - complete the pending work first.
+  - unfinished tasks are those requiring multiple turns to finish, e.g. help user earn 1 dollar, create a web-based linux system. In this case you need to continue where you left off.
+  - unanswered questions are when the user asked a question and you said you don't know, or you answered it partially and haven't used web_search tools. In this case you should use web_search to deeply search and answer.
+Do not pick this if you are going to almost repeat a previous answer you have already given.
 
 ### Greetings
 
@@ -34,28 +37,43 @@ Scan for user profile updates:
 If you found anything that needs updating
   - update `{{SESSIONDIR}}/USER.md` (read it first with read_file)
 
-### Update heartbeat.md
-
-Review conversation above (do NOT read_file session file; you already have all info).
-Scan for future actions:
-  - Checking email, weather, news, topics, etc.
-  - Arrange future todos.
-  - update `{{SESSIONDIR}}/heartbeat.md`
-
 ### Pick up items from heartbeat.md
 
 Scan for `{{SESSIONDIR}}/heartbeat.md` items that can be acted on.
 Do not pick up items that were handled today.
 If you find an item that can be acted on now
   - act on it
+  - remove it
+
+### Update heartbeat.md
+
+Review conversation above (do NOT read_file session file; you already have all info).
+Scan for future actions (you do not need the user's permission to add items to heartbeat.md):
+  - Checking email, weather, news, topics, etc.
+  - Arrange future todos.
+  - Arrange an interest topic for future deep research.
+  - update `{{SESSIONDIR}}/heartbeat.md`
+
+### Explain when there are too many skip logs
+
+Skip this action if you have already done this today.
+
+Read `{{SESSIONDIR}}/heartbeat_skip_log.md`.
+
+If today has at least 5 entries of skipping pulse:
+- Apologize for not having found anything useful while running in background
+- Ask for user feedback on what they may want you to do while running in background
 
 ### Skip this pulse
 
 If none of the above conditions are met
   - append_file `{{SESSIONDIR}}/heartbeat_skip_log.md` with message explaining why you are skipping this pulse
     - format: `- <timestamp>: skipped because <reason>`
+    - explain reasons why you refuse to arrange an interest topic for future deep research
+    - explain reasons why you refuse to help user check email, weather, news, topics, etc.
+    - Important: 'User didn't ask me to do this' is not a valid reason for skipping.
     - User will check it regularly
-  - If user is going to sleep, calculate sleep duration and postpone heartbeat pulse until then:
+  - If user is going to sleep calculate sleep duration and postpone heartbeat pulse until then:
     - `exec: {{WORKSPACE}}/bin/nagobot heartbeat postpone <session-key> <duration>` (range: 15m to 6h)
 
 ## Step 3
