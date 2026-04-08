@@ -16,11 +16,9 @@ You need to choose one of the following actions. Pick the first one that meets i
 
 ### Follow up on pending work
 
-If there is something that needs follow-up in the last few conversation turns with the user (e.g., unfinished tasks, unanswered questions) 
+If there is something that needs follow-up in the last few conversation turns with the user (e.g., unfinished tasks) 
   - complete the pending work first.
   - unfinished tasks are those requiring multiple turns to finish, e.g. help user earn 1 dollar, create a web-based linux system. In this case you need to continue where you left off.
-  - unanswered questions are when the user asked a question and you said you don't know, or you answered it partially and haven't used web_search tools. In this case you should use web_search to deeply search and answer.
-Do not pick this if you are going to almost repeat a previous answer you have already given.
 
 ### Greetings
 
