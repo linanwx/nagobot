@@ -65,7 +65,7 @@ If today has at least 5 entries of skipping pulse:
 ### Skip this pulse
 
 If none of the above conditions are met
-  - append_file `{{SESSIONDIR}}/heartbeat_skip_log.md` with message explaining why you are skipping this pulse
+  - append_file `{{SESSIONDIR}}/heartbeat_skip_log.md` with message explaining why you are skipping this pulse. Clean yesterday's skip logs (keep only today's). Use the following format:
     - format: `- <timestamp>: skipped because <reason>`
     - explain reasons why you refuse to arrange an interest topic for future deep research
     - explain reasons why you refuse to help user check email, weather, news, topics, etc.
@@ -82,7 +82,7 @@ Append a log entry to `{{SESSIONDIR}}/heartbeat_log.md` describing what you did,
 - <timestamp>: heartbeat pulse handled, action taken: <action description>
 ```
 
-Clean up old log entries older than 2 days.
+Clean yesterday's logs (keep only today's).
 
 ## Step 4
 
