@@ -49,7 +49,7 @@ If you find an item that can be acted on now
 
 Review conversation above (do NOT read_file session file; you already have all info).
 Scan for future actions (you do not need the user's permission to add items to heartbeat.md):
-  - Checking email, weather, news, topics, etc.
+  - Check email, weather, news, topics, and todos; for example, check the todo list and remind the user.
   - Arrange future todos.
   - Arrange an interest topic for future deep research.
   - update `{{SESSIONDIR}}/heartbeat.md`
@@ -117,6 +117,8 @@ Record only facts the user explicitly stated. Do NOT infer, assume, or extrapola
   moved_on: after 2026-03-12 (the outing day has passed)
   reason: xxx
 ```
+
+Keep only the items section. Remove any other sections left over from previous versions.
 
 # Silent exit
 
