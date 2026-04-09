@@ -125,7 +125,7 @@ type SkillHubConfig struct {
 
 // ThreadConfig contains thread runtime defaults.
 type ThreadConfig struct {
-	Provider            string                  `json:"provider" yaml:"provider"` // openrouter, anthropic, deepseek, moonshot-cn, moonshot-global
+	Provider            string                  `json:"provider" yaml:"provider"` // openrouter, anthropic, deepseek, moonshot-cn, moonshot-global, xai
 	ModelType           string                  `json:"modelType" yaml:"modelType"`
 	ModelName           string                  `json:"modelName,omitempty" yaml:"modelName,omitempty"`                     // optional, defaults to modelType
 	Workspace           string                  `json:"workspace,omitempty" yaml:"workspace,omitempty"`                     // defaults to ~/.nagobot/workspace
@@ -164,6 +164,7 @@ type ProvidersConfig struct {
 	OpenAIOAuth     *OAuthTokenConfig `json:"openaiOAuth,omitempty" yaml:"openaiOAuth,omitempty"`
 	AnthropicOAuth  *OAuthTokenConfig `json:"anthropicOAuth,omitempty" yaml:"anthropicOAuth,omitempty"`
 	Gemini         *ProviderConfig   `json:"gemini,omitempty" yaml:"gemini,omitempty"`
+	XAI            *ProviderConfig   `json:"xai,omitempty" yaml:"xai,omitempty"`
 }
 
 // OAuthTokenConfig stores an OAuth token with optional refresh capability.
@@ -206,6 +207,8 @@ func (p *ProvidersConfig) GetProviderConfig(name string) *ProviderConfig {
 		return p.MinimaxGlobal
 	case "gemini":
 		return p.Gemini
+	case "xai":
+		return p.XAI
 	}
 	return nil
 }

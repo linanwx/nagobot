@@ -153,8 +153,9 @@ var openRouterModels = map[string]openRouterModelMeta{
 		ProviderOrder: []string{"google-ai-studio"},
 	},
 	"x-ai/grok-4.1-fast": {
+		// Grok 4.1 Fast only supports boolean reasoning toggle, not effort levels.
 		ThinkingOpts: []oaioption.RequestOption{
-			oaioption.WithJSONSet("reasoning", map[string]any{"effort": "high"}),
+			oaioption.WithJSONSet("reasoning", map[string]any{"enabled": true}),
 		},
 		ProviderOrder: []string{"xai"},
 	},

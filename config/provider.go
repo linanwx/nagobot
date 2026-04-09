@@ -279,6 +279,8 @@ func (c *Config) EnsureProviderConfigFor(providerName string) *ProviderConfig {
 		c.Providers.MinimaxGlobal = pc
 	case "gemini":
 		c.Providers.Gemini = pc
+	case "xai":
+		c.Providers.XAI = pc
 	default:
 		return nil
 	}
@@ -429,6 +431,8 @@ func (c *Config) providerConfigEnv() (*ProviderConfig, string, string, error) {
 		return c.Providers.MinimaxGlobal, "MINIMAX_GLOBAL_API_KEY", "MINIMAX_GLOBAL_API_BASE", nil
 	case "gemini":
 		return c.Providers.Gemini, "GEMINI_API_KEY", "GEMINI_API_BASE", nil
+	case "xai":
+		return c.Providers.XAI, "XAI_API_KEY", "XAI_API_BASE", nil
 	default:
 		return nil, "", "", errors.New("unknown provider: " + c.GetProvider())
 	}

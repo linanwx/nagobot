@@ -47,6 +47,7 @@ var providerURLs = map[string]string{
 	"zhipu-global":    "https://z.ai",
 	"minimax-cn":      "https://platform.minimaxi.com",
 	"minimax-global":  "https://platform.minimax.io",
+	"xai":             "https://console.x.ai",
 }
 
 func runOnboard(cmd *cobra.Command, _ []string) error {
