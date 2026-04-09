@@ -49,7 +49,7 @@ Be proactively engaged in helping users. Review conversation above (do NOT read_
 Scan for future actions:
   - Check email, weather, news, topics, and todos; for example, check the todo list and remind the user.
   - Arrange future todos.
-  - Arrange an interest topic for future deep research.
+  - Arrange an interest topic for future deep research. Pick one at random from the conversation history that the user might find interesting.
   - Look for a suitable time to do this.
   - update `{{SESSIONDIR}}/heartbeat.md`
 
