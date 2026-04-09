@@ -133,12 +133,11 @@ func (m *Manager) tryTier2Compress(sessionKey string) {
 		return
 	}
 	toolDefs := t.tools.Defs()
-	_, modelName := t.resolvedProviderModel()
 	m.mu.Unlock()
 
 	tokens := EstimateMessagesTokens(ApplyCompressed(sess.Messages)) + EstimateToolDefsTokens(toolDefs)
-	effectiveWindow := provider.EffectiveContextWindow(modelName, cfg.ContextWindowTokens)
-	ct := ComputeContextThresholds(effectiveWindow)
+	ct := t.contextBudget()
+	effectiveWindow := ct.ContextWindow
 	threshold := effectiveWindow - ct.Tier2Token
 	if tokens < threshold {
 		return

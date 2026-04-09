@@ -13,11 +13,12 @@ import (
 
 // AgentDef represents an agent template file under workspace/agents.
 type AgentDef struct {
-	Name        string // Callable name used by spawn_thread.agent
-	Description string // Short description shown in system prompt context
-	Specialty   string // Agent specialty declared in frontmatter (e.g. "chat", "toolcall")
-	Provider    string // Provider name declared in frontmatter (optional, used for model-pinned agents)
-	Path        string // Full path to the template file
+	Name             string // Callable name used by spawn_thread.agent
+	Description      string // Short description shown in system prompt context
+	Specialty        string // Agent specialty declared in frontmatter (e.g. "chat", "toolcall")
+	Provider         string // Provider name declared in frontmatter (optional, used for model-pinned agents)
+	Path             string // Full path to the template file
+	ContextWindowCap int    // Parsed context_window_cap from frontmatter (0 = no cap)
 }
 
 const agentsBuiltinDir = "agents-builtin"
@@ -132,11 +133,12 @@ func loadAgentsFromDir(dir string, dest map[string]*AgentDef) {
 		}
 
 		dest[normalizeAgentName(name)] = &AgentDef{
-			Name:        name,
-			Description: strings.TrimSpace(meta.Description),
-			Specialty:   strings.TrimSpace(meta.Specialty),
-			Provider:    strings.TrimSpace(meta.Provider),
-			Path:        path,
+			Name:             name,
+			Description:      strings.TrimSpace(meta.Description),
+			Specialty:        strings.TrimSpace(meta.Specialty),
+			Provider:         strings.TrimSpace(meta.Provider),
+			Path:             path,
+			ContextWindowCap: ParseTokenAmount(meta.ContextWindowCap),
 		}
 	}
 }
