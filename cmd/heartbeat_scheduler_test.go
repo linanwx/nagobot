@@ -8,12 +8,12 @@ import (
 	"time"
 )
 
-// Trigger schedule with hbQuietMin=15m, hbPulseInterval=45m, hbPulseGrowth=10m:
+// Trigger schedule with hbQuietMin=15m, hbPulseInterval=45m, hbPulseGrowth=30m:
 //   T1: +15m
 //   T2: +60m  (15+45)
-//   T3: +115m (60+55)
-//   T4: +180m (115+65)
-//   T5: +255m (180+75)
+//   T3: +135m (60+75)
+//   T4: +240m (135+105)
+//   T5: +375m (240+135)
 
 func TestLatestDueTrigger(t *testing.T) {
 	base := time.Date(2025, 1, 1, 12, 0, 0, 0, time.UTC)
@@ -52,19 +52,19 @@ func TestLatestDueTrigger(t *testing.T) {
 			name:         "exactly at second pulse (60m)",
 			nowOffset:    60 * time.Minute,
 			wantPoint:    60 * time.Minute,
-			wantInterval: 55 * time.Minute,
+			wantInterval: 75 * time.Minute,
 		},
 		{
 			name:         "just past second pulse (61m)",
 			nowOffset:    61 * time.Minute,
 			wantPoint:    60 * time.Minute,
-			wantInterval: 55 * time.Minute,
+			wantInterval: 75 * time.Minute,
 		},
 		{
-			name:         "exactly at third pulse (115m)",
-			nowOffset:    115 * time.Minute,
-			wantPoint:    115 * time.Minute,
-			wantInterval: 65 * time.Minute,
+			name:         "exactly at third pulse (135m)",
+			nowOffset:    135 * time.Minute,
+			wantPoint:    135 * time.Minute,
+			wantInterval: 105 * time.Minute,
 		},
 	}
 
@@ -164,7 +164,7 @@ func shouldFire(lastActive time.Time, now time.Time, lastPulse time.Time) (fire 
 }
 
 // TestScenarioNormalPulseSequence simulates a user going quiet and pulses firing
-// at +15m, +60m, +115m, +180m with 30s scans in between.
+// at +15m, +60m, +135m, +240m with 30s scans in between.
 func TestScenarioNormalPulseSequence(t *testing.T) {
 	lastActive := time.Date(2025, 1, 1, 12, 0, 0, 0, time.UTC)
 	var lastPulse time.Time // never fired
@@ -201,14 +201,14 @@ func TestScenarioNormalPulseSequence(t *testing.T) {
 	fire, _ = shouldFire(lastActive, lastActive.Add(60*time.Minute+30*time.Second), lastPulse)
 	assertFire(t, "scan@+60m30s (dedup)", fire, false)
 
-	// Scan at +115m: third pulse fires (interval=55m)
-	fire, _ = shouldFire(lastActive, lastActive.Add(115*time.Minute), lastPulse)
-	assertFire(t, "scan@+115m", fire, true)
-	lastPulse = lastActive.Add(115 * time.Minute)
+	// Scan at +135m: third pulse fires (interval=75m)
+	fire, _ = shouldFire(lastActive, lastActive.Add(135*time.Minute), lastPulse)
+	assertFire(t, "scan@+135m", fire, true)
+	lastPulse = lastActive.Add(135 * time.Minute)
 
-	// Scan at +180m: fourth pulse (interval=65m)
-	fire, _ = shouldFire(lastActive, lastActive.Add(180*time.Minute), lastPulse)
-	assertFire(t, "scan@+180m", fire, true)
+	// Scan at +240m: fourth pulse (interval=105m)
+	fire, _ = shouldFire(lastActive, lastActive.Add(240*time.Minute), lastPulse)
+	assertFire(t, "scan@+240m", fire, true)
 }
 
 // TestScenarioUserSendsMessageMidCycle simulates the user sending a new message
@@ -293,22 +293,22 @@ func TestScenarioProgramDownForHours(t *testing.T) {
 	lastPulse := lastActive.Add(15 * time.Minute)
 
 	// === Program down from +20m to +200m ===
-	// Trigger points: +15, +60, +115, +180. Latest <= +200m is +180m.
+	// Trigger points: +15, +60, +135, +240. Latest <= +200m is +135m.
 	fire, trigger := shouldFire(lastActive, lastActive.Add(200*time.Minute), lastPulse)
 	assertFire(t, "restart@+200m after long down", fire, true)
-	wantTrigger := lastActive.Add(180 * time.Minute)
+	wantTrigger := lastActive.Add(135 * time.Minute)
 	if !trigger.Equal(wantTrigger) {
-		t.Errorf("trigger = offset %v, want offset +180m", trigger.Sub(lastActive))
+		t.Errorf("trigger = offset %v, want offset +135m", trigger.Sub(lastActive))
 	}
 	lastPulse = lastActive.Add(200 * time.Minute) // record
 
-	// After firing, next trigger is +180+75=+255m. Scan at +240m: no fire.
-	fire, _ = shouldFire(lastActive, lastActive.Add(240*time.Minute), lastPulse)
-	assertFire(t, "scan@+240m after catch-up", fire, false)
+	// After firing, next trigger is +240m. Scan at +230m: no fire.
+	fire, _ = shouldFire(lastActive, lastActive.Add(230*time.Minute), lastPulse)
+	assertFire(t, "scan@+230m after catch-up", fire, false)
 
-	// Scan at +255m: fires (trigger point +255m)
-	fire, _ = shouldFire(lastActive, lastActive.Add(255*time.Minute), lastPulse)
-	assertFire(t, "scan@+255m", fire, true)
+	// Scan at +240m: fires (trigger point +240m)
+	fire, _ = shouldFire(lastActive, lastActive.Add(240*time.Minute), lastPulse)
+	assertFire(t, "scan@+240m", fire, true)
 }
 
 // TestScenarioThreadRunningBlocksPulse simulates a pulse being skipped because
@@ -355,9 +355,9 @@ func TestScenarioThreadRunningAcrossTwoCycles(t *testing.T) {
 	}
 	lastPulse = lastActive.Add(75 * time.Minute)
 
-	// Next pulse at +115m fires normally.
-	fire, _ = shouldFire(lastActive, lastActive.Add(115*time.Minute), lastPulse)
-	assertFire(t, "scan@+115m", fire, true)
+	// Next pulse at +135m fires normally.
+	fire, _ = shouldFire(lastActive, lastActive.Add(135*time.Minute), lastPulse)
+	assertFire(t, "scan@+135m", fire, true)
 }
 
 // TestScenarioUserMessageResetsTimeline simulates multiple user messages
@@ -457,23 +457,23 @@ func TestScenarioProgramNeverRanBefore(t *testing.T) {
 	lastActive := time.Date(2025, 1, 1, 12, 0, 0, 0, time.UTC)
 	var lastPulse time.Time // zero — never ran
 
-	// Program starts at +120m. Trigger points: +15, +60, +115.
-	// Latest trigger <= +120m is +115m. Should fire once.
+	// Program starts at +120m. Trigger points: +15, +60, +135...
+	// Latest trigger <= +120m is +60m. Should fire once.
 	now := lastActive.Add(120 * time.Minute)
 	fire, trigger := shouldFire(lastActive, now, lastPulse)
 	assertFire(t, "first-ever start@+120m", fire, true)
-	wantTrigger := lastActive.Add(115 * time.Minute)
+	wantTrigger := lastActive.Add(60 * time.Minute)
 	if !trigger.Equal(wantTrigger) {
-		t.Errorf("trigger = offset %v, want offset +115m", trigger.Sub(lastActive))
+		t.Errorf("trigger = offset %v, want offset +60m", trigger.Sub(lastActive))
 	}
 	lastPulse = now
 
-	// Next fires at +180m (115+65).
-	fire, _ = shouldFire(lastActive, lastActive.Add(170*time.Minute), lastPulse)
-	assertFire(t, "scan@+170m", fire, false)
+	// Next fires at +135m (60+75).
+	fire, _ = shouldFire(lastActive, lastActive.Add(130*time.Minute), lastPulse)
+	assertFire(t, "scan@+130m", fire, false)
 
-	fire, _ = shouldFire(lastActive, lastActive.Add(180*time.Minute), lastPulse)
-	assertFire(t, "scan@+180m", fire, true)
+	fire, _ = shouldFire(lastActive, lastActive.Add(135*time.Minute), lastPulse)
+	assertFire(t, "scan@+135m", fire, true)
 }
 
 // TestScenarioMultipleScansPerCycle verifies that repeated 30s scans within the

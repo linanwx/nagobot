@@ -21,7 +21,7 @@ const (
 	hbScanInterval   = 30 * time.Second
 	hbQuietMin       = 15 * time.Minute // User must be quiet for at least this long.
 	hbPulseInterval  = 45 * time.Minute // Base gap between pulses (grows by hbPulseGrowth each cycle).
-	hbPulseGrowth    = 10 * time.Minute // Each subsequent interval grows by this amount.
+	hbPulseGrowth    = 30 * time.Minute // Each subsequent interval grows by this amount.
 	hbActivityWindow = 48 * time.Hour   // Only pulse sessions active within this window.
 )
 

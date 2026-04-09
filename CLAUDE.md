@@ -98,9 +98,9 @@ A single skill handles everything:
 ### Timing
 
 - **Quiet threshold**: 15 min after last user message (`hbQuietMin`)
-- **Pulse interval**: 45 min base, +10 min each cycle (`hbPulseInterval`, `hbPulseGrowth`)
+- **Pulse interval**: 45 min base, +30 min each cycle (`hbPulseInterval`, `hbPulseGrowth`)
 - **Activity window**: 48h — stops pulsing if no user activity within 48h (~21 pulses max)
-- **Schedule**: `lastActive+15m, +60m, +115m, +180m, ...` (15 min first pulse, then 45/55/65/... growing gaps)
+- **Schedule**: `lastActive+15m, +60m, +135m, +240m, ...` (15 min first pulse, then 45/75/105/... growing gaps)
 
 ### Critical Implementation Details
 
