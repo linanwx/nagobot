@@ -54,7 +54,7 @@ Scan for future actions:
 
 ### Explain when there are too many skip logs
 
-Skip this action if you have already done this today.
+Skip this action if you have already apologized for skipping today.
 
 Read `{{SESSIONDIR}}/heartbeat_skip_log.md`.
 
