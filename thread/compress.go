@@ -79,6 +79,9 @@ func (m *Manager) runCompressionScan() {
 	for _, c := range candidates {
 		// Tier 1 always runs first (mechanical, idempotent, cheap).
 		m.tryTier1Compress(c.key)
+		// Tier-lossy runs next for agents that opt in — hard-deletes old history
+		// via slide_window to keep simple writing models from ever hitting Tier 2/3.
+		m.tryTierLossyCompress(c.key)
 		// Tier 2 runs additionally when idle long enough and tokens exceed threshold.
 		if c.idle >= tier2IdleMin {
 			m.tryTier2Compress(c.key)
@@ -542,4 +545,109 @@ func extractSkillName(content string) string {
 		}
 	}
 	return ""
+}
+
+// tryTierLossyCompress hard-trims session history for agents that opted into
+// a tier_lossy mode. Runs after Tier 1 in the compression scan. Unlike Tier 0
+// (ephemeral) or Tier 1 (sets Compressed field without deletion), this
+// physically deletes old messages from disk.
+func (m *Manager) tryTierLossyCompress(sessionKey string) {
+	cfg := m.cfg
+	if cfg.Agents == nil {
+		return
+	}
+
+	m.mu.Lock()
+	t, ok := m.threads[sessionKey]
+	if !ok || t.state != threadIdle {
+		m.mu.Unlock()
+		return
+	}
+	agentName := ""
+	if t.Agent != nil {
+		agentName = t.Agent.Name
+	}
+	m.mu.Unlock()
+	if agentName == "" {
+		return
+	}
+
+	def := cfg.Agents.Def(agentName)
+	if def == nil || def.TierLossyMode == "" {
+		return
+	}
+
+	if def.TierLossyMode != "slide_window" {
+		return
+	}
+
+	sess, err := cfg.Sessions.Reload(sessionKey)
+	if err != nil || sess == nil || len(sess.Messages) == 0 {
+		return
+	}
+
+	trimmed := applySlideWindow(sess.Messages, def.TierLossyKeep)
+	if len(trimmed) == len(sess.Messages) {
+		return
+	}
+
+	dropped := len(sess.Messages) - len(trimmed)
+	sess.Messages = trimmed
+	if err := cfg.Sessions.Save(sess); err != nil {
+		logger.Warn("tier-lossy compress: save failed", "sessionKey", sessionKey, "err", err)
+		return
+	}
+
+	logger.Info("tier-lossy compress: slide_window applied",
+		"sessionKey", sessionKey,
+		"agent", agentName,
+		"keep", def.TierLossyKeep,
+		"dropped", dropped,
+		"remaining", len(trimmed),
+	)
+}
+
+// applySlideWindow returns a suffix of messages containing the last keepTurns
+// user-initiated turns. A turn starts at a non-injected user message and
+// extends until the next non-injected user message (or end of slice).
+//
+// The cut always lands on a non-injected user message, so tool_call/tool pairs
+// within any retained turn are preserved atomically. Orphan tool messages that
+// might precede the cut (from an in-flight turn that was never persisted) are
+// scrubbed downstream by provider.SanitizeMessages before the LLM request.
+func applySlideWindow(messages []provider.Message, keepTurns int) []provider.Message {
+	if keepTurns <= 0 || len(messages) == 0 {
+		return messages
+	}
+
+	userSeen := 0
+	cutIdx := -1
+	for i := len(messages) - 1; i >= 0; i-- {
+		if messages[i].Role != "user" {
+			continue
+		}
+		if IsInjectedUserMessage(messages[i].Content) {
+			continue
+		}
+		userSeen++
+		if userSeen == keepTurns {
+			cutIdx = i
+			break
+		}
+	}
+
+	if cutIdx <= 0 {
+		return messages
+	}
+	return messages[cutIdx:]
+}
+
+// IsInjectedUserMessage reports whether a user message was injected mid-turn
+// (marked via `injected: true` in YAML frontmatter by markInjected).
+func IsInjectedUserMessage(content string) bool {
+	yamlBlock, _, ok := SplitFrontmatter(content)
+	if !ok {
+		return false
+	}
+	return ExtractFrontmatterValue(yamlBlock, "injected") == "true"
 }

@@ -129,7 +129,7 @@ func isUserTurnComplete(messages []provider.Message, userMsgIdx int) bool {
 	// Find end of this turn: the next non-injected user message starts a new turn.
 	turnEnd := len(messages)
 	for j := userMsgIdx + 1; j < len(messages); j++ {
-		if messages[j].Role == "user" && !isInjectedMessage(messages[j].Content) {
+		if messages[j].Role == "user" && !thread.IsInjectedUserMessage(messages[j].Content) {
 			turnEnd = j
 			break
 		}
@@ -158,17 +158,6 @@ var nonResumableSources = map[string]bool{
 	"heartbeat": true, "compression": true,
 }
 
-// isInjectedMessage checks the YAML frontmatter of a user message for
-// the `injected: true` field, which marks messages that were injected
-// mid-execution (between tool iterations) rather than initiating reasoning.
-func isInjectedMessage(content string) bool {
-	yamlBlock, _, ok := thread.SplitFrontmatter(content)
-	if !ok {
-		return false
-	}
-	return thread.ExtractFrontmatterValue(yamlBlock, "injected") == "true"
-}
-
 // findLastUserMessage scans backwards for the last role=user message that
 // initiated a reasoning turn worth resuming. Returns the message and its index.
 // Skips:
@@ -177,7 +166,7 @@ func isInjectedMessage(content string) bool {
 func findLastUserMessage(messages []provider.Message) (provider.Message, int, bool) {
 	for i := len(messages) - 1; i >= 0; i-- {
 		m := messages[i]
-		if m.Role == "user" && !nonResumableSources[m.Source] && !isInjectedMessage(m.Content) {
+		if m.Role == "user" && !nonResumableSources[m.Source] && !thread.IsInjectedUserMessage(m.Content) {
 			return m, i, true
 		}
 	}

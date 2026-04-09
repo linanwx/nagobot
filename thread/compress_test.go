@@ -611,3 +611,110 @@ func TestCompressTier1_DoesNotFalsePositiveSkipTrim(t *testing.T) {
 		t.Error("read_file with skip_trim in body should still be compressed (SkipTrim field not set)")
 	}
 }
+
+func TestApplySlideWindow(t *testing.T) {
+	// Plain two-message turns: u-a-u-a-...
+	turn := func(i int) []provider.Message {
+		return []provider.Message{
+			{Role: "user", Content: "user " + string(rune('0'+i))},
+			{Role: "assistant", Content: "assistant " + string(rune('0'+i))},
+		}
+	}
+	var ten []provider.Message
+	for i := 0; i < 10; i++ {
+		ten = append(ten, turn(i)...)
+	}
+
+	// Empty input and zero/negative keep → unchanged.
+	if got := applySlideWindow(nil, 5); got != nil {
+		t.Errorf("nil input: got %v", got)
+	}
+	if got := applySlideWindow(ten, 0); len(got) != len(ten) {
+		t.Errorf("keep=0: expected unchanged, got len=%d", len(got))
+	}
+	if got := applySlideWindow(ten, -1); len(got) != len(ten) {
+		t.Errorf("keep=-1: expected unchanged, got len=%d", len(got))
+	}
+
+	// Fewer turns than keep → unchanged.
+	two := append([]provider.Message{}, turn(0)...)
+	two = append(two, turn(1)...)
+	if got := applySlideWindow(two, 5); len(got) != 4 {
+		t.Errorf("2 turns with keep=5: expected 4 messages, got %d", len(got))
+	}
+
+	// Exactly keep turns → unchanged (cut index lands at 0).
+	if got := applySlideWindow(ten, 10); len(got) != 20 {
+		t.Errorf("10 turns with keep=10: expected 20 messages, got %d", len(got))
+	}
+
+	// Trim: 10 turns, keep 5 → last 10 messages.
+	got := applySlideWindow(ten, 5)
+	if len(got) != 10 {
+		t.Fatalf("10 turns with keep=5: expected 10 messages, got %d", len(got))
+	}
+	if got[0].Content != "user 5" {
+		t.Errorf("expected first retained message to be 'user 5', got %q", got[0].Content)
+	}
+	if got[len(got)-1].Content != "assistant 9" {
+		t.Errorf("expected last retained message to be 'assistant 9', got %q", got[len(got)-1].Content)
+	}
+}
+
+func TestApplySlideWindow_PreservesToolCallPairs(t *testing.T) {
+	// A turn with tool calls: user → assistant(tc) → tool → tool → assistant(final)
+	messages := []provider.Message{
+		// Turn 1 (plain)
+		{Role: "user", Content: "t1 user"},
+		{Role: "assistant", Content: "t1 reply"},
+		// Turn 2 (with tools)
+		{Role: "user", Content: "t2 user"},
+		{Role: "assistant", Content: "", ToolCalls: []provider.ToolCall{{ID: "c1"}, {ID: "c2"}}},
+		{Role: "tool", ToolCallID: "c1", Content: "r1"},
+		{Role: "tool", ToolCallID: "c2", Content: "r2"},
+		{Role: "assistant", Content: "t2 final"},
+		// Turn 3 (plain)
+		{Role: "user", Content: "t3 user"},
+		{Role: "assistant", Content: "t3 reply"},
+	}
+
+	// Keep last 2 turns: drop turn 1.
+	got := applySlideWindow(messages, 2)
+	if len(got) != 7 {
+		t.Fatalf("expected 7 messages after trim, got %d", len(got))
+	}
+	if got[0].Content != "t2 user" {
+		t.Errorf("cut should land at turn 2 user, got %q", got[0].Content)
+	}
+	// Verify tool_call pair wasn't split.
+	if len(got[1].ToolCalls) != 2 || got[2].Role != "tool" || got[3].Role != "tool" {
+		t.Errorf("tool call pair was split: %+v", got[1:4])
+	}
+}
+
+func TestApplySlideWindow_SkipsInjectedUserMessages(t *testing.T) {
+	injectedContent := "---\nsource: telegram\nthread: t1\nsession: s1\ndelivery: d\nsender: user\ninjected: true\n---\n\nmid-turn message"
+	normalContent := func(body string) string {
+		return "---\nsource: telegram\nthread: t1\nsession: s1\ndelivery: d\nsender: user\n---\n\n" + body
+	}
+
+	messages := []provider.Message{
+		{Role: "user", Content: normalContent("turn 1")},
+		{Role: "assistant", Content: "reply 1"},
+		{Role: "user", Content: normalContent("turn 2")},
+		{Role: "user", Content: injectedContent}, // mid-turn injected, NOT a new turn boundary
+		{Role: "assistant", Content: "reply 2"},
+		{Role: "user", Content: normalContent("turn 3")},
+		{Role: "assistant", Content: "reply 3"},
+	}
+
+	// Keep last 2 turns: drop turn 1 only. Injected should not count.
+	got := applySlideWindow(messages, 2)
+	if len(got) != 5 {
+		t.Fatalf("expected 5 messages after trim (turns 2+3 incl injected), got %d", len(got))
+	}
+	// First kept message should be "turn 2" (not the injected one).
+	if !strings.Contains(got[0].Content, "turn 2") {
+		t.Errorf("expected first kept message to be turn 2, got: %q", got[0].Content)
+	}
+}

@@ -19,6 +19,8 @@ type AgentDef struct {
 	Provider         string // Provider name declared in frontmatter (optional, used for model-pinned agents)
 	Path             string // Full path to the template file
 	ContextWindowCap int    // Parsed token cap; 0 = no cap
+	TierLossyMode    string // "slide_window" | "" (disabled)
+	TierLossyKeep    int    // slide_window: last N turns to retain
 }
 
 const agentsBuiltinDir = "agents-builtin"
@@ -137,6 +139,20 @@ func loadAgentsFromDir(dir string, dest map[string]*AgentDef) {
 			logger.Warn("invalid context_window_cap, ignoring", "path", path, "value", meta.ContextWindowCap)
 		}
 
+		tierLossyMode := strings.TrimSpace(meta.TierLossyMode)
+		tierLossyKeep := meta.TierLossyKeep
+		if tierLossyMode != "" {
+			if tierLossyMode != "slide_window" {
+				logger.Warn("invalid tier_lossy_mode, ignoring", "path", path, "value", tierLossyMode)
+				tierLossyMode = ""
+				tierLossyKeep = 0
+			} else if tierLossyKeep <= 0 {
+				logger.Warn("tier_lossy_mode requires positive tier_lossy_keep, ignoring", "path", path, "mode", tierLossyMode, "keep", tierLossyKeep)
+				tierLossyMode = ""
+				tierLossyKeep = 0
+			}
+		}
+
 		dest[normalizeAgentName(name)] = &AgentDef{
 			Name:             name,
 			Description:      strings.TrimSpace(meta.Description),
@@ -144,6 +160,8 @@ func loadAgentsFromDir(dir string, dest map[string]*AgentDef) {
 			Provider:         strings.TrimSpace(meta.Provider),
 			Path:             path,
 			ContextWindowCap: capTokens,
+			TierLossyMode:    tierLossyMode,
+			TierLossyKeep:    tierLossyKeep,
 		}
 	}
 }

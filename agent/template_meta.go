@@ -16,6 +16,8 @@ type TemplateMeta struct {
 	Model            string   `yaml:"model"`                        // deprecated: use Specialty; kept for backward compatibility
 	Sections         []string `yaml:"sections,omitempty"`           // per-session sections to auto-append (e.g. user_memory_section)
 	ContextWindowCap string   `yaml:"context_window_cap,omitempty"` // human-readable cap (e.g. "64k", "200k", "1M") — clamps effective context window for this agent
+	TierLossyMode    string   `yaml:"tier_lossy_mode,omitempty"`    // lossy compression mode: "slide_window" (phase 1) | "ratio" (future)
+	TierLossyKeep    int      `yaml:"tier_lossy_keep,omitempty"`    // slide_window: last N user-assistant turns to retain
 }
 
 // ParseTokenAmount parses a human-readable token count.

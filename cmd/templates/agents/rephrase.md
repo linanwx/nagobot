@@ -3,6 +3,8 @@ name: rephrase
 description: Rewrites AI assistant messages into natural, conversational chat style.
 specialty: writing
 context_window_cap: 64k
+tier_lossy_mode: slide_window
+tier_lossy_keep: 5
 sections:
   - user_memory_section
 ---
