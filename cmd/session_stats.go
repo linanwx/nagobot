@@ -330,7 +330,8 @@ func resolveModelChain(cfg *config.Config, registry *agent.AgentRegistry, sessio
 	result.Steps = steps
 	result.ResolvedProvider = resolvedProvider
 	result.ResolvedModel = resolvedModel
-	result.ResolvedCtxWindow = provider.EffectiveContextWindow(resolvedModel, cfg.GetContextWindowTokens())
+	ctxWindow := provider.EffectiveContextWindow(resolvedModel, cfg.GetContextWindowTokens())
+	result.ResolvedCtxWindow = registry.Def(agentName).ClampContextWindow(ctxWindow)
 	result.IsDefault = isDefault
 	return result
 }

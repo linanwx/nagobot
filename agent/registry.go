@@ -18,7 +18,7 @@ type AgentDef struct {
 	Specialty        string // Agent specialty declared in frontmatter (e.g. "chat", "toolcall")
 	Provider         string // Provider name declared in frontmatter (optional, used for model-pinned agents)
 	Path             string // Full path to the template file
-	ContextWindowCap int    // Parsed context_window_cap from frontmatter (0 = no cap)
+	ContextWindowCap int    // Parsed token cap; 0 = no cap
 }
 
 const agentsBuiltinDir = "agents-builtin"
@@ -132,13 +132,18 @@ func loadAgentsFromDir(dir string, dest map[string]*AgentDef) {
 			name = fileName
 		}
 
+		capTokens := ParseTokenAmount(meta.ContextWindowCap)
+		if strings.TrimSpace(meta.ContextWindowCap) != "" && capTokens <= 0 {
+			logger.Warn("invalid context_window_cap, ignoring", "path", path, "value", meta.ContextWindowCap)
+		}
+
 		dest[normalizeAgentName(name)] = &AgentDef{
 			Name:             name,
 			Description:      strings.TrimSpace(meta.Description),
 			Specialty:        strings.TrimSpace(meta.Specialty),
 			Provider:         strings.TrimSpace(meta.Provider),
 			Path:             path,
-			ContextWindowCap: ParseTokenAmount(meta.ContextWindowCap),
+			ContextWindowCap: capTokens,
 		}
 	}
 }
@@ -196,6 +201,19 @@ func (r *AgentRegistry) BuildPromptSection() string {
 		sb.WriteString(fmt.Sprintf("- %s\n", def.Name))
 	}
 	return strings.TrimSpace(sb.String())
+}
+
+// ClampContextWindow applies the agent's ContextWindowCap to base.
+// Nil-safe; returns base unchanged when no cap is set or base is already smaller.
+// A base of 0 (unknown) is replaced by the cap.
+func (d *AgentDef) ClampContextWindow(base int) int {
+	if d == nil || d.ContextWindowCap <= 0 {
+		return base
+	}
+	if base == 0 || d.ContextWindowCap < base {
+		return d.ContextWindowCap
+	}
+	return base
 }
 
 // Def returns the AgentDef for the given name, or nil if not found.

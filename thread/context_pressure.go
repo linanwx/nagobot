@@ -53,33 +53,10 @@ func (t *Thread) contextBudget() ContextThresholds {
 	cfg := t.cfg()
 	_, modelName := t.resolvedProviderModel()
 	contextWindow := provider.EffectiveContextWindow(modelName, cfg.ContextWindowTokens)
-	if cap := t.agentContextCap(); cap > 0 && (contextWindow == 0 || cap < contextWindow) {
-		contextWindow = cap
+	if cfg.Agents != nil && t.Agent != nil {
+		contextWindow = cfg.Agents.Def(t.Agent.Name).ClampContextWindow(contextWindow)
 	}
 	return ComputeContextThresholds(contextWindow)
-}
-
-// agentContextCap returns the current agent's context_window_cap, or 0 if unset.
-// Reads from the registry each call so frontmatter edits hot-reload like other agent fields.
-func (t *Thread) agentContextCap() int {
-	cfg := t.cfg()
-	if cfg.Agents == nil {
-		return 0
-	}
-	t.mu.Lock()
-	agentName := ""
-	if t.Agent != nil {
-		agentName = t.Agent.Name
-	}
-	t.mu.Unlock()
-	if agentName == "" {
-		return 0
-	}
-	def := cfg.Agents.Def(agentName)
-	if def == nil {
-		return 0
-	}
-	return def.ContextWindowCap
 }
 
 // PressureStatus returns "ok", "warning", or "pressure" based on token usage.
