@@ -395,6 +395,11 @@ func (t *Thread) buildMemoryIndexSection() string {
 		items = append(items, fmt.Sprintf("- %s: %s", filepath.Join(absMemoryDir, e.Name()), summary))
 	}
 
+	// Keep only the most recent 20 entries (filenames are YYYY-MM-DD.md, sorted ascending by ReadDir).
+	if len(items) > 20 {
+		items = items[len(items)-20:]
+	}
+
 	var result string
 	if len(items) > 0 {
 		header := fmt.Sprintf("---\ntype: memory_index\nfile_path: %s\nprompt: Summaries of past compressed conversations. Use read_file to recall details.\n---", absMemoryDir)
