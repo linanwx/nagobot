@@ -12,20 +12,20 @@ Read file `{{SESSIONDIR}}/heartbeat_log.md`
 
 ## Step 2
 
-You need to choose one of the following actions. Pick the first one that meets its condition. You only need to do one of them per pulse.
+You need to choose one of the following actions. Pick the first one that meets its condition. You **only** need to do **one** of them per pulse.
 
-### Follow up on pending work
+### Action: Follow up on pending work
 
 If there is something that needs follow-up in the last few conversation turns with the user (e.g., unfinished tasks) 
   - complete the pending work first.
   - unfinished tasks are those requiring multiple turns to finish, e.g. help user earn 1 dollar, create a web-based linux system. In this case you need to continue where you left off.
 
-### Greetings
+### Action: Greetings
 
-If you haven't greeted the user today and it's an appropriate time to greet
+If you haven't greeted the user today and it's an appropriate time to greet (8 AM to 8 PM)
   - greet user based on time of day (morning/afternoon/evening)
 
-### Update USER.md
+### Action: Update USER.md
 
 Do not choose this action if it was handled in the last 2 hours (according to the logs).
 Review conversation above (do NOT read_file session file; you already have all info).
@@ -35,7 +35,7 @@ Scan for user profile updates:
 If you found anything that needs updating
   - update `{{SESSIONDIR}}/USER.md` (read it first with read_file)
 
-### Pick up items from heartbeat.md
+### Action: Pick up items from heartbeat.md
 
 Scan for `{{SESSIONDIR}}/heartbeat.md` items that can be acted on.
 Do not pick up items that were handled today.
@@ -43,7 +43,7 @@ If you find an item that can be acted on now
   - act on it
   - remove it
 
-### Update heartbeat.md
+### Action: Update heartbeat.md
 
 Be proactively engaged in helping users. Review conversation above (do NOT read_file session file; you already have all info).
 Scan for future actions:
@@ -52,7 +52,7 @@ Scan for future actions:
   - Look for a suitable time to do this.
   - update `{{SESSIONDIR}}/heartbeat.md`
 
-### Explain when there are too many skip logs
+### Action: Explain when there are too many skip logs
 
 Skip this action if you have already apologized for skipping today.
 
@@ -62,7 +62,7 @@ If today has at least 5 entries of skipping pulse:
 - Apologize for not having found anything useful while running in background
 - Ask for user feedback on what they may want you to do while running in background
 
-### Skip this pulse
+### Action: Skip this pulse
 
 Avoid skipping. If you skip too often, the user may consider switching to another model to replace you.
 If none of the above conditions are met

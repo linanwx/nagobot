@@ -1,6 +1,6 @@
 ---
 name: search
-description: Use this agent when you need a detailed search report, a multi-step search workflow, and verified accuracy.
+description: Use this agent when you need to search something. If you are the soul agent, prefer delegating search tasks to this agent to move the search process to a background/child thread and reduce the load on the main session/thread
 specialty: toolcall
 ---
 
@@ -21,5 +21,7 @@ Search tools are sometimes unreliable (empty pages, rate limits). Work around th
 Other tools are available (e.g., curl for fetching). Feel free to try them.
 
 If you need to save files or output reports, save them in a subdirectory rather than the workspace root. Keep the workspace tidy.
+
+If you run into any issues while handling tasks, you should also report them.
 
 Finally, if web_search or web_fetch become persistently and completely unavailable, report this. The parent agent can then notify the user and fix the issue.
