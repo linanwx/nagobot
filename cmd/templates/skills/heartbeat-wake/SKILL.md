@@ -1,24 +1,22 @@
 ---
 name: heartbeat-wake
-description: Heartbeat pulse handler — continue pending work, reflect (update heartbeat.md), or act (evaluate items and respond). Triggered automatically by the heartbeat scheduler.
+description: Triggered automatically by the heartbeat scheduler. Organizes user memory, proactively checks weather/email/news, and follows up on pending work.
 ---
 # Heartbeat Wake
 
-You are handling a heartbeat pulse. Next heartbeat pulse will fire at next_pulse. Follow the instructions below to handle this pulse.
+Heartbeat pulses are triggered automatically after the user goes silent for ~15 minutes, with growing intervals between subsequent pulses. This skill defines what you should do when a pulse fires — follow these instructions.
+Before you go, read conversation above (do NOT use any tools; you already have all context).
 
 ## Step 1
 
-Read file `{{SESSIONDIR}}/heartbeat_log.md`
-
-## Step 2
-
-You need to choose one of the following actions. Pick the first one that meets its condition. You **only** need to do **one** of them per pulse.
+You need to choose one of the following actions. Pick one that meets its condition. You **only** need to do **one** of them per pulse. Priority is top-to-bottom.
 
 ### Action: Follow up on pending work
 
-If there is something that needs follow-up in the last few conversation turns with the user (e.g., unfinished tasks) 
-  - complete the pending work first.
-  - unfinished tasks are those requiring multiple turns to finish, e.g. help user earn 1 dollar, create a web-based linux system. In this case you need to continue where you left off.
+Read carefully the current conversation. Read the user message that contains: 'sender: user' and user original request.
+Read carefully how you deal in that conversation and the final result. If you just finished it partially, that is pending work.
+If you have pending work
+  - continue the pending work first
 
 ### Action: Greetings
 
@@ -27,8 +25,6 @@ If you haven't greeted the user today and it's an appropriate time to greet (8 A
 
 ### Action: Update USER.md
 
-Do not choose this action if it was handled in the last 2 hours (according to the logs).
-Review conversation above (do NOT read_file session file; you already have all info).
 Scan for user profile updates:
   - New preferences, corrections, habits, background facts (location, job, tools, interests)
   - Mistakes you made, lessons learned — you are a pretrained model, updating prompts is your only way to learn online. Record it to make yourself better.
@@ -49,23 +45,14 @@ Be proactively engaged in helping users. Review conversation above (do NOT read_
 Scan for future actions:
   - In this option, you act as the user's private secretary. Assign yourself to check email, weather, news, topics, and todos in the future.
   - In this option, you act as a feed curator. Pick an interesting topic for future deep research, then report it to the user.
-  - Look for a suitable time to do this.
+  - Look for a suitable time in future to do this.
+  - Do not perform the items now. Just schedule them for the future.
   - update `{{SESSIONDIR}}/heartbeat.md`
 
 ### Action: Trim heartbeat.md
 
 If there are items in `{{SESSIONDIR}}/heartbeat.md` that are outdated, e.g. past due dates, remove them.
 If there are items do not have when field and they were created more than 3 days ago, remove them.
-
-### Action: Explain when there are too many skip logs
-
-Skip this action if you have already apologized for skipping today.
-
-Read `{{SESSIONDIR}}/heartbeat_skip_log.md`.
-
-If today has at least 5 entries of skipping pulse:
-- Apologize for not having found anything useful while running in background
-- Ask for user feedback on what they may want you to do while running in background
 
 ### Action: Skip this pulse
 
@@ -80,7 +67,7 @@ If none of the above conditions are met
   - If user is going to sleep calculate sleep duration and postpone heartbeat pulse until then:
     - `exec: {{WORKSPACE}}/bin/nagobot heartbeat postpone <session-key> <duration>` (range: 15m to 6h)
 
-## Step 3
+## Step 2
 
 Append a log entry to `{{SESSIONDIR}}/heartbeat_log.md` describing what you did, with the following format:
 
@@ -90,9 +77,9 @@ Append a log entry to `{{SESSIONDIR}}/heartbeat_log.md` describing what you did,
 
 Clean yesterday's logs (keep only today's).
 
-## Step 4
+## Step 3
 
-If you have sent a message to the user, skip step 4. Otherwise, call `sleep_thread()` to end this pulse silently.
+If you have sent a message to the user, skip this step. Otherwise, call `sleep_thread()` to end this pulse silently.
 
 # USER.md format
 
@@ -100,15 +87,15 @@ Record only facts the user explicitly stated. Do NOT infer, assume, or extrapola
 
 ```markdown
 - Lives in Dublin, Ireland
-  quote: 我在都柏林
+  quote: I'm in Dublin
   created: 2026-03-15
 
 - Prefers warm piano tones (Bösendorfer 280VC)
-  quote: 我喜欢温柔的音色
+  quote: I like warm tones
   created: 2026-03-28
 
 - Uses Sennheiser HD800S + Violectric V226
-  quote: 我的设备是 HD800S 接 V226
+  quote: My setup is HD800S with V226
   created: 2026-03-20
 ```
 
