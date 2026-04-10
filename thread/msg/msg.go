@@ -182,10 +182,11 @@ func IsUserVisibleSource(source WakeSource) bool {
 
 // WakeMessage is an item in a thread's wake queue.
 type WakeMessage struct {
-	Source    WakeSource        // Wake source.
-	Message  string            // Wake payload text.
-	Sink     Sink              // Per-wake sink. Zero value = no per-wake delivery.
-	AgentName string           // Optional agent name override for this wake.
-	Vars     map[string]string // Optional vars override for this wake.
-	Sender   string            // Optional sender override (e.g. rephrase inherits original sender).
+	Source     WakeSource        // Wake source.
+	Message    string            // Wake payload text.
+	Sink       Sink              // Per-wake sink. Zero value = no per-wake delivery.
+	AgentName  string            // Optional agent name override for this wake.
+	Vars       map[string]string // Optional vars override for this wake.
+	Sender     string            // Optional sender override (e.g. rephrase inherits original sender).
+	OnComplete func(response string) // Called after the turn completes with the full response text.
 }

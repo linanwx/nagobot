@@ -176,8 +176,18 @@ func (t *Thread) RunOnce(ctx context.Context) {
 						Source:    WakeRephrase,
 						Message:   response,
 						AgentName: "rephrase",
-						Sink:      rephraseCompoundSink(originalSink, parentKey, mgr.cfg.Sessions),
+						Sink:      originalSink,
 						Vars:      map[string]string{"ORIGINAL_PREVIEW": rephrasePreview(originalUserMsg)},
+						OnComplete: func(rephrased string) {
+							rephrased = strings.TrimSpace(rephrased)
+							if rephrased == "" {
+								return
+							}
+							if err := mgr.cfg.Sessions.RephraseLastAssistant(parentKey, rephrased); err != nil {
+								logger.Warn("rephrase: failed to update parent session",
+									"parentSession", parentKey, "err", err)
+							}
+						},
 					})
 					return nil
 				},
@@ -249,7 +259,10 @@ func (t *Thread) RunOnce(ctx context.Context) {
 			}
 		}
 	}
-	_ = response // persisted inside run(); not delivered here
+
+	if msg.OnComplete != nil {
+		msg.OnComplete(response)
+	}
 }
 
 // buildWakePayload constructs the user message from a wake source and message.
