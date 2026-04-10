@@ -153,7 +153,8 @@ func (t *Thread) RunOnce(ctx context.Context) {
 	}
 	// System-initiated wakes: disable streaming (Chunkable=false) so only
 	// non-streaming delivery in OnMessage fires.
-	if messageSender(msg.Source) == "system" {
+	// Rephrase is system-initiated but its output is user-facing — keep streaming.
+	if messageSender(msg.Source) == "system" && msg.Source != WakeRephrase {
 		sink = sink.WithoutStreaming()
 	}
 	// Rephrase: wrap sink to route output through rephrase session.
@@ -177,7 +178,6 @@ func (t *Thread) RunOnce(ctx context.Context) {
 						AgentName: "rephrase",
 						Sink:      rephraseCompoundSink(originalSink, parentKey, mgr.cfg.Sessions),
 						Vars:      map[string]string{"ORIGINAL_PREVIEW": rephrasePreview(originalUserMsg)},
-						Sender:    senderOrDefault(msg.Sender, msg.Source),
 					})
 					return nil
 				},
