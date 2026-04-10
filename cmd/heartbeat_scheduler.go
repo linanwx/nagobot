@@ -222,11 +222,7 @@ func (s *heartbeatScheduler) maybeFirePulse(key string, now time.Time, lastActiv
 		return
 	}
 
-	// Read heartbeat.md content and mtime for the wake message.
-	content := ""
-	if data, err := os.ReadFile(hbPath); err == nil {
-		content = strings.TrimSpace(string(data))
-	}
+	// Read heartbeat.md mtime for the wake message metadata.
 	hbMtime := hbFileMtime(hbPath)
 
 	nextTrigger := trigger.Add(nextInterval)
@@ -236,7 +232,7 @@ func (s *heartbeatScheduler) maybeFirePulse(key string, now time.Time, lastActiv
 		mdModified = hbMtime.UTC().Format(time.RFC3339)
 	}
 
-	message := buildHeartbeatMessage(content, mdModified, nextPulse, hbPath)
+	message := buildHeartbeatMessage(mdModified, nextPulse)
 
 	s.mgr.Wake(key, &thread.WakeMessage{
 		Source:  thread.WakeHeartbeat,
@@ -402,7 +398,8 @@ func loadPostponeConfig(path string) map[string]postponeEntry {
 }
 
 // buildHeartbeatMessage constructs a heartbeat system message.
-func buildHeartbeatMessage(heartbeatContent, mdModified, nextPulse, hbPath string) string {
+// heartbeat.md content is already in the system prompt via heartbeat_prompt_section — no need to duplicate here.
+func buildHeartbeatMessage(mdModified, nextPulse string) string {
 	fields := map[string]string{}
 	if nextPulse != "" {
 		fields["next_pulse"] = nextPulse
@@ -411,14 +408,7 @@ func buildHeartbeatMessage(heartbeatContent, mdModified, nextPulse, hbPath strin
 		fields["heartbeat_modified"] = mdModified
 	}
 
-	body := "[heartbeat.md is empty]"
-	if c := strings.TrimSpace(heartbeatContent); c != "" {
-		body = "## " + hbPath + "\n\n" + c
-	} else if hbPath != "" {
-		body = "[" + hbPath + " is empty]"
-	}
-
-	message := sysmsg.BuildSystemMessage("heartbeat", fields, body)
+	message := sysmsg.BuildSystemMessage("heartbeat", fields, "")
 	message += "\n\nYou must call use_skill(\"heartbeat-wake\") and follow its instructions. use_skill function can not skip."
 	return message
 }
