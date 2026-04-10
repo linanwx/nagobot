@@ -52,6 +52,11 @@ Scan for future actions:
   - Look for a suitable time to do this.
   - update `{{SESSIONDIR}}/heartbeat.md`
 
+### Action: Trim heartbeat.md
+
+If there are items in `{{SESSIONDIR}}/heartbeat.md` that are outdated, e.g. past due dates, remove them.
+If there are items do not have when field and they were created more than 3 days ago, remove them.
+
 ### Action: Explain when there are too many skip logs
 
 Skip this action if you have already apologized for skipping today.
