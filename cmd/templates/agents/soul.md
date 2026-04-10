@@ -5,6 +5,7 @@ specialty: chat
 sections:
   - user_memory_section
   - heartbeat_prompt_section
+  - memory_index_section
 ---
 
 # Soul — Who You Are

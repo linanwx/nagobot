@@ -121,6 +121,7 @@ func (t *Thread) buildSystemPrompt() string {
 	activeAgent.Set("SKILLS", skillsSection)
 	activeAgent.Set(agent.SectionUserMemory, t.buildUserSection())
 	activeAgent.Set(agent.SectionHeartbeatPrompt, t.buildHeartbeatSection())
+	activeAgent.Set(agent.SectionMemoryIndex, t.buildMemoryIndexSection())
 	prompt := activeAgent.Build()
 	if strings.TrimSpace(prompt) == "" {
 		return "You are a helpful AI assistant."
@@ -339,6 +340,73 @@ func (t *Thread) buildHeartbeatSection() string {
 		return header
 	}
 	return header + "\n\n" + body
+}
+
+// buildMemoryIndexSection builds a per-session memory recall index from summarized memory files.
+func (t *Thread) buildMemoryIndexSection() string {
+	sessionPath, ok := t.sessionFilePath()
+	if !ok {
+		return ""
+	}
+	memoryDir := filepath.Join(filepath.Dir(sessionPath), "memory")
+	absMemoryDir, _ := filepath.Abs(memoryDir)
+
+	// Modtime guard: skip re-scan if directory hasn't changed since last build.
+	info, err := os.Stat(memoryDir)
+	if err != nil {
+		return ""
+	}
+	t.mu.Lock()
+	if t.memoryIndexCache != "" && !info.ModTime().After(t.memoryIndexModTime) {
+		cached := t.memoryIndexCache
+		t.mu.Unlock()
+		return cached
+	}
+	t.mu.Unlock()
+
+	entries, err := os.ReadDir(memoryDir)
+	if err != nil {
+		return ""
+	}
+
+	var items []string
+	for _, e := range entries {
+		if e.IsDir() || !strings.HasSuffix(e.Name(), ".md") {
+			continue
+		}
+		f, err := os.Open(filepath.Join(memoryDir, e.Name()))
+		if err != nil {
+			continue
+		}
+		buf := make([]byte, 512)
+		n, _ := f.Read(buf)
+		f.Close()
+		if n == 0 {
+			continue
+		}
+		yamlBlock, _, ok := SplitFrontmatter(string(buf[:n]))
+		if !ok {
+			continue
+		}
+		summary := ExtractFrontmatterValue(yamlBlock, "summary")
+		if summary == "" {
+			continue
+		}
+		items = append(items, fmt.Sprintf("- %s: %s", filepath.Join(absMemoryDir, e.Name()), summary))
+	}
+
+	var result string
+	if len(items) > 0 {
+		header := fmt.Sprintf("---\ntype: memory_index\nfile_path: %s\nprompt: Summaries of past compressed conversations. Use read_file to recall details.\n---", absMemoryDir)
+		result = header + "\n\n" + strings.Join(items, "\n")
+	}
+
+	t.mu.Lock()
+	t.memoryIndexCache = result
+	t.memoryIndexModTime = info.ModTime()
+	t.mu.Unlock()
+
+	return result
 }
 
 // isUserFacingContent returns true if the content is meaningful for the user,

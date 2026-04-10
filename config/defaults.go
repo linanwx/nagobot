@@ -28,6 +28,12 @@ func defaultCronSeeds() []cronpkg.Job {
 			Agent: "session-summary",
 		},
 		{
+			ID:    "memory-summary",
+			Expr:  "0 */6 * * *",
+			Task:  `You must call use_skill("memory-summary-dispatcher") and follow its instructions. use_skill function can not skip.`,
+			Agent: "memory-summary",
+		},
+		{
 			ID:    "world-knowledge",
 			Expr:  "0 0 * * *",
 			Task:  `You must call use_skill("world-knowledge-updater") and follow its instructions. use_skill function can not skip.`,

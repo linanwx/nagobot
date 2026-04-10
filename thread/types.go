@@ -138,6 +138,9 @@ type Thread struct {
 	execMetrics      *ExecMetrics // Non-nil only while a turn is executing.
 	lastCompressAttemptAt time.Time // Last time tier 2 compression was enqueued (prevents duplicate enqueue).
 	lastCompressedAt      time.Time // Last time tier 2 compression completed successfully.
+
+	memoryIndexCache   string    // Cached buildMemoryIndexSection result.
+	memoryIndexModTime time.Time // Directory modtime when cache was built.
 }
 
 // ToolCallRecord is an alias for msg.ToolCallRecord.
