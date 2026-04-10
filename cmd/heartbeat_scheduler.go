@@ -206,7 +206,7 @@ func (s *heartbeatScheduler) maybeFirePulse(key string, now time.Time, lastActiv
 	s.mu.Unlock()
 
 	// Find the latest trigger point on the timeline that is <= now.
-	trigger, nextInterval := latestDueTrigger(lastActive, now)
+	trigger, nextInterval, pulseIndex := latestDueTrigger(lastActive, now)
 	if trigger.IsZero() {
 		return
 	}
@@ -231,8 +231,9 @@ func (s *heartbeatScheduler) maybeFirePulse(key string, now time.Time, lastActiv
 	if !hbMtime.IsZero() {
 		mdModified = hbMtime.UTC().Format(time.RFC3339)
 	}
+	elapsed := now.Sub(lastActive).Round(time.Second)
 
-	message := buildHeartbeatMessage(mdModified, nextPulse)
+	message := buildHeartbeatMessage(mdModified, nextPulse, pulseIndex, elapsed, lastPulse)
 
 	s.mgr.Wake(key, &thread.WakeMessage{
 		Source:  thread.WakeHeartbeat,
@@ -251,20 +252,23 @@ func (s *heartbeatScheduler) maybeFirePulse(key string, now time.Time, lastActiv
 // latestDueTrigger returns the latest trigger point on the timeline
 // (lastActive+quietMin, +quietMin+base, +quietMin+base+(base+growth), ...)
 // that is <= now, along with the interval to the next trigger point.
-// Returns zero time and zero duration if no trigger point is due yet.
-func latestDueTrigger(lastActive time.Time, now time.Time) (time.Time, time.Duration) {
+// Returns zero time, zero duration, and zero index if no trigger point is due yet.
+// pulseIndex is 1-based: the first pulse after quiet threshold is pulse 1.
+func latestDueTrigger(lastActive time.Time, now time.Time) (time.Time, time.Duration, int) {
 	t := lastActive.Add(hbQuietMin)
 	if now.Before(t) {
-		return time.Time{}, 0
+		return time.Time{}, 0, 0
 	}
+	idx := 1
 	interval := hbPulseInterval
 	for {
 		next := t.Add(interval)
 		if now.Before(next) {
-			return t, interval
+			return t, interval, idx
 		}
 		t = next
 		interval += hbPulseGrowth
+		idx++
 	}
 }
 
@@ -344,7 +348,7 @@ func (s *heartbeatScheduler) Status() []hbStatusEntry {
 		}
 		s.mu.Unlock()
 
-		trigger, nextInterval := latestDueTrigger(lastActive, now)
+		trigger, nextInterval, _ := latestDueTrigger(lastActive, now)
 		if trigger.IsZero() {
 			e.Status = "user active"
 			e.NextPulse = lastActive.Add(hbQuietMin).Local().Format("15:04")
@@ -399,13 +403,18 @@ func loadPostponeConfig(path string) map[string]postponeEntry {
 
 // buildHeartbeatMessage constructs a heartbeat system message.
 // heartbeat.md content is already in the system prompt via heartbeat_prompt_section — no need to duplicate here.
-func buildHeartbeatMessage(mdModified, nextPulse string) string {
+func buildHeartbeatMessage(mdModified, nextPulse string, pulseIndex int, elapsed time.Duration, lastPulse time.Time) string {
 	fields := map[string]string{}
 	if nextPulse != "" {
 		fields["next_pulse"] = nextPulse
 	}
 	if mdModified != "" {
 		fields["heartbeat_modified"] = mdModified
+	}
+	fields["pulse_index"] = fmt.Sprintf("%d", pulseIndex)
+	fields["elapsed_since_user"] = elapsed.String()
+	if !lastPulse.IsZero() {
+		fields["last_pulse"] = lastPulse.UTC().Format(time.RFC3339)
 	}
 
 	message := sysmsg.BuildSystemMessage("heartbeat", fields, "")

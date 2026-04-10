@@ -71,7 +71,7 @@ func TestLatestDueTrigger(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			now := base.Add(tt.nowOffset)
-			trigger, nextInterval := latestDueTrigger(base, now)
+			trigger, nextInterval, _ := latestDueTrigger(base, now)
 
 			if tt.wantZero {
 				if !trigger.IsZero() {
@@ -140,7 +140,7 @@ func TestLatestDueTriggerFireDecision(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			now := base.Add(tt.nowOffset)
-			trigger, _ := latestDueTrigger(base, now)
+			trigger, _, _ := latestDueTrigger(base, now)
 
 			fired := !trigger.IsZero() && trigger.After(tt.lastPulse)
 			if fired != tt.wantFire {
@@ -156,7 +156,7 @@ func TestLatestDueTriggerFireDecision(t *testing.T) {
 // shouldFire simulates the fire decision: given lastActive, now, and lastPulse,
 // returns whether a pulse should fire and what the trigger point is.
 func shouldFire(lastActive time.Time, now time.Time, lastPulse time.Time) (fire bool, trigger time.Time) {
-	trigger, _ = latestDueTrigger(lastActive, now)
+	trigger, _, _ = latestDueTrigger(lastActive, now)
 	if trigger.IsZero() {
 		return false, trigger
 	}
@@ -445,7 +445,7 @@ func TestScenario48hBoundary(t *testing.T) {
 	// The 48h cutoff is enforced by the caller (quiet > hbActivityWindow),
 	// not by latestDueTrigger. The function itself still returns valid triggers.
 	now = lastActive.Add(49 * time.Hour)
-	trigger, _ = latestDueTrigger(lastActive, now)
+	trigger, _, _ = latestDueTrigger(lastActive, now)
 	if trigger.IsZero() {
 		t.Error("latestDueTrigger should return a trigger even past 48h — caller enforces cutoff")
 	}
@@ -637,7 +637,7 @@ func TestGrowingIntervals(t *testing.T) {
 
 	for i, exp := range expected {
 		// Query at exactly the trigger point.
-		trigger, nextInterval := latestDueTrigger(lastActive, lastActive.Add(exp.offset))
+		trigger, nextInterval, _ := latestDueTrigger(lastActive, lastActive.Add(exp.offset))
 		wantTrigger := lastActive.Add(exp.offset)
 		if !trigger.Equal(wantTrigger) {
 			t.Errorf("T%d: trigger = offset %v, want offset %v", i+1, trigger.Sub(lastActive), exp.offset)
