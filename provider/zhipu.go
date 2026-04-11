@@ -144,7 +144,6 @@ func (p *ZhipuProvider) Chat(ctx context.Context, req *Request) (ChatResult, err
 	if thinkingEnabled {
 		requestOpts = append(requestOpts,
 			oaioption.WithJSONSet("extra_body.thinking.type", "enabled"),
-			oaioption.WithJSONSet("extra_body.thinking.clear_thinking", true),
 		)
 	}
 
