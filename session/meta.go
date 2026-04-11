@@ -13,6 +13,9 @@ const metaFileName = "meta.json"
 // RephraseSessionSuffix is the session key suffix for rephrase sibling sessions.
 const RephraseSessionSuffix = ":rephrase"
 
+// ForkSessionInfix is the infix used in fork session keys: {parent}:fork:{purpose}.
+const ForkSessionInfix = ":fork:"
+
 // Meta holds per-session metadata persisted to {sessionDir}/meta.json.
 type Meta struct {
 	Agent     string          `json:"agent,omitempty"`      // Explicitly assigned agent name.

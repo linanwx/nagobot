@@ -16,7 +16,11 @@ import (
 // SpawnChild spawns a child thread for delegated work. Always asynchronous:
 // returns child ID immediately, and the child wakes the parent via
 // "child_completed" when done.
-func (t *Thread) SpawnChild(ctx context.Context, agentName string, task string) (*tools.SpawnResult, error) {
+//
+// When forkPurpose is non-empty, the child receives a stripped copy of the
+// parent's conversation history (via session.CreateFork) instead of starting
+// with an empty session. The fork key is {parent}:fork:{purpose}.
+func (t *Thread) SpawnChild(ctx context.Context, agentName string, task string, forkPurpose string) (*tools.SpawnResult, error) {
 	task = strings.TrimSpace(task)
 	if task == "" {
 		return nil, fmt.Errorf("task is required")
@@ -25,7 +29,20 @@ func (t *Thread) SpawnChild(ctx context.Context, agentName string, task string) 
 		return nil, fmt.Errorf("thread has no manager, cannot spawn child")
 	}
 
-	childSessionKey := t.generateChildSessionKey()
+	var childSessionKey string
+	if forkPurpose = strings.TrimSpace(forkPurpose); forkPurpose != "" {
+		sessions := t.cfg().Sessions
+		if sessions == nil {
+			return nil, fmt.Errorf("fork: session manager not configured")
+		}
+		forkKey, err := sessions.CreateFork(t.sessionKey, forkPurpose)
+		if err != nil {
+			return nil, fmt.Errorf("fork: %w", err)
+		}
+		childSessionKey = forkKey
+	} else {
+		childSessionKey = t.generateChildSessionKey()
+	}
 	child, err := t.mgr.NewThread(childSessionKey, agentName)
 	if err != nil {
 		return nil, fmt.Errorf("spawn child: %w", err)

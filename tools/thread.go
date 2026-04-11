@@ -20,7 +20,7 @@ type SpawnResult struct {
 
 // ThreadSpawner is implemented by thread.Thread to spawn child threads.
 type ThreadSpawner interface {
-	SpawnChild(ctx context.Context, agentName string, task string) (*SpawnResult, error)
+	SpawnChild(ctx context.Context, agentName string, task string, forkPurpose string) (*SpawnResult, error)
 }
 
 // ThreadInfo is an alias for msg.ThreadInfo.
@@ -60,6 +60,14 @@ func (t *SpawnThreadTool) Def() provider.ToolDef {
 						"type":        "string",
 						"description": "Task description for the child thread. Include specific instructions and sufficient background context so the child can work independently. The task is executed by another LLM — write it as an instruction to that AI, not as a direct message to the end user. For example, to have a Telegram thread apologize to a user, pass 'Please apologize to the user for ...' rather than sending the apology text itself.",
 					},
+					"enable_fork": map[string]any{
+						"type":        "boolean",
+						"description": "When true, the child thread receives a stripped copy of the current session's conversation history, giving it context about what has happened so far. Use this when the child needs to understand the ongoing conversation (e.g. scheduling, analysis, summarization).",
+					},
+					"fork_purpose": map[string]any{
+						"type":        "string",
+						"description": "Purpose label for the fork (e.g. 'scheduler', 'research'). Used as part of the fork session key. Required when enable_fork is true.",
+					},
 				},
 				"required": []string{"task"},
 			},
@@ -68,8 +76,10 @@ func (t *SpawnThreadTool) Def() provider.ToolDef {
 }
 
 type spawnThreadArgs struct {
-	Agent string `json:"agent"`
-	Task  string `json:"task"`
+	Agent       string `json:"agent"`
+	Task        string `json:"task"`
+	EnableFork  bool   `json:"enable_fork"`
+	ForkPurpose string `json:"fork_purpose"`
 }
 
 // Run executes the tool.
@@ -89,7 +99,15 @@ func (t *SpawnThreadTool) run(ctx context.Context, args json.RawMessage) string 
 		return "Error: thread spawner not configured"
 	}
 
-	result, err := t.spawner.SpawnChild(ctx, strings.TrimSpace(a.Agent), a.Task)
+	var forkPurpose string
+	if a.EnableFork {
+		forkPurpose = strings.TrimSpace(a.ForkPurpose)
+		if forkPurpose == "" {
+			return "Error: fork_purpose is required when enable_fork is true"
+		}
+	}
+
+	result, err := t.spawner.SpawnChild(ctx, strings.TrimSpace(a.Agent), a.Task, forkPurpose)
 	if err != nil {
 		return fmt.Sprintf("Error spawning thread: %v", err)
 	}
@@ -109,6 +127,10 @@ func (t *SpawnThreadTool) run(ctx context.Context, args json.RawMessage) string 
 		"child_id":  result.ID,
 		"agent":     agentLabel,
 		"mechanism": "async_child_thread",
+	}
+	if forkPurpose != "" {
+		fields["forked"] = true
+		fields["fork_purpose"] = forkPurpose
 	}
 	if result.Specialty != "" {
 		fields["specialty"] = result.Specialty

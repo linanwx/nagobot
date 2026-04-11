@@ -258,6 +258,38 @@ func runePrefix(s string, n int) string {
 	return s
 }
 
+// CreateFork generates a stripped fork session from the parent session.
+// It reads the parent's messages, applies ForkMessages to produce a stripped
+// snapshot, deletes any existing fork session at the same key, and writes the
+// new fork session.jsonl. Returns the fork session key.
+func (m *Manager) CreateFork(parentKey, purpose string) (string, error) {
+	parentKey = normalizeSessionKey(parentKey)
+	forkKey := parentKey + ForkSessionInfix + purpose
+
+	// Load parent session.
+	parent, err := m.loadFromDisk(parentKey)
+	if err != nil {
+		return "", fmt.Errorf("fork: load parent %s: %w", parentKey, err)
+	}
+
+	// Strip messages.
+	stripped := ForkMessages(parent.Messages)
+
+	// Delete existing fork session directory (full recreate each time).
+	forkDir := filepath.Dir(m.sessionPath(forkKey))
+	os.RemoveAll(forkDir)
+
+	// Write fork session.
+	fork := &Session{
+		Key:      forkKey,
+		Messages: stripped,
+	}
+	if err := m.Save(fork); err != nil {
+		return "", fmt.Errorf("fork: save %s: %w", forkKey, err)
+	}
+	return forkKey, nil
+}
+
 func (m *Manager) sessionPath(key string) string {
 	return filepath.Join(SessionDir(m.sessionsDir, key), SessionFileName)
 }
