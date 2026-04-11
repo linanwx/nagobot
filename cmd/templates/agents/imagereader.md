@@ -1,6 +1,6 @@
 ---
 name: imagereader
-description: Use this agent when the current model does not support vision and you need to analyze or describe images. This agent bridges capabilities across different models.
+description: Use this agent when the current model does not support vision and you need to analyze or describe images. This agent bridges capabilities across different models. Requires an image file path and conversation context passed via the task.
 specialty: image
 ---
 

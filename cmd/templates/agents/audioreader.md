@@ -1,6 +1,6 @@
 ---
 name: audioreader
-description: Use this agent when the current model does not support audio and you need to transcribe or listen to audio. This agent bridges capabilities across different models.
+description: Use this agent when the current model does not support audio and you need to transcribe or listen to audio. This agent bridges capabilities across different models. Requires an audio file path and conversation context passed via the task.
 specialty: audio
 ---
 

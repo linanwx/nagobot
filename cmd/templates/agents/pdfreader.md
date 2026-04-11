@@ -1,6 +1,6 @@
 ---
 name: pdfreader
-description: Use this agent when the current model does not support PDF and you need to read or summarize PDF documents. This agent bridges capabilities across different models.
+description: Use this agent when the current model does not support PDF and you need to read or summarize PDF documents. This agent bridges capabilities across different models. Requires a PDF file path and conversation context passed via the task.
 specialty: pdf
 ---
 
