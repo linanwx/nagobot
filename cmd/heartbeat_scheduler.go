@@ -236,12 +236,13 @@ func (s *heartbeatScheduler) maybeFirePulse(key string, now time.Time, lastActiv
 	}
 	elapsed := now.Sub(lastActive).Round(time.Second)
 
-	message := buildHeartbeatMessage(mdModified, nextPulse, pulseIndex, elapsed, lastPulse)
+	_ = buildHeartbeatMessage(mdModified, nextPulse, pulseIndex, elapsed, lastPulse)
 
-	s.mgr.Wake(key, &thread.WakeMessage{
-		Source:  thread.WakeHeartbeat,
-		Message: message,
-	})
+	// TODO: switch to fork wake — create fork session, spawn child thread.
+	// s.mgr.Wake(key, &thread.WakeMessage{
+	// 	Source:  thread.WakeHeartbeat,
+	// 	Message: message,
+	// })
 
 	// Update state and persist.
 	s.mu.Lock()
