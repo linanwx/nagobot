@@ -20,9 +20,10 @@ const (
 
 func init() {
 	RegisterProvider("zhipu-cn", ProviderRegistration{
-		Models: []string{"glm-5", "glm-5-turbo"},
+		Models: []string{"glm-5", "glm-5.1", "glm-5-turbo"},
 		ContextWindows: map[string]int{
 			"glm-5":       200000,
+			"glm-5.1":     200000,
 			"glm-5-turbo": 202752,
 		},
 		EnvKey:  "ZHIPU_API_KEY",
@@ -33,9 +34,10 @@ func init() {
 	})
 
 	RegisterProvider("zhipu-global", ProviderRegistration{
-		Models: []string{"glm-5", "glm-5-turbo"},
+		Models: []string{"glm-5", "glm-5.1", "glm-5-turbo"},
 		ContextWindows: map[string]int{
 			"glm-5":       200000,
+			"glm-5.1":     200000,
 			"glm-5-turbo": 202752,
 		},
 		EnvKey:  "ZHIPU_GLOBAL_API_KEY",
@@ -59,7 +61,8 @@ type ZhipuProvider struct {
 }
 
 func zhipuThinkingEnabled(modelType string) bool {
-	return strings.TrimSpace(modelType) == "glm-5"
+	m := strings.TrimSpace(modelType)
+	return m == "glm-5" || m == "glm-5.1"
 }
 
 func zhipuRequestTemperature(modelType string, configured float64) (float64, bool) {

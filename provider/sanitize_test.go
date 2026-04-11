@@ -83,6 +83,25 @@ func TestSanitizeMessages_DropsAssistantWithAllUnansweredToolCalls(t *testing.T)
 	}
 }
 
+func TestSanitizeMessages_DropsReasoningOnlyAssistant(t *testing.T) {
+	messages := []Message{
+		UserMessage("hello"),
+		// assistant with reasoning + orphaned tool_calls → after stripping, only reasoning remains
+		{Role: "assistant", ReasoningContent: "thinking...", ReasoningDetails: json.RawMessage(`[{"text":"thought"}]`), ToolCalls: []ToolCall{
+			{ID: "tc1", Type: "function", Function: FunctionCall{Name: "f1", Arguments: "{}"}},
+		}},
+		AssistantMessage("recovery"),
+	}
+	got := SanitizeMessages(messages)
+	// reasoning-only assistant should be dropped (not backfilled with "(empty)")
+	if len(got) != 2 {
+		t.Fatalf("expected 2 messages (reasoning-only assistant dropped), got %d", len(got))
+	}
+	if got[0].Content != "hello" || got[1].Content != "recovery" {
+		t.Fatalf("unexpected messages: %+v", got)
+	}
+}
+
 func TestGetContent_ReturnsCompressedWhenSet(t *testing.T) {
 	m := Message{Role: "user", Content: "original long content", Compressed: "short summary"}
 	if got := m.GetContent(); got != "short summary" {

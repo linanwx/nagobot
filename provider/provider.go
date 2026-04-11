@@ -381,14 +381,12 @@ func SanitizeMessages(messages []Message) []Message {
 		if m.Role == "" {
 			continue
 		}
-		// Drop assistant messages with no visible content, no reasoning, and no tool calls.
-		if m.Role == "assistant" && m.Content == "" && m.Compressed == "" && m.ReasoningContent == "" && len(m.ReasoningDetails) == 0 && len(m.ToolCalls) == 0 {
-			continue
-		}
-		// Backfill empty content for assistant messages that only have reasoning.
-		// Some providers (e.g. DeepSeek) reject assistant messages without content or tool_calls.
+		// Drop assistant messages with no visible content and no tool calls.
+		// This covers both completely empty messages and messages with only
+		// reasoning (from interrupted/incomplete turns where tool_calls were
+		// stripped as orphaned). Dropping avoids "(empty)" backfill artifacts.
 		if m.Role == "assistant" && m.Content == "" && m.Compressed == "" && len(m.ToolCalls) == 0 {
-			m.Content = "(empty)"
+			continue
 		}
 		if m.Role == "tool" && !callIDs[m.ToolCallID] {
 			continue
