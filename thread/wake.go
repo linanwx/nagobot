@@ -183,7 +183,7 @@ func (t *Thread) RunOnce(ctx context.Context) {
 							if rephrased == "" {
 								return
 							}
-							if err := mgr.cfg.Sessions.RephraseLastAssistant(parentKey, rephrased); err != nil {
+							if err := mgr.cfg.Sessions.RephraseLastAssistant(parentKey, response, rephrased); err != nil {
 								logger.Warn("rephrase: failed to update parent session",
 									"parentSession", parentKey, "err", err)
 							}

@@ -202,11 +202,13 @@ func (m *Manager) Append(key string, msgs ...provider.Message) error {
 	return nil
 }
 
-// RephraseLastAssistant finds the last assistant message without OriginalContent,
-// moves its Content to OriginalContent, and sets Content to the rephrased text.
+// RephraseLastAssistant finds the assistant message matching original by its
+// first 10 runes, moves its Content to OriginalContent, and sets Content to
+// the rephrased text. Matching by content prefix prevents replacing the wrong
+// message when multiple rephrase requests are in flight concurrently.
 // Holds the session lock across load→modify→save to prevent concurrent Append
 // from losing data between Reload and Save.
-func (m *Manager) RephraseLastAssistant(key, rephrased string) error {
+func (m *Manager) RephraseLastAssistant(key, original, rephrased string) error {
 	key = normalizeSessionKey(key)
 
 	m.mu.Lock()
@@ -217,11 +219,14 @@ func (m *Manager) RephraseLastAssistant(key, rephrased string) error {
 	if err != nil {
 		return fmt.Errorf("rephrase: load session %s: %w", key, err)
 	}
-	// Find last assistant message that hasn't been rephrased yet.
+
+	prefix := runePrefix(original, 10)
+
+	// Find last assistant message whose content starts with the same prefix.
 	found := false
 	for i := len(sess.Messages) - 1; i >= 0; i-- {
 		msg := &sess.Messages[i]
-		if msg.Role == "assistant" && msg.OriginalContent == "" && msg.Content != "" {
+		if msg.Role == "assistant" && msg.OriginalContent == "" && msg.Content != "" && runePrefix(msg.Content, 10) == prefix {
 			msg.OriginalContent = msg.Content
 			msg.Content = rephrased
 			found = true
@@ -239,6 +244,18 @@ func (m *Manager) RephraseLastAssistant(key, rephrased string) error {
 	}
 	m.cache[key] = sess
 	return nil
+}
+
+// runePrefix returns the first n runes of s, or all of s if shorter.
+func runePrefix(s string, n int) string {
+	i := 0
+	for j := range s {
+		if i == n {
+			return s[:j]
+		}
+		i++
+	}
+	return s
 }
 
 func (m *Manager) sessionPath(key string) string {
