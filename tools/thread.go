@@ -62,7 +62,7 @@ func (t *SpawnThreadTool) Def() provider.ToolDef {
 					},
 					"enable_fork": map[string]any{
 						"type":        "boolean",
-						"description": "When true, the child thread receives a stripped copy of the current session's conversation history, giving it context about what has happened so far. Use this when the child needs to understand the ongoing conversation (e.g. scheduling, analysis, summarization).",
+						"description": "When true, the child thread receives a stripped copy of the current session's conversation history. Enable this only when the child's job is to reason about the ongoing conversation itself (e.g. scheduling, reflection, summarization, compression). Do NOT enable when (1) the task is self-contained and the task text already carries all the input the child needs, or (2) the parent conversation would bias or interfere with the child's independent judgment.",
 					},
 					"fork_purpose": map[string]any{
 						"type":        "string",
