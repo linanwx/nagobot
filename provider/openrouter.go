@@ -543,9 +543,21 @@ func openAIStreamChat(ctx context.Context, client openai.Client, params openai.C
 	var acc openai.ChatCompletionAccumulator
 	var reasoning strings.Builder
 	var toolCallSignaled bool
+	// SDK's AddChunk sums Usage across chunks via +=, which is correct for
+	// providers that emit usage only on the final chunk (OpenAI, Moonshot,
+	// Zhipu). But SiliconFlow emits the full usage on every chunk, causing
+	// N× inflation. Track the last non-zero usage and overwrite acc.Usage
+	// before returning so both cases produce the correct final value.
+	var lastUsage openai.CompletionUsage
+	var sawUsage bool
 	for stream.Next() {
 		chunk := stream.Current()
 		acc.AddChunk(chunk)
+
+		if chunk.Usage.TotalTokens > 0 || chunk.Usage.PromptTokens > 0 || chunk.Usage.CompletionTokens > 0 {
+			lastUsage = chunk.Usage
+			sawUsage = true
+		}
 
 		if len(chunk.Choices) == 0 {
 			continue
@@ -578,6 +590,10 @@ func openAIStreamChat(ctx context.Context, client openai.Client, params openai.C
 	}
 	if err := stream.Err(); err != nil {
 		return nil, "", err
+	}
+
+	if sawUsage {
+		acc.Usage = lastUsage
 	}
 
 	return &acc.ChatCompletion, reasoning.String(), nil
