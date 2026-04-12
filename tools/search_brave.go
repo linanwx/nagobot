@@ -7,6 +7,7 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"time"
 )
 
 // BraveSearchProvider searches via the Brave Search API.
@@ -29,30 +30,47 @@ func (p *BraveSearchProvider) Search(ctx context.Context, query string, maxResul
 		url.QueryEscape(query), maxResults)
 
 	client := &http.Client{Timeout: webSearchHTTPTimeout}
-	req, err := http.NewRequestWithContext(ctx, "GET", endpoint, nil)
-	if err != nil {
-		return nil, fmt.Errorf("failed to create request: %w", err)
-	}
-	req.Header.Set("Accept", "application/json")
-	req.Header.Set("X-Subscription-Token", key)
+	// Retry once after 2s on HTTP 429 (Brave Free plan 1 req/s). Typical cause:
+	// LLM fires multiple searches in parallel within one turn.
+	for attempt := range 2 {
+		req, err := http.NewRequestWithContext(ctx, "GET", endpoint, nil)
+		if err != nil {
+			return nil, fmt.Errorf("failed to create request: %w", err)
+		}
+		req.Header.Set("Accept", "application/json")
+		req.Header.Set("X-Subscription-Token", key)
 
-	resp, err := client.Do(req)
-	if err != nil {
-		return nil, fmt.Errorf("search request failed: %w", err)
-	}
-	defer resp.Body.Close()
+		resp, err := client.Do(req)
+		if err != nil {
+			return nil, fmt.Errorf("search request failed: %w", err)
+		}
 
-	if resp.StatusCode != http.StatusOK {
-		body, _ := io.ReadAll(io.LimitReader(resp.Body, 1024))
-		return nil, fmt.Errorf("Brave API error: HTTP %d: %s", resp.StatusCode, string(body))
-	}
+		if resp.StatusCode == http.StatusTooManyRequests && attempt == 0 {
+			resp.Body.Close()
+			t := time.NewTimer(2 * time.Second)
+			select {
+			case <-t.C:
+			case <-ctx.Done():
+				t.Stop()
+				return nil, ctx.Err()
+			}
+			continue
+		}
 
-	body, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return nil, fmt.Errorf("failed to read response: %w", err)
-	}
+		if resp.StatusCode != http.StatusOK {
+			body, _ := io.ReadAll(io.LimitReader(resp.Body, 1024))
+			resp.Body.Close()
+			return nil, fmt.Errorf("Brave API error: HTTP %d: %s", resp.StatusCode, string(body))
+		}
 
-	return parseBraveResults(body, maxResults)
+		body, err := io.ReadAll(resp.Body)
+		resp.Body.Close()
+		if err != nil {
+			return nil, fmt.Errorf("failed to read response: %w", err)
+		}
+		return parseBraveResults(body, maxResults)
+	}
+	return nil, fmt.Errorf("Brave API error: unreachable retry loop exit")
 }
 
 // braveResponse is the top-level Brave Search API response.
