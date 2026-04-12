@@ -59,3 +59,31 @@ providers:
     apiKey: sk-xxx
     # apiBase: https://api.moonshot.ai/v1 # optional
 ```
+
+SiliconFlow CN config example:
+
+```yaml
+thread:
+  provider: siliconflow-cn
+  modelType: Pro/zai-org/GLM-5.1
+
+providers:
+  siliconflowCN:
+    apiKey: sk-xxx
+    # apiBase: https://api.siliconflow.cn/v1 # optional
+```
+
+SiliconFlow Global config example:
+
+```yaml
+thread:
+  provider: siliconflow-global
+  modelType: zai-org/GLM-5.1
+
+providers:
+  siliconflowGlobal:
+    apiKey: sk-xxx
+    # apiBase: https://api.siliconflow.com/v1 # optional
+```
+
+**Note:** SiliconFlow CN and Global are fully separate accounts with separate API keys and different model IDs for the same underlying model — CN uses `Pro/zai-org/GLM-5.1` (paid-tier prefix), Global uses `zai-org/GLM-5.1`. SiliconFlow hosts GLM-5.1 on its own infrastructure as an alternative to zai's overloaded endpoints. Reasoning (`reasoning_content`) is enabled by default on both endpoints and requires no extra configuration. Only GLM-5.1 is whitelisted — other SiliconFlow-hosted models can be added later on demand.
