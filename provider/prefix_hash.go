@@ -1,14 +1,102 @@
 package provider
 
 import (
+	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 
+	"github.com/linanwx/nagobot/config"
+	"github.com/linanwx/nagobot/logger"
 	openai "github.com/openai/openai-go/v3"
 )
+
+type sessionKeyCtxKey struct{}
+
+// WithSessionKey returns a ctx carrying the sessionKey for diagnostic logging.
+func WithSessionKey(ctx context.Context, key string) context.Context {
+	if key == "" {
+		return ctx
+	}
+	return context.WithValue(ctx, sessionKeyCtxKey{}, key)
+}
+
+// SessionKeyFromContext retrieves a sessionKey previously set via WithSessionKey.
+func SessionKeyFromContext(ctx context.Context) string {
+	if ctx == nil {
+		return ""
+	}
+	if v, ok := ctx.Value(sessionKeyCtxKey{}).(string); ok {
+		return v
+	}
+	return ""
+}
+
+// dumpFirstMessage writes messages[0] to disk under
+// {configDir}/logs/prefix-dump/{sanitized-sessionKey}/{m1hash}.json so
+// prefix drift between turns can be diffed offline. The filename is the
+// content hash, so identical prefixes idempotently overwrite the same file
+// (no bloat), while drift produces a new file per variant.
+func dumpFirstMessage(providerName, sessionKey string, msgs []openai.ChatCompletionMessageParamUnion) {
+	if len(msgs) == 0 {
+		return
+	}
+	b, err := json.Marshal(msgs[0])
+	if err != nil {
+		return
+	}
+	m1 := hashBytes(b)
+
+	cd, err := config.ConfigDir()
+	if err != nil || cd == "" {
+		return
+	}
+	safeKey := sanitizeSessionKeyForFS(sessionKey)
+	if safeKey == "" {
+		safeKey = "_unknown"
+	}
+	dir := filepath.Join(cd, "logs", "prefix-dump", providerName, safeKey)
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		return
+	}
+
+	path := filepath.Join(dir, m1+".json")
+	if _, err := os.Stat(path); err == nil {
+		return // same hash already dumped — skip
+	}
+
+	tmp := path + ".tmp"
+	if err := os.WriteFile(tmp, b, 0o644); err != nil {
+		logger.Warn("prefix-dump write failed", "provider", providerName, "sessionKey", sessionKey, "err", err)
+		return
+	}
+	if err := os.Rename(tmp, path); err != nil {
+		logger.Warn("prefix-dump rename failed", "provider", providerName, "sessionKey", sessionKey, "err", err)
+		_ = os.Remove(tmp)
+		return
+	}
+}
+
+func sanitizeSessionKeyForFS(key string) string {
+	if key == "" {
+		return ""
+	}
+	var sb strings.Builder
+	sb.Grow(len(key))
+	for _, r := range key {
+		switch {
+		case r == ':' || r == '/' || r == '\\' || r == ' ':
+			sb.WriteByte('_')
+		default:
+			sb.WriteRune(r)
+		}
+	}
+	return sb.String()
+}
 
 func hashBytes(b []byte) string {
 	h := sha256.Sum256(b)

@@ -285,6 +285,7 @@ func (t *Thread) executeRunner(ctx, runCtx context.Context, p provider.Provider,
 	})
 
 	runner.OnIterationEnd(injectFn)
+	runCtx = provider.WithSessionKey(runCtx, t.sessionKey)
 	response, err = runner.RunWithMessages(runCtx, messages)
 	usage = runner.TotalUsage()
 	providerLabel = runner.ProviderLabel()

@@ -136,16 +136,19 @@ func (p *SiliconflowProvider) Chat(ctx context.Context, req *Request) (ChatResul
 		)
 	}
 
+	sessionKey := SessionKeyFromContext(ctx)
 	toolsH, toolCount := hashChatToolParams(chatReq.Tools)
 	prefixes := hashChatMessagePrefixes(chatReq.Messages)
 	logger.Info(
 		"siliconflow prefix-hash",
 		"provider", p.providerName,
+		"sessionKey", sessionKey,
 		"toolsH", toolsH,
 		"toolCount", toolCount,
 		"msgCount", len(chatReq.Messages),
 		"prefixes", prefixes,
 	)
+	dumpFirstMessage(p.providerName, sessionKey, chatReq.Messages)
 
 	resp := &Response{ProviderLabel: p.providerName, ModelLabel: p.modelName}
 	adapter := newStreamAdapter(ctx, resp)
