@@ -207,16 +207,6 @@ func compressTier1(messages []provider.Message, keepLastAssistants int) (bool, [
 		}
 	}
 
-	// Pre-scan: find the last occurrence of each skill load (for outdated detection).
-	lastSkillLoad := make(map[string]int)
-	for i, m := range messages {
-		if m.Role == "tool" && m.Name == "use_skill" {
-			if name := extractSkillName(m.Content); name != "" {
-				lastSkillLoad[name] = i
-			}
-		}
-	}
-
 	modified := false
 	result := make([]provider.Message, len(messages))
 	copy(result, messages)
@@ -237,7 +227,7 @@ func compressTier1(messages []provider.Message, keepLastAssistants int) (bool, [
 
 		switch m.Role {
 		case "tool":
-			newCompressed = computeToolCompressed(m, i, lastSkillLoad)
+			newCompressed = computeToolCompressed(m)
 		case "user":
 			if strings.HasPrefix(m.Content, "---\n") {
 				newCompressed = computeWakeCompressed(m)
@@ -348,20 +338,18 @@ func isHeartbeatSkipTurn(turnMessages []provider.Message) bool {
 
 // computeToolCompressed returns the Compressed value for a tool message.
 // Returns "" if no compression is needed.
-func computeToolCompressed(m *provider.Message, idx int, lastSkillLoad map[string]int) string {
+//
+// Skill results are trimmed purely on age (2h threshold), NOT on
+// "same skill loaded again later". The latter caused deep prefix-cache
+// drift: a fresh skill call would retroactively compress an arbitrarily
+// old copy, invalidating every prefix hash after that position.
+func computeToolCompressed(m *provider.Message) string {
 	if m.Name == "use_skill" {
 		skillName := extractSkillName(m.Content)
 		if skillName == "" {
 			return ""
 		}
-		// Outdated: same skill loaded again later → header-only, no hint
-		if lastSkillLoad[skillName] > idx {
-			return marshalCompressed(compressedHeader{
-				Compressed: "use_skill", Skill: skillName,
-				Original: len(m.Content), Outdated: true,
-			}, "")
-		}
-		// Expired: older than compressExpireAge → header-only, with reload hint
+		// Expired: older than compressExpireAge → header-only, with reload hint.
 		if !m.Timestamp.IsZero() && time.Since(m.Timestamp) > compressExpireAge {
 			return marshalCompressed(compressedHeader{
 				Compressed: "use_skill", Skill: skillName,

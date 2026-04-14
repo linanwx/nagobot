@@ -114,14 +114,17 @@ func makeSkillContent(skillName string) string {
 	return "---\nskill: " + skillName + "\ndir: /workspace/skills/" + skillName + "\n---\n\n# " + skillName + " instructions\n\nSome skill content here."
 }
 
-func TestCompressTier1_SkillOutdated(t *testing.T) {
-	// Same skill loaded twice → first one should be compressed as outdated (no hint).
+func TestCompressTier1_SkillRecentStaysFull(t *testing.T) {
+	// Same skill loaded twice within 2h — BOTH copies should stay full.
+	// (The old "outdated on re-load" rule was removed because it caused
+	// deep prefix-cache drift when a fresh call retroactively compressed
+	// an older copy.)
 	messages := []provider.Message{
 		{Role: "assistant", Content: "", ToolCalls: []provider.ToolCall{{ID: "c1", Type: "function", Function: provider.FunctionCall{Name: "use_skill", Arguments: `{"name":"research"}`}}}},
-		{Role: "tool", Name: "use_skill", ToolCallID: "c1", Content: makeSkillContent("research")},
+		{Role: "tool", Name: "use_skill", ToolCallID: "c1", Content: makeSkillContent("research"), Timestamp: time.Now()},
 		{Role: "assistant", Content: "doing research..."},
 		{Role: "assistant", Content: "", ToolCalls: []provider.ToolCall{{ID: "c2", Type: "function", Function: provider.FunctionCall{Name: "use_skill", Arguments: `{"name":"research"}`}}}},
-		{Role: "tool", Name: "use_skill", ToolCallID: "c2", Content: makeSkillContent("research")},
+		{Role: "tool", Name: "use_skill", ToolCallID: "c2", Content: makeSkillContent("research"), Timestamp: time.Now()},
 		{Role: "assistant", Content: "done"},
 		{Role: "user", Content: "next"},
 		{Role: "assistant", Content: "ok"},
@@ -131,28 +134,13 @@ func TestCompressTier1_SkillOutdated(t *testing.T) {
 		{Role: "assistant", Content: "ok3"},
 	}
 
-	modified, result := compressTier1(messages, 3)
-	if !modified {
-		t.Fatal("expected modified=true")
-	}
+	_, result := compressTier1(messages, 3)
 
-	// First skill result (idx 1) should be compressed (outdated).
-	m1 := result[1]
-	if m1.Compressed == "" {
-		t.Fatal("first skill result should be compressed")
+	if result[1].Compressed != "" {
+		t.Errorf("first skill (recent) should stay full, got Compressed=%q", result[1].Compressed)
 	}
-	if !strings.Contains(m1.Compressed, "outdated: true") {
-		t.Error("first skill should be marked outdated")
-	}
-	// Outdated should NOT have reload hint.
-	if strings.Contains(m1.Compressed, "use_skill to reload") {
-		t.Error("outdated skill should not have reload hint")
-	}
-
-	// Second skill result (idx 4) should NOT be compressed (latest load, not expired).
-	m4 := result[4]
-	if m4.Compressed != "" {
-		t.Error("latest skill result should not be compressed")
+	if result[4].Compressed != "" {
+		t.Errorf("second skill (recent) should stay full, got Compressed=%q", result[4].Compressed)
 	}
 }
 

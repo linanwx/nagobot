@@ -45,7 +45,10 @@ func dumpFirstMessage(providerName, sessionKey string, msgs []openai.ChatComplet
 	if len(msgs) == 0 {
 		return
 	}
-	b, err := json.Marshal(msgs[0])
+	// Marshal msgs[:1] (not msgs[0]) so the filename hash matches the
+	// `1:<hash>` entry in the prefix-hash log line — both now serialize
+	// the same `[{...}]` bytes.
+	b, err := json.Marshal(msgs[:1])
 	if err != nil {
 		return
 	}
