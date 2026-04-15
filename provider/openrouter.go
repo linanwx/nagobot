@@ -64,6 +64,26 @@ func extractReasoningText(rawMessage string) string {
 	return ""
 }
 
+// extractOpenRouterMeta pulls OpenRouter-specific fields from the raw response JSON
+// that openai-go doesn't surface: upstream provider name (e.g. "Z.AI"), and usage.cost
+// (in USD). Returns zero values for missing fields. OpenRouter stamps `provider` on
+// every response; `cost` appears when include_usage/default accounting is enabled.
+func extractOpenRouterMeta(rawResponse string) (upstream string, cost float64) {
+	if rawResponse == "" {
+		return "", 0
+	}
+	var payload struct {
+		Provider string `json:"provider"`
+		Usage    struct {
+			Cost float64 `json:"cost"`
+		} `json:"usage"`
+	}
+	if err := json.Unmarshal([]byte(rawResponse), &payload); err != nil {
+		return "", 0
+	}
+	return payload.Provider, payload.Usage.Cost
+}
+
 // extractReasoningDetails extracts the reasoning_details array from a raw message JSON.
 // Returns nil if the field is absent, null, or empty.
 func extractReasoningDetails(rawMessage string) json.RawMessage {
@@ -698,11 +718,14 @@ func (p *OpenRouterProvider) Chat(ctx context.Context, req *Request) (ChatResult
 		finalContent = resolveContentWithReasoningFallback(finalContent, reasoningText, "openrouter", toolCalls)
 
 		cachedTokens := chatResp.Usage.PromptTokensDetails.CachedTokens
+		upstream, cost := extractOpenRouterMeta(rawResponse)
 		logger.Info(
 			"openrouter response",
 			"provider", "openrouter",
+			"upstream", upstream,
 			"modelType", p.modelType,
 			"modelName", p.modelName,
+			"servedModel", chatResp.Model,
 			"finishReason", choice.FinishReason,
 			"reasoningInResponse", reasoningTokens > 0,
 			"hasToolCalls", len(toolCalls) > 0,
@@ -712,6 +735,7 @@ func (p *OpenRouterProvider) Chat(ctx context.Context, req *Request) (ChatResult
 			"reasoningTokens", reasoningTokens,
 			"cachedTokens", cachedTokens,
 			"totalTokens", chatResp.Usage.TotalTokens,
+			"costUSD", cost,
 			"outputChars", len(choice.Message.Content),
 			"latencyMs", time.Since(start).Milliseconds(),
 		)
