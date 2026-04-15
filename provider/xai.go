@@ -113,7 +113,7 @@ func (p *XAIProvider) Chat(ctx context.Context, req *Request) (ChatResult, error
 	go func() {
 		defer adapter.Finish()
 
-		chatResp, streamReasoning, err := openAIStreamChat(ctx, p.client, chatReq, adapter)
+		chatResp, streamReasoning, _, _, err := openAIStreamChat(ctx, p.client, chatReq, adapter)
 		if err != nil {
 			logger.Error("xai request send error", "err", err)
 			adapter.SetError(fmt.Errorf("request failed: %w", err))

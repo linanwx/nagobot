@@ -64,26 +64,6 @@ func extractReasoningText(rawMessage string) string {
 	return ""
 }
 
-// extractOpenRouterMeta pulls OpenRouter-specific fields from the raw response JSON
-// that openai-go doesn't surface: upstream provider name (e.g. "Z.AI"), and usage.cost
-// (in USD). Returns zero values for missing fields. OpenRouter stamps `provider` on
-// every response; `cost` appears when include_usage/default accounting is enabled.
-func extractOpenRouterMeta(rawResponse string) (upstream string, cost float64) {
-	if rawResponse == "" {
-		return "", 0
-	}
-	var payload struct {
-		Provider string `json:"provider"`
-		Usage    struct {
-			Cost float64 `json:"cost"`
-		} `json:"usage"`
-	}
-	if err := json.Unmarshal([]byte(rawResponse), &payload); err != nil {
-		return "", 0
-	}
-	return payload.Provider, payload.Usage.Cost
-}
-
 // extractReasoningDetails extracts the reasoning_details array from a raw message JSON.
 // Returns nil if the field is absent, null, or empty.
 func extractReasoningDetails(rawMessage string) json.RawMessage {
@@ -557,7 +537,7 @@ func fromOpenAIChatToolCalls(calls []openai.ChatCompletionMessageToolCallUnion) 
 // It emits text and tool-call deltas through the adapter and accumulates the
 // full response. Returns the accumulated ChatCompletion and any reasoning
 // content extracted from streaming delta extra fields.
-func openAIStreamChat(ctx context.Context, client openai.Client, params openai.ChatCompletionNewParams, adapter *streamAdapter, opts ...oaioption.RequestOption) (*openai.ChatCompletion, string, error) {
+func openAIStreamChat(ctx context.Context, client openai.Client, params openai.ChatCompletionNewParams, adapter *streamAdapter, opts ...oaioption.RequestOption) (*openai.ChatCompletion, string, string, float64, error) {
 	stream := client.Chat.Completions.NewStreaming(ctx, params, opts...)
 
 	var acc openai.ChatCompletionAccumulator
@@ -570,13 +550,34 @@ func openAIStreamChat(ctx context.Context, client openai.Client, params openai.C
 	// before returning so both cases produce the correct final value.
 	var lastUsage openai.CompletionUsage
 	var sawUsage bool
+	// OpenRouter puts non-OpenAI fields at the chunk root (`provider`) and
+	// inside usage (`cost`). The accumulator discards RawJSON, so capture them
+	// per-chunk via ExtraFields. First non-empty value wins for provider;
+	// cost comes from whichever chunk carries usage.
+	var upstream string
+	var cost float64
 	for stream.Next() {
 		chunk := stream.Current()
 		acc.AddChunk(chunk)
 
+		if upstream == "" {
+			if raw := chunk.JSON.ExtraFields["provider"].Raw(); raw != "" && raw != "null" {
+				var s string
+				if json.Unmarshal([]byte(raw), &s) == nil {
+					upstream = s
+				}
+			}
+		}
+
 		if chunk.Usage.TotalTokens > 0 || chunk.Usage.PromptTokens > 0 || chunk.Usage.CompletionTokens > 0 {
 			lastUsage = chunk.Usage
 			sawUsage = true
+			if raw := chunk.Usage.JSON.ExtraFields["cost"].Raw(); raw != "" && raw != "null" {
+				var c float64
+				if json.Unmarshal([]byte(raw), &c) == nil {
+					cost = c
+				}
+			}
 		}
 
 		if len(chunk.Choices) == 0 {
@@ -609,14 +610,14 @@ func openAIStreamChat(ctx context.Context, client openai.Client, params openai.C
 		}
 	}
 	if err := stream.Err(); err != nil {
-		return nil, "", err
+		return nil, "", "", 0, err
 	}
 
 	if sawUsage {
 		acc.Usage = lastUsage
 	}
 
-	return &acc.ChatCompletion, reasoning.String(), nil
+	return &acc.ChatCompletion, reasoning.String(), upstream, cost, nil
 }
 
 // Chat sends a chat completion request to OpenRouter.
@@ -691,7 +692,7 @@ func (p *OpenRouterProvider) Chat(ctx context.Context, req *Request) (ChatResult
 	go func() {
 		defer adapter.Finish()
 
-		chatResp, streamReasoning, err := openAIStreamChat(ctx, p.client, chatReq, adapter, requestOpts...)
+		chatResp, streamReasoning, upstream, cost, err := openAIStreamChat(ctx, p.client, chatReq, adapter, requestOpts...)
 		if err != nil {
 			logger.Error("openrouter request send error", "provider", "openrouter", "err", err)
 			adapter.SetError(fmt.Errorf("request failed: %w", err))
@@ -708,7 +709,6 @@ func (p *OpenRouterProvider) Chat(ctx context.Context, req *Request) (ChatResult
 		toolCalls := fromOpenAIChatToolCalls(choice.Message.ToolCalls)
 		reasoningTokens := chatResp.Usage.CompletionTokensDetails.ReasoningTokens
 		rawMessage := choice.Message.RawJSON()
-		rawResponse := chatResp.RawJSON()
 		reasoningText := extractReasoningText(rawMessage)
 		if reasoningText == "" && streamReasoning != "" {
 			reasoningText = streamReasoning
@@ -718,7 +718,6 @@ func (p *OpenRouterProvider) Chat(ctx context.Context, req *Request) (ChatResult
 		finalContent = resolveContentWithReasoningFallback(finalContent, reasoningText, "openrouter", toolCalls)
 
 		cachedTokens := chatResp.Usage.PromptTokensDetails.CachedTokens
-		upstream, cost := extractOpenRouterMeta(rawResponse)
 		logger.Info(
 			"openrouter response",
 			"provider", "openrouter",
@@ -742,7 +741,6 @@ func (p *OpenRouterProvider) Chat(ctx context.Context, req *Request) (ChatResult
 		logger.Debug(
 			"openrouter raw output",
 			"rawMessage", rawMessage,
-			"rawResponse", rawResponse,
 			"reasoningText", reasoningText,
 		)
 

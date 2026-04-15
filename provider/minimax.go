@@ -196,7 +196,7 @@ func (p *MinimaxProvider) Chat(ctx context.Context, req *Request) (ChatResult, e
 	go func() {
 		defer adapter.Finish()
 
-		chatResp, streamReasoning, err := openAIStreamChat(ctx, p.client, chatReq, adapter, requestOpts...)
+		chatResp, streamReasoning, _, _, err := openAIStreamChat(ctx, p.client, chatReq, adapter, requestOpts...)
 		if err != nil {
 			logger.Error("minimax request send error", "provider", p.providerName, "err", err)
 			adapter.SetError(fmt.Errorf("request failed: %w", err))
