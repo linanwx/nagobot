@@ -21,9 +21,9 @@ func TestNeedSummaryFilter(t *testing.T) {
 		{Key: "discord:big", UpdatedAt: fmtTime(now.Add(-2 * time.Hour)), SummaryAt: fmtTime(now.Add(-36 * time.Hour)), TotalMessages: 700, ChangedSinceSummary: true, MessageCount: 200},
 		// Should INCLUDE: total_messages >500 but summary >2d
 		{Key: "discord:big-stale", UpdatedAt: fmtTime(now.Add(-2 * time.Hour)), SummaryAt: fmtTime(now.Add(-72 * time.Hour)), TotalMessages: 700, ChangedSinceSummary: true, MessageCount: 300},
-		// Should EXCLUDE: thread + updated >12h
+		// Should EXCLUDE: thread (always skipped regardless of updated_at)
 		{Key: "telegram:123:threads:2026-03-31-10-00-00-abc", UpdatedAt: fmtTime(now.Add(-14 * time.Hour)), ChangedSinceSummary: true, MessageCount: 40},
-		// Should INCLUDE: thread + updated <12h
+		// Should EXCLUDE: thread (always skipped regardless of updated_at)
 		{Key: "telegram:123:threads:2026-04-01-18-00-00-def", UpdatedAt: fmtTime(now.Add(-4 * time.Hour)), ChangedSinceSummary: true, MessageCount: 30},
 		// Should INCLUDE: normal session, not recently summarized
 		{Key: "discord:normal", UpdatedAt: fmtTime(now.Add(-5 * time.Hour)), SummaryAt: fmtTime(now.Add(-30 * time.Hour)), TotalMessages: 100, ChangedSinceSummary: true, MessageCount: 100},
@@ -32,7 +32,7 @@ func TestNeedSummaryFilter(t *testing.T) {
 	output := &listSessionsOutput{Sessions: sessions}
 	applyNeedSummaryFilter(output, now)
 
-	wantKeys := []string{"cron:old-task", "discord:big-stale", "telegram:123:threads:2026-04-01-18-00-00-def", "discord:normal"}
+	wantKeys := []string{"cron:old-task", "discord:big-stale", "discord:normal"}
 	if len(output.Sessions) != len(wantKeys) {
 		var gotKeys []string
 		for _, s := range output.Sessions {

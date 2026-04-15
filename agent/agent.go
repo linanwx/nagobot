@@ -12,7 +12,6 @@ import (
 	"time"
 
 	"github.com/linanwx/nagobot/logger"
-	"github.com/linanwx/nagobot/session"
 )
 
 const dateLayout = "2006-01-02 (Monday)"
@@ -287,7 +286,8 @@ func buildGlobal(workspace string) string {
 }
 
 // buildSessionsSummary reads system/sessions_summary.json and formats it for prompt injection.
-// Only sessions whose session.jsonl was modified within the last 2 days are included.
+// Child-thread keys (containing ":threads:") are excluded — only parent sessions get rendered.
+// No time-based filtering: stability of the rendered output is critical for prompt caching.
 func buildSessionsSummary(workspace string) string {
 	if strings.TrimSpace(workspace) == "" {
 		return "(no session summaries available)"
@@ -305,10 +305,6 @@ func buildSessionsSummary(workspace string) string {
 		return "(no session summaries available)"
 	}
 
-	cutoff := time.Now().AddDate(0, 0, -2)
-	sessionsDir := filepath.Join(workspace, "sessions")
-
-	// Sort keys for deterministic output (required for prompt caching).
 	keys := make([]string, 0, len(summaries))
 	for key := range summaries {
 		keys = append(keys, key)
@@ -317,14 +313,11 @@ func buildSessionsSummary(workspace string) string {
 
 	var sb strings.Builder
 	for _, key := range keys {
-		e := summaries[key]
-		if strings.TrimSpace(e.Summary) == "" {
+		if strings.Contains(key, ":threads:") {
 			continue
 		}
-		// Filter by session's last message timestamp (lightweight tail read).
-		sessionPath := filepath.Join(sessionsDir, filepath.FromSlash(strings.ReplaceAll(key, ":", "/")), session.SessionFileName)
-		ts, err := session.ReadUpdatedAt(sessionPath)
-		if err != nil || ts.IsZero() || ts.Before(cutoff) {
+		e := summaries[key]
+		if strings.TrimSpace(e.Summary) == "" {
 			continue
 		}
 		fmt.Fprintf(&sb, "- %s: %s\n", key, e.Summary)

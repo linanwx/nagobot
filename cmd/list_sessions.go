@@ -292,7 +292,7 @@ func applyPostFilters(output *listSessionsOutput, opts listSessionsOpts) {
 //   - updated <1h ago → still active, skip
 //   - cron: + summary <2d → cron changes slowly, skip
 //   - total_messages >500 + summary <24h → large session recently summarized, skip
-//   - :threads: + updated >12h → ephemeral child thread gone stale, skip
+//   - :threads: → always skip (child threads don't get their own summaries)
 func applyNeedSummaryFilter(output *listSessionsOutput, now time.Time) {
 	filtered := output.Sessions[:0]
 	for _, s := range output.Sessions {
@@ -315,8 +315,8 @@ func applyNeedSummaryFilter(output *listSessionsOutput, now time.Time) {
 			continue
 		}
 
-		// Rule 4: child threads — updated >12h ago
-		if strings.Contains(s.Key, ":threads:") && !updatedAt.IsZero() && now.Sub(updatedAt) > 12*time.Hour {
+		// Rule 4: child threads — always skip (threads don't get standalone summaries)
+		if strings.Contains(s.Key, ":threads:") {
 			continue
 		}
 
