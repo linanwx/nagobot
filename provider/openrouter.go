@@ -651,6 +651,20 @@ func (p *OpenRouterProvider) Chat(ctx context.Context, req *Request) (ChatResult
 		)
 	}
 
+	sessionKey := SessionKeyFromContext(ctx)
+	toolsH, toolCount := hashChatToolParams(chatReq.Tools)
+	prefixes := hashChatMessagePrefixes(chatReq.Messages)
+	logger.Info(
+		"openrouter prefix-hash",
+		"provider", "openrouter",
+		"sessionKey", sessionKey,
+		"toolsH", toolsH,
+		"toolCount", toolCount,
+		"msgCount", len(chatReq.Messages),
+		"prefixes", prefixes,
+	)
+	dumpFirstMessage("openrouter", sessionKey, chatReq.Messages)
+
 	resp := &Response{ProviderLabel: "openrouter", ModelLabel: p.modelName}
 	adapter := newStreamAdapter(ctx, resp)
 
