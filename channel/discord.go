@@ -204,10 +204,19 @@ func renderTableAsList(tableLines []string) []string {
 		headers = append(headers, "")
 	}
 
+	rowLabelCol := headers[0] == ""
 	var out []string
 	for i, row := range dataRows {
-		out = append(out, fmt.Sprintf("**%d.**", i+1))
-		for j := 0; j < numCols && j < len(row); j++ {
+		if rowLabelCol && len(row) > 0 && row[0] != "" {
+			out = append(out, fmt.Sprintf("**%d. %s**", i+1, row[0]))
+		} else {
+			out = append(out, fmt.Sprintf("**%d.**", i+1))
+		}
+		startCol := 0
+		if rowLabelCol {
+			startCol = 1
+		}
+		for j := startCol; j < numCols && j < len(row); j++ {
 			h := headers[j]
 			if h == "" {
 				h = fmt.Sprintf("Column %d", j+1)
