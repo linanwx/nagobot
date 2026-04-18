@@ -93,7 +93,7 @@ The heartbeat makes the bot proactive — monitoring conversations and acting on
 A Go goroutine (`heartbeatScheduler`) scans every 30s and fires heartbeat pulses into user sessions. NOT a cron job — the old cron-based dispatcher was removed.
 
 A single skill handles everything:
-- **heartbeat-wake**: decides continue, reflect, or act based on `heartbeat_modified` timestamp. Reflect (silent: updates `heartbeat.md`, calls `sleep_thread()`) and act (visible: evaluates items, sends message or `sleep_thread()`) are inline sections — no nested `use_skill` calls.
+- **heartbeat-wake**: the pulse payload includes a `heartbeat_modified` field and tells the LLM to `use_skill("heartbeat-wake")`. The skill lists priority-ordered actions (follow up on pending work, greet, update USER.md, pick up items from `heartbeat.md`, update `heartbeat.md`, trim `heartbeat.md`, skip) — the LLM picks one per pulse. If no user-facing message was sent, the skill instructs `sleep_thread()` (or `SLEEP_THREAD_OK` fallback) to end silently.
 
 ### Timing
 
@@ -104,7 +104,7 @@ A single skill handles everything:
 
 ### Critical Implementation Details
 
-**Trigger timeline**: The pulse schedule is derived from `lastActive` (user's last message), NOT from `lastPulse`. `latestDueTrigger(lastActive, now)` returns `(trigger, nextInterval)` by iterating growing intervals: `lastActive+15m, +60m, +115m, +180m, ...`. A pulse fires only when the latest trigger point > `lastPulse`. This means `lastPulse` is purely a dedup guard — it prevents re-firing within the same cycle but never determines when the next pulse should be.
+**Trigger timeline**: The pulse schedule is derived from `lastActive` (user's last message), NOT from `lastPulse`. `latestDueTrigger(lastActive, now)` returns `(trigger, nextInterval)` by iterating growing intervals: `lastActive+15m, +60m, +135m, +240m, ...`. A pulse fires only when the latest trigger point > `lastPulse`. This means `lastPulse` is purely a dedup guard — it prevents re-firing within the same cycle but never determines when the next pulse should be.
 
 **State persistence**: `lastPulse` is persisted to `{workspace}/system/heartbeat-state.json`. State survives restarts — no cold-start alignment logic needed.
 
@@ -125,9 +125,8 @@ A single skill handles everything:
 - Wake payload compression (strip redundant YAML fields)
 - Body compression (large system-sender content → head+tail)
 - **Heartbeat turn trim**: marks entire heartbeat turns for removal if `isHeartbeatSkipTurn` returns true:
-  - Requires `sleep_thread` was called (turn was deliberately silent)
-  - AND no non-safe tools were called (safe: `sleep_thread`, `use_skill`, `read_file`, `write_file`)
-  - Turns that sent a message to the user (no sleep_thread) are PRESERVED
+  - Requires `sleep_thread` was called OR the assistant output `SLEEP_THREAD_OK` text fallback (turn was deliberately silent)
+  - Turns that sent a message to the user (no sleep_thread, no SLEEP_THREAD_OK) are PRESERVED
 - Reasoning trim (>2h old reasoning content excluded at send-time)
 
 ### Tier 2 — AI-driven (idle ≥30 min, tokens >65%)
@@ -145,9 +144,9 @@ Heartbeat source matching uses `strings.HasPrefix(source, "heartbeat")` to cover
 - **Agent override**: `WakeMessage.AgentName` overrides the thread's agent for that turn only.
 - **Async child threads**: `SpawnChild()` is fully async. Child completion wakes parent via Sink → Enqueue.
 - **Template workspace**: Canonical templates live in `cmd/templates/`. `onboard --sync` copies to `~/.nagobot/workspace/`. `cleanAndCopyEmbeddedDir` removes deleted templates. Never edit workspace files directly.
-- **Default cron seeds**: Only `tidyup` (4am daily) + `session-summary` (every 6h). Heartbeat is NOT a cron job.
+- **Default cron seeds**: `tidyup` (4am daily), `session-summary` (midnight daily), `memory-summary` (midnight daily), `world-knowledge` (midnight daily). Heartbeat is NOT a cron job.
 - **Prompt caching requires deterministic serialization**: All LLM providers use prefix-based prompt caching (tools → system → messages). Go map iteration is non-deterministic, so any map-derived output that ends up in the LLM request MUST be sorted. Currently sorted: `tools.Registry.Defs()`, `skills.Registry.List()`, `skills.Registry.SkillNames()`, `agent.buildSessionsSummary()`. When adding new map-iterated content to the system prompt or tools array, always sort the output.
-- **Cache monitoring**: `provider.Usage.CachedTokens` flows through `Runner.totalUsage` → `monitor.TurnRecord` → `nagobot monitor --metrics` (per-provider `cacheHitRate`). All providers fill this field from their respective API response (OpenRouter/Moonshot/Zhipu/Minimax: `PromptTokensDetails.CachedTokens`; DeepSeek: `PromptCacheHitTokens`; Anthropic: `CacheReadInputTokens`; OpenAI/Gemini: not available).
+- **Cache monitoring**: `provider.Usage.CachedTokens` flows through `Runner.totalUsage` → `monitor.TurnRecord` → `nagobot monitor --metrics` (per-provider `cacheHitRate`). All providers fill this field from their respective API response (OpenRouter/Moonshot/Zhipu/Minimax/xAI/SiliconFlow: `PromptTokensDetails.CachedTokens`; DeepSeek: `PromptCacheHitTokens`; Anthropic: `CacheReadInputTokens`; OpenAI: `InputTokensDetails.CachedTokens`; Gemini: `CachedContentTokenCount`).
 
 ## Common Pitfalls
 
