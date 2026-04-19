@@ -264,5 +264,6 @@ func buildBalanceCheckers(cfg *config.Config, metricsDir string) []monitor.Balan
 		&monitor.UnsupportedBalance{Name: "minimax-cn", Reason: "no balance API (pay-as-you-go; coding plan keys can use /coding_plan/remains)", KeyFn: keyFn("minimax-cn")},
 		&monitor.UnsupportedBalance{Name: "siliconflow-cn", Reason: "balance API not yet investigated", KeyFn: keyFn("siliconflow-cn")},
 		&monitor.UnsupportedBalance{Name: "siliconflow-global", Reason: "balance API not yet investigated", KeyFn: keyFn("siliconflow-global")},
+		&monitor.UnsupportedBalance{Name: "mimo", Reason: "no public balance API (check at platform.xiaomimimo.com)", KeyFn: keyFn("mimo")},
 	}
 }

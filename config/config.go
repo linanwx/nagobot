@@ -167,6 +167,7 @@ type ProvidersConfig struct {
 	AnthropicOAuth  *OAuthTokenConfig `json:"anthropicOAuth,omitempty" yaml:"anthropicOAuth,omitempty"`
 	Gemini         *ProviderConfig   `json:"gemini,omitempty" yaml:"gemini,omitempty"`
 	XAI            *ProviderConfig   `json:"xai,omitempty" yaml:"xai,omitempty"`
+	MiMo           *ProviderConfig   `json:"mimo,omitempty" yaml:"mimo,omitempty"`
 }
 
 // OAuthTokenConfig stores an OAuth token with optional refresh capability.
@@ -215,6 +216,8 @@ func (p *ProvidersConfig) GetProviderConfig(name string) *ProviderConfig {
 		return p.Gemini
 	case "xai":
 		return p.XAI
+	case "mimo":
+		return p.MiMo
 	}
 	return nil
 }

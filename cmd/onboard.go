@@ -50,6 +50,7 @@ var providerURLs = map[string]string{
 	"siliconflow-cn":     "https://cloud.siliconflow.cn",
 	"siliconflow-global": "https://cloud.siliconflow.com",
 	"xai":                "https://console.x.ai",
+	"mimo":               "https://platform.xiaomimimo.com",
 }
 
 func runOnboard(cmd *cobra.Command, _ []string) error {

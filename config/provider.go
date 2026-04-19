@@ -285,6 +285,8 @@ func (c *Config) EnsureProviderConfigFor(providerName string) *ProviderConfig {
 		c.Providers.Gemini = pc
 	case "xai":
 		c.Providers.XAI = pc
+	case "mimo":
+		c.Providers.MiMo = pc
 	default:
 		return nil
 	}
@@ -441,6 +443,8 @@ func (c *Config) providerConfigEnv() (*ProviderConfig, string, string, error) {
 		return c.Providers.Gemini, "GEMINI_API_KEY", "GEMINI_API_BASE", nil
 	case "xai":
 		return c.Providers.XAI, "XAI_API_KEY", "XAI_API_BASE", nil
+	case "mimo":
+		return c.Providers.MiMo, "MIMO_API_KEY", "MIMO_API_BASE", nil
 	default:
 		return nil, "", "", errors.New("unknown provider: " + c.GetProvider())
 	}
