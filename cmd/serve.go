@@ -197,6 +197,7 @@ func runServe(cmd *cobra.Command, args []string) error {
 	// Register shared tools.
 	threadMgr.RegisterTool(tools.NewWakeThreadTool(threadMgr))
 	threadMgr.RegisterTool(tools.NewCheckThreadTool(threadMgr))
+	threadMgr.RegisterTool(tools.NewCheckSessionTool(threadMgr))
 
 	sigChan := make(chan os.Signal, 1)
 	signal.Notify(sigChan, syscall.SIGINT, syscall.SIGTERM)

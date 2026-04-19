@@ -2,6 +2,7 @@ package thread
 
 import (
 	"context"
+	"os"
 	"path/filepath"
 	"runtime/debug"
 	"strings"
@@ -292,6 +293,44 @@ func (m *Manager) ToolDefs(sessionKey string) ([]provider.ToolDef, bool) {
 		return nil, false
 	}
 	return t.tools.Defs(), true
+}
+
+// SessionStatus returns combined disk + in-memory state for a session key.
+// Both fields are populated independently — a session may exist on disk with
+// no thread loaded, or a thread may be active with no jsonl yet (rare).
+func (m *Manager) SessionStatus(sessionKey string) tools.SessionStatusInfo {
+	sessionKey = strings.TrimSpace(sessionKey)
+	info := tools.SessionStatusInfo{SessionKey: sessionKey}
+	if sessionKey == "" {
+		return info
+	}
+
+	if m.cfg.Sessions != nil {
+		dir := m.SessionDir(sessionKey)
+		info.SessionDir = dir
+		path := m.cfg.Sessions.PathForKey(sessionKey)
+		if st, err := os.Stat(path); err == nil {
+			info.Exists = true
+			info.FileSizeBytes = st.Size()
+			info.LastModified = st.ModTime()
+			if s, readErr := session.ReadFile(path); readErr == nil {
+				info.MessageCount = len(s.Messages)
+			}
+		}
+		if dir != "" {
+			info.Agent = session.MetaAgent(dir)
+		}
+	}
+
+	m.mu.Lock()
+	if t, ok := m.threads[sessionKey]; ok {
+		info.ThreadActive = true
+		ti := threadInfo(t)
+		info.Thread = &ti
+	}
+	m.mu.Unlock()
+
+	return info
 }
 
 // ListThreads returns a summary of all active threads.
