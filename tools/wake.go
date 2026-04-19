@@ -49,8 +49,8 @@ func (t *WakeThreadTool) Def() provider.ToolDef {
 }
 
 type wakeThreadArgs struct {
-	SessionKey string `json:"session_key"`
-	Message    string `json:"message"`
+	SessionKey string `json:"session_key" required:"true"`
+	Message    string `json:"message" required:"true"`
 }
 
 // Run executes the tool.

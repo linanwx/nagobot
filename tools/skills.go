@@ -48,7 +48,7 @@ func (t *UseSkillTool) Def() provider.ToolDef {
 
 // useSkillArgs are the arguments for use_skill.
 type useSkillArgs struct {
-	Name string `json:"name"`
+	Name string `json:"name" required:"true"`
 }
 
 // Run executes the tool.

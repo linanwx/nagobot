@@ -60,7 +60,7 @@ func (t *WebSearchTool) Def() provider.ToolDef {
 
 // webSearchArgs are the arguments for web_search.
 type webSearchArgs struct {
-	Query      string `json:"query"`
+	Query      string `json:"query" required:"true"`
 	MaxResults int    `json:"max_results,omitempty"`
 	Source     string `json:"source,omitempty"`
 }
@@ -205,7 +205,7 @@ func (t *WebFetchTool) Def() provider.ToolDef {
 
 // webFetchArgs are the arguments for web_fetch.
 type webFetchArgs struct {
-	URL    string `json:"url"`
+	URL    string `json:"url" required:"true"`
 	Source string `json:"source,omitempty"`
 	Offset int    `json:"offset,omitempty"`
 	Limit  int    `json:"limit,omitempty"`

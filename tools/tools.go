@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"reflect"
 	"sort"
 	"strings"
 	"time"
@@ -74,9 +75,129 @@ type Tool interface {
 	Run(ctx context.Context, args json.RawMessage) string
 }
 
+// parseArgs decodes a tool's JSON arguments into target with three guards:
+//
+//  1. Alias compat: any field tagged `alias:"foo,bar"` also accepts foo/bar as
+//     input keys (canonical key wins if both are present).
+//  2. Required-non-empty: fields tagged `required:"true"` must not be empty
+//     (empty string / empty slice / empty map / nil pointer triggers an error).
+//  3. Unknown-key rejection: keys that match neither a declared field nor a
+//     declared alias fail fast, so silent-drop bugs (e.g. Go's strings.Count
+//     with "" returning runeCount+1) cannot happen downstream.
+//
+// These checks run centrally so every tool gets them without duplicated code.
 func parseArgs[T any](args json.RawMessage, target *T) string {
-	if err := json.Unmarshal(args, target); err != nil {
+	trimmed := strings.TrimSpace(string(args))
+	if trimmed == "" || trimmed == "null" {
+		args = json.RawMessage("{}")
+	}
+
+	tv := reflect.TypeOf(target).Elem()
+	if tv.Kind() != reflect.Struct {
+		// Non-struct target: fallback to plain unmarshal. None of the built-in
+		// tools hit this path today, but keep it safe.
+		if err := json.Unmarshal(args, target); err != nil {
+			return fmt.Sprintf("Error: invalid arguments: %v", err)
+		}
+		return ""
+	}
+
+	var raw map[string]json.RawMessage
+	if err := json.Unmarshal(args, &raw); err != nil {
 		return fmt.Sprintf("Error: invalid arguments: %v", err)
+	}
+
+	allowed := make(map[string]struct{}, tv.NumField())
+	aliases := make(map[string]string)
+	type reqSpec struct {
+		name  string
+		index int
+	}
+	var required []reqSpec
+
+	for i := 0; i < tv.NumField(); i++ {
+		f := tv.Field(i)
+		jsonTag := f.Tag.Get("json")
+		if jsonTag == "-" {
+			continue
+		}
+		name := strings.SplitN(jsonTag, ",", 2)[0]
+		if name == "" {
+			name = f.Name
+		}
+		allowed[name] = struct{}{}
+
+		if aliasTag := f.Tag.Get("alias"); aliasTag != "" {
+			for _, al := range strings.Split(aliasTag, ",") {
+				al = strings.TrimSpace(al)
+				if al == "" {
+					continue
+				}
+				aliases[al] = name
+			}
+		}
+		if f.Tag.Get("required") == "true" {
+			required = append(required, reqSpec{name: name, index: i})
+		}
+	}
+
+	// Apply aliases: alias → canonical. Canonical wins on conflict.
+	for alias, canonical := range aliases {
+		v, ok := raw[alias]
+		if !ok {
+			continue
+		}
+		if _, exists := raw[canonical]; !exists {
+			raw[canonical] = v
+		}
+		delete(raw, alias)
+	}
+
+	// Reject unknown keys after alias rewrite.
+	var unknown []string
+	for k := range raw {
+		if _, ok := allowed[k]; !ok {
+			unknown = append(unknown, k)
+		}
+	}
+	if len(unknown) > 0 {
+		sort.Strings(unknown)
+		allowedList := make([]string, 0, len(allowed))
+		for k := range allowed {
+			allowedList = append(allowedList, k)
+		}
+		sort.Strings(allowedList)
+		return fmt.Sprintf("Error: unknown argument(s): %s (allowed: %s)",
+			strings.Join(unknown, ", "), strings.Join(allowedList, ", "))
+	}
+
+	normalized, err := json.Marshal(raw)
+	if err != nil {
+		return fmt.Sprintf("Error: failed to normalize arguments: %v", err)
+	}
+	if err := json.Unmarshal(normalized, target); err != nil {
+		return fmt.Sprintf("Error: invalid arguments: %v", err)
+	}
+
+	vv := reflect.ValueOf(target).Elem()
+	var missing []string
+	for _, r := range required {
+		fv := vv.Field(r.index)
+		empty := false
+		switch fv.Kind() {
+		case reflect.String, reflect.Slice, reflect.Map, reflect.Array:
+			empty = fv.Len() == 0
+		case reflect.Ptr, reflect.Interface:
+			empty = fv.IsNil()
+		}
+		if empty {
+			missing = append(missing, r.name)
+		}
+	}
+	if len(missing) > 0 {
+		sort.Strings(missing)
+		return fmt.Sprintf("Error: missing or empty required argument(s): %s",
+			strings.Join(missing, ", "))
 	}
 	return ""
 }

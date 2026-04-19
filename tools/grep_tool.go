@@ -57,7 +57,7 @@ func (t *GrepTool) Def() provider.ToolDef {
 }
 
 type grepArgs struct {
-	Pattern         string `json:"pattern"`
+	Pattern         string `json:"pattern" required:"true"`
 	Path            string `json:"path,omitempty"`
 	Include         string `json:"include,omitempty"`
 	MaxResults      int    `json:"max_results,omitempty"`

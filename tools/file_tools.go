@@ -69,7 +69,7 @@ func (t *ReadFileTool) Def() provider.ToolDef {
 
 // readFileArgs are the arguments for read_file.
 type readFileArgs struct {
-	Path   string `json:"path"`
+	Path   string `json:"path" required:"true"`
 	Offset int    `json:"offset,omitempty"`
 	Limit  int    `json:"limit,omitempty"`
 	Tail   int    `json:"tail,omitempty"`
@@ -269,7 +269,7 @@ func (t *WriteFileTool) Def() provider.ToolDef {
 
 // writeFileArgs are the arguments for write_file.
 type writeFileArgs struct {
-	Path    string `json:"path"`
+	Path    string `json:"path" required:"true"`
 	Content string `json:"content"`
 }
 
@@ -352,10 +352,12 @@ func (t *EditFileTool) Def() provider.ToolDef {
 }
 
 // editFileArgs are the arguments for edit_file.
+// new_text may be empty (meaning "delete the matched text"), so it is not
+// marked required here even though the schema lists it as required.
 type editFileArgs struct {
-	Path       string `json:"path"`
-	OldText    string `json:"old_text"`
-	NewText    string `json:"new_text"`
+	Path       string `json:"path" required:"true"`
+	OldText    string `json:"old_text" required:"true" alias:"old_string"`
+	NewText    string `json:"new_text" alias:"new_string"`
 	ReplaceAll bool   `json:"replace_all,omitempty"`
 }
 

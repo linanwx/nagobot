@@ -77,7 +77,7 @@ func (t *SpawnThreadTool) Def() provider.ToolDef {
 
 type spawnThreadArgs struct {
 	Agent       string `json:"agent"`
-	Task        string `json:"task"`
+	Task        string `json:"task" required:"true"`
 	EnableFork  bool   `json:"enable_fork"`
 	ForkPurpose string `json:"fork_purpose"`
 }
@@ -182,7 +182,7 @@ func (t *CheckThreadTool) Def() provider.ToolDef {
 }
 
 type checkThreadArgs struct {
-	ThreadID string `json:"thread_id"`
+	ThreadID string `json:"thread_id" required:"true"`
 }
 
 // Run executes the tool.

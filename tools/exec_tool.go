@@ -87,7 +87,7 @@ func (t *ExecTool) Def() provider.ToolDef {
 
 // execArgs are the arguments for exec.
 type execArgs struct {
-	Command string `json:"command"`
+	Command string `json:"command" required:"true"`
 	Workdir string `json:"workdir,omitempty"`
 	Timeout int    `json:"timeout,omitempty"`
 	Confirm string `json:"confirm,omitempty"`

@@ -44,7 +44,7 @@ func (t *GlobTool) Def() provider.ToolDef {
 }
 
 type globArgs struct {
-	Pattern string `json:"pattern"`
+	Pattern string `json:"pattern" required:"true"`
 	Path    string `json:"path,omitempty"`
 }
 
