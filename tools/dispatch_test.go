@@ -11,10 +11,12 @@ import (
 type mockDispatchHost struct {
 	currentKey    string
 	callerKey     string
+	userFacing    bool
 	agents        map[string]bool
 	sessions      map[string]bool
 	halted        bool
 	sentToCaller  string
+	sentToUser    string
 	subagentCalls []subagentCall
 	forkCalls     []subagentCall
 	wokeSessions  []wakeCall
@@ -31,6 +33,7 @@ type wakeCall struct {
 
 func (m *mockDispatchHost) CurrentSessionKey() string { return m.currentKey }
 func (m *mockDispatchHost) CallerSessionKey() string  { return m.callerKey }
+func (m *mockDispatchHost) IsUserFacing() bool        { return m.userFacing }
 func (m *mockDispatchHost) AgentExists(name string) bool {
 	return m.agents[name]
 }
@@ -39,6 +42,10 @@ func (m *mockDispatchHost) SessionExists(key string) bool {
 }
 func (m *mockDispatchHost) SendToCaller(_ context.Context, body string) error {
 	m.sentToCaller = body
+	return nil
+}
+func (m *mockDispatchHost) SendToUser(_ context.Context, body string) error {
+	m.sentToUser = body
 	return nil
 }
 func (m *mockDispatchHost) CreateOrWakeSubagent(_ context.Context, agent, taskID, body string) (string, string, error) {
@@ -132,6 +139,46 @@ func TestDispatch_CallerRequiresRoutableCaller(t *testing.T) {
 	}
 	if host.halted {
 		t.Error("expected not-halted on validation error")
+	}
+}
+
+func TestDispatch_User(t *testing.T) {
+	host := &mockDispatchHost{currentKey: "telegram:42", userFacing: true}
+	outcome, _ := runDispatch(t, host, `{"sends": [{"to": "user", "body": "ping"}]}`)
+	if outcome != "turn-terminated" {
+		t.Fatalf("outcome=%q", outcome)
+	}
+	if host.sentToUser != "ping" {
+		t.Errorf("user delivery: %q", host.sentToUser)
+	}
+}
+
+func TestDispatch_UserRejectedForNonUserFacing(t *testing.T) {
+	host := &mockDispatchHost{currentKey: "cli:threads:bg", userFacing: false}
+	_, res := runDispatch(t, host, `{"sends": [{"to": "user", "body": "ping"}]}`)
+	if !strings.Contains(res, "not user-facing") {
+		t.Errorf("expected not-user-facing error, got: %s", res)
+	}
+}
+
+func TestDispatch_CallerAndUserCoexist(t *testing.T) {
+	host := &mockDispatchHost{
+		currentKey: "telegram:42",
+		callerKey:  "cli", // caller is another session (not the user)
+		userFacing: true,
+	}
+	outcome, _ := runDispatch(t, host, `{"sends": [
+		{"to": "caller", "body": "back to waker"},
+		{"to": "user", "body": "to channel user"}
+	]}`)
+	if outcome != "turn-terminated" {
+		t.Fatalf("outcome=%q", outcome)
+	}
+	if host.sentToCaller != "back to waker" {
+		t.Errorf("caller: %q", host.sentToCaller)
+	}
+	if host.sentToUser != "to channel user" {
+		t.Errorf("user: %q", host.sentToUser)
 	}
 }
 

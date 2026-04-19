@@ -15,6 +15,7 @@ type DispatchTarget string
 
 const (
 	TargetCaller   DispatchTarget = "caller"
+	TargetUser     DispatchTarget = "user"
 	TargetSubagent DispatchTarget = "subagent"
 	TargetFork     DispatchTarget = "fork"
 	TargetSession  DispatchTarget = "session"
@@ -35,9 +36,13 @@ type DispatchHost interface {
 	// CallerSessionKey returns the session key of the current wake's caller
 	// when addressable; empty for system sources (cron/heartbeat/child/compression).
 	CallerSessionKey() string
+	// IsUserFacing reports whether this session has a channel user sink
+	// (telegram/discord/cli/web/feishu/wecom). Required for to=user.
+	IsUserFacing() bool
 	AgentExists(name string) bool
 	SessionExists(key string) bool
 	SendToCaller(ctx context.Context, body string) error
+	SendToUser(ctx context.Context, body string) error
 	CreateOrWakeSubagent(ctx context.Context, agent, taskID, body string) (sessionKey, note string, err error)
 	CreateOrWakeFork(ctx context.Context, agent, taskID, body string) (sessionKey, note string, err error)
 	WakeSession(ctx context.Context, sessionKey, body string) error
@@ -62,10 +67,11 @@ func (t *DispatchTool) Def() provider.ToolDef {
 			Name: "dispatch",
 			Description: "Turn-terminating routing primitive. Call this at the end of every turn to declare where output goes. " +
 				"Each entry in `sends` has a `to` field selecting the target:\n" +
-				"- caller: reply to whoever woke this thread. Fields: body.\n" +
+				"- caller: reply to whoever woke this turn (the current wake's sink). For real user-message turns this is the user. For cross-session wakes (to=session) this is the originating session, not the channel user.\n" +
+				"- user: reply to the channel user via this session's user-channel sink. Only valid for user-facing sessions (telegram/discord/cli/web/feishu/wecom). Distinct from caller — useful when a non-user source (another session) woke you and you want to proactively message your user instead of replying to the waker.\n" +
 				"- subagent: spawn a new subagent thread, or wake existing at same task_id. Fields: agent (optional), task_id, body.\n" +
 				"- fork: branch current session as new agent thread, or wake existing at same task_id. Fields: agent (optional), task_id, body.\n" +
-				"- session: wake an existing session. Fields: session_key, body.\n\n" +
+				"- session: wake an existing session. Fields: session_key, body. The target receives the body and its own dispatch(to=caller) routes back to YOUR session.\n\n" +
 				"Empty sends — dispatch({}) — is silent turn termination; nothing delivered, history recorded. " +
 				"On success the turn ends. On validation error the turn continues — fix and re-call. " +
 				"Scheduling is not supported here; use cron for future wakes.",
@@ -80,7 +86,7 @@ func (t *DispatchTool) Def() provider.ToolDef {
 							"properties": map[string]any{
 								"to": map[string]any{
 									"type":        "string",
-									"enum":        []string{"caller", "subagent", "fork", "session"},
+									"enum":        []string{"caller", "user", "subagent", "fork", "session"},
 									"description": "Target kind.",
 								},
 								"body": map[string]any{
@@ -222,6 +228,13 @@ func (t *DispatchTool) validateOne(send DispatchSend, currentSession string) str
 		if t.host.CallerSessionKey() == "" {
 			return "current wake has no routable caller (system source like cron/heartbeat/child)"
 		}
+	case TargetUser:
+		if send.Agent != "" || send.TaskID != "" || send.SessionKey != "" {
+			return "user does not accept agent/task_id/session_key"
+		}
+		if !t.host.IsUserFacing() {
+			return "current session is not user-facing — to=user is only valid for telegram/discord/cli/web/feishu/wecom sessions"
+		}
 	case TargetSubagent, TargetFork:
 		if send.SessionKey != "" {
 			return fmt.Sprintf("%s does not accept session_key", send.To)
@@ -259,6 +272,8 @@ func targetKey(send DispatchSend, currentSession string) string {
 	switch send.To {
 	case TargetCaller:
 		return "caller" // at most one caller per batch
+	case TargetUser:
+		return "user" // at most one user per batch
 	case TargetSubagent:
 		return currentSession + ":threads:" + send.TaskID
 	case TargetFork:
@@ -277,6 +292,11 @@ func (t *DispatchTool) execute(ctx context.Context, send DispatchSend) (Executed
 			return ExecutedItem{}, err
 		}
 		return ExecutedItem{To: TargetCaller, SessionKey: t.host.CallerSessionKey()}, nil
+	case TargetUser:
+		if err := t.host.SendToUser(ctx, send.Body); err != nil {
+			return ExecutedItem{}, err
+		}
+		return ExecutedItem{To: TargetUser, SessionKey: t.host.CurrentSessionKey()}, nil
 	case TargetSubagent:
 		key, note, err := t.host.CreateOrWakeSubagent(ctx, send.Agent, send.TaskID, send.Body)
 		if err != nil {

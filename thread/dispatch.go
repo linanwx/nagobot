@@ -8,6 +8,7 @@ import (
 
 	"github.com/linanwx/nagobot/logger"
 	"github.com/linanwx/nagobot/session"
+	"github.com/linanwx/nagobot/thread/msg"
 )
 
 // CurrentSessionKey returns this thread's session key.
@@ -129,15 +130,87 @@ func (t *Thread) CreateOrWakeFork(_ context.Context, agentName, taskID, body str
 }
 
 // WakeSession wakes an existing session with body as an external message.
+// The wake carries a per-wake sink that routes the target's reply back to
+// THIS thread's session — so the target's `dispatch(to=caller)` returns to us,
+// not to the target's own channel user.
 func (t *Thread) WakeSession(_ context.Context, sessionKey, body string) error {
 	if t.mgr == nil {
 		return fmt.Errorf("manager not configured")
 	}
+	sinkToWaker := t.buildSinkToCaller(sessionKey)
 	t.mgr.Wake(sessionKey, &WakeMessage{
 		Source:  WakeExternal,
 		Message: body,
+		Sink:    sinkToWaker,
 	})
 	return nil
+}
+
+// buildSinkToCaller constructs a sink that wakes THIS thread's session with the
+// response wrapped as a "session_reply" system message. Used as the per-wake sink
+// when this thread dispatches to=session at another session.
+func (t *Thread) buildSinkToCaller(targetSession string) Sink {
+	wakerKey := t.sessionKey
+	mgr := t.mgr
+	return Sink{
+		Label: "your reply will be forwarded to caller session " + wakerKey,
+		Send: func(_ context.Context, response string) error {
+			response = strings.TrimSpace(response)
+			if response == "" {
+				return nil
+			}
+			wakeMsg := msg.BuildSystemMessage("session_reply", map[string]string{
+				"from_session": targetSession,
+			}, response)
+			mgr.Wake(wakerKey, &WakeMessage{
+				Source:  WakeExternal,
+				Message: wakeMsg,
+			})
+			return nil
+		},
+	}
+}
+
+// SendToUser delivers body via the channel user sink (this session's
+// defaultSink). Only valid for user-facing sessions where defaultSink is
+// the outbound channel sink.
+func (t *Thread) SendToUser(ctx context.Context, body string) error {
+	if !t.IsUserFacing() {
+		return fmt.Errorf("session %q is not user-facing — no channel user sink", t.sessionKey)
+	}
+	t.mu.Lock()
+	sink := t.defaultSink
+	t.mu.Unlock()
+	if sink.IsZero() {
+		return fmt.Errorf("session %q defaultSink is unset", t.sessionKey)
+	}
+	return sink.Send(ctx, body)
+}
+
+// IsUserFacing reports whether this session's defaultSink is a user-channel sink
+// (telegram / discord / cli / web / feishu / wecom). Subagent / fork / cron /
+// heartbeat sessions return false because their defaultSink routes elsewhere
+// (parent thread, wake_session target, or silent).
+func (t *Thread) IsUserFacing() bool {
+	key := strings.TrimSpace(t.sessionKey)
+	if key == "" {
+		return false
+	}
+	if strings.Contains(key, ":threads:") || strings.Contains(key, ":fork:") {
+		return false
+	}
+	if strings.HasPrefix(key, "cron:") || strings.HasPrefix(key, "heartbeat") {
+		return false
+	}
+	if key == "cli" || key == "web" {
+		return true
+	}
+	for _, prefix := range []string{"telegram:", "discord:", "feishu:", "wecom:", "web:"} {
+		if strings.HasPrefix(key, prefix) {
+			return true
+		}
+	}
+	return false
 }
 
 // SignalHalt marks the current turn for termination after the tool returns.

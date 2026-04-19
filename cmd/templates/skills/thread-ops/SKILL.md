@@ -13,10 +13,11 @@ Threads are execution units that bind a session to an agent. Each thread has an 
 
 The single turn-terminating routing primitive. Call it at the end of a turn to declare where your output goes. Each entry in `sends` has a `to` field selecting the target:
 
-- **`caller`** — reply to whoever woke this thread (same as the default sink). Fields: `body`.
+- **`caller`** — reply to whoever woke this turn. For real user-message turns this is the user; for cross-session wakes (someone called `dispatch(to=session)` at you) this is the originating session, **not** your channel user. Fields: `body`.
+- **`user`** — reply to your channel user via your session's user-channel sink. Only valid for user-facing sessions (`telegram:*` / `discord:*` / `cli` / `web` / `feishu:*` / `wecom:*`). Distinct from `caller`: useful when a non-user source (cron, heartbeat, another session) woke you and you want to proactively message your user instead of replying to the waker. Fields: `body`.
 - **`subagent`** — spawn a new subagent thread, or wake the existing one at the same `task_id`. Fields: `agent` (optional — falls back to session default), `task_id` (required, `[a-z0-9_-]+`), `body`.
 - **`fork`** — branch the current session as a new agent thread with stripped history inherited, or wake the existing one at the same `task_id`. Fields: `agent` (optional), `task_id`, `body`.
-- **`session`** — wake an existing session by key. Fields: `session_key`, `body`.
+- **`session`** — wake an existing session by key. Fields: `session_key`, `body`. The target receives the body and its own `dispatch(to=caller)` routes back to **your** session (not the target's channel user).
 
 ```
 tool_call: dispatch(sends=[
