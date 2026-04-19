@@ -65,17 +65,6 @@ tool_call: sleep_thread(duration="30m", message="Check back on user", skip=false
 
 **Note:** When called during a heartbeat turn (source: `heartbeat`), `sleep_thread` ignores all parameters and acts as a simple terminate+suppress. The heartbeat scheduler handles the next pulse automatically.
 
-### wake_thread
-
-Wake another thread by session key with an injected message. Equivalent to `dispatch(sends=[{to: "session", session_key, body}])` — either form works.
-
-```
-tool_call: wake_thread(session_key="telegram:12345", message="<instruction for target LLM>")
-```
-
-- `session_key` (required): Target session (e.g. `telegram:12345`, `discord:67890`, `cli`). A thread is auto-created if needed.
-- `message` (required): Instruction for the target thread's LLM. Write as an AI-to-AI instruction, not user-facing text.
-
 ### health
 
 List all active threads and system status.
