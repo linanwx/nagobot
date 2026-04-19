@@ -134,6 +134,7 @@ type Thread struct {
 	lastWakeSource   msg.WakeSource // Source of the most recent wake (set at RunOnce start).
 	suppressSink bool      // When true, RunOnce skips sink delivery (reset after each turn).
 	haltLoop     bool      // When true, Runner stops after current tool calls complete.
+	currentSink  Sink      // Current turn's active sink (set by run(), cleared on turn end). Used by dispatch(to=caller).
 
 	execMetrics      *ExecMetrics // Non-nil only while a turn is executing.
 	lastCompressAttemptAt time.Time // Last time tier 2 compression was enqueued (prevents duplicate enqueue).

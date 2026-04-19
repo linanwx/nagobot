@@ -8,7 +8,6 @@ import (
 
 	"github.com/linanwx/nagobot/logger"
 	"github.com/linanwx/nagobot/session"
-	"github.com/linanwx/nagobot/thread/msg"
 )
 
 // CurrentSessionKey returns this thread's session key.
@@ -16,18 +15,19 @@ func (t *Thread) CurrentSessionKey() string {
 	return t.sessionKey
 }
 
-// CallerSessionKey returns the session key of whoever woke this thread when
-// addressable — i.e. a real user channel (telegram/discord/cli/web/feishu/wecom).
-// System sources (cron, heartbeat, child_completed, compression, etc.) return
-// empty, signalling "no routable caller".
+// CallerSessionKey returns an informational tag identifying the caller, when
+// the current wake has a routable sink. Returns empty if no sink is active
+// (e.g. cron, heartbeat, compression, or child_completed with nil sink).
+// The actual delivery target is the sink itself; the returned key is just
+// context for dispatch result formatting.
 func (t *Thread) CallerSessionKey() string {
 	t.mu.Lock()
-	source := t.lastWakeSource
+	hasSink := !t.currentSink.IsZero()
 	t.mu.Unlock()
-	if msg.IsUserVisibleSource(source) {
-		return t.sessionKey
+	if !hasSink {
+		return ""
 	}
-	return ""
+	return t.sessionKey
 }
 
 // AgentExists reports whether a template with the given name is registered.
@@ -61,22 +61,19 @@ func (t *Thread) SessionExists(key string) bool {
 	return err == nil
 }
 
-// SendToCaller delivers body to the caller session via a wake message.
-// The source is WakeExternal (a generic inter-session message) so the caller
-// thread treats it as an injected system message.
-func (t *Thread) SendToCaller(_ context.Context, body string) error {
-	caller := t.CallerSessionKey()
-	if caller == "" {
-		return fmt.Errorf("no routable caller for current wake")
+// SendToCaller delivers body directly to the current wake's sink —
+// the same path as the default end-of-turn response delivery. Equivalent to
+// "reply to whoever woke me". Suppresses the runner's end-of-turn sink delivery
+// (via SetSuppressSink) so body is not double-delivered.
+func (t *Thread) SendToCaller(ctx context.Context, body string) error {
+	t.mu.Lock()
+	sink := t.currentSink
+	t.mu.Unlock()
+	if sink.IsZero() {
+		return fmt.Errorf("current wake has no sink (cron/heartbeat/child source)")
 	}
-	if t.mgr == nil {
-		return fmt.Errorf("manager not configured")
-	}
-	t.mgr.Wake(caller, &WakeMessage{
-		Source:  WakeExternal,
-		Message: body,
-	})
-	return nil
+	t.SetSuppressSink()
+	return sink.Send(ctx, body)
 }
 
 // CreateOrWakeSubagent creates (or wakes existing) a subagent thread at

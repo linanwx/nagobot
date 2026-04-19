@@ -67,6 +67,14 @@ func (t *Thread) run(ctx context.Context, userMessage string, sink Sink, injectF
 		PDFReaderConfigured:   cfg.Agents != nil && cfg.Agents.Def("pdfreader") != nil,
 	})
 	t.resetHaltLoop()
+	t.mu.Lock()
+	t.currentSink = sink
+	t.mu.Unlock()
+	defer func() {
+		t.mu.Lock()
+		t.currentSink = Sink{}
+		t.mu.Unlock()
+	}()
 	p := t.resolveProvider()
 	if p == nil {
 		return noProviderMessage(), nil
