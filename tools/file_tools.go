@@ -134,8 +134,8 @@ func (t *ReadFileTool) handleImage(ctx context.Context, absPath, mimeType string
 		}
 		return toolResult("read_file", fields,
 			"This is an image file. You cannot view images directly. "+
-				"Use the spawn_thread tool to delegate to the 'imagereader' agent, "+
-				"passing the original user message as the task.")
+				"Use dispatch with to=subagent, agent='imagereader', and pass the original user message as the body. "+
+				"Pick a descriptive task_id (e.g. 'read-image-<short-name>').")
 	}
 	return toolResult("read_file", fields, fmt.Sprintf("<<media:%s:%s>>", mimeType, absPath))
 }
@@ -153,8 +153,8 @@ func (t *ReadFileTool) handleAudio(ctx context.Context, absPath, mimeType string
 		}
 		return toolResult("read_file", fields,
 			"This is an audio file. You cannot listen to audio directly. "+
-				"Use the spawn_thread tool to delegate to the 'audioreader' agent, "+
-				"passing the audio file path as the task.")
+				"Use dispatch with to=subagent, agent='audioreader', and pass the audio file path as the body. "+
+				"Pick a descriptive task_id (e.g. 'read-audio-<short-name>').")
 	}
 	return toolResult("read_file", fields, fmt.Sprintf("<<media:%s:%s>>", mimeType, absPath))
 }
@@ -172,8 +172,8 @@ func (t *ReadFileTool) handlePDF(ctx context.Context, absPath, mimeType string, 
 		}
 		return toolResult("read_file", fields,
 			"This is a PDF document. You cannot read PDFs directly. "+
-				"Use the spawn_thread tool to delegate to the 'pdfreader' agent, "+
-				"passing the original user message as the task.")
+				"Use dispatch with to=subagent, agent='pdfreader', and pass the original user message as the body. "+
+				"Pick a descriptive task_id (e.g. 'read-pdf-<short-name>').")
 	}
 	return toolResult("read_file", fields, fmt.Sprintf("<<media:%s:%s>>", mimeType, absPath))
 }

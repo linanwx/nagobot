@@ -13,7 +13,7 @@ import (
 
 // AgentDef represents an agent template file under workspace/agents.
 type AgentDef struct {
-	Name             string // Callable name used by spawn_thread.agent
+	Name             string // Callable name used by dispatch(to=subagent|fork).agent
 	Description      string // Short description shown in system prompt context
 	Specialty        string // Agent specialty declared in frontmatter (e.g. "chat", "toolcall")
 	Provider         string // Provider name declared in frontmatter (optional, used for model-pinned agents)
@@ -210,7 +210,7 @@ func (r *AgentRegistry) BuildPromptSection() string {
 	})
 
 	var sb strings.Builder
-	sb.WriteString("Available agents (for spawn_thread.agent):\n")
+	sb.WriteString("Available agents (use with dispatch to=subagent|fork, agent=<name>):\n")
 	for _, def := range defs {
 		if def.Description != "" {
 			sb.WriteString(fmt.Sprintf("- %s: %s\n", def.Name, def.Description))

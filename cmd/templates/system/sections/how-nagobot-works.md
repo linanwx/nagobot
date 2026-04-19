@@ -8,7 +8,7 @@ A channel is a message input/output component. `cli`, `telegram`, and `cron` are
 
 A session is a chat history made of a series of messages. A session is identified by a session key. For example, a Telegram session key is `telegram:<user_id>`.
 
-A thread is an object used to run LLM reasoning. It can be created or resumed by user messages, by another thread via `spawn_thread`, or by cron when waking a cron session. In general, if a wake targets a session that does not exist yet, a new thread is created and bound to that session. Idle threads are reclaimed after a period of inactivity.
+A thread is an object used to run LLM reasoning. It can be created or resumed by user messages, by another thread via `dispatch` (with `to=subagent`, `to=fork`, or `to=session`), or by cron when waking a cron session. In general, if a wake targets a session that does not exist yet, a new thread is created and bound to that session. Idle threads are reclaimed after a period of inactivity.
 
 A sink defines how a thread's output is finally delivered after reasoning. For specific sessions such as Telegram, the thread holds a default sink that sends messages to the Telegram user. For cron, if a wake session is configured, its sink performs an extra wake action and pushes to the target session.
 
