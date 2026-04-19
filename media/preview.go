@@ -207,7 +207,7 @@ func buildPreviewPrompt(filePath string, mediaType MediaType) (string, string) {
 		if mimeType == "" {
 			mimeType = "image/jpeg"
 		}
-		return "Describe this image. If it contains text (screenshots, documents, UI, code, chat, handwriting, signs, etc.), transcribe ALL visible text verbatim, preserving structure and reading order. Otherwise, describe the scene, key objects, people, and any notable details factually. Output ONLY the content, nothing else.", mimeType
+		return "Describe this image. ALWAYS start by stating what the image is and its context (e.g., \"a screenshot of an iOS music app showing...\", \"a photo of a street sign reading...\", \"a chat screenshot from WeChat containing...\"). Then include key visual details (layout, objects, people, scene). If text is visible, transcribe ALL text verbatim after the context description, preserving structure and reading order. Never output raw text alone without describing the image first. Output ONLY the description, nothing else.", mimeType
 	}
 }
 
