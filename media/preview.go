@@ -127,7 +127,7 @@ func (p *LLMPreviewer) Preview(ctx context.Context, filePath string, mediaType M
 		return "", fmt.Errorf("API key empty for preview provider %s", selectedCandidate.ProviderName)
 	}
 	apiBase := provider.ProviderAPIBaseForPreview(cfg, selectedCandidate.ProviderName)
-	prov := reg.Constructor(apiKey, apiBase, selectedCandidate.ModelType, selectedCandidate.ModelType, 256, 0.3)
+	prov := reg.Constructor(apiKey, apiBase, selectedCandidate.ModelType, selectedCandidate.ModelType, 1024, 0.3)
 
 	// Apply timeout.
 	ctx, cancel := context.WithTimeout(ctx, PreviewTimeout)
@@ -207,7 +207,7 @@ func buildPreviewPrompt(filePath string, mediaType MediaType) (string, string) {
 		if mimeType == "" {
 			mimeType = "image/jpeg"
 		}
-		return "Describe this image in one sentence. Be concise and factual. Output ONLY the description, nothing else.", mimeType
+		return "Describe this image. If it contains text (screenshots, documents, UI, code, chat, handwriting, signs, etc.), transcribe ALL visible text verbatim, preserving structure and reading order. Otherwise, describe the scene, key objects, people, and any notable details factually. Output ONLY the content, nothing else.", mimeType
 	}
 }
 
