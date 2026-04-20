@@ -380,50 +380,72 @@ end tell
 
 ## Mail
 
-### List Recent Inbox Messages
+Two layers:
+- **AppleScript** for send-side (create draft) and small counters — simple and native.
+- **`mail.py` (disk-first Python script)** for search, read, and stats — reads
+  `.emlx` files directly under `~/Library/Mail/V*/`, bypasses AppleScript
+  entirely. Tested at 20k messages: full-body search ~8s, subject search ~1s;
+  AppleScript equivalents timeout or take 70s+.
+
+| Task | Use |
+|------|-----|
+| List recent N messages | `mail.py recent --limit N` |
+| Search subject/from/body | `mail.py search <kw> --in {subject,from,body,all}` |
+| Read a specific email | `mail.py read <emlx_path>` |
+| Mailbox stats | `mail.py stats` |
+| Count unread (quick) | AppleScript `unread count of inbox` |
+| Create draft | AppleScript `make new outgoing message` |
+| Trigger mail fetch | AppleScript `check for new mail` |
+
+### Search / Read via `mail.py`
+
+```
+exec: {{WORKSPACE}}/scripts/mail.py stats
+```
+
+```
+exec: {{WORKSPACE}}/scripts/mail.py recent --limit 20
+```
+
+Output (TSV): `mtime \t from \t subject \t path`. Use `path` as input to `read`.
+
+```
+exec: {{WORKSPACE}}/scripts/mail.py search "visa" --in all --limit 10
+```
+
+Scopes:
+- `--in subject` (default): fastest, scans only headers (first 8KB per file)
+- `--in from`: header scan
+- `--in body`: full-file read, ~8s for 20k inbox worst case
+- `--in all`: subject → from → body short-circuit
+
+Scope to a mailbox (substring match on path):
+```
+exec: {{WORKSPACE}}/scripts/mail.py search "invoice" --mailbox Spam --limit 5
+```
+
+Read one email once you have the `.emlx` path:
+```
+exec: {{WORKSPACE}}/scripts/mail.py read "/Users/linan/Library/Mail/V10/.../20872.emlx"
+```
+
+### Count Unread (AppleScript — tracked counter, instant)
 
 ```
 exec: osascript -e '
 tell application "Mail"
-    set output to ""
-    set msgs to messages 1 thru 10 of inbox
-    repeat with msg in msgs
-        set isRead to read status of msg
-        set readMark to "  "
-        if not isRead then set readMark to "● "
-        set output to output & readMark & (date string of (date received of msg)) & " " & (time string of (date received of msg)) & " | " & sender of msg & " | " & subject of msg & linefeed
-    end repeat
-    return output
+    return "Unread: " & (unread count of inbox)
 end tell
 '
 ```
 
-### Count Unread
+**DO NOT use `count of (messages of inbox whose read status is false)`** —
+`read status` is a non-indexed boolean, forcing a full scan. Measured ~71s on
+a 17k-message inbox, commonly trips Mail's internal AppleEvent timeout. The
+tracked `unread count` may drift slightly from a scan but is the right
+primitive for a quick check.
 
-```
-exec: osascript -e '
-tell application "Mail"
-    return "Unread: " & (count of (messages of inbox whose read status is false))
-end tell
-'
-```
-
-### Read Email by Subject
-
-```
-exec: osascript -e '
-tell application "Mail"
-    set msgs to (messages of inbox whose subject contains "SEARCH_SUBJECT")
-    if (count of msgs) > 0 then
-        set msg to item 1 of msgs
-        return "From: " & sender of msg & linefeed & "Date: " & (date received of msg as text) & linefeed & "Subject: " & subject of msg & linefeed & "---" & linefeed & (content of msg)
-    end if
-    return "Not found."
-end tell
-'
-```
-
-### Create Draft
+### Create Draft (AppleScript)
 
 ```
 exec: osascript -e '
@@ -437,7 +459,10 @@ end tell
 '
 ```
 
-### Check for New Mail
+`visible:true` opens the compose window for user confirmation (recommended
+default). The user clicks Send — the script never sends on its own.
+
+### Check for New Mail (AppleScript)
 
 ```
 exec: osascript -e '
