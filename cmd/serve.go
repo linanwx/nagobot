@@ -302,8 +302,9 @@ func buildDefaultSinkFor(chMgr *channel.Manager, cfg *config.Config, sessionsDir
 						"child_session": sessionKey,
 					}, strings.TrimSpace(response))
 					wakeFn(parentKey, &thread.WakeMessage{
-						Source:  thread.WakeChildCompleted,
-						Message: wakeMsg,
+						Source:           thread.WakeSession,
+						Message:          wakeMsg,
+						CallerSessionKey: sessionKey,
 					})
 					return nil
 				},

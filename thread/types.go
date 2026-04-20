@@ -50,6 +50,7 @@ const (
 	WakeUserActive     = msg.WakeUserActive
 	WakeChildTask      = msg.WakeChildTask
 	WakeChildCompleted = msg.WakeChildCompleted
+	WakeSession        = msg.WakeSession
 	WakeSleepCompleted = msg.WakeSleepCompleted
 	WakeCron           = msg.WakeCron
 	WakeCronFinished   = msg.WakeCronFinished

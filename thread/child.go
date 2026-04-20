@@ -61,8 +61,9 @@ func (t *Thread) SpawnChild(ctx context.Context, agentName string, task string, 
 			}
 			message := msg.BuildSystemMessage("child_completed", fields, content)
 			parentThread.Enqueue(&WakeMessage{
-				Source:  WakeChildCompleted,
-				Message: message,
+				Source:           WakeSession,
+				Message:          message,
+				CallerSessionKey: child.sessionKey,
 			})
 			return nil
 		},
@@ -70,9 +71,10 @@ func (t *Thread) SpawnChild(ctx context.Context, agentName string, task string, 
 	child.defaultSink = sinkToParent
 
 	child.Enqueue(&WakeMessage{
-		Source:  WakeChildTask,
-		Message: task,
-		Sink:    sinkToParent,
+		Source:           WakeSession,
+		Message:          task,
+		Sink:             sinkToParent,
+		CallerSessionKey: t.sessionKey,
 	})
 
 	logger.Debug("child thread spawned", "parentID", t.id, "childID", child.id)

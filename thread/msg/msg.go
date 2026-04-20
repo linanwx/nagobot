@@ -158,8 +158,9 @@ const (
 	WakeWeCom          WakeSource = "wecom"
 	WakeSocket         WakeSource = "socket"
 	WakeUserActive     WakeSource = "user_active"
-	WakeChildTask      WakeSource = "child_task"
-	WakeChildCompleted WakeSource = "child_completed"
+	WakeChildTask      WakeSource = "child_task"      // deprecated: use WakeSession; kept for historical session.jsonl compat
+	WakeChildCompleted WakeSource = "child_completed" // deprecated: use WakeSession; kept for historical session.jsonl compat
+	WakeSession        WakeSource = "session"         // another session woke us; caller in WakeMessage.CallerSessionKey
 	WakeSleepCompleted WakeSource = "sleep_completed"
 	WakeCron           WakeSource = "cron"
 	WakeCronFinished   WakeSource = "cron_finished"
@@ -182,11 +183,12 @@ func IsUserVisibleSource(source WakeSource) bool {
 
 // WakeMessage is an item in a thread's wake queue.
 type WakeMessage struct {
-	Source     WakeSource        // Wake source.
-	Message    string            // Wake payload text.
-	Sink       Sink              // Per-wake sink. Zero value = no per-wake delivery.
-	AgentName  string            // Optional agent name override for this wake.
-	Vars       map[string]string // Optional vars override for this wake.
-	Sender     string            // Optional sender override (e.g. rephrase inherits original sender).
-	OnComplete func(response string) // Called after the turn completes with the full response text.
+	Source            WakeSource        // Wake source.
+	Message           string            // Wake payload text.
+	Sink              Sink              // Per-wake sink. Zero value = no per-wake delivery.
+	AgentName         string            // Optional agent name override for this wake.
+	Vars              map[string]string // Optional vars override for this wake.
+	Sender            string            // Optional sender override (e.g. rephrase inherits original sender).
+	CallerSessionKey  string            // For Source=WakeSession: the session that woke us. Empty otherwise.
+	OnComplete        func(response string) // Called after the turn completes with the full response text.
 }

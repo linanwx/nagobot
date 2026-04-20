@@ -215,7 +215,7 @@ func (t *Thread) RunOnce(ctx context.Context) {
 	}
 	t.mu.Unlock()
 	sender := senderOrDefault(msg.Sender, msg.Source)
-	userMessage := buildWakePayload(msg.Source, msg.Message, t.id, t.sessionKey, sessionDir, deliveryLabel, modelLabel, agentName, loc, sender, msg.Vars)
+	userMessage := buildWakePayload(msg.Source, msg.Message, t.id, t.sessionKey, sessionDir, deliveryLabel, modelLabel, agentName, loc, sender, msg.CallerSessionKey, msg.Vars)
 
 	// Build injection function: between tool iterations, drain inbox for
 	// mergeable user messages and inject them into the LLM conversation.
@@ -227,7 +227,7 @@ func (t *Thread) RunOnce(ctx context.Context) {
 			select {
 			case next := <-t.inbox:
 				if canMerge(msg, next) {
-					payload := buildWakePayload(next.Source, next.Message, t.id, t.sessionKey, sessionDir, deliveryLabel, modelLabel, agentName, loc, senderOrDefault(next.Sender, next.Source))
+					payload := buildWakePayload(next.Source, next.Message, t.id, t.sessionKey, sessionDir, deliveryLabel, modelLabel, agentName, loc, senderOrDefault(next.Sender, next.Source), next.CallerSessionKey)
 					if payload != "" {
 						payload = markInjected(payload)
 						injected = append(injected, provider.UserMessage(payload))
@@ -268,7 +268,7 @@ func (t *Thread) RunOnce(ctx context.Context) {
 // buildWakePayload constructs the user message from a wake source and message.
 // Uses YAML frontmatter + markdown body so the AI knows the wake context
 // and the sender (user vs system).
-func buildWakePayload(source WakeSource, message, threadID, sessionKey, sessionDir, deliveryLabel, model, agent string, loc *time.Location, sender string, vars ...map[string]string) string {
+func buildWakePayload(source WakeSource, message, threadID, sessionKey, sessionDir, deliveryLabel, model, agent string, loc *time.Location, sender, callerSessionKey string, vars ...map[string]string) string {
 	message = strings.TrimSpace(message)
 	if message == "" {
 		return ""
@@ -285,15 +285,16 @@ func buildWakePayload(source WakeSource, message, threadID, sessionKey, sessionD
 	}
 
 	header := wakeHeader{
-		Source:     string(source),
-		Thread:     threadID,
-		Session:    sessionKey,
-		SessionDir: sessionDir,
-		Time:       fmt.Sprintf("%s (%s, %s, UTC%s)", now.Format(time.RFC3339), now.Weekday(), now.Location(), now.Format("-07:00")),
-		Model:      model,
-		Agent:      agent,
-		Delivery:   delivery,
-		Sender: sender,
+		Source:           string(source),
+		Thread:           threadID,
+		Session:          sessionKey,
+		SessionDir:       sessionDir,
+		Time:             fmt.Sprintf("%s (%s, %s, UTC%s)", now.Format(time.RFC3339), now.Weekday(), now.Location(), now.Format("-07:00")),
+		Model:            model,
+		Agent:            agent,
+		Delivery:         delivery,
+		Sender:           sender,
+		CallerSessionKey: callerSessionKey,
 	}
 	if hint := wakeActionHint(source); hint != "" {
 		if source == WakeRephrase {
@@ -345,17 +346,18 @@ func buildWakePayload(source WakeSource, message, threadID, sessionKey, sessionD
 
 // wakeHeader is the YAML frontmatter for wake messages.
 type wakeHeader struct {
-	Source         string `yaml:"source"`
-	Thread         string `yaml:"thread"`
-	Session        string `yaml:"session"`
-	SessionDir     string `yaml:"session_dir,omitempty"`
-	Time           string `yaml:"time"`
-	Model          string `yaml:"model,omitempty"`
-	Agent          string `yaml:"agent,omitempty"`
-	Delivery       string `yaml:"delivery"`
-	Sender         string `yaml:"sender"`
-	Action         string `yaml:"action,omitempty"`
-	SupportsVision *bool  `yaml:"supports_vision,omitempty"`
+	Source           string `yaml:"source"`
+	Thread           string `yaml:"thread"`
+	Session          string `yaml:"session"`
+	SessionDir       string `yaml:"session_dir,omitempty"`
+	Time             string `yaml:"time"`
+	Model            string `yaml:"model,omitempty"`
+	Agent            string `yaml:"agent,omitempty"`
+	Delivery         string `yaml:"delivery"`
+	Sender           string `yaml:"sender"`
+	CallerSessionKey string `yaml:"caller_session_key,omitempty"`
+	Action           string `yaml:"action,omitempty"`
+	SupportsVision   *bool  `yaml:"supports_vision,omitempty"`
 	SupportsAudio  *bool  `yaml:"supports_audio,omitempty"`
 	SupportsPDF    *bool  `yaml:"supports_pdf,omitempty"`
 }
@@ -396,10 +398,8 @@ func wakeActionHint(source WakeSource) string {
 	switch source {
 	case WakeUserActive:
 		return "Resume the target session and respond to this wake message. The content is only visible to you."
-	case WakeChildTask:
-		return "A parent thread delegated a task to you. Execute this task and output the result."
-	case WakeChildCompleted:
-		return "A child thread completed. The content is ONLY visible to you. The user cannot see it. React accordingly and be friendly."
+	case WakeSession:
+		return "Another session woke you — see caller_session_key for the sender. The content is ONLY visible to you. Decide explicitly: use dispatch(to=caller) to reply to the sender, dispatch(to=user) to message your channel user, dispatch to other targets to fan out, or dispatch({}) to stay silent. Do NOT emit final text without dispatch — it will be auto-routed to caller."
 	case WakeSleepCompleted:
 		return "Your sleep timer expired. The message is system context only. Resume your session."
 	case WakeCron:
