@@ -80,7 +80,7 @@ func (t *WakeThreadTool) run(_ context.Context, args json.RawMessage) string {
 	}
 
 	t.waker.Wake(sessionKey, &msg.WakeMessage{
-		Source:  msg.WakeExternal,
+		Source:  msg.WakeSession,
 		Message: message,
 	})
 	return toolResult("wake_thread", map[string]any{

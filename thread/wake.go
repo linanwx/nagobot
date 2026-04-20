@@ -406,8 +406,6 @@ func wakeActionHint(source WakeSource) string {
 		return "A scheduled cron task has started. Execute it based on the provided job context."
 	case WakeCronFinished:
 		return "A cron task finished. The content is ONLY visible to you. React accordingly and be friendly."
-	case WakeExternal:
-		return "Process this external wake message. The content is only visible to you."
 	case WakeCompression:
 		return "Automated background maintenance. Execute the compression skill immediately. Do not produce user-facing content."
 	case WakeHeartbeat:

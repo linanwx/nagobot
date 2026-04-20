@@ -158,13 +158,10 @@ const (
 	WakeWeCom          WakeSource = "wecom"
 	WakeSocket         WakeSource = "socket"
 	WakeUserActive     WakeSource = "user_active"
-	WakeChildTask      WakeSource = "child_task"      // deprecated: use WakeSession; kept for historical session.jsonl compat
-	WakeChildCompleted WakeSource = "child_completed" // deprecated: use WakeSession; kept for historical session.jsonl compat
 	WakeSession        WakeSource = "session"         // another session woke us; caller in WakeMessage.CallerSessionKey
 	WakeSleepCompleted WakeSource = "sleep_completed"
 	WakeCron           WakeSource = "cron"
 	WakeCronFinished   WakeSource = "cron_finished"
-	WakeExternal       WakeSource = "external"
 	WakeCompression      WakeSource = "compression"
 	WakeHeartbeat  WakeSource = "heartbeat"
 	WakeResume     WakeSource = "resume"

@@ -48,13 +48,10 @@ const (
 	WakeFeishu         = msg.WakeFeishu
 	WakeWeCom          = msg.WakeWeCom
 	WakeUserActive     = msg.WakeUserActive
-	WakeChildTask      = msg.WakeChildTask
-	WakeChildCompleted = msg.WakeChildCompleted
 	WakeSession        = msg.WakeSession
 	WakeSleepCompleted = msg.WakeSleepCompleted
 	WakeCron           = msg.WakeCron
 	WakeCronFinished   = msg.WakeCronFinished
-	WakeExternal       = msg.WakeExternal
 	WakeCompression      = msg.WakeCompression
 	WakeHeartbeat = msg.WakeHeartbeat
 	WakeResume       = msg.WakeResume
