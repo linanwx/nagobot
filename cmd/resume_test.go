@@ -56,11 +56,11 @@ func TestIsUserTurnComplete(t *testing.T) {
 			want:       false,
 		},
 		{
-			name: "ends with sleep_thread — deliberate completion",
+			name: "ends with dispatch({}) — deliberate silent completion",
 			messages: []provider.Message{
 				{Role: "user", Content: "hello", Timestamp: now},
-				{Role: "assistant", Content: "", ToolCalls: []provider.ToolCall{{ID: "tc1", Type: "function", Function: provider.FunctionCall{Name: "sleep_thread"}}}, Timestamp: now},
-				{Role: "tool", ToolCallID: "tc1", Name: "sleep_thread", Content: "ok", Timestamp: now},
+				{Role: "assistant", Content: "", ToolCalls: []provider.ToolCall{{ID: "tc1", Type: "function", Function: provider.FunctionCall{Name: "dispatch"}}}, Timestamp: now},
+				{Role: "tool", ToolCallID: "tc1", Name: "dispatch", Content: `{"executed":[],"outcome":"turn-terminated-silent"}`, Timestamp: now},
 			},
 			userMsgIdx: 0,
 			want:       true,

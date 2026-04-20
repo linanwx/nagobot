@@ -142,7 +142,7 @@ func TestStripReasoningKeepSignatures_GeminiFormat(t *testing.T) {
 	// Gemini-style: text+sig, functionCall+sig, thought part.
 	details := json.RawMessage(`[
 		{"text":"hello","thoughtSignature":"sig1"},
-		{"functionCall":{"name":"sleep_thread","args":{}},"thoughtSignature":"sig2"},
+		{"functionCall":{"name":"dispatch","args":{}},"thoughtSignature":"sig2"},
 		{"text":"thinking...","thought":true}
 	]`)
 	got := StripReasoningKeepSignatures(details)
@@ -164,8 +164,8 @@ func TestStripReasoningKeepSignatures_GeminiFormat(t *testing.T) {
 	if err := json.Unmarshal(parts[0], &p); err != nil {
 		t.Fatalf("unmarshal part: %v", err)
 	}
-	if p.FunctionCall == nil || p.FunctionCall.Name != "sleep_thread" {
-		t.Fatalf("expected functionCall sleep_thread, got %+v", p.FunctionCall)
+	if p.FunctionCall == nil || p.FunctionCall.Name != "dispatch" {
+		t.Fatalf("expected functionCall dispatch, got %+v", p.FunctionCall)
 	}
 	if p.ThoughtSignature != "sig2" {
 		t.Fatalf("expected sig2, got %s", p.ThoughtSignature)

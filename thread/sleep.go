@@ -1,33 +1,5 @@
 package thread
 
-import (
-	"fmt"
-	"time"
-
-	"github.com/linanwx/nagobot/cron"
-)
-
-// SleepThread schedules a persistent delayed wake for this thread's session.
-// The thread will be woken with source "sleep_completed" after the duration.
-func (t *Thread) SleepThread(duration time.Duration, message string) error {
-	addJob := t.cfg().AddJob
-	if addJob == nil {
-		return fmt.Errorf("sleep not available: job scheduler not configured")
-	}
-
-	wakeAt := time.Now().Add(duration).UTC()
-	job := cron.Job{
-		ID:          "sleep-" + t.id + "-" + RandomHex(4),
-		Kind:        cron.JobKindAt,
-		AtTime:      &wakeAt,
-		Task:        message,
-		WakeSession: t.sessionKey,
-		DirectWake:  true,
-		CreatedAt:   time.Now().UTC(),
-	}
-	return addJob(job)
-}
-
 // IsHeartbeatWake returns true if the current turn was triggered by a heartbeat.
 func (t *Thread) IsHeartbeatWake() bool {
 	t.mu.Lock()

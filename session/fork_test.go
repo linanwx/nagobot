@@ -74,9 +74,9 @@ func TestForkMessages_HeartbeatTrimSkipped(t *testing.T) {
 		// Heartbeat turn with HeartbeatTrim — should be skipped entirely.
 		{Role: "user", Content: "heartbeat wake", Source: "heartbeat", HeartbeatTrim: false},
 		{Role: "assistant", Content: "", HeartbeatTrim: true, ToolCalls: []provider.ToolCall{
-			{ID: "c1", Type: "function", Function: provider.FunctionCall{Name: "sleep_thread", Arguments: `{}`}},
+			{ID: "c1", Type: "function", Function: provider.FunctionCall{Name: "dispatch", Arguments: `{"sends":[]}`}},
 		}},
-		{Role: "tool", ToolCallID: "c1", Name: "sleep_thread", Content: "ok", HeartbeatTrim: true},
+		{Role: "tool", ToolCallID: "c1", Name: "dispatch", Content: "ok", HeartbeatTrim: true},
 		// Another user turn after.
 		{Role: "user", Content: "---\nsender: user\ntime: 2026-04-10T12:00:00+08:00\n---\n\nStill here"},
 		{Role: "assistant", Content: "Welcome back!"},

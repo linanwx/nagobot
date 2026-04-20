@@ -6,7 +6,6 @@ import (
 
 	"github.com/linanwx/nagobot/agent"
 	"github.com/linanwx/nagobot/config"
-	"github.com/linanwx/nagobot/cron"
 	"github.com/linanwx/nagobot/monitor"
 	"github.com/linanwx/nagobot/provider"
 	"github.com/linanwx/nagobot/session"
@@ -97,7 +96,6 @@ type ThreadConfig struct {
 	ProviderFactory     *provider.Factory              // For per-agent model routing
 	Models              map[string]*config.ModelConfig  // Model type → provider/model mapping (startup snapshot)
 	ModelsFn            func() map[string]*config.ModelConfig // Hot-reload: returns latest Models from config
-	AddJob              func(cron.Job) error           // Persistent job scheduling (for sleep_thread)
 	SessionTimezoneFor  func(sessionKey string) string // Session key → IANA timezone
 	MetricsStore        *monitor.Store                 // Turn metrics storage (optional)
 	Sections            *agent.SectionRegistry         // Shared section registry for prompt assembly
@@ -110,7 +108,6 @@ type Thread struct {
 	*agent.Agent
 
 	sessionKey string
-	parent     *Thread // nil for root threads; set by SpawnChild
 	provider   provider.Provider
 	tools      *tools.Registry
 

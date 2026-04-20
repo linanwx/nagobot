@@ -19,7 +19,7 @@ Each wake message carries YAML frontmatter with metadata about the current turn.
 - `delivery` — a natural-language description of the sink's delivery target. This is your only way to know where your output will go. It may describe a user (`your response will be sent to telegram user 123`), an indirect chain (`your task will be injected into session telegram:789`), or no delivery at all (`cron silent, result will not be delivered`).
 - `sender` — either `user` (the wake was triggered by a real user message) or `system` (triggered automatically by cron, heartbeat, child completion, etc.).
 
-Some turns require silent completion — ending without user-facing output. The task prompt for that turn will specify this. The mechanism to complete silently is to call `sleep_thread()`, or when tool calling is unavailable, output the OK token designated by the task prompt. Any text in a final tool-free response will be delivered through the sink, so omit it when silent completion is required.
+Some turns require silent completion — ending without user-facing output. The task prompt for that turn will specify this. The mechanism to complete silently is to call `dispatch({})` (empty sends). Any text in a final tool-free response will be delivered through the sink, so omit it when silent completion is required.
 
 Each thread has a message queue. Wake messages are pushed into the queue, and the thread manager selects queued threads from all threads to run reasoning.
 

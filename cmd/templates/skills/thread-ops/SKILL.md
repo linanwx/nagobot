@@ -52,20 +52,6 @@ tool_call: check_session(session_key="cli:threads:find-news")
 
 Use this after `dispatch(to=subagent|fork)` to follow up on a child session by the resolved `session_key`.
 
-### sleep_thread
-
-Suppress output and optionally schedule a delayed wake-up. Still available for duration-based scheduling; for pure silent termination prefer `dispatch({})`.
-
-```
-tool_call: sleep_thread(duration="30m", message="Check back on user", skip=false)
-```
-
-- `duration` (optional): Go duration format — `"30m"`, `"2h"`, `"1h30m"`. Default `"2m"`, max `24h`.
-- `message` (optional): Memo included when waking up. Default: "Sleep timer expired."
-- `skip` (optional): `true` = suppress output only, no scheduled wake. Use when the message is not directed at you.
-
-**Note:** When called during a heartbeat turn (source: `heartbeat`), `sleep_thread` ignores all parameters and acts as a simple terminate+suppress. The heartbeat scheduler handles the next pulse automatically.
-
 ### health
 
 List all active threads and system status.
@@ -93,14 +79,16 @@ dispatch({})
 → No delivery. Turn ends silently with history recorded.
 ```
 
-### Ignore irrelevant message (with no wake scheduled)
+### Ignore irrelevant message
 ```
-sleep_thread(skip=true)
+dispatch({})   # silent termination — history recorded, no delivery
 ```
 
-### Scheduled check-in later
+### Scheduled self check-in later
+Use `manage-cron` skill to create a one-time job that wakes this session:
 ```
-sleep_thread(duration="1h", message="Check if user responded")
+bin/nagobot cron set-at --id self-checkin-<uniq> --at <RFC3339> \
+    --task "Check if user responded" --wake-session <current-session> --direct-wake
 ```
 
 ### Cross-session notification

@@ -248,8 +248,8 @@ func TestCompressTier1_HeartbeatRecent(t *testing.T) {
 func TestCompressTier1_HeartbeatSmall(t *testing.T) {
 	// Heartbeat source + >2h + ≤100 bytes → not compressed
 	messages := []provider.Message{
-		{Role: "assistant", Content: "", ToolCalls: []provider.ToolCall{{ID: "c1", Type: "function", Function: provider.FunctionCall{Name: "sleep_thread", Arguments: `{"skip":true}`}}}},
-		{Role: "tool", Name: "sleep_thread", ToolCallID: "c1", Content: "ok: skipped", Source: "heartbeat", Timestamp: time.Now().Add(-8 * time.Hour)},
+		{Role: "assistant", Content: "", ToolCalls: []provider.ToolCall{{ID: "c1", Type: "function", Function: provider.FunctionCall{Name: "dispatch", Arguments: `{"sends":[]}`}}}},
+		{Role: "tool", Name: "dispatch", ToolCallID: "c1", Content: "ok: skipped", Source: "heartbeat", Timestamp: time.Now().Add(-8 * time.Hour)},
 		{Role: "assistant", Content: "HEARTBEAT_OK", Source: "heartbeat"},
 		{Role: "user", Content: "next"},
 		{Role: "assistant", Content: "ok"},
@@ -466,68 +466,45 @@ func TestComputeWakeCompressed_CJK(t *testing.T) {
 	}
 }
 
-func TestIsHeartbeatSkipTurn_SleepThread(t *testing.T) {
-	// Classic case: sleep_thread called → should trim.
+func TestIsHeartbeatSkipTurn_DispatchSilent(t *testing.T) {
+	// dispatch({}) → turn-terminated-silent → should trim.
 	msgs := []provider.Message{
 		{Role: "user", Content: "heartbeat wake", Source: "heartbeat"},
 		{Role: "assistant", Content: "", ToolCalls: []provider.ToolCall{{ID: "c1", Type: "function", Function: provider.FunctionCall{Name: "use_skill", Arguments: `{"name":"heartbeat-wake"}`}}}},
 		{Role: "tool", Name: "use_skill", ToolCallID: "c1", Content: "skill loaded"},
-		{Role: "assistant", Content: "", ToolCalls: []provider.ToolCall{{ID: "c2", Type: "function", Function: provider.FunctionCall{Name: "sleep_thread", Arguments: `{}`}}}},
-		{Role: "tool", Name: "sleep_thread", ToolCallID: "c2", Content: "ok"},
+		{Role: "assistant", Content: "", ToolCalls: []provider.ToolCall{{ID: "c2", Type: "function", Function: provider.FunctionCall{Name: "dispatch", Arguments: `{"sends":[]}`}}}},
+		{Role: "tool", Name: "dispatch", ToolCallID: "c2", Content: `{"executed":[],"outcome":"turn-terminated-silent"}`},
 	}
 	if !isHeartbeatSkipTurn(msgs) {
-		t.Error("turn with sleep_thread + safe tools should be trimmed")
+		t.Error("heartbeat turn ending with dispatch({}) should be trimmed")
 	}
 }
 
-func TestIsHeartbeatSkipTurn_SleepMarkerNoTools(t *testing.T) {
-	// SLEEP_THREAD_OK marker with no tool calls → should trim.
+func TestIsHeartbeatSkipTurn_DispatchDelivered(t *testing.T) {
+	// dispatch delivered to user → NOT silent → should NOT trim.
 	msgs := []provider.Message{
 		{Role: "user", Content: "heartbeat wake", Source: "heartbeat"},
-		{Role: "assistant", Content: "Nothing to do. SLEEP_THREAD_OK"},
-	}
-	if !isHeartbeatSkipTurn(msgs) {
-		t.Error("turn with SLEEP_THREAD_OK marker and no tool calls should be trimmed")
-	}
-}
-
-func TestIsHeartbeatSkipTurn_SleepMarkerEmbeddedText(t *testing.T) {
-	// SLEEP_THREAD_OK embedded in longer text → should still trim.
-	msgs := []provider.Message{
-		{Role: "user", Content: "heartbeat wake", Source: "heartbeat"},
-		{Role: "assistant", Content: "I reviewed the heartbeat items. Nothing relevant right now.\n\nSLEEP_THREAD_OK\n\nWill check again later."},
-	}
-	if !isHeartbeatSkipTurn(msgs) {
-		t.Error("SLEEP_THREAD_OK embedded in text should still trigger trim")
-	}
-}
-
-func TestIsHeartbeatSkipTurn_SleepMarkerWithToolCalls(t *testing.T) {
-	// SLEEP_THREAD_OK but model also made tool calls → should NOT trim (ambiguous).
-	msgs := []provider.Message{
-		{Role: "user", Content: "heartbeat wake", Source: "heartbeat"},
-		{Role: "assistant", Content: "SLEEP_THREAD_OK", ToolCalls: []provider.ToolCall{{ID: "c1", Type: "function", Function: provider.FunctionCall{Name: "exec", Arguments: `{"cmd":"echo hi"}`}}}},
-		{Role: "tool", Name: "exec", ToolCallID: "c1", Content: "hi"},
+		{Role: "assistant", Content: "", ToolCalls: []provider.ToolCall{{ID: "c1", Type: "function", Function: provider.FunctionCall{Name: "dispatch", Arguments: `{"sends":[{"to":"user","body":"hi"}]}`}}}},
+		{Role: "tool", Name: "dispatch", ToolCallID: "c1", Content: `{"executed":[{"to":"user"}]}`},
 	}
 	if isHeartbeatSkipTurn(msgs) {
-		t.Error("turn with SLEEP_THREAD_OK but also tool calls should NOT be trimmed")
+		t.Error("heartbeat turn that dispatched to user should NOT be trimmed")
 	}
 }
 
-func TestIsHeartbeatSkipTurn_NoSleepNoMarker(t *testing.T) {
-	// Neither sleep_thread nor SLEEP_THREAD_OK → should NOT trim (real response).
+func TestIsHeartbeatSkipTurn_NoDispatch(t *testing.T) {
+	// Real response without dispatch → NOT trim.
 	msgs := []provider.Message{
 		{Role: "user", Content: "heartbeat wake", Source: "heartbeat"},
 		{Role: "assistant", Content: "Hey! Just wanted to let you know the weather looks great today."},
 	}
 	if isHeartbeatSkipTurn(msgs) {
-		t.Error("turn without sleep_thread or SLEEP_THREAD_OK should NOT be trimmed")
+		t.Error("turn without dispatch should NOT be trimmed")
 	}
 }
 
-func TestIsHeartbeatSkipTurn_SleepWithExec(t *testing.T) {
-	// sleep_thread called + exec ran external command → still trim.
-	// If the AI chose silence, the turn is noise regardless of tools used.
+func TestIsHeartbeatSkipTurn_DispatchSilentWithExec(t *testing.T) {
+	// dispatch({}) called + exec ran → still trim.
 	msgs := []provider.Message{
 		{Role: "user", Content: "heartbeat wake", Source: "heartbeat"},
 		{Role: "assistant", Content: "", ToolCalls: []provider.ToolCall{
@@ -535,12 +512,12 @@ func TestIsHeartbeatSkipTurn_SleepWithExec(t *testing.T) {
 		}},
 		{Role: "tool", Name: "exec", ToolCallID: "c1", Content: "ok"},
 		{Role: "assistant", Content: "", ToolCalls: []provider.ToolCall{
-			{ID: "c2", Type: "function", Function: provider.FunctionCall{Name: "sleep_thread", Arguments: `{}`}},
+			{ID: "c2", Type: "function", Function: provider.FunctionCall{Name: "dispatch", Arguments: `{"sends":[]}`}},
 		}},
-		{Role: "tool", Name: "sleep_thread", ToolCallID: "c2", Content: "ok"},
+		{Role: "tool", Name: "dispatch", ToolCallID: "c2", Content: `{"executed":[],"outcome":"turn-terminated-silent"}`},
 	}
 	if !isHeartbeatSkipTurn(msgs) {
-		t.Error("turn with sleep_thread should be trimmed regardless of other tools")
+		t.Error("turn with dispatch({}) should be trimmed regardless of other tools")
 	}
 }
 

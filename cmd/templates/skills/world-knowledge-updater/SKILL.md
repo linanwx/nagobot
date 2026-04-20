@@ -15,7 +15,7 @@ Before doing any work, check whether the knowledge file is still fresh:
 exec: stat -c %Y {{WORKSPACE}}/system/world_knowledge.md 2>/dev/null || echo 0
 ```
 
-Parse the Unix timestamp. If the file was modified **less than 3 days ago**, call `sleep_thread()` immediately and stop — no searches, no writes.
+Parse the Unix timestamp. If the file was modified **less than 3 days ago**, call `dispatch({})` immediately and stop — no searches, no writes.
 
 If the file does not exist or was modified ≥3 days ago, proceed with the workflow below.
 
@@ -96,4 +96,4 @@ After writing the file, reply with: `WORLD_KNOWLEDGE_OK`
 
 - Do NOT skip the freshness check. Unnecessary runs waste search quota.
 - Keep the summary factual and concise. No greetings, no commentary.
-- If web_search is unavailable or returns no useful results, call `sleep_thread()` and stop. Do not write a file with stale or fabricated content.
+- If web_search is unavailable or returns no useful results, call `dispatch({})` and stop. Do not write a file with stale or fabricated content.

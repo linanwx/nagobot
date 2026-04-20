@@ -79,7 +79,7 @@ Clean yesterday's logs (keep only today's).
 
 ## Step 3
 
-If you have sent a message to the user, skip this step. Otherwise, call `sleep_thread()` to end this pulse silently.
+If you have sent a message to the user, skip this step. Otherwise, call `dispatch({})` (empty sends) to end this pulse silently.
 
 # USER.md format
 
@@ -113,4 +113,4 @@ Keep only the items section. Remove any other sections left over from previous v
 
 # Silent exit
 
-To end a turn without sending anything to the user, call `sleep_thread()`. If tool calling is unavailable or fails, output `SLEEP_THREAD_OK` in your response text instead — the system treats this identically to calling sleep_thread. Append SLEEP_THREAD_OK at the end of your response if you forget to call the function.
+To end a turn without sending anything to the user, call `dispatch({})` (empty sends). The system records the turn in history but delivers nothing.

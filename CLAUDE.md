@@ -60,7 +60,7 @@ The `ProviderFactory` creates providers on demand, re-reading config each call. 
 
 Tools implement `Def() ToolDef` + `Run(ctx, args) string`. Registered in a `Registry`, cloned per-thread. Search and fetch tools use `SearchProvider`/`FetchProvider` interfaces with runtime `Available()` checks.
 
-`sleep_thread` is a unified tool registered at thread level. No args = end turn silently; `duration` param = schedule a cron wake-up. During heartbeat turns, passing `duration` is rejected — the heartbeat scheduler manages its own timing. The tool checks `IsHeartbeatWake()` at runtime, not via separate tool definitions (important: a single tool definition keeps the tools array stable for prompt caching).
+`dispatch` is the unified routing tool (5 targets: caller/user/subagent/fork/session). `dispatch({})` with empty sends ends a turn silently. For delayed self-wakes (replacing the old `sleep_thread(duration=...)`), use the `manage-cron` skill to create a one-time `set-at --direct-wake` job into the current session.
 
 ### Audio Support
 
@@ -93,7 +93,7 @@ The heartbeat makes the bot proactive — monitoring conversations and acting on
 A Go goroutine (`heartbeatScheduler`) scans every 30s and fires heartbeat pulses into user sessions. NOT a cron job — the old cron-based dispatcher was removed.
 
 A single skill handles everything:
-- **heartbeat-wake**: the pulse payload includes a `heartbeat_modified` field and tells the LLM to `use_skill("heartbeat-wake")`. The skill lists priority-ordered actions (follow up on pending work, greet, update USER.md, pick up items from `heartbeat.md`, update `heartbeat.md`, trim `heartbeat.md`, skip) — the LLM picks one per pulse. If no user-facing message was sent, the skill instructs `sleep_thread()` (or `SLEEP_THREAD_OK` fallback) to end silently.
+- **heartbeat-wake**: the pulse payload includes a `heartbeat_modified` field and tells the LLM to `use_skill("heartbeat-wake")`. The skill lists priority-ordered actions (follow up on pending work, greet, update USER.md, pick up items from `heartbeat.md`, update `heartbeat.md`, trim `heartbeat.md`, skip) — the LLM picks one per pulse. If no user-facing message was sent, the skill instructs `dispatch({})` to end silently.
 
 ### Timing
 
@@ -125,8 +125,8 @@ A single skill handles everything:
 - Wake payload compression (strip redundant YAML fields)
 - Body compression (large system-sender content → head+tail)
 - **Heartbeat turn trim**: marks entire heartbeat turns for removal if `isHeartbeatSkipTurn` returns true:
-  - Requires `sleep_thread` was called OR the assistant output `SLEEP_THREAD_OK` text fallback (turn was deliberately silent)
-  - Turns that sent a message to the user (no sleep_thread, no SLEEP_THREAD_OK) are PRESERVED
+  - Requires `dispatch({})` was called (tool result contains `turn-terminated-silent` outcome)
+  - Turns that delivered via dispatch (to=user / to=caller / to=session) are PRESERVED
 - Reasoning trim (>2h old reasoning content excluded at send-time)
 
 ### Tier 2 — AI-driven (idle ≥30 min, tokens >65%)
@@ -155,7 +155,7 @@ Heartbeat source matching uses `strings.HasPrefix(source, "heartbeat")` to cover
 - **Heartbeat state is persisted**: `lastPulse` is saved to `heartbeat-state.json` after each pulse. Restarts reload this state — no cold-start special-casing needed.
 - **`collectSessions` loads full session data**: Every call parses entire `session.jsonl` for all matching sessions. Don't call it in tight loops. The scheduler calls it every 30s — acceptable for small deployments.
 - **`{{WORKSPACE}}` resolves in both agents and skills**: `agent.Build()` and `use_skill` (`tools/skills.go`) both replace `{{WORKSPACE}}`. Skills should use `{{WORKSPACE}}/bin/nagobot` for CLI calls.
-- **Heartbeat turns suppress via LLM, not code**: The old `WakeHeartbeatReflect` had code-level `SetSuppressSink()`. Now both reflect and act use `WakeHeartbeat` — suppression relies on the LLM calling `sleep_thread()`. If the LLM forgets, output leaks to the user.
+- **Heartbeat turns suppress via LLM, not code**: The old `WakeHeartbeatReflect` had code-level `SetSuppressSink()`. Now both reflect and act use `WakeHeartbeat` — suppression relies on the LLM calling `dispatch({})`. If the LLM forgets, output leaks to the user.
 - **`applyDefaults()` only adds, never prunes**: If a cron seed is removed from `defaultCronSeeds()`, old entries in `config.yaml` persist. Manual cleanup may be needed after upgrades.
 
 ## Deployment

@@ -230,9 +230,6 @@ func runServe(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("failed to start channels: %w", err)
 	}
 
-	// Wire AddJob after StartAll (Scheduler is created in CronChannel.Start).
-	threadMgr.SetAddJob(cronCh.AddJob)
-
 	// Start thread manager run loop in background.
 	go threadMgr.Run(ctx)
 

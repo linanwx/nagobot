@@ -7,7 +7,15 @@ import (
 	"time"
 
 	"github.com/linanwx/nagobot/provider"
+	"github.com/linanwx/nagobot/thread/msg"
 )
+
+// ThreadInfo is an alias for msg.ThreadInfo, exposed for consumers that import
+// this package (manager/run) without needing to also import thread/msg.
+type ThreadInfo = msg.ThreadInfo
+
+// ToolCallRecord is an alias for msg.ToolCallRecord.
+type ToolCallRecord = msg.ToolCallRecord
 
 // SessionStatusInfo combines disk-side session metadata with thread state
 // (when a thread is currently loaded for the session). All fields are

@@ -9,7 +9,6 @@ import (
 	"sync"
 	"time"
 
-	"github.com/linanwx/nagobot/cron"
 	"github.com/linanwx/nagobot/logger"
 	"github.com/linanwx/nagobot/provider"
 	"github.com/linanwx/nagobot/session"
@@ -215,11 +214,6 @@ func (m *Manager) SetDefaultSinkFor(fn func(string) Sink) {
 // SetDefaultAgentFor configures a factory that returns the default agent name for a given session key.
 func (m *Manager) SetDefaultAgentFor(fn func(string) string) {
 	m.cfg.DefaultAgentFor = fn
-}
-
-// SetAddJob configures the job scheduling callback (for sleep_thread).
-func (m *Manager) SetAddJob(fn func(cron.Job) error) {
-	m.cfg.AddJob = fn
 }
 
 // RegisterTool adds a tool to the shared tool registry.

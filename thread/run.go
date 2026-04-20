@@ -233,8 +233,6 @@ func (t *Thread) executeRunner(ctx, runCtx context.Context, p provider.Provider,
 	}
 
 	// Streaming: register OnStream for chunkable sinks on non-heartbeat turns.
-	// Heartbeat turns are forced non-streaming so SLEEP_THREAD_OK can never
-	// leak through the streaming path.
 	var streamer *MarkdownStreamer
 	useStreaming := !t.IsHeartbeatWake() && !sink.IsZero() && sink.Chunkable
 	if useStreaming {
@@ -263,14 +261,7 @@ func (t *Thread) executeRunner(ctx, runCtx context.Context, p provider.Provider,
 			return
 		}
 
-		// 2. SLEEP_THREAD_OK suppression (heartbeat only, final response only).
-		// Heartbeat is forced non-streaming, so no content has been streamed.
-		if len(m.ToolCalls) == 0 && t.IsHeartbeatWake() && strings.Contains(m.Content, "SLEEP_THREAD_OK") {
-			t.SetSuppressSink()
-			logger.Info("SLEEP_THREAD_OK fallback triggered", "sessionKey", t.sessionKey, "source", t.lastWakeSource)
-		}
-
-		// 3. Delivery (non-streaming path).
+		// 2. Delivery (non-streaming path).
 		if sink.IsZero() || t.isSinkSuppressed() || !isUserFacingContent(m.Content) {
 			return
 		}
@@ -676,7 +667,6 @@ func (t *Thread) buildTools() *tools.Registry {
 		},
 	})
 
-	reg.Register(tools.NewSleepThreadTool(t))
 	reg.Register(tools.NewDispatchTool(t))
 
 	return reg

@@ -405,7 +405,7 @@ func wakeActionHint(source WakeSource) string {
 	case WakeHeartbeat:
 		return "Heartbeat pulse. Load the heartbeat-wake skill and follow its instructions."
 	case WakeResume:
-		return "The system restarted while your previous turn was in progress. The original request is included below. Continue processing where you left off. If you believe the request is no longer relevant, call sleep_thread to skip."
+		return "The system restarted while your previous turn was in progress. The original request is included below. Continue processing where you left off. If you believe the request is no longer relevant, call dispatch({}) to skip silently."
 	case WakeRephrase:
 		return "Rephrase the following AI assistant message into a natural, conversational message suitable for a chat channel. Avoid markdown-report format with many bullet points; prefer flowing prose or a short chat message. Follow the rules in the system prompt. Output ONLY the rephrased message, nothing else. " +
 			"Stats: {{CHAR_COUNT}} chars, {{LINE_COUNT}} lines. {{LENGTH_ADVICE}}" +
