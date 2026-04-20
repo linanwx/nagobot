@@ -14,7 +14,6 @@ import (
 	"github.com/linanwx/nagobot/media"
 	"github.com/linanwx/nagobot/session"
 	"github.com/linanwx/nagobot/thread"
-	sysmsg "github.com/linanwx/nagobot/thread/msg"
 )
 
 // Dispatcher routes channel messages to threads. It is the bridge between
@@ -237,33 +236,27 @@ func (d *Dispatcher) buildSink(ch channel.Channel, msg *channel.Message) thread.
 	return sink
 }
 
-// buildCronSink creates a sink for cron jobs that wakes the creator thread
-// with the result.
+// buildCronSink returns a drop sink for cron-channel messages.
+// Cron-triggered turns must explicitly dispatch() to deliver output; naive
+// text output is discarded. This path is the legacy channel-message fallback;
+// the primary path is onDirectWake in serve.go, which also uses a drop sink.
 func (d *Dispatcher) buildCronSink(msg *channel.Message) thread.Sink {
-	if msg == nil {
-		return thread.Sink{}
+	reportTo := ""
+	if msg != nil {
+		reportTo = strings.TrimSpace(msg.Metadata["wake_session"])
 	}
-
-	reportTo := strings.TrimSpace(msg.Metadata["wake_session"])
-	jobID := strings.TrimSpace(msg.Metadata["job_id"])
-
-	if reportTo == "" {
-		return thread.Sink{Label: "cron silent, result will not be delivered"}
+	var label string
+	if reportTo != "" {
+		label = "cron caller output is dropped. After completing your task, dispatch(to=session, session_key=\"" + reportTo + "\") to deliver results."
+	} else {
+		label = "cron caller output is dropped. No delivery target configured; use dispatch explicitly if you need to forward results."
 	}
-
 	return thread.Sink{
-		Label: "your task will be injected into session " + reportTo + " which will wake, execute, and deliver the result to the user",
-		Send: func(ctx context.Context, response string) error {
-			if strings.TrimSpace(response) == "" {
-				return nil
+		Label: label,
+		Send: func(_ context.Context, response string) error {
+			if strings.TrimSpace(response) != "" {
+				logger.Debug("cron dispatcher sink dropped", "bytes", len(response))
 			}
-			wakeMsg := sysmsg.BuildSystemMessage("cron_completed", map[string]string{
-				"id": jobID,
-			}, strings.TrimSpace(response))
-			d.threads.Wake(reportTo, &thread.WakeMessage{
-				Source:  thread.WakeCronFinished,
-				Message: wakeMsg,
-			})
 			return nil
 		},
 	}

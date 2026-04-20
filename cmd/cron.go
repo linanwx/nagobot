@@ -54,7 +54,9 @@ func runSetCron(_ *cobra.Command, _ []string) error {
 		Expr: expr,
 		Task: setCronTask,
 	}
-	applyCommonJobFlags(&job)
+	if err := applyCommonJobFlags(&job); err != nil {
+		return err
+	}
 	updated, err := upsertJob(job)
 	if err != nil {
 		return err
@@ -103,7 +105,9 @@ func runSetAt(_ *cobra.Command, _ []string) error {
 		AtTime: &t,
 		Task:   setAtTask,
 	}
-	applyCommonJobFlags(&job)
+	if err := applyCommonJobFlags(&job); err != nil {
+		return err
+	}
 	updated, err := upsertJob(job)
 	if err != nil {
 		return err
@@ -227,16 +231,28 @@ func init() {
 var (
 	commonAgent       string
 	commonWakeSession string
+	commonDirectWake  bool
 )
 
 func addCommonJobFlags(cmd *cobra.Command) {
-	cmd.Flags().StringVar(&commonAgent, "agent", "", "Agent template name")
-	cmd.Flags().StringVar(&commonWakeSession, "wake-session", "", "Session to receive execution result (omit for silent — no delivery)")
+	cmd.Flags().StringVar(&commonAgent, "agent", "", "Agent template name (independent mode only)")
+	cmd.Flags().StringVar(&commonWakeSession, "wake-session", "", "Independent mode: delivery hint shown in wake's delivery label. Inject mode: required target session receiving the task injection.")
+	cmd.Flags().BoolVar(&commonDirectWake, "direct-wake", false, "Switch to inject mode: inject --task directly into --wake-session without running a cron agent. Requires --wake-session; rejects --agent.")
 }
 
-func applyCommonJobFlags(job *cronsvc.Job) {
+func applyCommonJobFlags(job *cronsvc.Job) error {
 	job.Agent = strings.TrimSpace(commonAgent)
 	job.WakeSession = strings.TrimSpace(commonWakeSession)
+	job.DirectWake = commonDirectWake
+	if job.DirectWake {
+		if job.Agent != "" {
+			return fmt.Errorf("--agent cannot be used with --direct-wake (inject mode preserves target session's existing agent)")
+		}
+		if job.WakeSession == "" {
+			return fmt.Errorf("--direct-wake requires --wake-session (target session to inject into)")
+		}
+	}
+	return nil
 }
 
 func cronStorePath() (string, error) {

@@ -157,12 +157,9 @@ const (
 	WakeFeishu         WakeSource = "feishu"
 	WakeWeCom          WakeSource = "wecom"
 	WakeSocket         WakeSource = "socket"
-	WakeUserActive     WakeSource = "user_active"
-	WakeSession        WakeSource = "session"         // another session woke us; caller in WakeMessage.CallerSessionKey
-	WakeSleepCompleted WakeSource = "sleep_completed"
+	WakeSession        WakeSource = "session" // another session woke us; caller in WakeMessage.CallerSessionKey
 	WakeCron           WakeSource = "cron"
-	WakeCronFinished   WakeSource = "cron_finished"
-	WakeCompression      WakeSource = "compression"
+	WakeCompression    WakeSource = "compression"
 	WakeHeartbeat  WakeSource = "heartbeat"
 	WakeResume     WakeSource = "resume"
 	WakeRephrase   WakeSource = "rephrase"

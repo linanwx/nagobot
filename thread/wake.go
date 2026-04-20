@@ -396,16 +396,10 @@ func wakeActionHint(source WakeSource) string {
 		return "A user sent a message. React accordingly and be friendly."
 	}
 	switch source {
-	case WakeUserActive:
-		return "Resume the target session and respond to this wake message. The content is only visible to you."
 	case WakeSession:
 		return "Another session woke you — see caller_session_key for the sender. The content is ONLY visible to you. Decide explicitly: use dispatch(to=caller) to reply to the sender, dispatch(to=user) to message your channel user, dispatch to other targets to fan out, or dispatch({}) to stay silent. Do NOT emit final text without dispatch — it will be auto-routed to caller."
-	case WakeSleepCompleted:
-		return "Your sleep timer expired. The message is system context only. Resume your session."
 	case WakeCron:
 		return "A scheduled cron task has started. Execute it based on the provided job context."
-	case WakeCronFinished:
-		return "A cron task finished. The content is ONLY visible to you. React accordingly and be friendly."
 	case WakeCompression:
 		return "Automated background maintenance. Execute the compression skill immediately. Do not produce user-facing content."
 	case WakeHeartbeat:

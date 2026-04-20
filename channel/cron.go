@@ -14,16 +14,18 @@ import (
 	"github.com/linanwx/nagobot/thread/msg"
 )
 
-// CronChannel wraps a cron.Scheduler as a Channel. Each fired job produces
-// a Message on the Messages() channel. Send is a no-op — responses are
-// delivered via thread sinks.
+// CronChannel wraps a cron.Scheduler as a Channel. Each fired job wakes a
+// target session via onDirectWake — independent mode runs cron:<ID> with the
+// configured agent; inject mode wakes WakeSession directly without overriding
+// its agent. Send is a no-op; responses are controlled by the session's own
+// dispatch() calls.
 type CronChannel struct {
 	storePath    string
 	seedJobs     []cronpkg.Job // config-defined seeds
 	scheduler    *cronpkg.Scheduler
 	messages     chan *Message
 	done         chan struct{}
-	onDirectWake func(sessionKey string, source msg.WakeSource, message string)
+	onDirectWake func(sessionKey string, source msg.WakeSource, message, agentName, deliveryLabel string)
 }
 
 // NewCronChannel creates a CronChannel from config.
@@ -43,9 +45,13 @@ func NewCronChannel(cfg *config.Config) *CronChannel {
 
 func (c *CronChannel) Name() string { return "cron" }
 
-// SetDirectWake sets a callback for jobs with DirectWake=true.
-// Called instead of posting a channel message.
-func (c *CronChannel) SetDirectWake(fn func(sessionKey string, source msg.WakeSource, message string)) {
+// SetDirectWake sets a callback invoked on every cron fire. The callback is
+// responsible for waking sessionKey with the given message. agentName is
+// non-empty for independent mode (sets/overrides session agent meta);
+// empty for inject mode (preserves target session's existing agent).
+// deliveryLabel carries mode-specific guidance that appears in the wake
+// frontmatter so the LLM knows where it should dispatch results.
+func (c *CronChannel) SetDirectWake(fn func(sessionKey string, source msg.WakeSource, message, agentName, deliveryLabel string)) {
 	c.onDirectWake = fn
 }
 
@@ -74,12 +80,49 @@ func (c *CronChannel) AddJob(job cronpkg.Job) error {
 
 func (c *CronChannel) Start(ctx context.Context) error {
 	factory := func(job *cronpkg.Job) (string, error) {
-		if job != nil && job.DirectWake && job.WakeSession != "" && c.onDirectWake != nil {
-			c.onDirectWake(job.WakeSession, msg.WakeSleepCompleted, job.Task)
+		if job == nil {
 			return "", nil
 		}
-		c.messages <- c.buildMessage(job)
-		return "", nil // fire-and-forget
+		if c.onDirectWake == nil {
+			// Fallback: push through Messages() channel (legacy, not expected in normal wiring).
+			c.messages <- c.buildMessage(job)
+			return "", nil
+		}
+
+		jobID := strings.TrimSpace(job.ID)
+		if jobID == "" {
+			jobID = "job"
+		}
+		target := strings.TrimSpace(job.WakeSession)
+		task := strings.TrimSpace(job.Task)
+
+		if job.DirectWake {
+			// Inject mode: must have target session; agent is ignored (preserve target's meta).
+			if target == "" {
+				logger.Warn("cron: direct_wake without wake_session, skipping", "id", jobID)
+				return "", nil
+			}
+			delivery := "you were woken by cron (inject mode). Caller is cron — output to caller is dropped. " +
+				"Use dispatch(to=user) to message the channel user, or dispatch(to=session, session_key=...) " +
+				"to forward elsewhere."
+			c.onDirectWake(target, msg.WakeCron, task, "", delivery)
+			return "", nil
+		}
+
+		// Independent mode: run in cron:<jobID> session with configured agent.
+		sessionKey := "cron:" + jobID
+		agent := strings.TrimSpace(job.Agent)
+		var delivery string
+		if target != "" {
+			delivery = "you were woken by cron (independent mode). Caller is cron — output to caller is dropped. " +
+				"After completing your task, dispatch(to=session, session_key=\"" + target + "\") to deliver results."
+		} else {
+			delivery = "you were woken by cron (independent mode). Caller is cron — output to caller is dropped. " +
+				"No delivery target configured; use dispatch explicitly if you need to forward results."
+			logger.Warn("cron: independent mode without wake_session (silent execution)", "id", jobID)
+		}
+		c.onDirectWake(sessionKey, msg.WakeCron, task, agent, delivery)
+		return "", nil
 	}
 
 	sch, err := cronpkg.NewScheduler(c.storePath, factory, c.seedJobs)

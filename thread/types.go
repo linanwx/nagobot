@@ -47,12 +47,9 @@ const (
 	WakeDiscord        = msg.WakeDiscord
 	WakeFeishu         = msg.WakeFeishu
 	WakeWeCom          = msg.WakeWeCom
-	WakeUserActive     = msg.WakeUserActive
 	WakeSession        = msg.WakeSession
-	WakeSleepCompleted = msg.WakeSleepCompleted
 	WakeCron           = msg.WakeCron
-	WakeCronFinished   = msg.WakeCronFinished
-	WakeCompression      = msg.WakeCompression
+	WakeCompression    = msg.WakeCompression
 	WakeHeartbeat = msg.WakeHeartbeat
 	WakeResume       = msg.WakeResume
 	WakeRephrase     = msg.WakeRephrase

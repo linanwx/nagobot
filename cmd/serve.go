@@ -189,9 +189,27 @@ func runServe(cmd *cobra.Command, args []string) error {
 		}
 	}
 
-	// Wire sleep_thread: CronChannel handles DirectWake jobs by waking threads directly.
-	cronCh.SetDirectWake(func(sessionKey string, source thread.WakeSource, message string) {
-		threadMgr.Wake(sessionKey, &thread.WakeMessage{Source: source, Message: message})
+	// Wire cron fires: every cron tick invokes this callback. A drop sink is
+	// attached so the cron-triggered turn's default output goes nowhere — the
+	// model must dispatch() explicitly. The deliveryLabel is mode-specific
+	// guidance rendered in the wake frontmatter.
+	cronCh.SetDirectWake(func(sessionKey string, source thread.WakeSource, message, agentName, deliveryLabel string) {
+		dropSink := thread.Sink{
+			Label: deliveryLabel,
+			Send: func(_ context.Context, response string) error {
+				if strings.TrimSpace(response) != "" {
+					logger.Debug("cron: caller output dropped",
+						"session", sessionKey, "bytes", len(response))
+				}
+				return nil
+			},
+		}
+		threadMgr.Wake(sessionKey, &thread.WakeMessage{
+			Source:    source,
+			Message:   message,
+			AgentName: agentName,
+			Sink:      dropSink,
+		})
 	})
 
 	// Register shared tools.
@@ -311,31 +329,20 @@ func buildDefaultSinkFor(chMgr *channel.Manager, cfg *config.Config, sessionsDir
 			}
 		}
 
-		// Cron jobs: route result to the configured wake_session.
+		// Cron sessions: defaultSink drops. Cron fires always attach an
+		// explicit per-wake Sink via onDirectWake callback, so this fallback
+		// only matters for wakes that target cron:<ID> from other sources
+		// (rare — typically only dispatch(to=session, session_key="cron:...")).
 		if strings.HasPrefix(sessionKey, "cron:") {
-			jobID := strings.TrimPrefix(sessionKey, "cron:")
-			if cronJobFn != nil {
-				if job, ok := cronJobFn(jobID); ok && strings.TrimSpace(job.WakeSession) != "" {
-					reportTo := strings.TrimSpace(job.WakeSession)
-					return thread.Sink{
-						Label: "your task will be injected into session " + reportTo + " which will wake, execute, and deliver the result to the user",
-						Send: func(ctx context.Context, response string) error {
-							if strings.TrimSpace(response) == "" {
-								return nil
-							}
-							wakeMsg := sysmsg.BuildSystemMessage("cron_completed", map[string]string{
-								"id": jobID,
-							}, strings.TrimSpace(response))
-							wakeFn(reportTo, &thread.WakeMessage{
-								Source:  thread.WakeCronFinished,
-								Message: wakeMsg,
-							})
-							return nil
-						},
+			return thread.Sink{
+				Label: "cron session — caller output is dropped. Use dispatch(to=session, ...) to deliver explicitly.",
+				Send: func(_ context.Context, response string) error {
+					if strings.TrimSpace(response) != "" {
+						logger.Debug("cron default sink dropped", "session", sessionKey, "bytes", len(response))
 					}
-				}
+					return nil
+				},
 			}
-			return thread.Sink{Label: "cron silent, result will not be delivered"}
 		}
 
 		// telegram:{chatID} or telegram:{userID} → send to that chat.
