@@ -8,7 +8,6 @@ import (
 
 	"github.com/linanwx/nagobot/logger"
 	"github.com/linanwx/nagobot/session"
-	"github.com/linanwx/nagobot/thread/msg"
 )
 
 // CurrentSessionKey returns this thread's session key.
@@ -139,16 +138,17 @@ func (t *Thread) WakeSession(_ context.Context, sessionKey, body string) error {
 	}
 	sinkToWaker := t.buildSinkToCaller(sessionKey)
 	t.mgr.Wake(sessionKey, &WakeMessage{
-		Source:  WakeExternal,
-		Message: body,
-		Sink:    sinkToWaker,
+		Source:           WakeSession,
+		Message:          body,
+		Sink:             sinkToWaker,
+		CallerSessionKey: t.sessionKey,
 	})
 	return nil
 }
 
 // buildSinkToCaller constructs a sink that wakes THIS thread's session with the
-// response wrapped as a "session_reply" system message. Used as the per-wake sink
-// when this thread dispatches to=session at another session.
+// target's reply. Used as the per-wake sink when this thread dispatches
+// to=session at another session.
 func (t *Thread) buildSinkToCaller(targetSession string) Sink {
 	wakerKey := t.sessionKey
 	mgr := t.mgr
@@ -159,12 +159,10 @@ func (t *Thread) buildSinkToCaller(targetSession string) Sink {
 			if response == "" {
 				return nil
 			}
-			wakeMsg := msg.BuildSystemMessage("session_reply", map[string]string{
-				"from_session": targetSession,
-			}, response)
 			mgr.Wake(wakerKey, &WakeMessage{
-				Source:  WakeExternal,
-				Message: wakeMsg,
+				Source:           WakeSession,
+				Message:          response,
+				CallerSessionKey: targetSession,
 			})
 			return nil
 		},
@@ -264,9 +262,10 @@ func (t *Thread) createOrWake(key, agentName, body string, isFork bool, forkFrom
 	// Wake the target. NewThread (inside Wake) creates the thread if needed,
 	// using agentName (or falling back to meta / default).
 	t.mgr.Wake(key, &WakeMessage{
-		Source:    WakeExternal,
-		Message:   body,
-		AgentName: agentName,
+		Source:           WakeSession,
+		Message:          body,
+		AgentName:        agentName,
+		CallerSessionKey: t.sessionKey,
 	})
 	return note, nil
 }
