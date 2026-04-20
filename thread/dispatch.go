@@ -129,40 +129,54 @@ func (t *Thread) CreateOrWakeFork(_ context.Context, agentName, taskID, body str
 }
 
 // WakeSession wakes an existing session with body as an external message.
-// The wake carries a per-wake sink that routes the target's reply back to
-// THIS thread's session — so the target's `dispatch(to=caller)` returns to us,
-// not to the target's own channel user.
+// The wake carries a recursive paired sink: the target's reply wakes THIS
+// thread's session back, and the reverse-direction wake carries another
+// paired sink — so the exchange recurses until one party explicitly halts
+// via dispatch({}) or redirects out via dispatch(to=user).
 func (t *Thread) WakeSession(_ context.Context, sessionKey, body string) error {
 	if t.mgr == nil {
 		return fmt.Errorf("manager not configured")
 	}
-	sinkToWaker := t.buildSinkToCaller(sessionKey)
 	t.mgr.Wake(sessionKey, &WakeMessage{
 		Source:           WakeSession,
 		Message:          body,
-		Sink:             sinkToWaker,
+		Sink:             BuildPairedSessionSink(t.mgr, sessionKey, t.sessionKey),
 		CallerSessionKey: t.sessionKey,
 	})
 	return nil
 }
 
-// buildSinkToCaller constructs a sink that wakes THIS thread's session with the
-// target's reply. Used as the per-wake sink when this thread dispatches
-// to=session at another session.
+// buildSinkToCaller returns a recursive paired sink attached to a wake going
+// from THIS thread to `targetSession`. See BuildPairedSessionSink for semantics.
 func (t *Thread) buildSinkToCaller(targetSession string) Sink {
-	wakerKey := t.sessionKey
-	mgr := t.mgr
+	return BuildPairedSessionSink(t.mgr, targetSession, t.sessionKey)
+}
+
+// BuildPairedSessionSink constructs a recursive session-to-session paired sink.
+//
+// The returned sink is attached to a wake message delivered to `selfKey`. When
+// selfKey's turn emits a naive final response (no explicit dispatch), the sink
+// wakes `peerKey` with that response — and that wake carries the reverse paired
+// sink (selfKey ↔ peerKey swapped) so the next reply comes back to selfKey.
+//
+// Exchanges recurse indefinitely until one side halts explicitly:
+//   - dispatch({}) — silent termination
+//   - dispatch(to=user) — redirect to channel user
+//   - dispatch(to=<any>) with SignalHalt — any explicit dispatch suppresses
+//     the per-wake sink via SetSuppressSink
+func BuildPairedSessionSink(mgr *Manager, selfKey, peerKey string) Sink {
 	return Sink{
-		Label: "your reply will be forwarded to caller session " + wakerKey,
+		Label: "your reply will be forwarded to caller session " + peerKey,
 		Send: func(_ context.Context, response string) error {
 			response = strings.TrimSpace(response)
 			if response == "" {
 				return nil
 			}
-			mgr.Wake(wakerKey, &WakeMessage{
+			mgr.Wake(peerKey, &WakeMessage{
 				Source:           WakeSession,
 				Message:          response,
-				CallerSessionKey: targetSession,
+				CallerSessionKey: selfKey,
+				Sink:             BuildPairedSessionSink(mgr, peerKey, selfKey),
 			})
 			return nil
 		},
@@ -260,11 +274,14 @@ func (t *Thread) createOrWake(key, agentName, body string, isFork bool, forkFrom
 	}
 
 	// Wake the target. NewThread (inside Wake) creates the thread if needed,
-	// using agentName (or falling back to meta / default).
+	// using agentName (or falling back to meta / default). Attach a recursive
+	// paired sink so the target's naive reply comes back to us and recurses
+	// until one side explicitly halts.
 	t.mgr.Wake(key, &WakeMessage{
 		Source:           WakeSession,
 		Message:          body,
 		AgentName:        agentName,
+		Sink:             t.buildSinkToCaller(key),
 		CallerSessionKey: t.sessionKey,
 	})
 	return note, nil

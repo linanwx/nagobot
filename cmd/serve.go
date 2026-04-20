@@ -175,10 +175,7 @@ func runServe(cmd *cobra.Command, args []string) error {
 	// Set default agent/sink factories: resolve fallback agent and sink per session key.
 	threadMgr.SetDefaultAgentFor(buildDefaultAgentFor(threadMgr))
 	sessionsDir, _ := cfg.SessionsDir()
-	threadMgr.SetDefaultSinkFor(buildDefaultSinkFor(chManager, cfg, sessionsDir,
-		func(key string, msg *thread.WakeMessage) { threadMgr.Wake(key, msg) },
-		cronCh.FindJob,
-	))
+	threadMgr.SetDefaultSinkFor(buildDefaultSinkFor(chManager, cfg, sessionsDir, threadMgr, cronCh.FindJob))
 
 	// Wire system prompt and context budget lookups for the web dashboard.
 	if ch, ok := chManager.Get("web"); ok {
@@ -305,9 +302,12 @@ func readSessionMeta(sessionsDir, sessionKey string) session.Meta {
 }
 
 // buildDefaultSinkFor returns a factory that resolves the fallback sink for a given session key.
-func buildDefaultSinkFor(chMgr *channel.Manager, cfg *config.Config, sessionsDir string, wakeFn func(string, *thread.WakeMessage), cronJobFn func(string) (cronpkg.Job, bool)) func(string) thread.Sink {
+func buildDefaultSinkFor(chMgr *channel.Manager, cfg *config.Config, sessionsDir string, threadMgr *thread.Manager, cronJobFn func(string) (cronpkg.Job, bool)) func(string) thread.Sink {
 	return func(sessionKey string) thread.Sink {
-		// Child threads: route response back to parent thread.
+		// Child threads: route response back to parent thread. The parent wake
+		// carries a recursive paired sink so any naive parent reply routes back
+		// to this child session — the ping-pong recurses until one side halts
+		// via dispatch({}) or dispatch(to=user).
 		if idx := strings.Index(sessionKey, ":threads:"); idx >= 0 {
 			parentKey := sessionKey[:idx]
 			return thread.Sink{
@@ -319,10 +319,11 @@ func buildDefaultSinkFor(chMgr *channel.Manager, cfg *config.Config, sessionsDir
 					wakeMsg := sysmsg.BuildSystemMessage("child_completed", map[string]string{
 						"child_session": sessionKey,
 					}, strings.TrimSpace(response))
-					wakeFn(parentKey, &thread.WakeMessage{
+					threadMgr.Wake(parentKey, &thread.WakeMessage{
 						Source:           thread.WakeSession,
 						Message:          wakeMsg,
 						CallerSessionKey: sessionKey,
+						Sink:             thread.BuildPairedSessionSink(threadMgr, parentKey, sessionKey),
 					})
 					return nil
 				},

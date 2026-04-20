@@ -397,7 +397,7 @@ func wakeActionHint(source WakeSource) string {
 	}
 	switch source {
 	case WakeSession:
-		return "Another session woke you — see caller_session_key for the sender. The content is ONLY visible to you. Decide explicitly: use dispatch(to=caller) to reply to the sender, dispatch(to=user) to message your channel user, dispatch to other targets to fan out, or dispatch({}) to stay silent. Do NOT emit final text without dispatch — it will be auto-routed to caller."
+		return "Another session woke you — see caller_session_key for the sender. Naive final text will route back to caller and re-wake them. If you want to break the loop: dispatch({}) to stay silent, or dispatch(to=user) to redirect to your channel user."
 	case WakeCron:
 		return "A scheduled cron task has started. Execute it based on the provided job context."
 	case WakeCompression:
