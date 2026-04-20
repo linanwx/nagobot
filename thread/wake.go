@@ -397,7 +397,7 @@ func wakeActionHint(source WakeSource) string {
 	}
 	switch source {
 	case WakeSession:
-		return "Another session woke you — see caller_session_key for the sender. Naive final text will route back to caller and re-wake them. If you want to break the loop: dispatch({}) to stay silent, or dispatch(to=user) to redirect to your channel user."
+		return "Another session woke you — caller_session_key identifies the IMMEDIATE sender (may be a sibling/subagent/cron session, NOT necessarily the original user). Naive final text will route back to that caller and re-wake them. To break the loop: dispatch({}) to stay silent, or dispatch(to=user) to redirect to your own channel user. To hand off: dispatch(to=session, session_key=...) forwards to a different session (still recurses with that new peer)."
 	case WakeCron:
 		return "A scheduled cron task has started. Execute it based on the provided job context."
 	case WakeCompression:
