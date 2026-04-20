@@ -17,13 +17,13 @@ import (
 	"github.com/linanwx/nagobot/tools"
 )
 
-func buildThreadManager(cfg *config.Config, enableSessions bool) (*thread.Manager, *tools.SearchHealthChecker, error) {
+func buildThreadManager(cfg *config.Config, enableSessions bool) (*thread.Manager, *tools.SearchHealthChecker, *tools.SearchHealthChecker, error) {
 	if cfg == nil {
-		return nil, nil, fmt.Errorf("config is nil")
+		return nil, nil, nil, fmt.Errorf("config is nil")
 	}
 	workspace, err := cfg.WorkspacePath()
 	if err != nil {
-		return nil, nil, fmt.Errorf("failed to get workspace: %w", err)
+		return nil, nil, nil, fmt.Errorf("failed to get workspace: %w", err)
 	}
 
 	cfgFn := func() *config.Config {
@@ -35,22 +35,22 @@ func buildThreadManager(cfg *config.Config, enableSessions bool) (*thread.Manage
 	}
 	providerFactory, err := provider.NewFactory(cfgFn)
 	if err != nil {
-		return nil, nil, fmt.Errorf("failed to create provider factory: %w", err)
+		return nil, nil, nil, fmt.Errorf("failed to create provider factory: %w", err)
 	}
 
 	defaultProvider, _ := providerFactory.Create("", "")
 
 	skillsDir, err := cfg.SkillsDir()
 	if err != nil {
-		return nil, nil, fmt.Errorf("failed to get skills directory: %w", err)
+		return nil, nil, nil, fmt.Errorf("failed to get skills directory: %w", err)
 	}
 	builtinSkillsDir, err := cfg.BuiltinSkillsDir()
 	if err != nil {
-		return nil, nil, fmt.Errorf("failed to get builtin skills directory: %w", err)
+		return nil, nil, nil, fmt.Errorf("failed to get builtin skills directory: %w", err)
 	}
 	sessionsDir, err := cfg.SessionsDir()
 	if err != nil {
-		return nil, nil, fmt.Errorf("failed to get sessions directory: %w", err)
+		return nil, nil, nil, fmt.Errorf("failed to get sessions directory: %w", err)
 	}
 
 	skillRegistry := skills.NewRegistry()
@@ -284,7 +284,7 @@ func buildThreadManager(cfg *config.Config, enableSessions bool) (*thread.Manage
 		SessionTimezoneFor:  cfg.SessionTimezone,
 		MetricsStore:        metricsStore,
 		Sections:            initSectionRegistry(workspace),
-	}), searchHealthChecker, nil
+	}), searchHealthChecker, fetchHealthChecker, nil
 }
 
 func initSectionRegistry(workspace string) *agent.SectionRegistry {

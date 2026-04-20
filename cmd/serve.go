@@ -75,7 +75,7 @@ func runServe(cmd *cobra.Command, args []string) error {
 	}
 	installBinary(workspace)
 
-	threadMgr, searchHealthChecker, err := buildThreadManager(cfg, true)
+	threadMgr, searchHealthChecker, fetchHealthChecker, err := buildThreadManager(cfg, true)
 	if err != nil {
 		return err
 	}
@@ -255,8 +255,9 @@ func runServe(cmd *cobra.Command, args []string) error {
 	// Start heartbeat scheduler (created above near RPC handler).
 	go hbScheduler.run(ctx)
 
-	// Set up search health persistence (passive recording, no active probing).
+	// Set up search/fetch health persistence (passive recording, no active probing).
 	searchHealthChecker.SetPersistPath(filepath.Join(workspace, "system", "search-health.json"))
+	fetchHealthChecker.SetPersistPath(filepath.Join(workspace, "system", "fetch-health.json"))
 
 	// Start background balance poller.
 	balanceCachePath := filepath.Join(workspace, "system", "balance-cache.json")
