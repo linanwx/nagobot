@@ -142,7 +142,7 @@ func isUserTurnComplete(messages []provider.Message, userMsgIdx int) bool {
 	if last.Role == "assistant" && len(last.ToolCalls) == 0 {
 		return true
 	}
-	if last.Role == "tool" && last.Name == "sleep_thread" {
+	if last.Role == "tool" && (last.Name == "sleep_thread" || last.Name == "dispatch") {
 		return true
 	}
 	return false

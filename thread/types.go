@@ -42,7 +42,6 @@ type WakeSource = msg.WakeSource
 // Wake source constants re-exported from msg package.
 const (
 	WakeTelegram       = msg.WakeTelegram
-	WakeCLI            = msg.WakeCLI
 	WakeWeb            = msg.WakeWeb
 	WakeDiscord        = msg.WakeDiscord
 	WakeFeishu         = msg.WakeFeishu

@@ -329,6 +329,9 @@ func isHeartbeatSkipTurn(turnMessages []provider.Message) bool {
 		if m.Role == "tool" && m.Name == "sleep_thread" {
 			endedSilently = true
 		}
+		if m.Role == "tool" && m.Name == "dispatch" && strings.Contains(m.Content, "turn-terminated-silent") {
+			endedSilently = true
+		}
 		if m.Role == "assistant" && len(m.ToolCalls) == 0 && strings.Contains(m.Content, "SLEEP_THREAD_OK") {
 			endedSilently = true
 		}

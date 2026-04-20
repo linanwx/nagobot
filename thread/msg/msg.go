@@ -151,7 +151,6 @@ type WakeSource string
 
 const (
 	WakeTelegram       WakeSource = "telegram"
-	WakeCLI            WakeSource = "cli"
 	WakeWeb            WakeSource = "web"
 	WakeDiscord        WakeSource = "discord"
 	WakeFeishu         WakeSource = "feishu"
@@ -169,7 +168,7 @@ const (
 // user-initiated channel (telegram, discord, cli, web, feishu).
 func IsUserVisibleSource(source WakeSource) bool {
 	switch source {
-	case WakeTelegram, WakeDiscord, WakeCLI, WakeWeb, WakeFeishu, WakeWeCom, WakeSocket:
+	case WakeTelegram, WakeDiscord, WakeWeb, WakeFeishu, WakeWeCom, WakeSocket:
 		return true
 	}
 	return false
