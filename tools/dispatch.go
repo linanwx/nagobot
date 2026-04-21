@@ -33,9 +33,15 @@ type DispatchSend struct {
 // DispatchHost abstracts the thread-side operations dispatch needs.
 type DispatchHost interface {
 	CurrentSessionKey() string
-	// CallerSessionKey returns the session key of the current wake's caller
-	// when addressable; empty for system sources (cron/heartbeat/child/compression).
-	CallerSessionKey() string
+	// CallerInfo returns an atomic snapshot of the current wake's caller:
+	// hasSink — true whenever a sink is attached, INCLUDING drop sinks used
+	//           by cron/compression (the sinkLabel tells the LLM when output
+	//           will actually be discarded);
+	// callerKey — session key when caller is another session, empty for
+	//             user-channel/system wakes;
+	// sinkLabel — human-readable destination shown back to the LLM on
+	//             successful to=caller; also surfaces drop-sink semantics.
+	CallerInfo() (hasSink bool, callerKey, sinkLabel string)
 	// IsUserFacing reports whether this session has a channel user sink
 	// (telegram/discord/cli/web/feishu/wecom). Required for to=user.
 	IsUserFacing() bool
@@ -67,12 +73,12 @@ func (t *DispatchTool) Def() provider.ToolDef {
 			Name: "dispatch",
 			Description: "Turn-terminating routing primitive. Call this at the end of every turn to declare where output goes. " +
 				"Each entry in `sends` has a `to` field selecting the target:\n" +
-				"- caller: reply to whoever woke this turn (the current wake's sink). For real user-message turns this is the user. For cross-session wakes (to=session) this is the originating session, not the channel user.\n" +
-				"- user: reply to the channel user via this session's user-channel sink. Only valid for user-facing sessions (telegram/discord/cli/web/feishu/wecom). Distinct from caller — useful when a non-user source (another session) woke you and you want to proactively message your user instead of replying to the waker.\n" +
+				"- caller: reply to whoever woke THIS turn (the current wake's sink). Caller is PER-WAKE, NOT per-session — a later turn may have a different caller. For user messages the caller is the channel user; for cross-session wakes it is the originating session (see `caller_session_key` in the wake YAML); for a subagent completing it is that child. The tool result reports `delivered_to` so you can confirm who received it.\n" +
+				"- user: reply to the channel user via this session's user-channel sink. Only valid for user-facing sessions (telegram/discord/cli/web/feishu/wecom). Distinct from caller — use this when a non-user source (cron/heartbeat/another session) woke you and you want to proactively message YOUR user INSTEAD OF replying to the waker.\n" +
 				"- subagent: spawn a new subagent thread, or wake existing at same task_id. Fields: agent (optional), task_id, body.\n" +
 				"- fork: branch current session as new agent thread, or wake existing at same task_id. Fields: agent (optional), task_id, body.\n" +
-				"- session: wake an existing session. Fields: session_key, body. The target receives the body and its own dispatch(to=caller) routes back to YOUR session.\n\n" +
-				"Empty sends — dispatch({}) — is silent turn termination; nothing delivered, history recorded. " +
+				"- session: wake an existing session. Fields: session_key, body. The target receives the body and its own dispatch(to=caller) routes back to YOUR session (ping-pong recurses until one side halts).\n\n" +
+				"Empty sends — dispatch({}) — is silent turn termination; nothing delivered, history recorded. Only use when you genuinely have nothing to say AND the caller does not need to know you finished. If you received a cross-session wake you believe was mis-routed, dispatch(to=caller) with an explanation — do NOT silently drop it via dispatch({}) (the caller never learns). " +
 				"On success the turn ends. On validation error the turn continues — fix and re-call. " +
 				"Scheduling is not supported here; use cron for future wakes.",
 			Parameters: map[string]any{
@@ -123,9 +129,10 @@ type dispatchArgs struct {
 
 // ExecutedItem describes a single dispatch entry that was executed.
 type ExecutedItem struct {
-	To         DispatchTarget `json:"to"`
-	SessionKey string         `json:"session_key,omitempty"`
-	Note       string         `json:"note,omitempty"`
+	To          DispatchTarget `json:"to"`
+	SessionKey  string         `json:"session_key,omitempty"`
+	DeliveredTo string         `json:"delivered_to,omitempty"` // Human-readable destination label. Set for to=caller to clarify who received it.
+	Note        string         `json:"note,omitempty"`
 }
 
 // DispatchError describes a single validation or execution failure.
@@ -225,8 +232,8 @@ func (t *DispatchTool) validateOne(send DispatchSend, currentSession string) str
 		if send.Agent != "" || send.TaskID != "" || send.SessionKey != "" {
 			return "caller does not accept agent/task_id/session_key"
 		}
-		if t.host.CallerSessionKey() == "" {
-			return "current wake has no routable caller (system source like cron/heartbeat/child)"
+		if hasSink, _, _ := t.host.CallerInfo(); !hasSink {
+			return "current wake has no routable caller (system source like cron/heartbeat/compression)"
 		}
 	case TargetUser:
 		if send.Agent != "" || send.TaskID != "" || send.SessionKey != "" {
@@ -262,7 +269,7 @@ func (t *DispatchTool) validateOne(send DispatchSend, currentSession string) str
 			return fmt.Sprintf("session %q not found", send.SessionKey)
 		}
 	default:
-		return fmt.Sprintf("unknown to: %q (must be one of caller/subagent/fork/session)", send.To)
+		return fmt.Sprintf("unknown to: %q (must be one of caller/user/subagent/fork/session)", send.To)
 	}
 	return ""
 }
@@ -288,10 +295,15 @@ func targetKey(send DispatchSend, currentSession string) string {
 func (t *DispatchTool) execute(ctx context.Context, send DispatchSend) (ExecutedItem, error) {
 	switch send.To {
 	case TargetCaller:
+		_, callerKey, sinkLabel := t.host.CallerInfo()
 		if err := t.host.SendToCaller(ctx, send.Body); err != nil {
 			return ExecutedItem{}, err
 		}
-		return ExecutedItem{To: TargetCaller, SessionKey: t.host.CallerSessionKey()}, nil
+		return ExecutedItem{
+			To:          TargetCaller,
+			SessionKey:  callerKey,
+			DeliveredTo: sinkLabel,
+		}, nil
 	case TargetUser:
 		if err := t.host.SendToUser(ctx, send.Body); err != nil {
 			return ExecutedItem{}, err
@@ -336,11 +348,7 @@ func buildDispatchErrorResult(errs []DispatchError) string {
 func buildDispatchSuccessResult(executed []ExecutedItem) string {
 	list := make([]any, 0, len(executed))
 	for _, ex := range executed {
-		entry := map[string]any{"to": string(ex.To), "session_key": ex.SessionKey}
-		if ex.Note != "" {
-			entry["note"] = ex.Note
-		}
-		list = append(list, entry)
+		list = append(list, executedItemEntry(ex))
 	}
 	return toolResult("dispatch", map[string]any{
 		"executed": list,
@@ -348,14 +356,24 @@ func buildDispatchSuccessResult(executed []ExecutedItem) string {
 	}, "All sends executed. Turn ended.")
 }
 
+func executedItemEntry(ex ExecutedItem) map[string]any {
+	entry := map[string]any{"to": string(ex.To)}
+	if ex.SessionKey != "" {
+		entry["session_key"] = ex.SessionKey
+	}
+	if ex.DeliveredTo != "" {
+		entry["delivered_to"] = ex.DeliveredTo
+	}
+	if ex.Note != "" {
+		entry["note"] = ex.Note
+	}
+	return entry
+}
+
 func buildDispatchMixedResult(executed []ExecutedItem, errs []DispatchError) string {
 	exList := make([]any, 0, len(executed))
 	for _, ex := range executed {
-		entry := map[string]any{"to": string(ex.To), "session_key": ex.SessionKey}
-		if ex.Note != "" {
-			entry["note"] = ex.Note
-		}
-		exList = append(exList, entry)
+		exList = append(exList, executedItemEntry(ex))
 	}
 	errList := make([]any, 0, len(errs))
 	for _, e := range errs {

@@ -12,15 +12,15 @@ import (
 	"github.com/linanwx/nagobot/config"
 	"github.com/linanwx/nagobot/logger"
 	"github.com/linanwx/nagobot/monitor"
-	sysmsg "github.com/linanwx/nagobot/thread/msg"
 	"github.com/linanwx/nagobot/provider"
 	"github.com/linanwx/nagobot/session"
+	sysmsg "github.com/linanwx/nagobot/thread/msg"
 	"github.com/linanwx/nagobot/tools"
 )
 
 // run executes one thread turn. Called by RunOnce; callers must not invoke
 // this directly.
-func (t *Thread) run(ctx context.Context, userMessage string, sink Sink, injectFn func() []provider.Message, wakeSource string) (string, error) {
+func (t *Thread) run(ctx context.Context, userMessage string, sink Sink, callerKey string, injectFn func() []provider.Message, wakeSource string) (string, error) {
 	userMessage = strings.TrimSpace(userMessage)
 	if userMessage == "" {
 		return "", nil
@@ -69,10 +69,12 @@ func (t *Thread) run(ctx context.Context, userMessage string, sink Sink, injectF
 	t.resetHaltLoop()
 	t.mu.Lock()
 	t.currentSink = sink
+	t.currentCallerKey = callerKey
 	t.mu.Unlock()
 	defer func() {
 		t.mu.Lock()
 		t.currentSink = Sink{}
+		t.currentCallerKey = ""
 		t.mu.Unlock()
 	}()
 	p := t.resolveProvider()
@@ -685,7 +687,6 @@ func (t *Thread) loadSession() *session.Session {
 	}
 	return loadedSession
 }
-
 
 func (t *Thread) buildSkillsSection() string {
 	cfg := t.cfg()

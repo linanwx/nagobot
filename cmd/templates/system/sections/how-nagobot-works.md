@@ -14,12 +14,22 @@ A sink defines how a thread's output is finally delivered after reasoning. For s
 
 Messages from `cli` and `telegram` may include a sink override, which overrides the sink held by the thread. For example, messages received from Telegram are always sent back to that user.
 
-Each wake message carries YAML frontmatter with metadata about the current turn. Two fields connect the sink mechanism to your reasoning:
+Each wake message carries YAML frontmatter with metadata about the current turn. Three fields connect the sink mechanism to your reasoning:
 
 - `delivery` — a natural-language description of the sink's delivery target. This is your only way to know where your output will go. It may describe a user (`your response will be sent to telegram user 123`), an indirect chain (`your task will be injected into session telegram:789`), or no delivery at all (`cron silent, result will not be delivered`).
 - `sender` — either `user` (the wake was triggered by a real user message) or `system` (triggered automatically by cron, heartbeat, child completion, etc.).
+- `caller_session_key` — present only when another session woke you (a cross-session wake). It names the *immediate* upstream session, not the original user — in a chain A → B → you, this field points to B. Absent for channel-user wakes and most system wakes.
 
-Some turns require silent completion — ending without user-facing output. The task prompt for that turn will specify this. The mechanism to complete silently is to call `dispatch({})` (empty sends). Any text in a final tool-free response will be delivered through the sink, so omit it when silent completion is required.
+`caller` is **per-wake, not per-session**. The same session can be woken by the channel user in one turn, by a cron job in the next, and by a subagent in the one after — each turn, `caller` refers to whoever triggered THAT turn. Read the wake frontmatter each turn; do not assume the caller is the same as last turn.
+
+`dispatch` is the turn-terminating routing primitive. Its `to` targets map to the concepts above:
+
+- `caller` → the sink attached to this wake (identified by `delivery`). `dispatch(to=caller)` replies to whoever woke THIS turn; the tool result reports `delivered_to` so you can confirm where it went. Note that when `delivery` indicates a drop sink (cron/compression caller replies are dropped), `to=caller` still validates but the reply is discarded — use `to=user` or `to=session` for real delivery in those cases.
+- `user` → the channel-user sink of your own session (only valid when your session is user-facing). Use this to reach your user directly when a non-user source woke you.
+- `subagent` / `fork` → spawn or wake a child thread.
+- `session` → wake another session by key; the target's `dispatch(to=caller)` routes back to you and the exchange recurses until one side halts.
+
+Some turns require silent completion — ending without user-facing output. The task prompt for that turn will specify this. The mechanism to complete silently is to call `dispatch({})` (empty sends). Any text in a final tool-free response will be delivered through the sink, so omit it when silent completion is required. When a cross-session wake arrives that you believe was misrouted, prefer `dispatch(to=caller)` with a short explanation over `dispatch({})` — silent drop hides the mistake from the caller.
 
 Each thread has a message queue. Wake messages are pushed into the queue, and the thread manager selects queued threads from all threads to run reasoning.
 

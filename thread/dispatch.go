@@ -15,19 +15,17 @@ func (t *Thread) CurrentSessionKey() string {
 	return t.sessionKey
 }
 
-// CallerSessionKey returns an informational tag identifying the caller, when
-// the current wake has a routable sink. Returns empty if no sink is active
-// (e.g. cron, heartbeat, compression, or child_completed with nil sink).
-// The actual delivery target is the sink itself; the returned key is just
-// context for dispatch result formatting.
-func (t *Thread) CallerSessionKey() string {
+// CallerInfo returns an atomic snapshot of the current turn's caller context
+// under a single lock. hasSink is true whenever the turn has any sink attached
+// — including drop sinks used by cron/compression wakes where caller output
+// is deliberately discarded. The LLM learns drop-vs-real delivery semantics
+// from the wake YAML `delivery` label, which is also returned here as
+// sinkLabel. callerKey is the session that woke us for WakeSession; empty
+// for user-channel and system wakes.
+func (t *Thread) CallerInfo() (hasSink bool, callerKey, sinkLabel string) {
 	t.mu.Lock()
-	hasSink := !t.currentSink.IsZero()
-	t.mu.Unlock()
-	if !hasSink {
-		return ""
-	}
-	return t.sessionKey
+	defer t.mu.Unlock()
+	return !t.currentSink.IsZero(), t.currentCallerKey, t.currentSink.Label
 }
 
 // AgentExists reports whether a template with the given name is registered.

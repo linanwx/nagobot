@@ -11,6 +11,8 @@ import (
 type mockDispatchHost struct {
 	currentKey    string
 	callerKey     string
+	hasSink       bool   // override: true means HasCurrentSink() returns true regardless of callerKey.
+	sinkLabel     string // CurrentSinkLabel() return value.
 	userFacing    bool
 	agents        map[string]bool
 	sessions      map[string]bool
@@ -32,8 +34,10 @@ type wakeCall struct {
 }
 
 func (m *mockDispatchHost) CurrentSessionKey() string { return m.currentKey }
-func (m *mockDispatchHost) CallerSessionKey() string  { return m.callerKey }
-func (m *mockDispatchHost) IsUserFacing() bool        { return m.userFacing }
+func (m *mockDispatchHost) CallerInfo() (bool, string, string) {
+	return m.hasSink || m.callerKey != "", m.callerKey, m.sinkLabel
+}
+func (m *mockDispatchHost) IsUserFacing() bool { return m.userFacing }
 func (m *mockDispatchHost) AgentExists(name string) bool {
 	return m.agents[name]
 }

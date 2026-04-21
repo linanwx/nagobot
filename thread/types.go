@@ -40,17 +40,17 @@ type WakeSource = msg.WakeSource
 
 // Wake source constants re-exported from msg package.
 const (
-	WakeTelegram       = msg.WakeTelegram
-	WakeWeb            = msg.WakeWeb
-	WakeDiscord        = msg.WakeDiscord
-	WakeFeishu         = msg.WakeFeishu
-	WakeWeCom          = msg.WakeWeCom
-	WakeSession        = msg.WakeSession
-	WakeCron           = msg.WakeCron
-	WakeCompression    = msg.WakeCompression
-	WakeHeartbeat = msg.WakeHeartbeat
-	WakeResume       = msg.WakeResume
-	WakeRephrase     = msg.WakeRephrase
+	WakeTelegram    = msg.WakeTelegram
+	WakeWeb         = msg.WakeWeb
+	WakeDiscord     = msg.WakeDiscord
+	WakeFeishu      = msg.WakeFeishu
+	WakeWeCom       = msg.WakeWeCom
+	WakeSession     = msg.WakeSession
+	WakeCron        = msg.WakeCron
+	WakeCompression = msg.WakeCompression
+	WakeHeartbeat   = msg.WakeHeartbeat
+	WakeResume      = msg.WakeResume
+	WakeRephrase    = msg.WakeRephrase
 )
 
 // threadState represents the runtime state of a thread.
@@ -87,18 +87,18 @@ type ThreadConfig struct {
 	SkillsDir           string
 	BuiltinSkillsDir    string
 	SessionsDir         string
-	ContextWindowTokens  int
-	MaxCompletionTokens  int
+	ContextWindowTokens int
+	MaxCompletionTokens int
 	Sessions            *session.Manager
 	DefaultSinkFor      func(sessionKey string) Sink
 	DefaultAgentFor     func(sessionKey string) string // Session key → default agent name
 	HealthChannelsFn    func() *tools.HealthChannelsInfo
-	ProviderFactory     *provider.Factory              // For per-agent model routing
-	Models              map[string]*config.ModelConfig  // Model type → provider/model mapping (startup snapshot)
+	ProviderFactory     *provider.Factory                     // For per-agent model routing
+	Models              map[string]*config.ModelConfig        // Model type → provider/model mapping (startup snapshot)
 	ModelsFn            func() map[string]*config.ModelConfig // Hot-reload: returns latest Models from config
-	SessionTimezoneFor  func(sessionKey string) string // Session key → IANA timezone
-	MetricsStore        *monitor.Store                 // Turn metrics storage (optional)
-	Sections            *agent.SectionRegistry         // Shared section registry for prompt assembly
+	SessionTimezoneFor  func(sessionKey string) string        // Session key → IANA timezone
+	MetricsStore        *monitor.Store                        // Turn metrics storage (optional)
+	Sections            *agent.SectionRegistry                // Shared section registry for prompt assembly
 }
 
 // Thread is a single execution unit with an agent, wake queue, and optional session.
@@ -116,20 +116,21 @@ type Thread struct {
 	inbox  chan *WakeMessage // Buffered wake queue.
 	signal chan struct{}     // Shared with Manager for notification.
 
-	mu           sync.Mutex
-	hooks        []turnHook
-	pending      []*WakeMessage // Non-mergeable messages deferred by tryMerge (avoids channel requeue deadlock).
-	defaultSink  Sink      // Fallback sink when WakeMessage.Sink is nil.
+	mu               sync.Mutex
+	hooks            []turnHook
+	pending          []*WakeMessage // Non-mergeable messages deferred by tryMerge (avoids channel requeue deadlock).
+	defaultSink      Sink           // Fallback sink when WakeMessage.Sink is nil.
 	lastActiveAt     time.Time      // Last time this thread completed work (used by GC).
 	lastUserActiveAt time.Time      // Last time a real user interacted (used by compression).
 	lastWakeSource   msg.WakeSource // Source of the most recent wake (set at RunOnce start).
-	suppressSink bool      // When true, RunOnce skips sink delivery (reset after each turn).
-	haltLoop     bool      // When true, Runner stops after current tool calls complete.
-	currentSink  Sink      // Current turn's active sink (set by run(), cleared on turn end). Used by dispatch(to=caller).
+	suppressSink     bool           // When true, RunOnce skips sink delivery (reset after each turn).
+	haltLoop         bool           // When true, Runner stops after current tool calls complete.
+	currentSink      Sink           // Current turn's active sink (set by run(), cleared on turn end). Used by dispatch(to=caller).
+	currentCallerKey string         // Caller session key for the current wake; empty for user/system wakes.
 
-	execMetrics      *ExecMetrics // Non-nil only while a turn is executing.
-	lastCompressAttemptAt time.Time // Last time tier 2 compression was enqueued (prevents duplicate enqueue).
-	lastCompressedAt      time.Time // Last time tier 2 compression completed successfully.
+	execMetrics           *ExecMetrics // Non-nil only while a turn is executing.
+	lastCompressAttemptAt time.Time    // Last time tier 2 compression was enqueued (prevents duplicate enqueue).
+	lastCompressedAt      time.Time    // Last time tier 2 compression completed successfully.
 
 	memoryIndexCache   string    // Cached buildMemoryIndexSection result.
 	memoryIndexModTime time.Time // Directory modtime when cache was built.
@@ -144,18 +145,18 @@ type ExecMetrics struct {
 	TurnStart      time.Time
 	Iterations     int
 	TotalToolCalls int
-	CurrentTool    string           // empty when not executing a tool
+	CurrentTool    string // empty when not executing a tool
 	ToolCalls      []ToolCallRecord
 
 	// Last-turn token data — overwritten (not accumulated) each LLM call by the runner.
-	PromptEstimated     int
-	ReasoningEstimated  int
-	LastPromptActual    int
+	PromptEstimated      int
+	ReasoningEstimated   int
+	LastPromptActual     int
 	LastCompletionActual int
-	LastTotalActual     int
-	LastCachedActual    int
-	LastReasoningActual int
-	Media               MediaBreakdown
+	LastTotalActual      int
+	LastCachedActual     int
+	LastReasoningActual  int
+	Media                MediaBreakdown
 }
 
 // StartIteration increments the iteration counter and clears the current tool.
@@ -203,4 +204,3 @@ func (t *Thread) location() *time.Location {
 	}
 	return time.Now().Location()
 }
-

@@ -247,7 +247,7 @@ func (t *Thread) RunOnce(ctx context.Context) {
 		}
 	}
 
-	response, err := t.run(ctx, userMessage, sink, injectFn, string(msg.Source))
+	response, err := t.run(ctx, userMessage, sink, msg.CallerSessionKey, injectFn, string(msg.Source))
 	t.checkAndResetSinkSuppressed()
 
 	if err != nil {
@@ -358,8 +358,8 @@ type wakeHeader struct {
 	CallerSessionKey string `yaml:"caller_session_key,omitempty"`
 	Action           string `yaml:"action,omitempty"`
 	SupportsVision   *bool  `yaml:"supports_vision,omitempty"`
-	SupportsAudio  *bool  `yaml:"supports_audio,omitempty"`
-	SupportsPDF    *bool  `yaml:"supports_pdf,omitempty"`
+	SupportsAudio    *bool  `yaml:"supports_audio,omitempty"`
+	SupportsPDF      *bool  `yaml:"supports_pdf,omitempty"`
 }
 
 // markInjected inserts `injected: true` into the YAML frontmatter of a wake
@@ -397,7 +397,12 @@ func wakeActionHint(source WakeSource) string {
 	}
 	switch source {
 	case WakeSession:
-		return "Another session woke you — caller_session_key identifies the IMMEDIATE sender (may be a sibling/subagent/cron session, NOT necessarily the original user). Naive final text will route back to that caller and re-wake them. To break the loop: dispatch({}) to stay silent, or dispatch(to=user) to redirect to your own channel user. To hand off: dispatch(to=session, session_key=...) forwards to a different session (still recurses with that new peer)."
+		return "Another session woke you — `caller_session_key` in this header identifies the IMMEDIATE sender for THIS wake only (may be a sibling, your subagent, your parent, a cron session — NOT necessarily the original user). The caller changes per wake: in a later turn a different session may wake you, and `caller` will then point to that new sender. Dispatch options:\n" +
+			"- dispatch(to=caller) → reply back to the session in `caller_session_key`; that reply re-wakes them, and the ping-pong recurses until one side halts.\n" +
+			"- dispatch({}) → stay silent, nothing delivered (only use when you genuinely have nothing useful to say AND don't need the caller to know).\n" +
+			"- dispatch(to=user) → if this session is user-facing, redirect to your own channel user instead of the waker.\n" +
+			"- dispatch(to=session, session_key=...) → hand off to a different session (still recurses with that new peer).\n" +
+			"If you believe this wake was sent to the wrong recipient, DO NOT dispatch({}) — that silently drops the message and the caller never learns. Instead dispatch(to=caller) explaining the mis-route so they can redirect."
 	case WakeCron:
 		return "A scheduled cron task has started. Execute it based on the provided job context."
 	case WakeCompression:
