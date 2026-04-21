@@ -162,8 +162,7 @@ func (t *DispatchTool) run(ctx context.Context, args json.RawMessage) string {
 	if len(a.Sends) == 0 {
 		t.host.SignalHalt()
 		return toolResult("dispatch", map[string]any{
-			"executed": []any{},
-			"outcome":  "turn-terminated-silent",
+			"outcome": "turn-terminated-silent",
 		}, "Turn terminated silently. No delivery; history recorded.")
 	}
 
@@ -189,10 +188,11 @@ func (t *DispatchTool) run(ctx context.Context, args json.RawMessage) string {
 	}
 
 	t.host.SignalHalt()
+	isUserFacing := t.host.IsUserFacing()
 	if len(execErrs) > 0 {
-		return buildDispatchMixedResult(executed, execErrs)
+		return buildDispatchMixedResult(executed, execErrs, isUserFacing)
 	}
-	return buildDispatchSuccessResult(executed)
+	return buildDispatchSuccessResult(executed, isUserFacing)
 }
 
 // validateAll performs all static, existence, and dedup checks.
@@ -330,62 +330,102 @@ func (t *DispatchTool) execute(ctx context.Context, send DispatchSend) (Executed
 	return ExecutedItem{}, fmt.Errorf("unknown to: %q", send.To)
 }
 
+func describeExecuted(ex ExecutedItem) string {
+	switch ex.To {
+	case TargetCaller:
+		if ex.DeliveredTo != "" {
+			return "Replied to the caller — " + ex.DeliveredTo + "."
+		}
+		return "Replied to the caller."
+	case TargetUser:
+		return "Sent to your channel user."
+	case TargetSubagent:
+		note := ex.Note
+		if note == "" {
+			note = "dispatched"
+		}
+		return "Spawned subagent at session " + ex.SessionKey + " (" + note + ")."
+	case TargetFork:
+		note := ex.Note
+		if note == "" {
+			note = "dispatched"
+		}
+		return "Created fork at session " + ex.SessionKey + " (" + note + ")."
+	case TargetSession:
+		return "Woke session " + ex.SessionKey + "."
+	}
+	return "Dispatched to=" + string(ex.To) + " at session " + ex.SessionKey + "."
+}
+
+func hasUserSend(executed []ExecutedItem) bool {
+	for _, ex := range executed {
+		if ex.To == TargetUser {
+			return true
+		}
+	}
+	return false
+}
+
+const noUserReminder = "Reminder: this dispatch had no to=user entry. Any reply above went to another AI session, not to your channel user. Unless you explicitly dispatch(to=user), nothing in this turn is visible to the human user."
+
 func buildDispatchErrorResult(errs []DispatchError) string {
-	list := make([]any, 0, len(errs))
+	var sb strings.Builder
+	sb.WriteString("Validation failed — no sends were executed. Fix and re-call dispatch; the turn continues.\n\nErrors:\n")
 	for _, e := range errs {
-		entry := map[string]any{"index": e.Index, "detail": e.Detail}
 		if e.To != "" {
-			entry["to"] = e.To
+			fmt.Fprintf(&sb, "  - send #%d (to=%s): %s\n", e.Index, e.To, e.Detail)
+		} else {
+			fmt.Fprintf(&sb, "  - send #%d: %s\n", e.Index, e.Detail)
 		}
-		list = append(list, entry)
 	}
 	return toolResult("dispatch", map[string]any{
-		"errors":  list,
 		"outcome": "validation-error",
-	}, "Validation failed — no sends executed. Fix errors and re-call dispatch. Turn continues.")
+	}, strings.TrimRight(sb.String(), "\n"))
 }
 
-func buildDispatchSuccessResult(executed []ExecutedItem) string {
-	list := make([]any, 0, len(executed))
-	for _, ex := range executed {
-		list = append(list, executedItemEntry(ex))
+func buildDispatchSuccessResult(executed []ExecutedItem, isUserFacing bool) string {
+	var sb strings.Builder
+	if len(executed) == 1 {
+		sb.WriteString("Executed 1 send. Turn ended.\n\n")
+	} else {
+		fmt.Fprintf(&sb, "Executed %d sends. Turn ended.\n\n", len(executed))
+	}
+	for i, ex := range executed {
+		fmt.Fprintf(&sb, "  %d. %s\n", i+1, describeExecuted(ex))
+	}
+	if isUserFacing && !hasUserSend(executed) {
+		sb.WriteString("\n")
+		sb.WriteString(noUserReminder)
 	}
 	return toolResult("dispatch", map[string]any{
-		"executed": list,
-		"outcome":  "turn-terminated",
-	}, "All sends executed. Turn ended.")
+		"outcome": "turn-terminated",
+	}, strings.TrimRight(sb.String(), "\n"))
 }
 
-func executedItemEntry(ex ExecutedItem) map[string]any {
-	entry := map[string]any{"to": string(ex.To)}
-	if ex.SessionKey != "" {
-		entry["session_key"] = ex.SessionKey
-	}
-	if ex.DeliveredTo != "" {
-		entry["delivered_to"] = ex.DeliveredTo
-	}
-	if ex.Note != "" {
-		entry["note"] = ex.Note
-	}
-	return entry
-}
-
-func buildDispatchMixedResult(executed []ExecutedItem, errs []DispatchError) string {
-	exList := make([]any, 0, len(executed))
-	for _, ex := range executed {
-		exList = append(exList, executedItemEntry(ex))
-	}
-	errList := make([]any, 0, len(errs))
-	for _, e := range errs {
-		entry := map[string]any{"index": e.Index, "detail": e.Detail}
-		if e.To != "" {
-			entry["to"] = e.To
+func buildDispatchMixedResult(executed []ExecutedItem, errs []DispatchError, isUserFacing bool) string {
+	var sb strings.Builder
+	fmt.Fprintf(&sb, "Partial failure: %d send(s) executed, %d failed. Turn ended — executed deliveries cannot be unrolled.\n", len(executed), len(errs))
+	if len(executed) > 0 {
+		sb.WriteString("\nExecuted:\n")
+		for i, ex := range executed {
+			fmt.Fprintf(&sb, "  %d. %s\n", i+1, describeExecuted(ex))
 		}
-		errList = append(errList, entry)
+	}
+	if len(errs) > 0 {
+		sb.WriteString("\nFailed:\n")
+		for _, e := range errs {
+			if e.To != "" {
+				fmt.Fprintf(&sb, "  - send #%d (to=%s): %s\n", e.Index, e.To, e.Detail)
+			} else {
+				fmt.Fprintf(&sb, "  - send #%d: %s\n", e.Index, e.Detail)
+			}
+		}
+	}
+	if isUserFacing && !hasUserSend(executed) {
+		sb.WriteString("\n")
+		sb.WriteString(noUserReminder)
 	}
 	return toolResult("dispatch", map[string]any{
-		"executed": exList,
-		"errors":   errList,
-		"outcome":  "partial-failure",
-	}, "Some sends succeeded, some failed. Turn ended — executed deliveries cannot be unrolled.")
+		"outcome": "partial-failure",
+	}, strings.TrimRight(sb.String(), "\n"))
 }
