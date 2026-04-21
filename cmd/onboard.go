@@ -870,6 +870,11 @@ func copyEmbeddedDir(embeddedRoot, dest string) error {
 		if err := os.WriteFile(dstPath, data, mode); err != nil {
 			return err
 		}
+		// WriteFile only applies mode on file create; an existing file keeps
+		// its old mode. Force the intended mode explicitly.
+		if err := os.Chmod(dstPath, mode); err != nil {
+			return err
+		}
 	}
 	return nil
 }
