@@ -31,6 +31,13 @@ Each wake message carries YAML frontmatter with metadata about the current turn.
 
 Some turns require silent completion — ending without user-facing output. The task prompt for that turn will specify this. The mechanism to complete silently is to call `dispatch({})` (empty sends). Any text in a final tool-free response will be delivered through the sink, so omit it when silent completion is required. When a cross-session wake arrives that you believe was misrouted, prefer `dispatch(to=caller)` with a short explanation over `dispatch({})` — silent drop hides the mistake from the caller.
 
+When the most recent user message in history came from `sender: user`, the real human is usually still waiting. Append a `to=user` entry in `dispatch` to report progress or follow up — even if you are also routing work to a subagent, forwarding to another session, or replying to a non-user caller. `dispatch` takes an **array of sends**, so you can mix targets in one call: e.g. send a subagent off to do a task AND ping the user that you've started, in the same dispatch. A few shapes:
+
+- `dispatch({sends: [{to: "user", body: "working on it, will follow up"}, {to: "subagent", agent: "search", task_id: "news-x", body: "Search for X"}]})` — answer the user AND spawn a helper in one turn.
+- `dispatch({sends: [{to: "caller", body: "OK"}]})` — plain ack to whoever woke the turn.
+- `dispatch({sends: [{to: "session", session_key: "telegram:12345", body: "report is ready"}, {to: "user", body: "sent the notice, done"}]})` — cross-session notify plus user progress report.
+- `dispatch({})` — silent termination: no delivery, history recorded, and no further wake. Use this when a heartbeat/cron turn produced nothing worth saying, or when the task prompt explicitly asks for silent completion.
+
 Each thread has a message queue. Wake messages are pushed into the queue, and the thread manager selects queued threads from all threads to run reasoning.
 
 An `Agent` is a system-prompt template. `soul` is the prompt template used for user conversations. Other agents, such as `general`, are more specialized prompt templates. Some tasks, such as scheduled cleanup jobs, also have their own agent template files.
