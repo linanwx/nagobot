@@ -863,7 +863,11 @@ func copyEmbeddedDir(embeddedRoot, dest string) error {
 		if err != nil {
 			return fmt.Errorf("read embedded file %s: %w", srcPath, err)
 		}
-		if err := os.WriteFile(dstPath, data, 0644); err != nil {
+		mode := os.FileMode(0644)
+		if ext := filepath.Ext(entry.Name()); ext == ".py" || ext == ".sh" {
+			mode = 0755
+		}
+		if err := os.WriteFile(dstPath, data, mode); err != nil {
 			return err
 		}
 	}

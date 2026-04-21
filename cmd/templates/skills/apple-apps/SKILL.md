@@ -387,6 +387,17 @@ Two layers:
   entirely. Tested at 20k messages: full-body search ~8s, subject search ~1s;
   AppleScript equivalents timeout or take 70s+.
 
+**Permission prerequisite (macOS):** Both layers require granting permissions
+to the nagobot binary. If `mail.py` returns empty results / 0 files even
+though `~/Library/Mail/V10/` exists in your shell, the daemon lacks Full Disk
+Access:
+
+> System Settings → Privacy & Security → Full Disk Access → enable for
+> `~/.local/bin/nagobot` (or your nagobot install path).
+
+After granting, restart the service. AppleScript Mail commands additionally
+require Automation permission (granted on first prompt).
+
 | Task | Use |
 |------|-----|
 | List recent N messages | `mail.py recent --limit N` |
