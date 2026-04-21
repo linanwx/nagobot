@@ -397,7 +397,13 @@ func wakeActionHint(source WakeSource) string {
 	}
 	switch source {
 	case WakeSession:
-		return "Another session woke you — caller_session_key identifies the IMMEDIATE sender for this wake only (sibling/subagent/parent/cron session, NOT necessarily the original user); caller changes per wake, so re-read it each turn. Reply via dispatch(to=caller) (or a naive final text response — same sink) to ping back, dispatch({}) to stay silent, dispatch(to=user) to redirect to your own channel user, or dispatch(to=session, session_key=...) to hand off. When replying back to the caller (either mode), prefix the reply with a standalone line `> Re: \"<excerpt>\"` before the body, where <excerpt> is up to 200 characters taken from the incoming request with all newlines collapsed to single spaces (NOT just the first line — first line is usually useless) — the caller may be juggling many threads and needs the excerpt to match this reply to what it asked. If you believe this wake was mis-routed, dispatch(to=caller) with an explanation rather than dispatch({}) — silent drop hides the mistake from the caller."
+		return "Another session woke you via dispatch. The caller is per-wake: `caller_session_key` in this header names the IMMEDIATE sender (may be a sibling, your subagent, your parent, or a cron session), NOT necessarily the original user. The caller can change every turn, so read `caller_session_key` fresh each time.\n\n" +
+			"When you finish this turn, you MUST:\n" +
+			"1. Pick exactly one dispatch target: `to=caller` to reply to the waker (exchange recurses until one side halts); `to=user` to redirect to your own channel user (user-facing sessions only); `to=session` with `session_key=...` to hand off to a different session; or `dispatch({})` to end the turn silently with no delivery.\n" +
+			"2. When your target is the caller — via `dispatch(to=caller)` OR a naive final text response (both route through the same sink) — prefix the reply body with a standalone first line `> Re: \"<excerpt>\"`. The `<excerpt>` MUST be at most 200 characters drawn from the incoming request, with all newlines collapsed to single spaces. Pick the most informative span of the request — DON'T default to the first line, which is often a vague preamble with no real content.\n\n" +
+			"You MUST NOT:\n" +
+			"3. Silently discard a wake you believe was mis-routed by calling `dispatch({})`. Instead, `dispatch(to=caller)` with a short note so the sender can redirect — silent drop hides the mistake.\n" +
+			"4. Assume the caller is the same session that woke you last turn — always re-read `caller_session_key`."
 	case WakeCron:
 		return "A scheduled cron task has started. Execute it based on the provided job context."
 	case WakeCompression:
