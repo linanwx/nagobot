@@ -373,7 +373,47 @@ func (d *Dispatcher) preprocessMessage(msg *channel.Message) string {
 		}
 	}
 
+	// For Discord thread / forum-post messages, prepend a header with post title
+	// and applied tags so the LLM keeps the topic in focus on every turn.
+	if header := threadHeader(msg.Metadata); header != "" {
+		text = header + "\n" + text
+	}
+
 	return text
+}
+
+// threadHeader formats a one-line context header for Discord thread / forum
+// messages. Returns "" when the message has no thread metadata.
+func threadHeader(meta map[string]string) string {
+	name := strings.TrimSpace(meta["thread_name"])
+	threadType := strings.TrimSpace(meta["thread_type"])
+	if name == "" && threadType == "" {
+		return ""
+	}
+
+	label := "Thread"
+	if threadType == "forum_post" {
+		label = "Forum post"
+	}
+
+	var b strings.Builder
+	b.WriteString("[")
+	b.WriteString(label)
+	if name != "" {
+		b.WriteString(" \"")
+		b.WriteString(name)
+		b.WriteString("\"")
+	}
+	if forumName := strings.TrimSpace(meta["forum_name"]); forumName != "" && threadType == "forum_post" {
+		b.WriteString(" in #")
+		b.WriteString(forumName)
+	}
+	if tags := strings.TrimSpace(meta["applied_tags"]); tags != "" {
+		b.WriteString(" · tags: ")
+		b.WriteString(tags)
+	}
+	b.WriteString("]")
+	return b.String()
 }
 
 // mediaPathRe matches "image_path: /path" or "audio_path: /path" lines in media summaries.

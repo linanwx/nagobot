@@ -313,6 +313,12 @@ func (d *DiscordChannel) handleMessageCreate(s *discordgo.Session, m *discordgo.
 		metadata["chat_type"] = "dm"
 	}
 
+	// Enrich metadata with thread / forum-post context when the message arrives
+	// in a thread. Silently no-ops for regular channels and on API errors.
+	for k, v := range threadContext(s, m.ChannelID) {
+		metadata[k] = v
+	}
+
 	// Handle attachments.
 	if len(m.Attachments) > 0 {
 		var summaries []string
@@ -399,4 +405,89 @@ func (d *DiscordChannel) handleMessageCreate(s *discordgo.Session, m *discordgo.
 	default:
 		logger.Warn("discord message buffer full, dropping message")
 	}
+}
+
+// threadContext fetches the current channel (and its parent if the channel is a
+// thread) and builds metadata describing thread / forum-post context.
+// Returns an empty map for non-thread channels or when API calls fail.
+func threadContext(s *discordgo.Session, channelID string) map[string]string {
+	empty := map[string]string{}
+	if s == nil || channelID == "" {
+		return empty
+	}
+
+	ch := lookupChannel(s, channelID)
+	if ch == nil || !ch.IsThread() {
+		return empty
+	}
+
+	var parent *discordgo.Channel
+	if ch.ParentID != "" {
+		parent = lookupChannel(s, ch.ParentID)
+	}
+	return buildThreadContext(ch, parent)
+}
+
+// lookupChannel returns a channel, consulting the session state cache first and
+// falling back to an API call. Returns nil on error.
+func lookupChannel(s *discordgo.Session, id string) *discordgo.Channel {
+	if s == nil || id == "" {
+		return nil
+	}
+	if s.State != nil {
+		if ch, err := s.State.Channel(id); err == nil && ch != nil {
+			return ch
+		}
+	}
+	ch, err := s.Channel(id)
+	if err != nil || ch == nil {
+		if err != nil {
+			logger.Warn("discord channel lookup failed", "id", id, "err", err)
+		}
+		return nil
+	}
+	return ch
+}
+
+// buildThreadContext turns a thread + its parent channel into metadata fields.
+// Pure function: takes already-fetched Channel objects so it can be unit tested
+// without a live discordgo Session. Returns empty map for non-thread inputs.
+func buildThreadContext(thread, parent *discordgo.Channel) map[string]string {
+	out := map[string]string{}
+	if thread == nil || !thread.IsThread() {
+		return out
+	}
+
+	if thread.Name != "" {
+		out["thread_name"] = thread.Name
+	}
+	out["thread_type"] = "thread"
+
+	if parent == nil || parent.Type != discordgo.ChannelTypeGuildForum {
+		return out
+	}
+
+	out["thread_type"] = "forum_post"
+	if parent.Name != "" {
+		out["forum_name"] = parent.Name
+	}
+
+	if len(thread.AppliedTags) == 0 || len(parent.AvailableTags) == 0 {
+		return out
+	}
+
+	tagMap := make(map[string]string, len(parent.AvailableTags))
+	for _, t := range parent.AvailableTags {
+		tagMap[t.ID] = t.Name
+	}
+	var names []string
+	for _, id := range thread.AppliedTags {
+		if name, ok := tagMap[id]; ok && name != "" {
+			names = append(names, name)
+		}
+	}
+	if len(names) > 0 {
+		out["applied_tags"] = strings.Join(names, ", ")
+	}
+	return out
 }

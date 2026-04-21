@@ -10,6 +10,95 @@ import (
 	"github.com/linanwx/nagobot/media"
 )
 
+func TestThreadHeader_None(t *testing.T) {
+	if got := threadHeader(nil); got != "" {
+		t.Errorf("nil meta → %q, want empty", got)
+	}
+	if got := threadHeader(map[string]string{"chat_type": "group"}); got != "" {
+		t.Errorf("no thread meta → %q, want empty", got)
+	}
+}
+
+func TestThreadHeader_PlainThread(t *testing.T) {
+	got := threadHeader(map[string]string{
+		"thread_name": "feature-discussion",
+		"thread_type": "thread",
+	})
+	want := `[Thread "feature-discussion"]`
+	if got != want {
+		t.Errorf("plain thread: want %q, got %q", want, got)
+	}
+}
+
+func TestThreadHeader_ForumPostWithTags(t *testing.T) {
+	got := threadHeader(map[string]string{
+		"thread_name":  "Can't start Docker",
+		"thread_type":  "forum_post",
+		"forum_name":   "help",
+		"applied_tags": "Bug, Question",
+	})
+	want := `[Forum post "Can't start Docker" in #help · tags: Bug, Question]`
+	if got != want {
+		t.Errorf("forum post: want %q, got %q", want, got)
+	}
+}
+
+func TestThreadHeader_ForumPostNoTags(t *testing.T) {
+	got := threadHeader(map[string]string{
+		"thread_name": "A post",
+		"thread_type": "forum_post",
+		"forum_name":  "help",
+	})
+	want := `[Forum post "A post" in #help]`
+	if got != want {
+		t.Errorf("forum post no tags: want %q, got %q", want, got)
+	}
+}
+
+func TestPreprocessMessage_ForumPostHeader(t *testing.T) {
+	d := &Dispatcher{}
+	msg := &channel.Message{
+		Text:     "I'm stuck",
+		Username: "Nansen",
+		Metadata: map[string]string{
+			"chat_type":    "group",
+			"thread_name":  "Docker help",
+			"thread_type":  "forum_post",
+			"forum_name":   "help",
+			"applied_tags": "Bug",
+		},
+	}
+	got := d.preprocessMessage(msg)
+	// header line first, then sender + text on next line
+	headerIdx := strings.Index(got, "[Forum post")
+	senderIdx := strings.Index(got, "[Nansen]: I'm stuck")
+	if headerIdx == -1 {
+		t.Fatalf("missing forum header:\n%s", got)
+	}
+	if senderIdx == -1 {
+		t.Fatalf("missing sender prefix:\n%s", got)
+	}
+	if headerIdx > senderIdx {
+		t.Errorf("forum header should come before sender line:\n%s", got)
+	}
+	if !strings.Contains(got, "tags: Bug") {
+		t.Errorf("missing tags in header:\n%s", got)
+	}
+}
+
+func TestPreprocessMessage_NoThreadHeader(t *testing.T) {
+	d := &Dispatcher{}
+	msg := &channel.Message{
+		Text:     "hi",
+		Username: "Alice",
+		Metadata: map[string]string{"chat_type": "group"},
+	}
+	got := d.preprocessMessage(msg)
+	if strings.Contains(got, "[Forum post") || strings.Contains(got, "[Thread ") {
+		t.Errorf("unexpected thread header: %s", got)
+	}
+}
+
 func TestPreprocessMessage_ReplyContext(t *testing.T) {
 	d := &Dispatcher{}
 	msg := &channel.Message{
