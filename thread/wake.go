@@ -397,12 +397,7 @@ func wakeActionHint(source WakeSource) string {
 	}
 	switch source {
 	case WakeSession:
-		return "Another session woke you — `caller_session_key` in this header identifies the IMMEDIATE sender for THIS wake only (may be a sibling, your subagent, your parent, a cron session — NOT necessarily the original user). The caller changes per wake: in a later turn a different session may wake you, and `caller` will then point to that new sender. Dispatch options:\n" +
-			"- dispatch(to=caller) → reply back to the session in `caller_session_key`; that reply re-wakes them, and the ping-pong recurses until one side halts.\n" +
-			"- dispatch({}) → stay silent, nothing delivered (only use when you genuinely have nothing useful to say AND don't need the caller to know).\n" +
-			"- dispatch(to=user) → if this session is user-facing, redirect to your own channel user instead of the waker.\n" +
-			"- dispatch(to=session, session_key=...) → hand off to a different session (still recurses with that new peer).\n" +
-			"If you believe this wake was sent to the wrong recipient, DO NOT dispatch({}) — that silently drops the message and the caller never learns. Instead dispatch(to=caller) explaining the mis-route so they can redirect."
+		return "Another session woke you — caller_session_key identifies the IMMEDIATE sender for this wake only (sibling/subagent/parent/cron session, NOT necessarily the original user); caller changes per wake, so re-read it each turn. Reply via dispatch(to=caller) to ping back (recurses until one side halts), dispatch({}) to stay silent, dispatch(to=user) to redirect to your own channel user, or dispatch(to=session, session_key=...) to hand off. If you believe this wake was mis-routed, dispatch(to=caller) with an explanation rather than dispatch({}) — silent drop hides the mistake from the caller."
 	case WakeCron:
 		return "A scheduled cron task has started. Execute it based on the provided job context."
 	case WakeCompression:
