@@ -1495,16 +1495,44 @@
           const body = fmOnly ? "" : content.substring(endIdx + 5).trim();
 
           const fields = {};
-          for (const line of yamlBlock.split("\n")) {
+          const lines = yamlBlock.split("\n");
+          let i = 0;
+          while (i < lines.length) {
+            const line = lines[i];
+            // Skip continuation lines — the block-literal branch consumes them.
+            if (/^\s/.test(line)) { i++; continue; }
             const colonIdx = line.indexOf(":");
-            if (colonIdx < 0) continue;
+            if (colonIdx < 0) { i++; continue; }
             const key = line.substring(0, colonIdx).trim();
             let val = line.substring(colonIdx + 1).trim();
+
+            // YAML block scalar indicator ( | |- |+ > >- >+ ): collect indented continuation lines.
+            if (/^[|>][+-]?$/.test(val)) {
+              const collected = [];
+              let baseIndent = null;
+              let j = i + 1;
+              while (j < lines.length) {
+                const next = lines[j];
+                if (next === "") { collected.push(""); j++; continue; }
+                const m = next.match(/^(\s+)/);
+                if (!m) break;
+                if (baseIndent === null) baseIndent = m[1].length;
+                if (m[1].length < baseIndent) break;
+                collected.push(next.substring(baseIndent));
+                j++;
+              }
+              while (collected.length && collected[collected.length - 1] === "") collected.pop();
+              if (key) fields[key] = collected.join("\n");
+              i = j;
+              continue;
+            }
+
             // Strip surrounding quotes
             if ((val.startsWith('"') && val.endsWith('"')) || (val.startsWith("'") && val.endsWith("'"))) {
               val = val.slice(1, -1);
             }
             if (key) fields[key] = val;
+            i++;
           }
 
           if (body) fields._message = body;

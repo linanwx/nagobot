@@ -397,13 +397,16 @@ func wakeActionHint(source WakeSource) string {
 	}
 	switch source {
 	case WakeSession:
-		return "Another session woke you via dispatch. The caller is per-wake: `caller_session_key` in this header names the IMMEDIATE sender (may be a sibling, your subagent, your parent, or a cron session), NOT necessarily the original user. The caller can change every turn, so read `caller_session_key` fresh each time.\n\n" +
-			"When you finish this turn, you MUST:\n" +
-			"1. Pick exactly one dispatch target: `to=caller` to reply to the waker (exchange recurses until one side halts); `to=user` to redirect to your own channel user (user-facing sessions only); `to=session` with `session_key=...` to hand off to a different session; or `dispatch({})` to end the turn silently with no delivery.\n" +
-			"2. When your target is the caller — via `dispatch(to=caller)` OR a naive final text response (both route through the same sink) — prefix the reply body with a standalone first line `> Re: \"<excerpt>\"`. The `<excerpt>` MUST be at most 200 characters drawn from the incoming request, with all newlines collapsed to single spaces. Pick the most informative span of the request — DON'T default to the first line, which is often a vague preamble with no real content.\n\n" +
-			"You MUST NOT:\n" +
-			"3. Silently discard a wake you believe was mis-routed by calling `dispatch({})`. Instead, `dispatch(to=caller)` with a short note so the sender can redirect — silent drop hides the mistake.\n" +
-			"4. Assume the caller is the same session that woke you last turn — always re-read `caller_session_key`."
+		return "Another session woke you. `caller_session_key` = the IMMEDIATE sender this turn (sibling/subagent/parent/cron), NOT the original user. Re-read it every turn.\n\n" +
+			"End this turn with exactly one of:\n" +
+			"1. `dispatch(to=caller)` — reply to the waker. Also fires if you produce a naive final text response instead of calling dispatch.\n" +
+			"2. `dispatch(to=user)` — redirect to your own channel user (user-facing sessions only).\n" +
+			"3. `dispatch(to=session, session_key=...)` — hand off to a specific session.\n" +
+			"4. `dispatch({})` — silent end, no delivery.\n\n" +
+			"When replying to the caller (option 1 or naive text), start your reply body with a standalone line:\n" +
+			"`> Re: \"<excerpt>\"`\n" +
+			"`<excerpt>` = ≤200 chars from the incoming request body, newlines collapsed to spaces. Pick the most informative span — NOT the first line, which is often preamble.\n\n" +
+			"MUST NOT: use `dispatch({})` when you suspect mis-routing. Instead `dispatch(to=caller)` with an explanation — silent drop hides the mistake."
 	case WakeCron:
 		return "A scheduled cron task has started. Execute it based on the provided job context."
 	case WakeCompression:
