@@ -357,7 +357,7 @@ func describeExecuted(ex ExecutedItem) string {
 	switch ex.To {
 	case TargetCaller:
 		if ex.DeliveredTo != "" {
-			return "Replied " + body + " to the caller — " + ex.DeliveredTo + "."
+			return "Replied " + body + " to the caller(resolved to: " + ex.DeliveredTo + ")."
 		}
 		return "Replied " + body + " to the caller."
 	case TargetUser:
@@ -380,9 +380,17 @@ func describeExecuted(ex ExecutedItem) string {
 	return "Dispatched " + body + " to=" + string(ex.To) + " at session " + ex.SessionKey + "."
 }
 
-func hasUserSend(executed []ExecutedItem) bool {
+// hasReachedUser reports whether any executed send delivered directly to the
+// channel user this turn. True for explicit to=user, and also for to=caller
+// when the caller IS the user channel itself (SessionKey empty — see
+// CallerInfo: callerKey is non-empty only for cross-session wakes). This is
+// used to suppress the noUserReminder when the reminder would be misleading.
+func hasReachedUser(executed []ExecutedItem) bool {
 	for _, ex := range executed {
 		if ex.To == TargetUser {
+			return true
+		}
+		if ex.To == TargetCaller && ex.SessionKey == "" {
 			return true
 		}
 	}
@@ -416,7 +424,7 @@ func buildDispatchSuccessResult(executed []ExecutedItem, isUserFacing bool) stri
 	for i, ex := range executed {
 		fmt.Fprintf(&sb, "  %d. %s\n", i+1, describeExecuted(ex))
 	}
-	if isUserFacing && !hasUserSend(executed) {
+	if isUserFacing && !hasReachedUser(executed) {
 		sb.WriteString("\n")
 		sb.WriteString(noUserReminder)
 	}
@@ -444,7 +452,7 @@ func buildDispatchMixedResult(executed []ExecutedItem, errs []DispatchError, isU
 			}
 		}
 	}
-	if isUserFacing && !hasUserSend(executed) {
+	if isUserFacing && !hasReachedUser(executed) {
 		sb.WriteString("\n")
 		sb.WriteString(noUserReminder)
 	}

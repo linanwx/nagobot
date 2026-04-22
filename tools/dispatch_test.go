@@ -186,6 +186,49 @@ func TestDispatch_CallerAndUserCoexist(t *testing.T) {
 	}
 }
 
+// User-channel wake (callerKey=""): dispatch(to=caller) already reaches the
+// channel user, so the "no to=user" reminder would be misleading and must be
+// suppressed.
+func TestDispatch_NoReminderWhenCallerIsChannelUser(t *testing.T) {
+	host := &mockDispatchHost{
+		currentKey: "telegram:42",
+		hasSink:    true, // user-channel wake: sink present but callerKey stays ""
+		callerKey:  "",
+		userFacing: true,
+	}
+	_, res := runDispatch(t, host, `{"sends": [{"to": "caller", "body": "hi"}]}`)
+	if strings.Contains(res, "no to=user entry") {
+		t.Errorf("noUserReminder must not fire when caller is the channel user; got:\n%s", res)
+	}
+}
+
+// Cross-session wake (callerKey != ""): dispatch(to=caller) goes to another
+// session, NOT the user. The reminder is appropriate and must fire.
+func TestDispatch_ReminderWhenCallerIsPeerSession(t *testing.T) {
+	host := &mockDispatchHost{
+		currentKey: "telegram:42",
+		callerKey:  "cli", // caller is another session, user not reached
+		userFacing: true,
+	}
+	_, res := runDispatch(t, host, `{"sends": [{"to": "caller", "body": "hi"}]}`)
+	if !strings.Contains(res, "no to=user entry") {
+		t.Errorf("noUserReminder must fire when caller is a peer session; got:\n%s", res)
+	}
+}
+
+// Explicit to=user always suppresses the reminder regardless of caller kind.
+func TestDispatch_NoReminderWhenToUserExplicit(t *testing.T) {
+	host := &mockDispatchHost{
+		currentKey: "telegram:42",
+		callerKey:  "cli",
+		userFacing: true,
+	}
+	_, res := runDispatch(t, host, `{"sends": [{"to": "user", "body": "hi"}]}`)
+	if strings.Contains(res, "no to=user entry") {
+		t.Errorf("noUserReminder must not fire when to=user is present; got:\n%s", res)
+	}
+}
+
 func TestDispatch_Subagent(t *testing.T) {
 	host := &mockDispatchHost{
 		currentKey: "cli",
