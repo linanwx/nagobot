@@ -248,6 +248,20 @@ func (t *Thread) RunOnce(ctx context.Context) {
 	}
 
 	response, err := t.run(ctx, userMessage, sink, msg.CallerSessionKey, injectFn, string(msg.Source))
+
+	// Run post-turn hooks BEFORE consuming the sink-suppressed flag so hooks
+	// can observe whether an explicit dispatch ran this turn. Returned strings
+	// are persisted as user-role messages and become visible to subsequent turns.
+	t.persistPostInjections(t.runPostHooks(ctx, postTurnContext{
+		ThreadID:         t.id,
+		SessionKey:       t.sessionKey,
+		WakeSource:       msg.Source,
+		CallerSessionKey: msg.CallerSessionKey,
+		IsUserFacing:     t.IsUserFacing(),
+		SinkSuppressed:   t.isSinkSuppressed(),
+		ResponseNonEmpty: strings.TrimSpace(response) != "",
+	}), msg.Source)
+
 	t.checkAndResetSinkSuppressed()
 
 	if err != nil {
@@ -289,7 +303,7 @@ func buildWakePayload(source WakeSource, message, threadID, sessionKey, sessionD
 		Thread:           threadID,
 		Session:          sessionKey,
 		SessionDir:       sessionDir,
-		Time:             fmt.Sprintf("%s (%s, %s, UTC%s)", now.Format(time.RFC3339), now.Weekday(), now.Location(), now.Format("-07:00")),
+		Time:             formatWakeTime(now),
 		Model:            model,
 		Agent:            agent,
 		Delivery:         delivery,
@@ -360,6 +374,13 @@ type wakeHeader struct {
 	SupportsVision   *bool  `yaml:"supports_vision,omitempty"`
 	SupportsAudio    *bool  `yaml:"supports_audio,omitempty"`
 	SupportsPDF      *bool  `yaml:"supports_pdf,omitempty"`
+}
+
+// formatWakeTime renders a timestamp in the format used by wake frontmatter
+// (`RFC3339 (Weekday, Location, UTC±HH:MM)`). Shared between buildWakePayload
+// and post-turn injections so the two paths stay consistent.
+func formatWakeTime(now time.Time) string {
+	return fmt.Sprintf("%s (%s, %s, UTC%s)", now.Format(time.RFC3339), now.Weekday(), now.Location(), now.Format("-07:00"))
 }
 
 // markInjected inserts `injected: true` into the YAML frontmatter of a wake

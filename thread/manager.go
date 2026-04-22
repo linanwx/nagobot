@@ -202,6 +202,7 @@ func (m *Manager) NewThread(sessionKey, agentName string) (*Thread, error) {
 	t.tools = t.buildTools()
 	t.registerHook(t.contextPressureHook())
 	t.registerHook(t.balanceWarningHook())
+	t.registerPostHook(t.implicitCallerForwardHook())
 	m.threads[sessionKey] = t
 	return t, nil
 }

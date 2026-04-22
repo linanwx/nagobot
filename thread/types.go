@@ -118,6 +118,7 @@ type Thread struct {
 
 	mu               sync.Mutex
 	hooks            []turnHook
+	postHooks        []postTurnHook // Hooks run after each turn; returned messages are appended to session.jsonl.
 	pending          []*WakeMessage // Non-mergeable messages deferred by tryMerge (avoids channel requeue deadlock).
 	defaultSink      Sink           // Fallback sink when WakeMessage.Sink is nil.
 	lastActiveAt     time.Time      // Last time this thread completed work (used by GC).
