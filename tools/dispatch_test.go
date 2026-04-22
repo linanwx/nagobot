@@ -386,6 +386,38 @@ func TestDispatch_ValidationErrorDoesNotHalt(t *testing.T) {
 	}
 }
 
+func TestDispatch_ResultIncludesInlineBody(t *testing.T) {
+	host := &mockDispatchHost{currentKey: "telegram:1", callerKey: "cron:briefing", sinkLabel: "your reply will be forwarded to caller session cron:briefing"}
+	_, res := runDispatch(t, host,
+		`{"sends": [{"to": "caller", "body": "hello world this is the reply"}]}`)
+	if !strings.Contains(res, `Replied "hello world this is the reply" to the caller`) {
+		t.Errorf("expected inline quoted body in caller description, got:\n%s", res)
+	}
+}
+
+func TestDispatch_BodyPreviewTruncatesAt100Runes(t *testing.T) {
+	host := &mockDispatchHost{currentKey: "telegram:1", userFacing: true}
+	long := strings.Repeat("a", 150)
+	_, res := runDispatch(t, host,
+		fmt.Sprintf(`{"sends": [{"to": "user", "body": %q}]}`, long))
+	expected := `Sent "` + strings.Repeat("a", 100) + `..." to your channel user`
+	if !strings.Contains(res, expected) {
+		t.Errorf("expected truncated body inline, got:\n%s", res)
+	}
+	if strings.Contains(res, strings.Repeat("a", 150)) {
+		t.Error("expected body to be truncated, but full body appeared in result")
+	}
+}
+
+func TestDispatch_BodyPreviewCollapsesNewlines(t *testing.T) {
+	host := &mockDispatchHost{currentKey: "telegram:1", userFacing: true}
+	_, res := runDispatch(t, host,
+		`{"sends": [{"to": "user", "body": "line one\nline two\r\nline three"}]}`)
+	if !strings.Contains(res, `"line one line two line three"`) {
+		t.Errorf("expected newlines collapsed to spaces in inline body, got:\n%s", res)
+	}
+}
+
 func TestDispatch_ExecFailureHaltsButReportsErrors(t *testing.T) {
 	host := &mockDispatchHost{
 		currentKey: "cli",

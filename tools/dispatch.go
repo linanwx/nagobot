@@ -133,6 +133,23 @@ type ExecutedItem struct {
 	SessionKey  string         `json:"session_key,omitempty"`
 	DeliveredTo string         `json:"delivered_to,omitempty"` // Human-readable destination label. Set for to=caller to clarify who received it.
 	Note        string         `json:"note,omitempty"`
+	Preview     string         `json:"preview,omitempty"` // Single-line body preview (≤previewMaxRunes runes) for result readability.
+}
+
+const previewMaxRunes = 100
+
+// bodyPreview returns a single-line preview of body, at most previewMaxRunes
+// runes, with "..." appended if truncated. Newlines are collapsed to spaces.
+func bodyPreview(body string) string {
+	s := strings.TrimSpace(body)
+	s = strings.ReplaceAll(s, "\r\n", " ")
+	s = strings.ReplaceAll(s, "\n", " ")
+	s = strings.ReplaceAll(s, "\r", " ")
+	runes := []rune(s)
+	if len(runes) <= previewMaxRunes {
+		return s
+	}
+	return string(runes[:previewMaxRunes]) + "..."
 }
 
 // DispatchError describes a single validation or execution failure.
@@ -184,6 +201,7 @@ func (t *DispatchTool) run(ctx context.Context, args json.RawMessage) string {
 			})
 			continue
 		}
+		item.Preview = bodyPreview(send.Body)
 		executed = append(executed, item)
 	}
 
@@ -330,31 +348,36 @@ func (t *DispatchTool) execute(ctx context.Context, send DispatchSend) (Executed
 	return ExecutedItem{}, fmt.Errorf("unknown to: %q", send.To)
 }
 
+// describeExecuted renders one executed dispatch entry as a single line,
+// inlining the body preview so the content-to-target mapping is unambiguous:
+// the quoted string IS the body that went to this specific target, and nothing
+// else. Each entry in the result list stands alone.
 func describeExecuted(ex ExecutedItem) string {
+	body := `"` + ex.Preview + `"`
 	switch ex.To {
 	case TargetCaller:
 		if ex.DeliveredTo != "" {
-			return "Replied to the caller — " + ex.DeliveredTo + "."
+			return "Replied " + body + " to the caller — " + ex.DeliveredTo + "."
 		}
-		return "Replied to the caller."
+		return "Replied " + body + " to the caller."
 	case TargetUser:
-		return "Sent to your channel user."
+		return "Sent " + body + " to your channel user (nothing else was sent to the user)."
 	case TargetSubagent:
 		note := ex.Note
 		if note == "" {
 			note = "dispatched"
 		}
-		return "Spawned subagent at session " + ex.SessionKey + " (" + note + ")."
+		return "Spawned subagent at session " + ex.SessionKey + " (" + note + ") with body " + body + "."
 	case TargetFork:
 		note := ex.Note
 		if note == "" {
 			note = "dispatched"
 		}
-		return "Created fork at session " + ex.SessionKey + " (" + note + ")."
+		return "Created fork at session " + ex.SessionKey + " (" + note + ") with body " + body + "."
 	case TargetSession:
-		return "Woke session " + ex.SessionKey + "."
+		return "Woke session " + ex.SessionKey + " with body " + body + "."
 	}
-	return "Dispatched to=" + string(ex.To) + " at session " + ex.SessionKey + "."
+	return "Dispatched " + body + " to=" + string(ex.To) + " at session " + ex.SessionKey + "."
 }
 
 func hasUserSend(executed []ExecutedItem) bool {
