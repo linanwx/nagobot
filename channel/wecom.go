@@ -484,12 +484,21 @@ func (w *WeComChannel) handleMsgCallback(frame wsFrame) {
 		}
 	case "image":
 		if body.Image != nil {
+			logger.Info("wecom-diag: image msg received",
+				"url", body.Image.URL,
+				"aeskey", body.Image.AESKey,
+				"aeskey_len", len(body.Image.AESKey),
+				"aeskey_hex", hex.EncodeToString([]byte(body.Image.AESKey)),
+				"raw_body", string(frame.Body))
 			if path := downloadWeComMedia(w.mediaDir, body.Image.URL, body.Image.AESKey); path != "" {
 				msg.Metadata["media_summary"] = MediaSummary("photo", "image_path", path)
 				msg.Text = "[Image received]"
 			} else {
 				msg.Text = "[Image: download failed]"
 			}
+		} else {
+			logger.Warn("wecom-diag: image msg but body.Image nil",
+				"raw_body", string(frame.Body))
 		}
 	case "voice":
 		if body.Voice != nil {
@@ -686,7 +695,11 @@ func generateReqID(prefix string) string {
 
 // downloadWeComMedia downloads and decrypts an AES-encrypted media file from WeCom.
 func downloadWeComMedia(mediaDir, url, aesKey string) string {
+	logger.Info("wecom-diag: downloadWeComMedia called",
+		"mediaDir", mediaDir, "url", url,
+		"aesKey", aesKey, "aesKey_len", len(aesKey))
 	if mediaDir == "" || url == "" {
+		logger.Warn("wecom-diag: empty mediaDir or url")
 		return ""
 	}
 
@@ -696,6 +709,12 @@ func downloadWeComMedia(mediaDir, url, aesKey string) string {
 		return ""
 	}
 	defer resp.Body.Close()
+
+	logger.Info("wecom-diag: http response",
+		"status", resp.StatusCode,
+		"content_type", resp.Header.Get("Content-Type"),
+		"content_length", resp.ContentLength,
+		"all_headers", fmt.Sprintf("%v", resp.Header))
 
 	if resp.StatusCode != http.StatusOK {
 		logger.Warn("wecom: media download returned non-200", "status", resp.StatusCode)
@@ -708,6 +727,14 @@ func downloadWeComMedia(mediaDir, url, aesKey string) string {
 		logger.Warn("wecom: failed to read media", "err", err)
 		return ""
 	}
+
+	headLen := 32
+	if len(encrypted) < headLen {
+		headLen = len(encrypted)
+	}
+	logger.Info("wecom-diag: encrypted body read",
+		"len", len(encrypted),
+		"head_hex", hex.EncodeToString(encrypted[:headLen]))
 
 	var content []byte
 	if aesKey != "" {
@@ -744,6 +771,35 @@ func downloadWeComMedia(mediaDir, url, aesKey string) string {
 
 // decryptWeComFile decrypts AES-256-CBC encrypted data with PKCS#7 padding (block size 32).
 func decryptWeComFile(encrypted []byte, aesKeyB64 string) ([]byte, error) {
+	logger.Info("wecom-diag: decryptWeComFile called",
+		"aeskey", aesKeyB64,
+		"aeskey_len", len(aesKeyB64),
+		"aeskey_bytes_hex", hex.EncodeToString([]byte(aesKeyB64)),
+		"encrypted_len", len(encrypted))
+
+	// Diagnostic: try all 4 base64 variants so we can see which (if any) works.
+	for _, v := range []struct {
+		name string
+		enc  *base64.Encoding
+	}{
+		{"StdEncoding", base64.StdEncoding},
+		{"URLEncoding", base64.URLEncoding},
+		{"RawStdEncoding", base64.RawStdEncoding},
+		{"RawURLEncoding", base64.RawURLEncoding},
+	} {
+		k, e := v.enc.DecodeString(aesKeyB64)
+		if e == nil {
+			logger.Info("wecom-diag: base64 variant OK",
+				"variant", v.name,
+				"decoded_len", len(k),
+				"decoded_hex", hex.EncodeToString(k))
+		} else {
+			logger.Info("wecom-diag: base64 variant FAIL",
+				"variant", v.name,
+				"err", fmt.Sprintf("%v", e))
+		}
+	}
+
 	key, err := base64.StdEncoding.DecodeString(aesKeyB64)
 	if err != nil {
 		return nil, fmt.Errorf("decode aes key: %w", err)
