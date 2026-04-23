@@ -249,17 +249,16 @@ func (t *Thread) RunOnce(ctx context.Context) {
 
 	response, err := t.run(ctx, userMessage, sink, msg.CallerSessionKey, injectFn, string(msg.Source))
 
-	// Run post-turn hooks BEFORE consuming the sink-suppressed flag so hooks
-	// can observe whether an explicit dispatch ran this turn. Returned strings
-	// are persisted as user-role messages and become visible to subsequent turns.
+	// Run post-turn hooks BEFORE consuming the per-turn flags so hooks see
+	// the state accurately. Returned strings are persisted as user-role
+	// messages and become visible to subsequent turns.
 	t.persistPostInjections(t.runPostHooks(ctx, postTurnContext{
-		ThreadID:         t.id,
-		SessionKey:       t.sessionKey,
-		WakeSource:       msg.Source,
-		CallerSessionKey: msg.CallerSessionKey,
-		IsUserFacing:     t.IsUserFacing(),
-		SinkSuppressed:   t.isSinkSuppressed(),
-		ResponseNonEmpty: strings.TrimSpace(response) != "",
+		ThreadID:              t.id,
+		SessionKey:            t.sessionKey,
+		WakeSource:            msg.Source,
+		CallerSessionKey:      msg.CallerSessionKey,
+		IsUserFacing:          t.IsUserFacing(),
+		DefaultReplyForwarded: t.checkAndResetDefaultReplyForwarded(),
 	}), msg.Source)
 
 	t.checkAndResetSinkSuppressed()

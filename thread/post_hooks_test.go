@@ -27,13 +27,12 @@ func TestImplicitCallerForwardHook_UserFacingEmitsHint(t *testing.T) {
 	hook := th.implicitCallerForwardHook()
 
 	result := hook(context.Background(), postTurnContext{
-		ThreadID:         "th",
-		SessionKey:       "discord:1480577226356789",
-		WakeSource:       WakeSession,
-		CallerSessionKey: "telegram:42",
-		IsUserFacing:     true,
-		SinkSuppressed:   false,
-		ResponseNonEmpty: true,
+		ThreadID:              "th",
+		SessionKey:            "discord:1480577226356789",
+		WakeSource:            WakeSession,
+		CallerSessionKey:      "telegram:42",
+		IsUserFacing:          true,
+		DefaultReplyForwarded: true,
 	})
 
 	if len(result) != 1 {
@@ -62,12 +61,10 @@ func TestImplicitCallerForwardHook_NonUserFacingOmitsHint(t *testing.T) {
 	hook := th.implicitCallerForwardHook()
 
 	result := hook(context.Background(), postTurnContext{
-		ThreadID:         "th",
-		SessionKey:       "discord:123:threads:t1",
-		WakeSource:       WakeSession,
-		CallerSessionKey: "discord:123",
-		IsUserFacing:     false,
-		ResponseNonEmpty: true,
+		WakeSource:            WakeSession,
+		CallerSessionKey:      "discord:123",
+		IsUserFacing:          false,
+		DefaultReplyForwarded: true,
 	})
 
 	if len(result) != 1 {
@@ -89,10 +86,10 @@ func TestImplicitCallerForwardHook_WrongSourceReturnsNil(t *testing.T) {
 	cases := []WakeSource{WakeTelegram, WakeDiscord, WakeCron, WakeHeartbeat, WakeCompression, WakeRephrase}
 	for _, src := range cases {
 		result := hook(context.Background(), postTurnContext{
-			WakeSource:       src,
-			CallerSessionKey: "telegram:42",
-			IsUserFacing:     true,
-			ResponseNonEmpty: true,
+			WakeSource:            src,
+			CallerSessionKey:      "telegram:42",
+			IsUserFacing:          true,
+			DefaultReplyForwarded: true,
 		})
 		if result != nil {
 			t.Errorf("source=%s must return nil, got %v", src, result)
@@ -105,45 +102,32 @@ func TestImplicitCallerForwardHook_EmptyCallerKeyReturnsNil(t *testing.T) {
 	hook := th.implicitCallerForwardHook()
 
 	result := hook(context.Background(), postTurnContext{
-		WakeSource:       WakeSession,
-		CallerSessionKey: "",
-		IsUserFacing:     true,
-		ResponseNonEmpty: true,
+		WakeSource:            WakeSession,
+		CallerSessionKey:      "",
+		IsUserFacing:          true,
+		DefaultReplyForwarded: true,
 	})
 	if result != nil {
 		t.Errorf("empty callerKey must return nil, got %v", result)
 	}
 }
 
-func TestImplicitCallerForwardHook_SinkSuppressedReturnsNil(t *testing.T) {
+// When the default sink never actually delivered the LLM's text (e.g. LLM
+// emitted text alongside a dispatch tool call on a non-Chunkable sink), the
+// hook must NOT fire — the previous ResponseNonEmpty signal was a false
+// positive for this case.
+func TestImplicitCallerForwardHook_NotForwardedReturnsNil(t *testing.T) {
 	th := newThreadWithLoc()
 	hook := th.implicitCallerForwardHook()
 
 	result := hook(context.Background(), postTurnContext{
-		WakeSource:       WakeSession,
-		CallerSessionKey: "telegram:42",
-		IsUserFacing:     true,
-		SinkSuppressed:   true,
-		ResponseNonEmpty: true,
+		WakeSource:            WakeSession,
+		CallerSessionKey:      "telegram:42",
+		IsUserFacing:          true,
+		DefaultReplyForwarded: false,
 	})
 	if result != nil {
-		t.Errorf("suppressed sink must return nil (explicit dispatch handled it), got %v", result)
-	}
-}
-
-func TestImplicitCallerForwardHook_EmptyResponseReturnsNil(t *testing.T) {
-	th := newThreadWithLoc()
-	hook := th.implicitCallerForwardHook()
-
-	result := hook(context.Background(), postTurnContext{
-		WakeSource:       WakeSession,
-		CallerSessionKey: "telegram:42",
-		IsUserFacing:     true,
-		SinkSuppressed:   false,
-		ResponseNonEmpty: false,
-	})
-	if result != nil {
-		t.Errorf("empty response must return nil (nothing was routed), got %v", result)
+		t.Errorf("no actual forward must return nil, got %v", result)
 	}
 }
 

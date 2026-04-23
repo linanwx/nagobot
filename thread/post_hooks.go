@@ -25,13 +25,12 @@ type postTurnHook func(ctx context.Context, ptc postTurnContext) []string
 // ThreadID and SessionKey are populated for logging only; hooks should make
 // decisions from the remaining fields, not from identity strings.
 type postTurnContext struct {
-	ThreadID         string
-	SessionKey       string
-	WakeSource       WakeSource
-	CallerSessionKey string // peer session when WakeSource == WakeSession; empty otherwise
-	IsUserFacing     bool
-	SinkSuppressed   bool // true when an explicit dispatch suppressed default sink delivery
-	ResponseNonEmpty bool // true when the Runner actually produced naive text delivered via sink
+	ThreadID              string
+	SessionKey            string
+	WakeSource            WakeSource
+	CallerSessionKey      string // peer session when WakeSource == WakeSession; empty otherwise
+	IsUserFacing          bool
+	DefaultReplyForwarded bool // true when the default sink actually delivered assistant text this turn (as opposed to "LLM emitted text" which may have been dropped because sink is not Chunkable)
 }
 
 func (t *Thread) registerPostHook(h postTurnHook) {
@@ -140,9 +139,11 @@ func (t *Thread) persistPostInjections(payloads []string, source WakeSource) {
 // implicitCallerForwardHook records an outbound breadcrumb whenever a turn
 // ended with naive final text being implicitly routed back to the waking peer
 // session via the paired caller sink. The explicit dispatch(to=caller:session)
-// path already leaves a tool result documenting the routing; the implicit path
-// does not, leaving subsequent turns unable to see that the text left the
-// session.
+// path already leaves a tool result documenting the routing; the implicit
+// path does not, leaving subsequent turns unable to see that the text left
+// the session. Fires only when the default sink actually delivered the text
+// (DefaultReplyForwarded); turns where the LLM emitted text but it was dropped
+// at the sink (e.g. non-Chunkable sink + tool_calls) do NOT trigger.
 func (t *Thread) implicitCallerForwardHook() postTurnHook {
 	return func(_ context.Context, ptc postTurnContext) []string {
 		if ptc.WakeSource != WakeSession {
@@ -151,10 +152,7 @@ func (t *Thread) implicitCallerForwardHook() postTurnHook {
 		if ptc.CallerSessionKey == "" {
 			return nil
 		}
-		if ptc.SinkSuppressed {
-			return nil
-		}
-		if !ptc.ResponseNonEmpty {
+		if !ptc.DefaultReplyForwarded {
 			return nil
 		}
 		return []string{buildImplicitCallerForwardPayload(ptc.CallerSessionKey, ptc.IsUserFacing, time.Now().In(t.location()))}

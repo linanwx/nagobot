@@ -275,12 +275,16 @@ func (t *Thread) executeRunner(ctx, runCtx context.Context, p provider.Provider,
 			if sink.Chunkable {
 				if err := sink.Send(ctx, m.Content); err != nil {
 					logger.Warn("intermediate delivery failed", "key", t.sessionKey, "sink", sink.Label, "err", err)
+				} else {
+					t.markDefaultReplyForwarded()
 				}
 			}
 		} else {
 			// Final response: deliver with retry.
 			if err := sink.WithRetry(3).Send(ctx, m.Content); err != nil {
 				logger.Warn("final delivery failed", "key", t.sessionKey, "sink", sink.Label, "err", err)
+			} else {
+				t.markDefaultReplyForwarded()
 			}
 		}
 	})

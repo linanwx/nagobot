@@ -50,3 +50,22 @@ func (t *Thread) resetHaltLoop() {
 	t.haltLoop = false
 	t.mu.Unlock()
 }
+
+// markDefaultReplyForwarded records that the default sink actually delivered
+// assistant text this turn. Called from the OnMessage delivery branches in
+// run.go immediately after a successful sink.Send. Reset at turn end via
+// checkAndResetDefaultReplyForwarded.
+func (t *Thread) markDefaultReplyForwarded() {
+	t.mu.Lock()
+	t.defaultReplyForwarded = true
+	t.mu.Unlock()
+}
+
+// checkAndResetDefaultReplyForwarded returns and clears the flag.
+func (t *Thread) checkAndResetDefaultReplyForwarded() bool {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	v := t.defaultReplyForwarded
+	t.defaultReplyForwarded = false
+	return v
+}

@@ -117,17 +117,18 @@ type Thread struct {
 	signal chan struct{}     // Shared with Manager for notification.
 
 	mu               sync.Mutex
-	hooks            []turnHook
-	postHooks        []postTurnHook // Hooks run after each turn; returned messages are appended to session.jsonl.
-	pending          []*WakeMessage // Non-mergeable messages deferred by tryMerge (avoids channel requeue deadlock).
-	defaultSink      Sink           // Fallback sink when WakeMessage.Sink is nil.
-	lastActiveAt     time.Time      // Last time this thread completed work (used by GC).
-	lastUserActiveAt time.Time      // Last time a real user interacted (used by compression).
-	lastWakeSource   msg.WakeSource // Source of the most recent wake (set at RunOnce start).
-	suppressSink     bool           // When true, RunOnce skips sink delivery (reset after each turn).
-	haltLoop         bool           // When true, Runner stops after current tool calls complete.
-	currentSink      Sink           // Current turn's active sink (set by run(), cleared on turn end). Used by dispatch(to=caller:*).
-	currentCallerKey string         // Caller session key for the current wake; empty for user/system wakes.
+	hooks                 []turnHook
+	postHooks             []postTurnHook // Hooks run after each turn; returned messages are appended to session.jsonl.
+	pending               []*WakeMessage // Non-mergeable messages deferred by tryMerge (avoids channel requeue deadlock).
+	defaultSink           Sink           // Fallback sink when WakeMessage.Sink is nil.
+	lastActiveAt          time.Time      // Last time this thread completed work (used by GC).
+	lastUserActiveAt      time.Time      // Last time a real user interacted (used by compression).
+	lastWakeSource        msg.WakeSource // Source of the most recent wake (set at RunOnce start).
+	suppressSink          bool           // When true, RunOnce skips sink delivery (reset after each turn).
+	haltLoop              bool           // When true, Runner stops after current tool calls complete.
+	defaultReplyForwarded bool           // When true, the default sink actually delivered assistant text this turn (reset after each turn). Used by implicitCallerForwardHook.
+	currentSink           Sink           // Current turn's active sink (set by run(), cleared on turn end). Used by dispatch(to=caller:*).
+	currentCallerKey      string         // Caller session key for the current wake; empty for user/system wakes.
 
 	execMetrics           *ExecMetrics // Non-nil only while a turn is executing.
 	lastCompressAttemptAt time.Time    // Last time tier 2 compression was enqueued (prevents duplicate enqueue).
