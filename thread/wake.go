@@ -420,14 +420,14 @@ func wakeActionHint(source WakeSource) string {
 	case WakeSession:
 		return "Another session woke you. `caller_session_key` = the IMMEDIATE sender this turn (sibling/subagent/parent/cron), NOT the original user. Re-read it every turn.\n\n" +
 			"End this turn with exactly one of:\n" +
-			"1. `dispatch(to=caller)` — reply to the waker. Also fires if you produce a naive final text response instead of calling dispatch.\n" +
+			"1. `dispatch(to=caller:session)` — reply to the waker. Also fires if you produce a naive final text response instead of calling dispatch.\n" +
 			"2. `dispatch(to=user)` — redirect to your own channel user (user-facing sessions only).\n" +
 			"3. `dispatch(to=session, session_key=...)` — hand off to a specific session.\n" +
 			"4. `dispatch({})` — silent end, no delivery.\n\n" +
 			"When replying to the caller (option 1 or naive text), start your reply body with a standalone line:\n" +
 			"`> Re: \"<excerpt>\"`\n" +
 			"`<excerpt>` = ≤200 chars from the incoming request body, newlines collapsed to spaces. Pick the most informative span — NOT the first line, which is often preamble.\n\n" +
-			"MUST NOT: use `dispatch({})` when you suspect mis-routing. Instead `dispatch(to=caller)` with an explanation — silent drop hides the mistake."
+			"MUST NOT: use `dispatch({})` when you suspect mis-routing. Instead `dispatch(to=caller:session)` with an explanation — silent drop hides the mistake."
 	case WakeCron:
 		return "A scheduled cron task has started. Execute it based on the provided job context."
 	case WakeCompression:

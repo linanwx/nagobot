@@ -60,7 +60,7 @@ The `ProviderFactory` creates providers on demand, re-reading config each call. 
 
 Tools implement `Def() ToolDef` + `Run(ctx, args) string`. Registered in a `Registry`, cloned per-thread. Search and fetch tools use `SearchProvider`/`FetchProvider` interfaces with runtime `Available()` checks.
 
-`dispatch` is the unified routing tool (5 targets: caller/user/subagent/fork/session). `dispatch({})` with empty sends ends a turn silently. For delayed self-wakes (replacing the old `sleep_thread(duration=...)`), use the `manage-cron` skill to create a one-time `set-at --direct-wake` job into the current session.
+`dispatch` is the unified routing tool (6 targets: caller:user / caller:session / user / subagent / fork / session). The caller:* forms assert the actual caller kind — mismatches fail validation so the LLM can't silently misroute. `dispatch({})` with empty sends ends a turn silently. For delayed self-wakes (replacing the old `sleep_thread(duration=...)`), use the `manage-cron` skill to create a one-time `set-at --direct-wake` job into the current session.
 
 ### Audio Support
 
@@ -126,7 +126,7 @@ A single skill handles everything:
 - Body compression (large system-sender content → head+tail)
 - **Heartbeat turn trim**: marks entire heartbeat turns for removal if `isHeartbeatSkipTurn` returns true:
   - Requires `dispatch({})` was called (tool result contains `turn-terminated-silent` outcome)
-  - Turns that delivered via dispatch (to=user / to=caller / to=session) are PRESERVED
+  - Turns that delivered via dispatch (to=user / to=caller:user / to=caller:session / to=session) are PRESERVED
 - Reasoning trim (>2h old reasoning content excluded at send-time)
 
 ### Tier 2 — AI-driven (idle ≥30 min, tokens >65%)

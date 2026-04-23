@@ -174,6 +174,28 @@ func IsUserVisibleSource(source WakeSource) bool {
 	return false
 }
 
+// CallerKind is the high-level classification of a wake's caller, used by
+// dispatch's caller:user / caller:session validation.
+type CallerKind string
+
+const (
+	CallerKindNone    CallerKind = ""        // no active caller (edge case — no wake source set)
+	CallerKindUser    CallerKind = "user"    // caller is the channel user (user-channel wake)
+	CallerKindSession CallerKind = "session" // caller is another session (WakeSession)
+	CallerKindSystem  CallerKind = "system"  // caller is system automation (cron/heartbeat/compression/resume/rephrase)
+)
+
+// CallerKindFromSource maps a wake source to the caller kind.
+func CallerKindFromSource(source WakeSource) CallerKind {
+	if IsUserVisibleSource(source) {
+		return CallerKindUser
+	}
+	if source == WakeSession {
+		return CallerKindSession
+	}
+	return CallerKindSystem
+}
+
 // WakeMessage is an item in a thread's wake queue.
 type WakeMessage struct {
 	Source            WakeSource        // Wake source.

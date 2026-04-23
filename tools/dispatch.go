@@ -8,17 +8,25 @@ import (
 	"strings"
 
 	"github.com/linanwx/nagobot/provider"
+	"github.com/linanwx/nagobot/thread/msg"
 )
 
 // DispatchTarget is the tagged-union discriminator for DispatchSend.
 type DispatchTarget string
 
 const (
-	TargetCaller   DispatchTarget = "caller"
-	TargetUser     DispatchTarget = "user"
-	TargetSubagent DispatchTarget = "subagent"
-	TargetFork     DispatchTarget = "fork"
-	TargetSession  DispatchTarget = "session"
+	// TargetCallerUser replies to the caller AND asserts the caller is the
+	// channel user. Fails validation if the current wake's caller is another
+	// session or a system source (cron/heartbeat/compression).
+	TargetCallerUser DispatchTarget = "caller:user"
+	// TargetCallerSession replies to the caller AND asserts the caller is
+	// another session. Fails validation if the caller is the channel user or
+	// a system source.
+	TargetCallerSession DispatchTarget = "caller:session"
+	TargetUser          DispatchTarget = "user"
+	TargetSubagent      DispatchTarget = "subagent"
+	TargetFork          DispatchTarget = "fork"
+	TargetSession       DispatchTarget = "session"
 )
 
 // DispatchSend is a single dispatch entry. Field requirements vary by To.
@@ -34,14 +42,15 @@ type DispatchSend struct {
 type DispatchHost interface {
 	CurrentSessionKey() string
 	// CallerInfo returns an atomic snapshot of the current wake's caller:
-	// hasSink — true whenever a sink is attached, INCLUDING drop sinks used
-	//           by cron/compression (the sinkLabel tells the LLM when output
-	//           will actually be discarded);
-	// callerKey — session key when caller is another session, empty for
-	//             user-channel/system wakes;
+	// kind — "user" when the caller is the channel user; "session" when the
+	//        caller is another session (cross-session wake); "system" when
+	//        the caller is cron/heartbeat/compression/resume/rephrase (drop
+	//        sinks — any reply to caller is discarded). Empty string means
+	//        no active caller (edge case).
+	// callerKey — upstream session key when kind=="session", empty otherwise.
 	// sinkLabel — human-readable destination shown back to the LLM on
-	//             successful to=caller; also surfaces drop-sink semantics.
-	CallerInfo() (hasSink bool, callerKey, sinkLabel string)
+	//             successful caller delivery.
+	CallerInfo() (kind msg.CallerKind, callerKey, sinkLabel string)
 	// IsUserFacing reports whether this session has a channel user sink
 	// (telegram/discord/cli/web/feishu/wecom). Required for to=user.
 	IsUserFacing() bool
@@ -73,12 +82,14 @@ func (t *DispatchTool) Def() provider.ToolDef {
 			Name: "dispatch",
 			Description: "Turn-terminating routing primitive. Call this at the end of every turn to declare where output goes. " +
 				"Each entry in `sends` has a `to` field selecting the target:\n" +
-				"- caller: reply to whoever woke THIS turn (the current wake's sink). Caller is PER-WAKE, NOT per-session — a later turn may have a different caller. For user messages the caller is the channel user; for cross-session wakes it is the originating session (see `caller_session_key` in the wake YAML); for a subagent completing it is that child. The tool result reports `delivered_to` so you can confirm who received it.\n" +
-				"- user: reply to the channel user via this session's user-channel sink. Only valid for user-facing sessions (telegram/discord/cli/web/feishu/wecom). Distinct from caller — use this when a non-user source (cron/heartbeat/another session) woke you and you want to proactively message YOUR user INSTEAD OF replying to the waker.\n" +
+				"- caller:user — reply to whoever woke THIS turn AND assert the caller is the channel user (user-channel wake: telegram/discord/cli/web/feishu/wecom). Fails validation if the actual caller is another session or a system source.\n" +
+				"- caller:session — reply to the caller AND assert the caller is another session (cross-session wake; `caller_session_key` is present in wake YAML). Fails validation if the actual caller is the channel user or system.\n" +
+				"- user: reply to the channel user via this session's user-channel sink. Only valid for user-facing sessions. Use this when a non-user source (cron/heartbeat/another session) woke you and you want to proactively message YOUR user INSTEAD OF replying to the waker.\n" +
 				"- subagent: spawn a new subagent thread, or wake existing at same task_id. Fields: agent (optional), task_id, body.\n" +
 				"- fork: branch current session as new agent thread, or wake existing at same task_id. Fields: agent (optional), task_id, body.\n" +
-				"- session: wake an existing session. Fields: session_key, body. The target receives the body and its own dispatch(to=caller) routes back to YOUR session (ping-pong recurses until one side halts).\n\n" +
-				"Empty sends — dispatch({}) — is silent turn termination; nothing delivered, history recorded. Only use when you genuinely have nothing to say AND the caller does not need to know you finished. If you received a cross-session wake you believe was mis-routed, dispatch(to=caller) with an explanation — do NOT silently drop it via dispatch({}) (the caller never learns). " +
+				"- session: wake an existing session. Fields: session_key, body. The target receives the body and its own dispatch(to=caller:session) routes back to YOUR session (ping-pong recurses until one side halts).\n\n" +
+				"Which caller form to pick: read `caller_session_key` in the wake YAML frontmatter. Present → to=caller:session; absent AND this session is user-facing → to=caller:user; system sources (cron/heartbeat/compression) have no usable caller form, use dispatch({}) or to=user instead. " +
+				"Empty sends — dispatch({}) — is silent turn termination; nothing delivered, history recorded. Only use when you genuinely have nothing to say AND the caller does not need to know you finished. If you received a cross-session wake you believe was mis-routed, dispatch(to=caller:session) with an explanation — do NOT silently drop it via dispatch({}) (the caller never learns). " +
 				"On success the turn ends. On validation error the turn continues — fix and re-call. " +
 				"Scheduling is not supported here; use cron for future wakes.",
 			Parameters: map[string]any{
@@ -92,7 +103,7 @@ func (t *DispatchTool) Def() provider.ToolDef {
 							"properties": map[string]any{
 								"to": map[string]any{
 									"type":        "string",
-									"enum":        []string{"caller", "user", "subagent", "fork", "session"},
+									"enum":        []string{"caller:user", "caller:session", "user", "subagent", "fork", "session"},
 									"description": "Target kind.",
 								},
 								"body": map[string]any{
@@ -131,7 +142,7 @@ type dispatchArgs struct {
 type ExecutedItem struct {
 	To          DispatchTarget `json:"to"`
 	SessionKey  string         `json:"session_key,omitempty"`
-	DeliveredTo string         `json:"delivered_to,omitempty"` // Human-readable destination label. Set for to=caller to clarify who received it.
+	DeliveredTo string         `json:"delivered_to,omitempty"` // Human-readable destination label. Set for to=caller:* to clarify who received the reply.
 	Note        string         `json:"note,omitempty"`
 	Preview     string         `json:"preview,omitempty"` // Single-line body preview (≤previewMaxRunes runes) for result readability.
 }
@@ -246,12 +257,35 @@ func (t *DispatchTool) validateOne(send DispatchSend, currentSession string) str
 		return "body is required"
 	}
 	switch send.To {
-	case TargetCaller:
+	case TargetCallerUser:
 		if send.Agent != "" || send.TaskID != "" || send.SessionKey != "" {
-			return "caller does not accept agent/task_id/session_key"
+			return "caller:user does not accept agent/task_id/session_key"
 		}
-		if hasSink, _, _ := t.host.CallerInfo(); !hasSink {
-			return "current wake has no routable caller (system source like cron/heartbeat/compression)"
+		kind, callerKey, _ := t.host.CallerInfo()
+		switch kind {
+		case msg.CallerKindUser:
+			// OK
+		case msg.CallerKindSession:
+			return fmt.Sprintf("to=caller:user but actual caller is another session (%s). Use to=caller:session, or to=user to reach your channel user directly.", callerKey)
+		case msg.CallerKindSystem:
+			return "to=caller:user but actual caller is system (cron/heartbeat/compression — replies are dropped). Use dispatch({}) to end silently, or to=user if you need to reach your channel user."
+		default:
+			return "current wake has no routable caller"
+		}
+	case TargetCallerSession:
+		if send.Agent != "" || send.TaskID != "" || send.SessionKey != "" {
+			return "caller:session does not accept agent/task_id/session_key"
+		}
+		kind, _, _ := t.host.CallerInfo()
+		switch kind {
+		case msg.CallerKindSession:
+			// OK
+		case msg.CallerKindUser:
+			return "to=caller:session but actual caller is the channel user. Use to=caller:user, or to=user for direct channel delivery."
+		case msg.CallerKindSystem:
+			return "to=caller:session but actual caller is system (cron/heartbeat/compression — replies are dropped). Use dispatch({}) to end silently, or to=user."
+		default:
+			return "current wake has no routable caller"
 		}
 	case TargetUser:
 		if send.Agent != "" || send.TaskID != "" || send.SessionKey != "" {
@@ -287,7 +321,7 @@ func (t *DispatchTool) validateOne(send DispatchSend, currentSession string) str
 			return fmt.Sprintf("session %q not found", send.SessionKey)
 		}
 	default:
-		return fmt.Sprintf("unknown to: %q (must be one of caller/user/subagent/fork/session)", send.To)
+		return fmt.Sprintf("unknown to: %q (must be one of caller:user/caller:session/user/subagent/fork/session)", send.To)
 	}
 	return ""
 }
@@ -295,8 +329,8 @@ func (t *DispatchTool) validateOne(send DispatchSend, currentSession string) str
 // targetKey returns a stable string identifying the resolved target, for batch dedup.
 func targetKey(send DispatchSend, currentSession string) string {
 	switch send.To {
-	case TargetCaller:
-		return "caller" // at most one caller per batch
+	case TargetCallerUser, TargetCallerSession:
+		return "caller" // at most one caller per batch regardless of declared kind
 	case TargetUser:
 		return "user" // at most one user per batch
 	case TargetSubagent:
@@ -312,13 +346,13 @@ func targetKey(send DispatchSend, currentSession string) string {
 // execute performs a single dispatch against the host.
 func (t *DispatchTool) execute(ctx context.Context, send DispatchSend) (ExecutedItem, error) {
 	switch send.To {
-	case TargetCaller:
+	case TargetCallerUser, TargetCallerSession:
 		_, callerKey, sinkLabel := t.host.CallerInfo()
 		if err := t.host.SendToCaller(ctx, send.Body); err != nil {
 			return ExecutedItem{}, err
 		}
 		return ExecutedItem{
-			To:          TargetCaller,
+			To:          send.To,
 			SessionKey:  callerKey,
 			DeliveredTo: sinkLabel,
 		}, nil
@@ -355,11 +389,16 @@ func (t *DispatchTool) execute(ctx context.Context, send DispatchSend) (Executed
 func describeExecuted(ex ExecutedItem) string {
 	body := `"` + ex.Preview + `"`
 	switch ex.To {
-	case TargetCaller:
+	case TargetCallerUser:
 		if ex.DeliveredTo != "" {
-			return "Replied " + body + " to the caller(resolved to: " + ex.DeliveredTo + ")."
+			return "Replied " + body + " to the caller, the channel user (resolved to: " + ex.DeliveredTo + ")."
 		}
-		return "Replied " + body + " to the caller."
+		return "Replied " + body + " to the caller (channel user)."
+	case TargetCallerSession:
+		if ex.DeliveredTo != "" {
+			return "Replied " + body + " to the caller session " + ex.SessionKey + " (resolved to: " + ex.DeliveredTo + ")."
+		}
+		return "Replied " + body + " to the caller session " + ex.SessionKey + "."
 	case TargetUser:
 		return "Sent " + body + " to your channel user (nothing else was sent to the user)."
 	case TargetSubagent:
@@ -381,16 +420,12 @@ func describeExecuted(ex ExecutedItem) string {
 }
 
 // hasReachedUser reports whether any executed send delivered directly to the
-// channel user this turn. True for explicit to=user, and also for to=caller
-// when the caller IS the user channel itself (SessionKey empty — see
-// CallerInfo: callerKey is non-empty only for cross-session wakes). This is
-// used to suppress the noUserReminder when the reminder would be misleading.
+// channel user this turn. True for to=user and to=caller:user (the latter
+// asserts the caller IS the channel user). Used to suppress the
+// noUserReminder when the reminder would be misleading.
 func hasReachedUser(executed []ExecutedItem) bool {
 	for _, ex := range executed {
-		if ex.To == TargetUser {
-			return true
-		}
-		if ex.To == TargetCaller && ex.SessionKey == "" {
+		if ex.To == TargetUser || ex.To == TargetCallerUser {
 			return true
 		}
 	}

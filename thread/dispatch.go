@@ -8,6 +8,7 @@ import (
 
 	"github.com/linanwx/nagobot/logger"
 	"github.com/linanwx/nagobot/session"
+	"github.com/linanwx/nagobot/thread/msg"
 )
 
 // CurrentSessionKey returns this thread's session key.
@@ -16,16 +17,25 @@ func (t *Thread) CurrentSessionKey() string {
 }
 
 // CallerInfo returns an atomic snapshot of the current turn's caller context
-// under a single lock. hasSink is true whenever the turn has any sink attached
-// — including drop sinks used by cron/compression wakes where caller output
-// is deliberately discarded. The LLM learns drop-vs-real delivery semantics
-// from the wake YAML `delivery` label, which is also returned here as
-// sinkLabel. callerKey is the session that woke us for WakeSession; empty
-// for user-channel and system wakes.
-func (t *Thread) CallerInfo() (hasSink bool, callerKey, sinkLabel string) {
+// under a single lock.
+//   - kind: "user" when the wake originated from a channel user (telegram /
+//     discord / cli / web / feishu / wecom), "session" when another session
+//     woke us (WakeSession), "system" for cron / heartbeat / compression /
+//     resume / rephrase (drop-sink semantics — any reply to caller is
+//     discarded). Empty string means no wake source is active (should not
+//     happen mid-turn).
+//   - callerKey: the upstream session key when kind=="session", empty
+//     otherwise.
+//   - sinkLabel: human-readable sink description (same string shown to the
+//     LLM via the wake YAML `delivery` field). Included in dispatch result
+//     output so the LLM can confirm where caller replies went.
+func (t *Thread) CallerInfo() (kind msg.CallerKind, callerKey, sinkLabel string) {
 	t.mu.Lock()
 	defer t.mu.Unlock()
-	return !t.currentSink.IsZero(), t.currentCallerKey, t.currentSink.Label
+	if t.currentSink.IsZero() && t.lastWakeSource == "" {
+		return msg.CallerKindNone, "", ""
+	}
+	return msg.CallerKindFromSource(t.lastWakeSource), t.currentCallerKey, t.currentSink.Label
 }
 
 // AgentExists reports whether a template with the given name is registered.

@@ -139,9 +139,10 @@ func (t *Thread) persistPostInjections(payloads []string, source WakeSource) {
 
 // implicitCallerForwardHook records an outbound breadcrumb whenever a turn
 // ended with naive final text being implicitly routed back to the waking peer
-// session via the paired caller sink. The explicit dispatch(to=caller) path
-// already leaves a tool result documenting the routing; the implicit path does
-// not, leaving subsequent turns unable to see that the text left the session.
+// session via the paired caller sink. The explicit dispatch(to=caller:session)
+// path already leaves a tool result documenting the routing; the implicit path
+// does not, leaving subsequent turns unable to see that the text left the
+// session.
 func (t *Thread) implicitCallerForwardHook() postTurnHook {
 	return func(_ context.Context, ptc postTurnContext) []string {
 		if ptc.WakeSource != WakeSession {
