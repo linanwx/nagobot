@@ -28,7 +28,7 @@ Agent templates declare a specialty (e.g. "chat", "toolcall") in their frontmatt
 This command maps those specialties to a specific provider and model.
 
 Examples:
-  nagobot set-model --default --provider deepseek --model deepseek-reasoner   # set default
+  nagobot set-model --default --provider deepseek --model deepseek-v4-flash   # set default
   nagobot set-model --type chat --provider openai --model gpt-4o              # set routing
   nagobot set-model --type toolcall --provider anthropic --model claude-sonnet-4-20250514
   nagobot set-model --list

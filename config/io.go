@@ -54,9 +54,11 @@ func Load() (*Config, error) {
 		return nil, err
 	}
 
-	if changed := cfg.applyDefaults(); changed {
+	migrated := cfg.migrateLegacyModelNames()
+	defaultsChanged := cfg.applyDefaults()
+	if migrated || defaultsChanged {
 		if err := cfg.Save(); err != nil {
-			logger.Warn("failed to persist applied defaults", "err", err)
+			logger.Warn("failed to persist config changes", "err", err, "migrated", migrated, "defaultsChanged", defaultsChanged)
 		}
 	}
 	return &cfg, nil

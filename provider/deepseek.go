@@ -18,10 +18,10 @@ const deepSeekAPIBase = "https://api.deepseek.com"
 
 func init() {
 	RegisterProvider("deepseek", ProviderRegistration{
-		Models: []string{"deepseek-reasoner", "deepseek-chat"},
+		Models: []string{"deepseek-v4-pro", "deepseek-v4-flash"},
 		ContextWindows: map[string]int{
-			"deepseek-reasoner": 128000,
-			"deepseek-chat":     128000,
+			"deepseek-v4-pro":   1000000,
+			"deepseek-v4-flash": 1000000,
 		},
 		EnvKey:  "DEEPSEEK_API_KEY",
 		EnvBase: "DEEPSEEK_API_BASE",
@@ -175,7 +175,9 @@ func (p *DeepSeekProvider) endpoint() string {
 func (p *DeepSeekProvider) Chat(ctx context.Context, req *Request) (ChatResult, error) {
 	start := time.Now()
 	inputChars := inputChars(req.Messages)
-	thinkingEnabled := strings.TrimSpace(p.modelType) == "deepseek-reasoner"
+	// DeepSeek V4 always runs in thinking mode (reasoning_effort defaults to "high"
+	// on DeepSeek's side). nagobot does not expose a thinking toggle.
+	thinkingEnabled := true
 
 	logger.Info(
 		"deepseek request",

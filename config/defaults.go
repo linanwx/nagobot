@@ -4,7 +4,7 @@ import cronpkg "github.com/linanwx/nagobot/cron"
 
 const (
 	defaultProvider            = "deepseek"
-	defaultModelType           = "deepseek-reasoner"
+	defaultModelType           = "deepseek-v4-flash"
 	defaultMaxTokens           = 8192
 	defaultTemperature         = 1.0
 	defaultContextWindowTokens = 200000
