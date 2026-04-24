@@ -477,6 +477,7 @@
         flex: 1;
         min-width: 60px;
         overflow: hidden;
+        position: relative;
       }
       .stats-bar-progress {
         height: 100%;
@@ -486,6 +487,24 @@
       .stats-bar-progress.ok { background: var(--accent-green); }
       .stats-bar-progress.warning { background: #d97706; }
       .stats-bar-progress.pressure { background: #ef4444; }
+      .stats-bar-tick {
+        position: absolute;
+        top: 0;
+        width: 1px;
+        height: 100%;
+        opacity: 0.85;
+        pointer-events: auto;
+      }
+      .stats-bar-tick.tier2 { background: #d97706; }
+      .stats-bar-tick.tier3 { background: #ef4444; }
+      .stats-bar-tick::before {
+        content: "";
+        position: absolute;
+        left: -4px;
+        right: -4px;
+        top: -2px;
+        bottom: -2px;
+      }
       .stats-not-running {
         color: var(--text-tertiary);
         font-style: italic;
@@ -2172,6 +2191,21 @@
                 progress.className = "stats-bar-progress " + st.pressure_status;
                 progress.style.width = Math.min(st.usage_percent, 100).toFixed(1) + "%";
                 bar.appendChild(progress);
+
+                // Compression trigger markers (Tier 2 AI compress, Tier 3 pressure hook).
+                const appendTick = (pctVal, klass, label) => {
+                  if (!(pctVal > 0 && pctVal < 100)) return;
+                  const tick = document.createElement("div");
+                  tick.className = "stats-bar-tick " + klass;
+                  tick.style.left = pctVal.toFixed(2) + "%";
+                  const tokens = Math.round(st.context_window_tokens * pctVal / 100);
+                  tick.title = label + " @ " + pctVal.toFixed(0) + "% (" +
+                    fmtTok(tokens) + "/" + fmtTok(st.context_window_tokens) + ")";
+                  bar.appendChild(tick);
+                };
+                appendTick(st.tier2_trigger_percent, "tier2", "Trim 2 (AI compress)");
+                appendTick(st.tier3_trigger_percent, "tier3", "Trim 3 (pressure hook)");
+
                 statsBar.appendChild(bar);
                 const pct = document.createElement("span");
                 pct.className = "stats-item stats-value";
