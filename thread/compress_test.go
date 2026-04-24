@@ -332,6 +332,35 @@ func TestCompressTier1_ReasoningTrimmed(t *testing.T) {
 	}
 }
 
+func TestCompressTier1_ReasoningNotTrimmedOnToolCalls(t *testing.T) {
+	// Assistant >3h old WITH tool_calls: reasoning must stay intact for DeepSeek
+	// (and other providers with signed thinking blocks) to avoid 400 on the next
+	// request. See provider/deepseek.go comment.
+	messages := []provider.Message{
+		{
+			Role:             "assistant",
+			Content:          "",
+			ReasoningContent: "thinking about tool call",
+			ToolCalls: []provider.ToolCall{{
+				ID: "c1", Type: "function",
+				Function: provider.FunctionCall{Name: "search", Arguments: `{"q":"x"}`},
+			}},
+			Timestamp: time.Now().Add(-4 * time.Hour),
+		},
+		{Role: "tool", Content: "result", ToolCallID: "c1", Name: "search"},
+		{Role: "assistant", Content: "answer"},
+		{Role: "user", Content: "q2"},
+		{Role: "assistant", Content: "a2"},
+		{Role: "user", Content: "q3"},
+		{Role: "assistant", Content: "a3"},
+	}
+
+	_, result := compressTier1(messages, 3)
+	if result[0].ReasoningTrimmed {
+		t.Error("assistant with tool_calls must not be reasoning-trimmed")
+	}
+}
+
 func TestCompressTier1_ReasoningNotTrimmedRecent(t *testing.T) {
 	// Assistant message <3h old with reasoning → should NOT be marked.
 	messages := []provider.Message{

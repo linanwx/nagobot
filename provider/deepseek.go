@@ -476,7 +476,13 @@ func (p *DeepSeekProvider) chatStream(ctx context.Context, dsReq dsRequest, star
 // ---------- helpers ----------
 
 func toDSMessages(messages []Message) []dsMessage {
-	// DeepSeek only allows reasoning_content on the last assistant message.
+	// DeepSeek thinking-mode rules (api-docs.deepseek.com/guides/thinking_mode):
+	//   - Assistant WITH tool_calls: reasoning_content MUST be preserved, else
+	//     the API returns 400 on the next turn.
+	//   - Last assistant WITHOUT tool_calls: reasoning_content may be kept or
+	//     dropped (the API accepts both but drops it from context).
+	//   - Historical assistant WITHOUT tool_calls: ignored by the API; omit
+	//     to save bytes.
 	lastAssistantIdx := -1
 	for i := len(messages) - 1; i >= 0; i-- {
 		if messages[i].Role == "assistant" {
@@ -497,14 +503,13 @@ func toDSMessages(messages []Message) []dsMessage {
 			if m.Content != "" {
 				dm.Content = &m.Content
 			}
-			// DeepSeek requires reasoning_content on ALL assistant messages.
-			// Only the last assistant message (without tool_calls) may carry
-			// actual reasoning; all others get an empty string.
-			empty := ""
-			if i == lastAssistantIdx && m.ReasoningContent != "" && len(m.ToolCalls) == 0 {
-				dm.ReasoningContent = &m.ReasoningContent
-			} else {
-				dm.ReasoningContent = &empty
+			// Preserve reasoning when required: tool-call rounds (mandatory) and
+			// the final answer turn (harmless). All other history is omitted.
+			if len(m.ToolCalls) > 0 || i == lastAssistantIdx {
+				if m.ReasoningContent != "" {
+					rc := m.ReasoningContent
+					dm.ReasoningContent = &rc
+				}
 			}
 			if len(m.ToolCalls) > 0 {
 				tcs := make([]ToolCall, len(m.ToolCalls))

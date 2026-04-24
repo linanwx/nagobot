@@ -236,7 +236,11 @@ func compressTier1(messages []provider.Message, keepLastAssistants int) (bool, [
 			// Mark old reasoning for send-time exclusion (original data preserved).
 			// Uses its own flag (ReasoningTrimmed) instead of Compressed, so skip
 			// the newCompressed check below to avoid accidentally clearing Compressed.
+			// Skip tool-call rounds: DeepSeek (and others with signed thinking
+			// blocks) require reasoning to accompany tool_calls in every future
+			// request, else the API rejects with 400.
 			if !m.ReasoningTrimmed &&
+				len(m.ToolCalls) == 0 &&
 				(m.ReasoningContent != "" || len(m.ReasoningDetails) > 0) &&
 				!m.Timestamp.IsZero() && time.Since(m.Timestamp) > compressExpireAge {
 				m.ReasoningTrimmed = true
