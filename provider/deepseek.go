@@ -476,17 +476,17 @@ func (p *DeepSeekProvider) chatStream(ctx context.Context, dsReq dsRequest, star
 // ---------- helpers ----------
 
 func toDSMessages(messages []Message) []dsMessage {
-	// DeepSeek only allows reasoning_content on the last assistant message.
-	lastAssistantIdx := -1
-	for i := len(messages) - 1; i >= 0; i-- {
-		if messages[i].Role == "assistant" {
-			lastAssistantIdx = i
-			break
-		}
-	}
-
+	// DeepSeek V4 wire rules (empirically verified; see /tmp/deepseek-empirical):
+	//   - reasoning_content KEY must be present on every assistant message
+	//     (else API returns 400: "must be passed back to the API").
+	//   - VALUE may be any string — DeepSeek accepts both "" and real text.
+	//
+	// Policy: pass m.ReasoningContent through as-is. Tier-1 trim (>2h via
+	// ApplyCompressedMessage) clears the field to "" for stale messages —
+	// fresh messages retain their real reasoning, preserving multi-step
+	// coherence across tool-call rounds per V4 docs.
 	out := make([]dsMessage, 0, len(messages))
-	for i, m := range messages {
+	for _, m := range messages {
 		dm := dsMessage{
 			Role:       m.Role,
 			ToolCallID: m.ToolCallID,
@@ -497,15 +497,8 @@ func toDSMessages(messages []Message) []dsMessage {
 			if m.Content != "" {
 				dm.Content = &m.Content
 			}
-			// DeepSeek requires reasoning_content on ALL assistant messages.
-			// Only the last assistant message (without tool_calls) may carry
-			// actual reasoning; all others get an empty string.
-			empty := ""
-			if i == lastAssistantIdx && m.ReasoningContent != "" && len(m.ToolCalls) == 0 {
-				dm.ReasoningContent = &m.ReasoningContent
-			} else {
-				dm.ReasoningContent = &empty
-			}
+			rc := m.ReasoningContent // may be "" if trimmed or never had reasoning
+			dm.ReasoningContent = &rc
 			if len(m.ToolCalls) > 0 {
 				tcs := make([]ToolCall, len(m.ToolCalls))
 				copy(tcs, m.ToolCalls)

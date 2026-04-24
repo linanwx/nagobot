@@ -63,3 +63,62 @@ func TestToDSMessagesAlwaysIncludesReasoningKey(t *testing.T) {
 		t.Errorf("last assistant's real reasoning must be on wire: %s", wire)
 	}
 }
+
+// Mid-chain tool-call assistants must pass their stored reasoning through to
+// the wire — sending empty string on fresh (non-trimmed) messages would drop
+// the model's prior thinking and degrade multi-step tool-use coherence.
+func TestToDSMessagesPassesReasoningForMidChainToolCalls(t *testing.T) {
+	msgs := []Message{
+		{Role: "user", Content: "q"},
+		{
+			Role:             "assistant",
+			Content:          "",
+			ReasoningContent: "iter1 thinking",
+			ToolCalls: []ToolCall{{
+				ID: "c1", Type: "function",
+				Function: FunctionCall{Name: "f", Arguments: `{}`},
+			}},
+		},
+		{Role: "tool", Content: "result", ToolCallID: "c1", Name: "f"},
+		{Role: "assistant", Content: "done", ReasoningContent: "iter2 thinking"},
+	}
+
+	out := toDSMessages(msgs)
+	body, _ := json.Marshal(out)
+	wire := string(body)
+
+	if !strings.Contains(wire, `"reasoning_content":"iter1 thinking"`) {
+		t.Errorf("mid-chain tool_call reasoning must be on wire, got: %s", wire)
+	}
+	if !strings.Contains(wire, `"reasoning_content":"iter2 thinking"`) {
+		t.Errorf("final assistant reasoning must be on wire, got: %s", wire)
+	}
+}
+
+// Trimmed messages (ReasoningContent cleared to "") must still include the
+// reasoning_content key on the wire — just with empty value.
+func TestToDSMessagesTrimmedReasoningSendsEmptyString(t *testing.T) {
+	msgs := []Message{
+		{Role: "user", Content: "q"},
+		{
+			Role:             "assistant",
+			Content:          "",
+			ReasoningContent: "", // trimmed
+			ToolCalls: []ToolCall{{
+				ID: "c1", Type: "function",
+				Function: FunctionCall{Name: "f", Arguments: `{}`},
+			}},
+		},
+	}
+	out := toDSMessages(msgs)
+	if out[1].ReasoningContent == nil {
+		t.Fatal("reasoning_content pointer must be non-nil (key must appear on wire)")
+	}
+	if *out[1].ReasoningContent != "" {
+		t.Errorf("expected empty string, got %q", *out[1].ReasoningContent)
+	}
+	body, _ := json.Marshal(out[1])
+	if !strings.Contains(string(body), `"reasoning_content":""`) {
+		t.Errorf("expected explicit empty string in wire: %s", body)
+	}
+}
