@@ -37,6 +37,26 @@ func ComputeContextThresholds(contextWindow int) ContextThresholds {
 	}
 }
 
+// Tier2TriggerPercent returns the usage percent at which Tier 2 AI compression
+// starts firing (usage ≥ ContextWindow - Tier2Token). Returns 0 when
+// ContextWindow is unset so callers can skip-render cleanly.
+func (ct ContextThresholds) Tier2TriggerPercent() float64 {
+	if ct.ContextWindow <= 0 {
+		return 0
+	}
+	return float64(ct.ContextWindow-ct.Tier2Token) / float64(ct.ContextWindow) * 100
+}
+
+// Tier3TriggerPercent returns the usage percent at which the Tier 3 context
+// pressure hook starts firing (usage ≥ ContextWindow - WarnToken). Returns 0
+// when ContextWindow is unset.
+func (ct ContextThresholds) Tier3TriggerPercent() float64 {
+	if ct.ContextWindow <= 0 {
+		return 0
+	}
+	return float64(ct.ContextWindow-ct.WarnToken) / float64(ct.ContextWindow) * 100
+}
+
 func (t *Thread) sessionFilePath() (string, bool) {
 	cfg := t.cfg()
 	if cfg.Sessions == nil {

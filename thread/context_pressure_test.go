@@ -121,6 +121,42 @@ func TestEstimateMessageTokens_ReasoningIgnoresAPIValue(t *testing.T) {
 	}
 }
 
+func TestContextThresholds_TriggerPercents(t *testing.T) {
+	tests := []struct {
+		name          string
+		contextWindow int
+		wantTier2Pct  float64
+		wantTier3Pct  float64
+	}{
+		// 200K: WarnToken=40000, Tier2Token=72000
+		//   Tier2 pct = (200000 - 72000) / 200000 * 100 = 64
+		//   Tier3 pct = (200000 - 40000) / 200000 * 100 = 80
+		{"200K model", 200000, 64.0, 80.0},
+		// 128K: WarnToken=25600, Tier2Token=46080
+		//   Tier2 pct = (128000 - 46080) / 128000 * 100 = 64
+		//   Tier3 pct = (128000 - 25600) / 128000 * 100 = 80
+		{"128K model", 128000, 64.0, 80.0},
+		// 1M: WarnToken capped at 50000, Tier2Token=90000
+		//   Tier2 pct = (1000000 - 90000) / 1000000 * 100 = 91
+		//   Tier3 pct = (1000000 - 50000) / 1000000 * 100 = 95
+		{"1M model (capped)", 1000000, 91.0, 95.0},
+		{"zero window", 0, 0.0, 0.0},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			ct := ComputeContextThresholds(tt.contextWindow)
+			gotT2 := ct.Tier2TriggerPercent()
+			gotT3 := ct.Tier3TriggerPercent()
+			if gotT2 != tt.wantTier2Pct {
+				t.Errorf("Tier2TriggerPercent() = %v, want %v", gotT2, tt.wantTier2Pct)
+			}
+			if gotT3 != tt.wantTier3Pct {
+				t.Errorf("Tier3TriggerPercent() = %v, want %v", gotT3, tt.wantTier3Pct)
+			}
+		})
+	}
+}
+
 func TestEstimateMessageTokens_ReasoningTrimmedSkipsAll(t *testing.T) {
 	// When ReasoningTrimmed=true, all reasoning is excluded.
 	msg := provider.Message{
