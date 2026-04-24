@@ -56,11 +56,12 @@ type mmThinking struct {
 }
 
 type mmMessage struct {
-	Role       string     `json:"role"`
-	Content    *string    `json:"content"` // nullable
-	ToolCalls  []ToolCall `json:"tool_calls,omitempty"`
-	ToolCallID string     `json:"tool_call_id,omitempty"`
-	Name       string     `json:"name,omitempty"`
+	Role             string     `json:"role"`
+	Content          *string    `json:"content"` // nullable
+	ReasoningContent *string    `json:"reasoning_content,omitempty"` // assistant only; required for multi-turn thinking mode
+	ToolCalls        []ToolCall `json:"tool_calls,omitempty"`
+	ToolCallID       string     `json:"tool_call_id,omitempty"`
+	Name             string     `json:"name,omitempty"`
 }
 
 type mmUsage struct {
@@ -399,6 +400,15 @@ func toMMMessages(messages []Message) []mmMessage {
 		case "assistant":
 			if m.Content != "" {
 				dm.Content = &m.Content
+			}
+			// MiMo requires prior reasoning_content in multi-turn thinking mode.
+			// Per platform.xiaomimimo.com: "keep all previous reasoning_content
+			// in the messages array for each subsequent request". Compression
+			// already clears ReasoningContent for trimmed messages via
+			// ApplyCompressedMessage, so pass whatever remains.
+			if m.ReasoningContent != "" {
+				rc := m.ReasoningContent
+				dm.ReasoningContent = &rc
 			}
 			if len(m.ToolCalls) > 0 {
 				tcs := make([]ToolCall, len(m.ToolCalls))

@@ -830,6 +830,22 @@
         transform: rotate(90deg);
       }
 
+      .collapsible-badge {
+        display: inline-block;
+        padding: 1px 6px;
+        margin-left: 6px;
+        font-size: 10px;
+        line-height: 1.4;
+        border-radius: 3px;
+        background: var(--border);
+        color: var(--text-secondary);
+      }
+
+      .collapsible-badge.trimmed {
+        background: #b98a2c22;
+        color: #b98a2c;
+      }
+
       .collapsible-body {
         max-height: 0;
         overflow: hidden;
@@ -2430,7 +2446,10 @@
 
         // Reasoning section
         if (msg.reasoning_content) {
-          card.appendChild(makeCollapsible("Reasoning", msg.reasoning_content));
+          const badge = msg.reasoning_trimmed
+            ? { text: "已裁剪", cls: "trimmed", title: "此段推理已从发送给模型的上下文中移除（原文保留仅供查看）" }
+            : null;
+          card.appendChild(makeCollapsible("Reasoning", msg.reasoning_content, badge));
         }
 
         // Tool calls section
@@ -2483,13 +2502,19 @@
         return card;
       }
 
-      function makeCollapsible(title, content) {
+      function makeCollapsible(title, content, badge) {
         const section = document.createElement("div");
         section.className = "collapsible";
 
         const toggle = document.createElement("button");
         toggle.className = "collapsible-toggle";
-        toggle.innerHTML = '<span class="collapsible-arrow">&#9654;</span> ' + escapeHTML(title);
+        let html = '<span class="collapsible-arrow">&#9654;</span> ' + escapeHTML(title);
+        if (badge) {
+          const cls = badge.cls ? " " + escapeHTML(badge.cls) : "";
+          const tip = badge.title ? ' title="' + escapeHTML(badge.title) + '"' : "";
+          html += '<span class="collapsible-badge' + cls + '"' + tip + '>' + escapeHTML(badge.text) + "</span>";
+        }
+        toggle.innerHTML = html;
         toggle.addEventListener("click", () => section.classList.toggle("open"));
 
         const bodyDiv = document.createElement("div");
