@@ -2447,7 +2447,7 @@
         // Reasoning section
         if (msg.reasoning_content) {
           const badge = msg.reasoning_trimmed
-            ? { text: "已裁剪", cls: "trimmed", title: "此段推理已从发送给模型的上下文中移除（原文保留仅供查看）" }
+            ? { text: "trimmed", cls: "trimmed", title: "This reasoning has been removed from the context sent to the model (original preserved for inspection only)" }
             : null;
           card.appendChild(makeCollapsible("Reasoning", msg.reasoning_content, badge));
         }
