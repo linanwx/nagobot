@@ -1625,7 +1625,7 @@
         "#f472b6", "#a3e635", "#38bdf8", "#fb923c",
       ];
 
-      function renderTokenBreakdown(bd, totalTokens) {
+      function renderTokenBreakdown(bd, totalTokens, st) {
         tokenBreakdown.innerHTML = "";
         const toggle = document.createElement("button");
         toggle.className = "token-breakdown-toggle";
@@ -1668,6 +1668,20 @@
             ["Compressed", fmtTok(c.compressed_tokens)],
             ["Saved", fmtTok(saved) + " (" + savedPct + "%)"],
           ];
+          // Trim 2 / Trim 3 trigger points, relative to the context window.
+          if (st && st.context_window_tokens > 0) {
+            const cw = st.context_window_tokens;
+            const t2 = st.tier2_trigger_percent;
+            const t3 = st.tier3_trigger_percent;
+            if (t2 > 0) {
+              entries.push(["Trim 2 trigger",
+                t2.toFixed(0) + "% (" + fmtTok(Math.round(cw * t2 / 100)) + "/" + fmtTok(cw) + ")"]);
+            }
+            if (t3 > 0) {
+              entries.push(["Trim 3 trigger",
+                t3.toFixed(0) + "% (" + fmtTok(Math.round(cw * t3 / 100)) + "/" + fmtTok(cw) + ")"]);
+            }
+          }
           for (const [lbl, val] of entries) {
             const row = document.createElement("div");
             row.className = "compression-stat";
@@ -2222,7 +2236,7 @@
 
               // Token Breakdown panel
               if (st.token_breakdown) {
-                renderTokenBreakdown(st.token_breakdown, st.compressed_tokens);
+                renderTokenBreakdown(st.token_breakdown, st.compressed_tokens, st);
                 tokenBreakdown.classList.add("visible");
               } else {
                 tokenBreakdown.classList.remove("visible");
