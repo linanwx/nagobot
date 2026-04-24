@@ -718,6 +718,8 @@ type sessionStatsResponse struct {
 	TokensSaved         int             `json:"tokens_saved"`
 	ContextWindowTokens int             `json:"context_window_tokens"`
 	UsagePercent        float64         `json:"usage_percent"`
+	Tier2TriggerPercent float64         `json:"tier2_trigger_percent"`
+	Tier3TriggerPercent float64         `json:"tier3_trigger_percent"`
 	PressureStatus      string          `json:"pressure_status"`
 	IsRuntime           bool            `json:"is_runtime"`
 	TokenBreakdown      *tokenBreakdown `json:"token_breakdown,omitempty"`
@@ -809,6 +811,8 @@ func (w *WebChannel) handleSessionStats(rw http.ResponseWriter, key string) {
 		TokensSaved:         rawTokens - compressedTokens,
 		ContextWindowTokens: contextWindow,
 		UsagePercent:        usagePercent,
+		Tier2TriggerPercent: ct.Tier2TriggerPercent(),
+		Tier3TriggerPercent: ct.Tier3TriggerPercent(),
 		PressureStatus:      status,
 		IsRuntime:           isRuntime,
 		TokenBreakdown: &tokenBreakdown{
