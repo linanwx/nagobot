@@ -197,6 +197,9 @@ func (r *AgentRegistry) BuildPromptSection() string {
 	r.mu.RLock()
 	defs := make([]*AgentDef, 0, len(r.agents))
 	for _, def := range r.agents {
+		if strings.HasPrefix(strings.ToLower(def.Name), "fixed-to") {
+			continue
+		}
 		defs = append(defs, def)
 	}
 	r.mu.RUnlock()
