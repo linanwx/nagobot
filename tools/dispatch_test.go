@@ -158,6 +158,64 @@ func TestDispatch_CallerSession_OK(t *testing.T) {
 	}
 }
 
+// Hint fires when caller is the channel user and dispatch sends to caller:user —
+// the assistant message in this turn would already auto-deliver, so this is redundant.
+func TestDispatch_CallerUser_HintsRedundantWhenCallerIsUser(t *testing.T) {
+	host := &mockDispatchHost{
+		currentKey: "cli",
+		callerKind: "user",
+		userFacing: true,
+	}
+	_, res := runDispatch(t, host, `{"sends": [{"to": "caller:user", "body": "hi"}]}`)
+	if !strings.Contains(res, "redundant") {
+		t.Errorf("expected redundant-delivery hint; got: %s", res)
+	}
+	if strings.Contains(res, "had no to=user entry") {
+		t.Errorf("noUserReminder must NOT fire when reach-user path is taken; got: %s", res)
+	}
+}
+
+// Hint also fires for to=user when caller is the channel user.
+func TestDispatch_User_HintsRedundantWhenCallerIsUser(t *testing.T) {
+	host := &mockDispatchHost{
+		currentKey: "cli",
+		callerKind: "user",
+		userFacing: true,
+	}
+	_, res := runDispatch(t, host, `{"sends": [{"to": "user", "body": "hi"}]}`)
+	if !strings.Contains(res, "redundant") {
+		t.Errorf("expected redundant-delivery hint; got: %s", res)
+	}
+}
+
+// Hint MUST NOT fire when caller is another session — sub-session replying back
+// to a user channel via to=user is legitimate, not redundant.
+func TestDispatch_User_NoHintWhenCallerIsSession(t *testing.T) {
+	host := &mockDispatchHost{
+		currentKey: "cli",
+		callerKind: "session",
+		callerKey:  "telegram:1",
+		userFacing: true,
+	}
+	_, res := runDispatch(t, host, `{"sends": [{"to": "user", "body": "hi"}]}`)
+	if strings.Contains(res, "redundant") {
+		t.Errorf("hint should NOT fire for session caller; got: %s", res)
+	}
+}
+
+// Hint MUST NOT fire when caller is system — system wakes don't auto-deliver.
+func TestDispatch_User_NoHintWhenCallerIsSystem(t *testing.T) {
+	host := &mockDispatchHost{
+		currentKey: "cli",
+		callerKind: "system",
+		userFacing: true,
+	}
+	_, res := runDispatch(t, host, `{"sends": [{"to": "user", "body": "hi"}]}`)
+	if strings.Contains(res, "redundant") {
+		t.Errorf("hint should NOT fire for system caller; got: %s", res)
+	}
+}
+
 // caller:user rejected when actual caller is another session.
 func TestDispatch_CallerUser_MismatchSession(t *testing.T) {
 	host := &mockDispatchHost{
