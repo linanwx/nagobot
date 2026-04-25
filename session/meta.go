@@ -2,11 +2,16 @@ package session
 
 import (
 	"encoding/json"
+	"math"
 	"os"
 	"path/filepath"
 	"strings"
 	"sync"
+	"time"
 )
+
+// MaxTokenRatioSamples bounds the per-(provider, model) ratio history.
+const MaxTokenRatioSamples = 10
 
 const metaFileName = "meta.json"
 
@@ -22,6 +27,19 @@ type Meta struct {
 	Rephrase  bool            `json:"rephrase,omitempty"`   // Enable rephrase agent for this session.
 	DiscordDM *DiscordDMMeta  `json:"discord_dm,omitempty"` // Discord DM routing.
 	WeCom     *WeComMeta      `json:"wecom,omitempty"`      // WeCom routing.
+
+	// TokenEstimateRatios records the last MaxTokenRatioSamples observations of
+	// (real total tokens) / (estimated total tokens) per "provider/model" key.
+	// Used for calibrating estimation accuracy and (eventually) compression
+	// trigger correction.
+	TokenEstimateRatios map[string][]TokenRatioSample `json:"tokenEstimateRatios,omitempty"`
+}
+
+// TokenRatioSample is one observation of estimation accuracy for a given
+// provider/model: the ratio of real tokens to our estimated tokens.
+type TokenRatioSample struct {
+	Ratio     float64   `json:"ratio"`
+	CreatedAt time.Time `json:"created_at"`
 }
 
 // DiscordDMMeta holds Discord DM routing metadata.
@@ -77,6 +95,32 @@ func UpdateMeta(sessionDir string, fn func(*Meta)) {
 // MetaAgent is a convenience to read just the agent field.
 func MetaAgent(sessionDir string) string {
 	return strings.TrimSpace(ReadMeta(sessionDir).Agent)
+}
+
+// AppendTokenRatioSample appends a ratio observation for the given
+// provider+model bucket and trims the bucket to MaxTokenRatioSamples (FIFO).
+// Skips silently when sessionDir/provider/model is empty or ratio is non-finite.
+func AppendTokenRatioSample(sessionDir, providerName, modelName string, ratio float64) {
+	if sessionDir == "" || providerName == "" || modelName == "" {
+		return
+	}
+	if ratio <= 0 || math.IsNaN(ratio) || math.IsInf(ratio, 0) {
+		return
+	}
+	key := providerName + "/" + modelName
+	UpdateMeta(sessionDir, func(m *Meta) {
+		if m.TokenEstimateRatios == nil {
+			m.TokenEstimateRatios = map[string][]TokenRatioSample{}
+		}
+		samples := append(m.TokenEstimateRatios[key], TokenRatioSample{
+			Ratio:     ratio,
+			CreatedAt: time.Now(),
+		})
+		if len(samples) > MaxTokenRatioSamples {
+			samples = samples[len(samples)-MaxTokenRatioSamples:]
+		}
+		m.TokenEstimateRatios[key] = samples
+	})
 }
 
 var metaMu sync.Mutex

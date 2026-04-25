@@ -29,6 +29,7 @@ type Runner struct {
 	onEvent        func(event RunnerEvent, detail string) // optional: lifecycle events (tool calls, etc.)
 	onIterationEnd func() []provider.Message         // optional: called after each tool iteration; returned messages are injected before the next LLM call
 	shouldHalt     func() bool                       // optional: if true, stop loop after current tool calls
+	onEstimationSample func(providerName, modelName string, ratio float64) // optional: called after each LLM call with the (real / estimated) total-token ratio
 	providerLabel   string             // effective provider name from last response
 	modelLabel      string             // effective model name from last response
 	userVisible     bool               // true when the current turn was triggered by a user-visible message
@@ -67,6 +68,13 @@ func (r *Runner) OnIterationEnd(fn func() []provider.Message) { r.onIterationEnd
 // ShouldHalt sets a callback checked after each tool-call iteration.
 // If it returns true, the loop exits immediately without calling the LLM again.
 func (r *Runner) ShouldHalt(fn func() bool) { r.shouldHalt = fn }
+
+// OnEstimationSample sets a callback fired after each LLM call with the ratio
+// of (real total tokens) / (estimated total tokens) for the given
+// provider+model. Used by callers to persist estimation accuracy data.
+func (r *Runner) OnEstimationSample(fn func(providerName, modelName string, ratio float64)) {
+	r.onEstimationSample = fn
+}
 
 // SetUserVisible marks this runner as handling a user-visible turn.
 func (r *Runner) SetUserVisible(v bool) { r.userVisible = v }
@@ -408,9 +416,14 @@ func (r *Runner) logEstimationAccuracy(messages []provider.Message, resp *provid
 		reasoningDelta = fmt.Sprintf("%+.1f%%", pct)
 	}
 
+	// Completion estimation: response text plus reasoning. Mirrors what
+	// EstimateMessageTokens would count if the response were re-fed as a message.
+	estimatedCompletion := EstimateTextTokens(resp.Content) + estimatedReasoning
+
 	var media MediaBreakdown
 	if r.metrics != nil {
 		r.metrics.PromptEstimated = estimatedPrompt
+		r.metrics.CompletionEstimated = estimatedCompletion
 		r.metrics.ReasoningEstimated = estimatedReasoning
 		r.metrics.LastPromptActual = actual.PromptTokens
 		r.metrics.LastCompletionActual = actual.CompletionTokens
@@ -418,6 +431,16 @@ func (r *Runner) logEstimationAccuracy(messages []provider.Message, resp *provid
 		r.metrics.LastCachedActual = actual.CachedTokens
 		r.metrics.LastReasoningActual = actual.ReasoningTokens
 		media = r.metrics.Media
+	}
+
+	// Fire the per-call estimation sample. Caller decides whether to persist.
+	if r.onEstimationSample != nil {
+		estTotal := estimatedPrompt + estimatedCompletion
+		actualTotal := actual.PromptTokens + actual.CompletionTokens
+		if estTotal > 0 && actualTotal > 0 {
+			ratio := float64(actualTotal) / float64(estTotal)
+			r.onEstimationSample(resp.ProviderLabel, resp.ModelLabel, ratio)
+		}
 	}
 
 	fields := []any{

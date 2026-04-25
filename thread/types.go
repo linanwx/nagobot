@@ -152,6 +152,7 @@ type ExecMetrics struct {
 
 	// Last-turn token data — overwritten (not accumulated) each LLM call by the runner.
 	PromptEstimated      int
+	CompletionEstimated  int
 	ReasoningEstimated   int
 	LastPromptActual     int
 	LastCompletionActual int

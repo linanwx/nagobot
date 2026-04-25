@@ -219,6 +219,14 @@ func (t *Thread) executeRunner(ctx, runCtx context.Context, p provider.Provider,
 	runner.ShouldHalt(t.isHaltLoop)
 	runner.SetUserVisible(sysmsg.IsUserVisibleSource(t.lastWakeSource))
 
+	// Persist per-call estimation accuracy ratios into the session's meta.json.
+	if cfg := t.cfg(); cfg.Sessions != nil && t.sessionKey != "" {
+		sessionDir := filepath.Dir(cfg.Sessions.PathForKey(t.sessionKey))
+		runner.OnEstimationSample(func(providerName, modelName string, ratio float64) {
+			session.AppendTokenRatioSample(sessionDir, providerName, modelName, ratio)
+		})
+	}
+
 	// Reaction: connect lifecycle events to sink reaction.
 	if !sink.React.IsZero() && !t.IsHeartbeatWake() {
 		runner.OnEvent(func(event RunnerEvent, _ string) {
