@@ -7,7 +7,7 @@ const (
 	defaultModelType           = "deepseek-v4-flash"
 	defaultMaxTokens           = 8192
 	defaultTemperature         = 1.0
-	defaultContextWindowTokens = 200000
+	defaultContextWindowTokens = 300000
 	defaultWebAddr             = "127.0.0.1:18080"
 	defaultSkillHubURL         = "https://clawhub.ai"
 )

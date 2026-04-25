@@ -131,7 +131,7 @@ type ThreadConfig struct {
 	Workspace           string                  `json:"workspace,omitempty" yaml:"workspace,omitempty"`                     // defaults to ~/.nagobot/workspace
 	MaxTokens           int                     `json:"maxTokens,omitempty" yaml:"maxTokens,omitempty"`                     // defaults to 8192
 	Temperature         float64                 `json:"temperature,omitempty" yaml:"temperature,omitempty"`                 // defaults to 1.0
-	ContextWindowTokens int                     `json:"contextWindowTokens,omitempty" yaml:"contextWindowTokens,omitempty"` // defaults to 128000
+	ContextWindowTokens int                     `json:"contextWindowTokens,omitempty" yaml:"contextWindowTokens,omitempty"` // defaults to 300000
 	Models              map[string]*ModelConfig `json:"models,omitempty" yaml:"models,omitempty"`                           // model type → provider/model mapping
 	Preview             *PreviewConfig          `json:"preview,omitempty" yaml:"preview,omitempty"`                         // override preview provider/model
 }
