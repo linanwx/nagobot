@@ -9,6 +9,7 @@ import (
 	"github.com/linanwx/nagobot/config"
 	"github.com/linanwx/nagobot/provider"
 	sessionPkg "github.com/linanwx/nagobot/session"
+	"github.com/linanwx/nagobot/tools"
 	"github.com/spf13/cobra"
 )
 
@@ -90,8 +91,11 @@ func runSetAgent(_ *cobra.Command, _ []string) error {
 		agentArg = agentName
 
 		specialty := providerArg + "/" + modelArg
-		fmt.Printf("---\ncommand: set-agent\nstatus: ok\nsession: %s\nagent: %s\nagent_path: %s\nspecialty: %s\nprovider: %s\nmodel: %s\n---\n\n",
-			session, agentName, agentPath, specialty, providerArg, modelArg)
+		fmt.Print(tools.CmdOutput([][2]string{
+			{"command", "set-agent"}, {"status", "ok"}, {"session", session},
+			{"agent", agentName}, {"agent_path", agentPath}, {"specialty", specialty},
+			{"provider", providerArg}, {"model", modelArg},
+		}, "") + "\n")
 		fmt.Printf("Created agent %q at %s\n", agentName, agentPath)
 		fmt.Printf("Specialty %q → %s / %s (implicit routing)\n", specialty, providerArg, modelArg)
 	}
@@ -137,12 +141,18 @@ func runSetAgent(_ *cobra.Command, _ []string) error {
 	})
 
 	if agentArg == "" && modelArg == "" && setAgentRephrase == "" {
-		fmt.Printf("---\ncommand: set-agent\nstatus: ok\nsession: %s\nagent: cleared\n---\n\nCleared agent for session %q.\n", session, session)
+		fmt.Print(tools.CmdOutput([][2]string{
+			{"command", "set-agent"}, {"status", "ok"}, {"session", session}, {"agent", "cleared"},
+		}, fmt.Sprintf("Cleared agent for session %q.", session)) + "\n")
 	} else if agentArg == "" && modelArg == "" && setAgentRephrase != "" {
 		rephraseVal := strings.ToLower(strings.TrimSpace(setAgentRephrase))
-		fmt.Printf("---\ncommand: set-agent\nstatus: ok\nsession: %s\nrephrase: %s\n---\n\nSet rephrase=%s for session %q.\n", session, rephraseVal, rephraseVal, session)
+		fmt.Print(tools.CmdOutput([][2]string{
+			{"command", "set-agent"}, {"status", "ok"}, {"session", session}, {"rephrase", rephraseVal},
+		}, fmt.Sprintf("Set rephrase=%s for session %q.", rephraseVal, session)) + "\n")
 	} else if modelArg == "" {
-		fmt.Printf("---\ncommand: set-agent\nstatus: ok\nsession: %s\nagent: %s\n---\n\nSet agent %q for session %q.\n", session, agentArg, agentArg, session)
+		fmt.Print(tools.CmdOutput([][2]string{
+			{"command", "set-agent"}, {"status", "ok"}, {"session", session}, {"agent", agentArg},
+		}, fmt.Sprintf("Set agent %q for session %q.", agentArg, session)) + "\n")
 		printAgentModelRouting(cfg, agentArg)
 	} else {
 		fmt.Printf("Set session %q → agent %q\n", session, agentArg)

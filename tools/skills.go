@@ -5,8 +5,9 @@ import (
 	"encoding/json"
 	"fmt"
 	"strings"
+
 	"github.com/linanwx/nagobot/provider"
-	"gopkg.in/yaml.v3"
+	"github.com/linanwx/nagobot/thread/msg"
 )
 
 // SkillProvider retrieves skill prompts.
@@ -97,8 +98,11 @@ func (t *UseSkillTool) run(ctx context.Context, args json.RawMessage) string {
 	if dir != "" {
 		header.Dir = dir
 	}
-	yamlBytes, _ := yaml.Marshal(header)
-	return fmt.Sprintf("---\n%s---\n\n%s", yamlBytes, prompt)
+	mapping, ok := msg.EncodeMapping(header)
+	if !ok {
+		return ""
+	}
+	return msg.BuildFrontmatter(mapping, "\n"+prompt)
 }
 
 type skillHeader struct {

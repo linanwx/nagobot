@@ -10,7 +10,6 @@ import (
 	"github.com/linanwx/nagobot/provider"
 	"github.com/linanwx/nagobot/session"
 	sysmsg "github.com/linanwx/nagobot/thread/msg"
-	"gopkg.in/yaml.v3"
 )
 
 // Enqueue adds a wake message to the thread's inbox and notifies the manager.
@@ -346,15 +345,11 @@ func buildWakePayload(source WakeSource, message, threadID, sessionKey, sessionD
 		}
 	}
 
-	yamlBytes, _ := yaml.Marshal(header)
-
-	var sb strings.Builder
-	sb.WriteString("---\n")
-	sb.Write(yamlBytes)
-	sb.WriteString("---\n\n")
-	sb.WriteString(message)
-
-	return sb.String()
+	mapping, ok := sysmsg.EncodeMapping(header)
+	if !ok {
+		return ""
+	}
+	return sysmsg.BuildFrontmatter(mapping, "\n"+message)
 }
 
 // wakeHeader is the YAML frontmatter for wake messages.
@@ -382,17 +377,17 @@ func formatWakeTime(now time.Time) string {
 	return fmt.Sprintf("%s (%s, %s, UTC%s)", now.Format(time.RFC3339), now.Weekday(), now.Location(), now.Format("-07:00"))
 }
 
-// markInjected inserts `injected: true` into the YAML frontmatter of a wake
+// markInjected adds `injected: true` to the YAML frontmatter of a wake
 // payload. This marks messages that were injected mid-execution (via injectFn)
-// rather than initiating a new reasoning turn.
+// rather than initiating a new reasoning turn. Returns the payload unchanged
+// when there is no parseable frontmatter.
 func markInjected(payload string) string {
-	// Insert before the closing "---" of the frontmatter.
-	const marker = "\n---\n"
-	if idx := strings.Index(payload[4:], marker); idx >= 0 {
-		pos := 4 + idx
-		return payload[:pos] + "\ninjected: true" + payload[pos:]
+	mapping, body, ok := sysmsg.ParseFrontmatter(payload)
+	if !ok {
+		return payload
 	}
-	return payload
+	sysmsg.AppendScalarPair(mapping, "injected", "true")
+	return sysmsg.BuildFrontmatter(mapping, body)
 }
 
 // messageSender returns the sender label for a wake source.

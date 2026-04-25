@@ -1,11 +1,18 @@
 package thread
 
 import (
+	"bufio"
+	"encoding/json"
+	"io/fs"
+	"os"
+	"path/filepath"
+	"regexp"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/linanwx/nagobot/provider"
+	msgpkg "github.com/linanwx/nagobot/thread/msg"
 )
 
 func makeWakeContent(source, thread, session, delivery, action, msg string) string {
@@ -655,6 +662,205 @@ func TestApplySlideWindow_PreservesToolCallPairs(t *testing.T) {
 	if len(got[1].ToolCalls) != 2 || got[2].Role != "tool" || got[3].Role != "tool" {
 		t.Errorf("tool call pair was split: %+v", got[1:4])
 	}
+}
+
+// TestComputeWakeCompressed_MultiLineActionBlockScalar reproduces a bug where
+// the wake YAML trim leaked the body of a multi-line `action: |-` block scalar
+// into the compressed output. The bug surfaced on a real Discord session
+// (discord:1480577226356559992:1776881098028:849203): after Tier 1 trim, the
+// `action: |-` header line was removed but every indented continuation line
+// of the block scalar remained, producing invalid YAML and zero token savings.
+func TestComputeWakeCompressed_MultiLineActionBlockScalar(t *testing.T) {
+	// Wake message with a real-shaped multi-line `action: |-` block scalar.
+	content := "---\n" +
+		"source: session\n" +
+		"thread: thread-f03389b8\n" +
+		"session: discord:1480577226356559992\n" +
+		"time: 2026-04-22T19:04:57+01:00\n" +
+		"sender: system\n" +
+		"caller_session_key: discord:1480577226356559992:threads:foo\n" +
+		"action: |-\n" +
+		"    Another session woke you. caller_session_key = the IMMEDIATE sender.\n" +
+		"\n" +
+		"    End this turn with exactly one of:\n" +
+		"    1. dispatch(to=caller) — reply to the waker.\n" +
+		"    2. dispatch(to=user) — redirect to your own channel user.\n" +
+		"    MUST NOT: use dispatch({}) when you suspect mis-routing.\n" +
+		"---\n" +
+		"hello body"
+
+	m := &provider.Message{Content: content, ID: "msg-action-multiline"}
+	result := computeWakeCompressed(m)
+	if result == "" {
+		t.Fatal("expected wake-trim to produce a compressed result")
+	}
+
+	// The block scalar lines must be gone. Even one of these leaking means the
+	// trim treated the block scalar as a sequence of arbitrary lines.
+	leakingFragments := []string{
+		"Another session woke you",
+		"End this turn with exactly one of",
+		"dispatch(to=caller)",
+		"MUST NOT: use dispatch",
+	}
+	for _, frag := range leakingFragments {
+		if strings.Contains(result, frag) {
+			t.Errorf("compressed output leaked action block content %q\nfull result:\n%s", frag, result)
+		}
+	}
+
+	// `action:` (the key itself) must also be gone.
+	if strings.Contains(result, "action:") {
+		t.Errorf("compressed output should not contain `action:` key\nfull result:\n%s", result)
+	}
+
+	// Frontmatter must still parse cleanly as YAML, and `caller_session_key`
+	// must still hold its original scalar value (not be polluted by orphan
+	// indented lines that used to belong to action).
+	yamlBlock, body, ok := SplitFrontmatter(result)
+	if !ok {
+		t.Fatalf("compressed result has no frontmatter: %s", result)
+	}
+	if body != "hello body" {
+		t.Errorf("body should be untouched, got %q", body)
+	}
+	if got := ExtractFrontmatterValue(yamlBlock, "caller_session_key"); got != "discord:1480577226356559992:threads:foo" {
+		t.Errorf("caller_session_key not preserved cleanly, got %q", got)
+	}
+	if got := ExtractFrontmatterValue(yamlBlock, "sender"); got != "system" {
+		t.Errorf("sender not preserved, got %q", got)
+	}
+
+	// Idempotency: running compression on the result must not change it again.
+	m2 := &provider.Message{Content: result, ID: "msg-action-multiline"}
+	if again := computeWakeCompressed(m2); again != "" {
+		t.Errorf("expected idempotent (no further compression), got new result:\n%s", again)
+	}
+}
+
+// TestComputeWakeCompressed_RealLocalSessions runs computeWakeCompressed
+// against every wake message with a multi-line `action:` block scalar found
+// in the user's local nagobot workspace. Validates that the YAML refactor
+// doesn't regress on real production data.
+//
+// The test is automatically skipped when the workspace is not present
+// (e.g. CI / fresh checkout). For the local developer it scans every
+// session.jsonl under ~/.nagobot/workspace/sessions/.
+func TestComputeWakeCompressed_RealLocalSessions(t *testing.T) {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		t.Skipf("no home dir: %v", err)
+	}
+	root := filepath.Join(home, ".nagobot", "workspace", "sessions")
+	if _, err := os.Stat(root); err != nil {
+		t.Skipf("local workspace not found at %s", root)
+	}
+
+	type stats struct {
+		filesScanned   int
+		messagesTotal  int
+		actionMessages int
+		compressed     int
+	}
+	var s stats
+
+	err = filepath.WalkDir(root, func(p string, d fs.DirEntry, err error) error {
+		if err != nil || d.IsDir() {
+			return nil
+		}
+		if filepath.Base(p) != "session.jsonl" {
+			return nil
+		}
+		s.filesScanned++
+
+		f, err := os.Open(p)
+		if err != nil {
+			return nil
+		}
+		defer f.Close()
+		scanner := bufio.NewScanner(f)
+		scanner.Buffer(make([]byte, 1<<20), 1<<23)
+		for scanner.Scan() {
+			s.messagesTotal++
+			line := scanner.Bytes()
+			var raw struct {
+				Role    string `json:"role"`
+				Content string `json:"content"`
+				ID      string `json:"id"`
+			}
+			if err := json.Unmarshal(line, &raw); err != nil {
+				continue
+			}
+			if raw.Role != "user" || !strings.HasPrefix(raw.Content, "---\n") {
+				continue
+			}
+			// Look for any multi-line block scalar style on the action key.
+			if !regexp.MustCompile(`(?m)^action:\s*[|>][-+]?\s*$`).MatchString(raw.Content) {
+				continue
+			}
+			s.actionMessages++
+
+			m := &provider.Message{Content: raw.Content, ID: raw.ID}
+			result := computeWakeCompressed(m)
+			if result == "" {
+				continue
+			}
+			s.compressed++
+
+			// 1. The compressed output must be a fully-parseable frontmatter.
+			parsedMapping, _, ok := msgpkg.ParseFrontmatter(result)
+			if !ok {
+				t.Errorf("%s id=%s: compressed output not parseable:\n%s", p, raw.ID, result)
+				continue
+			}
+
+			// 2. action: must be gone (it's in wakeTrimKeys).
+			if msgpkg.LookupScalar(parsedMapping, "action") != "" {
+				t.Errorf("%s id=%s: action key still present after trim", p, raw.ID)
+			}
+
+			// 3. Top-level keys must NOT include strings that came from the
+			//    original action block scalar's body.
+			leakChecks := []string{"MUST NOT", "End this turn", "Re:"}
+			for _, leak := range leakChecks {
+				if msgpkg.LookupScalar(parsedMapping, leak) != "" {
+					t.Errorf("%s id=%s: action-body content %q leaked as top-level key", p, raw.ID, leak)
+				}
+			}
+
+			// 4. Sender must round-trip correctly (was a leak target).
+			origMapping, _, ok := msgpkg.ParseFrontmatter(raw.Content)
+			if ok {
+				origSender := msgpkg.LookupScalar(origMapping, "sender")
+				gotSender := msgpkg.LookupScalar(parsedMapping, "sender")
+				if origSender != gotSender {
+					t.Errorf("%s id=%s: sender changed from %q to %q", p, raw.ID, origSender, gotSender)
+				}
+			}
+
+			// 5. Idempotent: compressing the result again must yield "".
+			m2 := &provider.Message{Content: result, ID: raw.ID}
+			if again := computeWakeCompressed(m2); again != "" {
+				t.Errorf("%s id=%s: not idempotent — second pass produced new output of len %d", p, raw.ID, len(again))
+			}
+
+			// 6. Result must be at most as long as the original (compression
+			//    is supposed to shrink, never grow).
+			if len(result) > len(raw.Content) {
+				t.Errorf("%s id=%s: compressed grew from %d to %d bytes", p, raw.ID, len(raw.Content), len(result))
+			}
+		}
+		return nil
+	})
+	if err != nil {
+		t.Fatalf("walk: %v", err)
+	}
+
+	if s.actionMessages == 0 {
+		t.Skipf("no action block scalar messages found in %d sessions / %d messages", s.filesScanned, s.messagesTotal)
+	}
+	t.Logf("scanned %d session files, %d total messages, %d with multi-line action, %d actually compressed",
+		s.filesScanned, s.messagesTotal, s.actionMessages, s.compressed)
 }
 
 func TestApplySlideWindow_SkipsInjectedUserMessages(t *testing.T) {

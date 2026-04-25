@@ -5,6 +5,7 @@ import (
 	"strings"
 
 	"github.com/linanwx/nagobot/provider"
+	"github.com/linanwx/nagobot/thread/msg"
 )
 
 const (
@@ -101,56 +102,26 @@ func forkUserMessage(m provider.Message) provider.Message {
 }
 
 // stripFrontmatter reduces YAML frontmatter to only sender and time fields.
-// If no frontmatter is present, returns content unchanged.
+// If no frontmatter is present, returns content unchanged. Uses msg.* helpers
+// so multi-line block scalars and nested frontmatter survive correctly.
 func stripFrontmatter(content string) string {
-	if !strings.HasPrefix(content, "---\n") {
+	mapping, body, ok := msg.ParseFrontmatter(content)
+	if !ok {
 		return content
 	}
-	endIdx := strings.Index(content[4:], "\n---\n")
-	if endIdx < 0 {
-		return content
-	}
-	endIdx += 4
-	yamlBlock := content[4:endIdx]
-	body := content[endIdx+5:] // skip "\n---\n"
-
-	// Extract sender and time from the YAML block.
-	var sender, timeVal string
-	for _, line := range strings.Split(yamlBlock, "\n") {
-		parts := strings.SplitN(line, ":", 2)
-		if len(parts) != 2 {
-			continue
-		}
-		key := strings.TrimSpace(parts[0])
-		val := strings.TrimSpace(parts[1])
-		switch key {
-		case "sender":
-			sender = val
-		case "time":
-			timeVal = val
-		}
-	}
-
+	sender := msg.LookupScalar(mapping, "sender")
+	timeVal := msg.LookupScalar(mapping, "time")
 	if sender == "" && timeVal == "" {
-		// No relevant fields found — return body only.
 		return strings.TrimLeft(body, "\n")
 	}
-
-	var sb strings.Builder
-	sb.WriteString("---\n")
+	out := msg.NewMapping()
 	if sender != "" {
-		sb.WriteString("sender: ")
-		sb.WriteString(sender)
-		sb.WriteString("\n")
+		msg.AppendScalarPair(out, "sender", sender)
 	}
 	if timeVal != "" {
-		sb.WriteString("time: ")
-		sb.WriteString(timeVal)
-		sb.WriteString("\n")
+		msg.AppendScalarPair(out, "time", timeVal)
 	}
-	sb.WriteString("---\n")
-	sb.WriteString(body)
-	return sb.String()
+	return msg.BuildFrontmatter(out, body)
 }
 
 // forkAssistantMessage converts an assistant message:

@@ -13,6 +13,7 @@ import (
 	"github.com/linanwx/nagobot/config"
 	"github.com/linanwx/nagobot/monitor"
 	"github.com/linanwx/nagobot/provider"
+	"github.com/linanwx/nagobot/tools"
 )
 
 var setModelCmd = &cobra.Command{
@@ -95,7 +96,9 @@ func runSetModel(_ *cobra.Command, _ []string) error {
 		if err := cfg.Save(); err != nil {
 			return fmt.Errorf("failed to save config: %w", err)
 		}
-		fmt.Printf("---\ncommand: set-model\nstatus: ok\ntype: %s\naction: cleared\n---\n\nCleared model routing for type %q (will use default: %s/%s).\n", modelType, modelType, cfg.GetProvider(), cfg.GetModelType())
+		fmt.Print(tools.CmdOutput([][2]string{
+			{"command", "set-model"}, {"status", "ok"}, {"type", modelType}, {"action", "cleared"},
+		}, fmt.Sprintf("Cleared model routing for type %q (will use default: %s/%s).", modelType, cfg.GetProvider(), cfg.GetModelType())) + "\n")
 		return nil
 	}
 
@@ -122,7 +125,9 @@ func runSetModel(_ *cobra.Command, _ []string) error {
 	if err := cfg.Save(); err != nil {
 		return fmt.Errorf("failed to save config: %w", err)
 	}
-	fmt.Printf("---\ncommand: set-model\nstatus: ok\ntype: %s\nprovider: %s\nmodel: %s\n---\n\nSet model routing: type %q -> %s/%s.\n", modelType, provName, modelName, modelType, provName, modelName)
+	fmt.Print(tools.CmdOutput([][2]string{
+		{"command", "set-model"}, {"status", "ok"}, {"type", modelType}, {"provider", provName}, {"model", modelName},
+	}, fmt.Sprintf("Set model routing: type %q -> %s/%s.", modelType, provName, modelName)) + "\n")
 	return nil
 }
 
@@ -144,7 +149,9 @@ func setDefaultModel(cfg *config.Config) error {
 	if err := cfg.Save(); err != nil {
 		return fmt.Errorf("failed to save config: %w", err)
 	}
-	fmt.Printf("---\ncommand: set-model\nstatus: ok\ntype: default\nprovider: %s\nmodel: %s\n---\n\nSet default model: %s / %s.\n", provName, modelName, provName, modelName)
+	fmt.Print(tools.CmdOutput([][2]string{
+		{"command", "set-model"}, {"status", "ok"}, {"type", "default"}, {"provider", provName}, {"model", modelName},
+	}, fmt.Sprintf("Set default model: %s / %s.", provName, modelName)) + "\n")
 	return nil
 }
 
@@ -173,7 +180,9 @@ func validateProviderModel(cfg *config.Config, provName, modelName, cmdPrefix st
 
 func listModelRouting(cfg *config.Config) error {
 	cfgPath, _ := config.ConfigPath()
-	fmt.Printf("---\ncommand: set-model\nmode: list\n---\n")
+	fmt.Print(tools.CmdOutput([][2]string{
+		{"command", "set-model"}, {"mode", "list"},
+	}, ""))
 
 	// Model routing table with source file
 	fmt.Printf("\nModel routing (from %s):\n", cfgPath)

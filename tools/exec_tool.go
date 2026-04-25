@@ -17,6 +17,7 @@ import (
 
 	"github.com/linanwx/nagobot/logger"
 	"github.com/linanwx/nagobot/provider"
+	"github.com/linanwx/nagobot/thread/msg"
 )
 
 const (
@@ -214,7 +215,7 @@ func (t *ExecTool) run(ctx context.Context, a execArgs, timeout int) string {
 		fields["truncated"] = true
 	}
 	// Propagate skip_trim from command output YAML header to exec tool header.
-	if hasYAMLHeaderLine(result, "skip_trim: true") {
+	if msg.HasFrontmatterKeyValue(result, "skip_trim", "true") {
 		fields["skip_trim"] = true
 	}
 

@@ -9,6 +9,7 @@ import (
 
 	"github.com/linanwx/nagobot/config"
 	"github.com/linanwx/nagobot/provider"
+	"github.com/linanwx/nagobot/tools"
 )
 
 var setProviderKeyCmd = &cobra.Command{
@@ -53,7 +54,9 @@ func runSetProviderKey(_ *cobra.Command, _ []string) error {
 
 	// --list: show all providers and key status
 	if provKeyList {
-		fmt.Printf("---\ncommand: set-provider-key\nmode: list\n---\n\nLLM provider key status:\n")
+		fmt.Print(tools.CmdOutput([][2]string{
+			{"command", "set-provider-key"}, {"mode", "list"},
+		}, "LLM provider key status:") + "\n")
 		for _, name := range supported {
 			pc := cfg.Providers.GetProviderConfig(name)
 			status := "not configured"
@@ -120,7 +123,9 @@ func runSetProviderKey(_ *cobra.Command, _ []string) error {
 		if err := cfg.Save(); err != nil {
 			return fmt.Errorf("failed to save config: %w", err)
 		}
-		fmt.Printf("---\ncommand: set-provider-key\nstatus: ok\nprovider: %s\naction: cleared\n---\n\nCleared API key for provider %q.\n", provName, provName)
+		fmt.Print(tools.CmdOutput([][2]string{
+			{"command", "set-provider-key"}, {"status", "ok"}, {"provider", provName}, {"action", "cleared"},
+		}, fmt.Sprintf("Cleared API key for provider %q.", provName)) + "\n")
 		return nil
 	}
 
@@ -132,7 +137,9 @@ func runSetProviderKey(_ *cobra.Command, _ []string) error {
 		tok := cfg.GetOAuthToken(provName)
 		hasOAuth := tok != nil && tok.AccessToken != ""
 		configured := hasKey || hasOAuth
-		fmt.Printf("---\ncommand: set-provider-key\nprovider: %s\nconfigured: %t\n---\n\n", provName, configured)
+		fmt.Print(tools.CmdOutput([][2]string{
+			{"command", "set-provider-key"}, {"provider", provName}, {"configured", fmt.Sprintf("%t", configured)},
+		}, "") + "\n")
 		if !configured {
 			fmt.Printf("Provider %q: not configured\n", provName)
 			fmt.Printf("Fix: nagobot set-provider-key --provider %s --api-key YOUR_KEY\n", provName)
@@ -162,7 +169,9 @@ func runSetProviderKey(_ *cobra.Command, _ []string) error {
 	if err := cfg.Save(); err != nil {
 		return fmt.Errorf("failed to save config: %w", err)
 	}
-	fmt.Printf("---\ncommand: set-provider-key\nstatus: ok\nprovider: %s\n---\n\nSet API key for provider %q: %s\n", provName, provName, maskKey(apiKey))
+	fmt.Print(tools.CmdOutput([][2]string{
+		{"command", "set-provider-key"}, {"status", "ok"}, {"provider", provName},
+	}, fmt.Sprintf("Set API key for provider %q: %s", provName, maskKey(apiKey))) + "\n")
 	if provKeyAPIBase != "" {
 		fmt.Printf("  API base: %s\n", strings.TrimSpace(provKeyAPIBase))
 	}

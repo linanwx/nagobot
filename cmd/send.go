@@ -11,6 +11,7 @@ import (
 	"github.com/linanwx/nagobot/channel"
 	"github.com/linanwx/nagobot/config"
 	"github.com/linanwx/nagobot/tgmd"
+	"github.com/linanwx/nagobot/tools"
 	"github.com/spf13/cobra"
 )
 
@@ -87,10 +88,13 @@ func runSend(_ *cobra.Command, _ []string) error {
 		}
 	}
 
-	fmt.Printf("---\ncommand: send\nstatus: ok\nrecipient: %s\nchunks: %d\n", to, len(chunks))
-	if lastMsgID > 0 {
-		fmt.Printf("message_id: %d\n", lastMsgID)
+	pairs := [][2]string{
+		{"command", "send"}, {"status", "ok"},
+		{"recipient", to}, {"chunks", fmt.Sprintf("%d", len(chunks))},
 	}
-	fmt.Printf("---\n")
+	if lastMsgID > 0 {
+		pairs = append(pairs, [2]string{"message_id", fmt.Sprintf("%d", lastMsgID)})
+	}
+	fmt.Print(tools.CmdOutput(pairs, ""))
 	return nil
 }

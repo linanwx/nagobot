@@ -10,6 +10,7 @@ import (
 
 	"github.com/linanwx/nagobot/config"
 	"github.com/linanwx/nagobot/session"
+	"github.com/linanwx/nagobot/tools"
 	"github.com/spf13/cobra"
 )
 
@@ -85,7 +86,7 @@ func runSetSummary(_ *cobra.Command, args []string) error {
 		return fmt.Errorf("failed to rename: %w", err)
 	}
 
-	fmt.Printf("---\ncommand: set-summary\nstatus: ok\nsession: %s\n---\n\nSummary saved for %q.\n", key, key)
+	fmt.Print(tools.CmdResult("set-summary", map[string]any{"session": key}, fmt.Sprintf("Summary saved for %q.", key)) + "\n")
 	if len(cleaned) > 0 {
 		fmt.Printf("Cleaned %d stale entries (inactive >7 days): %s\n", len(cleaned), strings.Join(cleaned, ", "))
 	}

@@ -5,6 +5,8 @@ import (
 	"os"
 	"strings"
 
+	"github.com/linanwx/nagobot/thread/msg"
+	"github.com/linanwx/nagobot/tools"
 	"github.com/spf13/cobra"
 )
 
@@ -38,22 +40,7 @@ func runSetMemorySummary(_ *cobra.Command, args []string) error {
 		return fmt.Errorf("failed to read file: %w", err)
 	}
 
-	// Quote summary value to safely handle colons and special YAML characters.
-	quotedSummary := "\"" + strings.ReplaceAll(summary, "\"", "\\\"") + "\""
-
-	var content string
-	if strings.HasPrefix(string(data), "---\n") {
-		// Has existing frontmatter — insert summary before closing ---.
-		idx := strings.Index(string(data)[4:], "\n---\n")
-		if idx >= 0 {
-			yamlEnd := 4 + idx
-			content = string(data[:yamlEnd]) + "\nsummary: " + quotedSummary + string(data[yamlEnd:])
-		} else {
-			content = "---\nsummary: " + quotedSummary + "\n---\n\n" + string(data)
-		}
-	} else {
-		content = "---\nsummary: " + quotedSummary + "\n---\n\n" + string(data)
-	}
+	content := addSummaryToFrontmatter(string(data), summary)
 
 	tmp := filePath + ".tmp"
 	if err := os.WriteFile(tmp, []byte(content), 0644); err != nil {
@@ -63,6 +50,20 @@ func runSetMemorySummary(_ *cobra.Command, args []string) error {
 		return fmt.Errorf("failed to rename: %w", err)
 	}
 
-	fmt.Printf("---\ncommand: set-memory-summary\nstatus: ok\nfile: %s\n---\n\nSummary saved.\n", filePath)
+	fmt.Print(tools.CmdResult("set-memory-summary", map[string]any{"file": filePath}, "Summary saved.") + "\n")
 	return nil
+}
+
+// addSummaryToFrontmatter inserts a `summary:` field into existing frontmatter
+// or wraps the file in fresh frontmatter. All YAML construction goes through
+// msg.* helpers so quoting is handled correctly.
+func addSummaryToFrontmatter(data, summary string) string {
+	if mapping, body, ok := msg.ParseFrontmatter(data); ok {
+		msg.AppendScalarPair(mapping, "summary", summary)
+		return msg.BuildFrontmatter(mapping, body)
+	}
+	mapping := msg.NewMapping()
+	msg.AppendScalarPair(mapping, "summary", summary)
+	body := strings.TrimLeft(data, "\n")
+	return msg.BuildFrontmatter(mapping, "\n"+body)
 }

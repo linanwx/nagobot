@@ -5,6 +5,7 @@ import (
 	"strings"
 
 	"github.com/linanwx/nagobot/config"
+	"github.com/linanwx/nagobot/tools"
 	"github.com/spf13/cobra"
 )
 
@@ -60,7 +61,9 @@ func runSetTelegram(cmd *cobra.Command, _ []string) error {
 		if err := cfg.Save(); err != nil {
 			return fmt.Errorf("failed to save config: %w", err)
 		}
-		fmt.Printf("---\ncommand: set-telegram\nstatus: ok\naction: cleared\n---\n\nCleared all Telegram configuration.\n")
+		fmt.Print(tools.CmdOutput([][2]string{
+			{"command", "set-telegram"}, {"status", "ok"}, {"action", "cleared"},
+		}, "Cleared all Telegram configuration.") + "\n")
 		return nil
 	}
 
@@ -82,7 +85,7 @@ func runSetTelegram(cmd *cobra.Command, _ []string) error {
 		return fmt.Errorf("failed to save config: %w", err)
 	}
 
-	fmt.Printf("---\ncommand: set-telegram\nstatus: ok\n---\n\n")
+	fmt.Print(tools.CmdResult("set-telegram", nil, "") + "\n")
 	if tokenChanged {
 		t := strings.TrimSpace(setTgToken)
 		if t == "" {
@@ -108,7 +111,9 @@ func showTelegramStatus(cfg *config.Config) error {
 	ids := cfg.GetTelegramAllowedIDs()
 
 	tokenConfigured := token != ""
-	fmt.Printf("---\ncommand: set-telegram\ntoken_configured: %t\n---\n\nTelegram configuration:\n", tokenConfigured)
+	fmt.Print(tools.CmdOutput([][2]string{
+		{"command", "set-telegram"}, {"token_configured", fmt.Sprintf("%t", tokenConfigured)},
+	}, "Telegram configuration:") + "\n")
 	if !tokenConfigured {
 		fmt.Println("  Token:       not configured")
 	} else {

@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/linanwx/nagobot/config"
+	"github.com/linanwx/nagobot/tools"
 	"github.com/spf13/cobra"
 )
 
@@ -73,9 +74,13 @@ func runSetTimezone(_ *cobra.Command, _ []string) error {
 	}
 
 	if tz == "" {
-		fmt.Printf("---\ncommand: set-timezone\nstatus: ok\nsession: %s\ntimezone: cleared\n---\n\nCleared timezone for session %q.\n", session, session)
+		fmt.Print(tools.CmdOutput([][2]string{
+			{"command", "set-timezone"}, {"status", "ok"}, {"session", session}, {"timezone", "cleared"},
+		}, fmt.Sprintf("Cleared timezone for session %q.", session)) + "\n")
 	} else {
-		fmt.Printf("---\ncommand: set-timezone\nstatus: ok\nsession: %s\ntimezone: %s\n---\n\nSet timezone %q for session %q.\n", session, tz, tz, session)
+		fmt.Print(tools.CmdOutput([][2]string{
+			{"command", "set-timezone"}, {"status", "ok"}, {"session", session}, {"timezone", tz},
+		}, fmt.Sprintf("Set timezone %q for session %q.", tz, session)) + "\n")
 	}
 	return nil
 }

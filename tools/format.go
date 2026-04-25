@@ -1,149 +1,97 @@
 package tools
 
 import (
-	"fmt"
-	"sort"
-	"strings"
+	"github.com/linanwx/nagobot/thread/msg"
 )
 
-// toolResult builds a YAML frontmatter + body tool result.
-// The "tool" field is always first, followed by "status: ok", then remaining fields sorted.
+// toolResult builds a YAML frontmatter + body tool result via msg.* helpers
+// so quoting, escaping, and multi-line value handling are correct by
+// construction. The "tool" field is always first, then "status: ok", then
+// remaining fields in sorted order. body is appended verbatim after a blank
+// line; pass body="" for header-only output.
 func toolResult(tool string, fields map[string]any, body string) string {
-	var sb strings.Builder
-	sb.WriteString("---\n")
-	sb.WriteString(fmt.Sprintf("tool: %s\n", tool))
-	sb.WriteString("status: ok\n")
-
-	// Sort remaining fields for deterministic output.
-	keys := make([]string, 0, len(fields))
-	for k := range fields {
-		keys = append(keys, k)
+	mapping, err := msg.SortedFieldsMapping(
+		[][2]string{{"tool", tool}, {"status", "ok"}},
+		fields,
+	)
+	if err != nil {
+		return ""
 	}
-	sort.Strings(keys)
-	for _, k := range keys {
-		sb.WriteString(formatYAMLField(k, fields[k]))
-	}
-
-	sb.WriteString("---")
+	bodyText := ""
 	if body != "" {
-		sb.WriteString("\n\n")
-		sb.WriteString(body)
+		bodyText = "\n" + body
 	}
-	return sb.String()
+	return msg.BuildFrontmatter(mapping, bodyText)
 }
 
 // toolError builds a YAML frontmatter error result.
 // Body starts with "Error: " for backward compatibility with legacy detection.
 func toolError(tool, message string) string {
-	var sb strings.Builder
-	sb.WriteString("---\n")
-	sb.WriteString(fmt.Sprintf("tool: %s\n", tool))
-	sb.WriteString("status: error\n")
-	sb.WriteString("---\n\n")
-	sb.WriteString("Error: ")
-	sb.WriteString(message)
-	return sb.String()
-}
-
-// hasYAMLHeaderLine checks if a YAML-frontmatter string contains a specific line in its header.
-func hasYAMLHeaderLine(content, target string) bool {
-	if !strings.HasPrefix(content, "---\n") {
-		return false
+	mapping, err := msg.SortedFieldsMapping(
+		[][2]string{{"tool", tool}, {"status", "error"}},
+		nil,
+	)
+	if err != nil {
+		return ""
 	}
-	if idx := strings.Index(content[4:], "\n---"); idx >= 0 {
-		for _, line := range strings.Split(content[4:4+idx], "\n") {
-			if strings.TrimSpace(line) == target {
-				return true
-			}
-		}
-	}
-	return false
+	return msg.BuildFrontmatter(mapping, "\nError: "+message)
 }
 
 // IsToolError checks whether a tool result represents an error.
 // Supports YAML format (status: error) and legacy format (Error: prefix).
 func IsToolError(result string) bool {
-	if strings.HasPrefix(result, "Error:") {
+	if len(result) >= 6 && result[:6] == "Error:" {
 		return true
 	}
-	// Check YAML frontmatter for status: error.
-	if strings.HasPrefix(result, "---\n") {
-		if idx := strings.Index(result[4:], "\n---"); idx >= 0 {
-			header := result[4 : 4+idx]
-			for _, line := range strings.Split(header, "\n") {
-				if strings.TrimSpace(line) == "status: error" {
-					return true
-				}
-			}
-		}
-	}
-	return false
+	return msg.HasFrontmatterKeyValue(result, "status", "error")
 }
 
 // CmdResult builds a YAML frontmatter string for CLI command output.
-// The "command" field is always first, followed by "status: ok", then remaining fields sorted.
+// The "command" field is always first, then "status: ok", then remaining
+// fields in sorted order.
 func CmdResult(command string, fields map[string]any, body string) string {
-	var sb strings.Builder
-	sb.WriteString("---\n")
-	sb.WriteString(fmt.Sprintf("command: %s\n", command))
-	sb.WriteString("status: ok\n")
-
-	keys := make([]string, 0, len(fields))
-	for k := range fields {
-		keys = append(keys, k)
+	mapping, err := msg.SortedFieldsMapping(
+		[][2]string{{"command", command}, {"status", "ok"}},
+		fields,
+	)
+	if err != nil {
+		return ""
 	}
-	sort.Strings(keys)
-	for _, k := range keys {
-		sb.WriteString(formatYAMLField(k, fields[k]))
-	}
-
-	sb.WriteString("---")
+	bodyText := ""
 	if body != "" {
-		sb.WriteString("\n\n")
-		sb.WriteString(body)
+		bodyText = "\n" + body
 	}
-	return sb.String()
+	return msg.BuildFrontmatter(mapping, bodyText)
 }
 
 // CmdError builds a YAML frontmatter error string for CLI command output.
 func CmdError(command, message string) string {
-	return fmt.Sprintf("---\ncommand: %s\nstatus: error\n---\n\nError: %s", command, message)
+	mapping, err := msg.SortedFieldsMapping(
+		[][2]string{{"command", command}, {"status", "error"}},
+		nil,
+	)
+	if err != nil {
+		return ""
+	}
+	return msg.BuildFrontmatter(mapping, "\nError: "+message)
 }
 
-// formatYAMLField formats a single key-value pair for YAML output.
-func formatYAMLField(key string, value any) string {
-	switch v := value.(type) {
-	case string:
-		if needsYAMLQuoting(v) {
-			return fmt.Sprintf("%s: %q\n", key, v)
-		}
-		return fmt.Sprintf("%s: %s\n", key, v)
-	case bool:
-		return fmt.Sprintf("%s: %v\n", key, v)
-	case int:
-		return fmt.Sprintf("%s: %d\n", key, v)
-	case int64:
-		return fmt.Sprintf("%s: %d\n", key, v)
-	default:
-		return fmt.Sprintf("%s: %v\n", key, v)
+// CmdOutput builds a CLI command output with explicitly ordered key/value
+// pairs. Use this for CLI commands that need a specific field order
+// (e.g. command/status/action/...) or a non-"ok" status. No sorting is
+// applied — the caller controls the order.
+//
+// All values are emitted via yaml.Marshal so quoting and escaping are
+// handled correctly. Body is appended verbatim after a blank line; pass
+// body="" for header-only output.
+func CmdOutput(pairs [][2]string, body string) string {
+	mapping := msg.NewMapping()
+	for _, kv := range pairs {
+		msg.AppendScalarPair(mapping, kv[0], kv[1])
 	}
-}
-
-// needsYAMLQuoting returns true if the string value needs quoting in YAML.
-func needsYAMLQuoting(s string) bool {
-	if s == "" {
-		return true
+	bodyText := ""
+	if body != "" {
+		bodyText = "\n" + body
 	}
-	for _, c := range s {
-		switch c {
-		case ':', '#', '{', '}', '[', ']', ',', '&', '*', '!', '|', '>', '\'', '"', '%', '@', '`':
-			return true
-		}
-	}
-	// Quote if looks like a number or boolean.
-	switch strings.ToLower(s) {
-	case "true", "false", "yes", "no", "null", "~":
-		return true
-	}
-	return false
+	return msg.BuildFrontmatter(mapping, bodyText)
 }

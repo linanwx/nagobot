@@ -5,6 +5,7 @@ import (
 	"strings"
 
 	"github.com/linanwx/nagobot/config"
+	"github.com/linanwx/nagobot/tools"
 	"github.com/spf13/cobra"
 )
 
@@ -49,7 +50,9 @@ func runSetSearchKey(_ *cobra.Command, _ []string) error {
 
 	// --list: show configured providers
 	if searchKeyList {
-		fmt.Printf("---\ncommand: set-search-key\nmode: list\n---\n\n")
+		fmt.Print(tools.CmdOutput([][2]string{
+			{"command", "set-search-key"}, {"mode", "list"},
+		}, "") + "\n")
 		if len(cfg.Tools.Web.Search.Keys) == 0 {
 			fmt.Println("No search provider keys configured.")
 			fmt.Println("Add one: nagobot set-search-key --provider brave --key <api_key>")
@@ -74,7 +77,9 @@ func runSetSearchKey(_ *cobra.Command, _ []string) error {
 		if err := cfg.Save(); err != nil {
 			return fmt.Errorf("failed to save config: %w", err)
 		}
-		fmt.Printf("---\ncommand: set-search-key\nstatus: ok\nprovider: %s\naction: cleared\n---\n\nRemoved key for provider %q.\n", provider, provider)
+		fmt.Print(tools.CmdOutput([][2]string{
+			{"command", "set-search-key"}, {"status", "ok"}, {"provider", provider}, {"action", "cleared"},
+		}, fmt.Sprintf("Removed key for provider %q.", provider)) + "\n")
 		return nil
 	}
 
@@ -84,7 +89,9 @@ func runSetSearchKey(_ *cobra.Command, _ []string) error {
 		// Show status for this provider
 		existing := cfg.Tools.Web.Search.Keys[provider]
 		configured := existing != ""
-		fmt.Printf("---\ncommand: set-search-key\nprovider: %s\nconfigured: %t\n---\n\n", provider, configured)
+		fmt.Print(tools.CmdOutput([][2]string{
+			{"command", "set-search-key"}, {"provider", provider}, {"configured", fmt.Sprintf("%t", configured)},
+		}, "") + "\n")
 		if !configured {
 			fmt.Printf("Provider %q: not configured\n", provider)
 		} else {
@@ -97,7 +104,9 @@ func runSetSearchKey(_ *cobra.Command, _ []string) error {
 	if err := cfg.Save(); err != nil {
 		return fmt.Errorf("failed to save config: %w", err)
 	}
-	fmt.Printf("---\ncommand: set-search-key\nstatus: ok\nprovider: %s\n---\n\nSet key for provider %q: %s\n", provider, provider, maskKey(key))
+	fmt.Print(tools.CmdOutput([][2]string{
+		{"command", "set-search-key"}, {"status", "ok"}, {"provider", provider},
+	}, fmt.Sprintf("Set key for provider %q: %s", provider, maskKey(key))) + "\n")
 	return nil
 }
 

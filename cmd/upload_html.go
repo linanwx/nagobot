@@ -9,6 +9,7 @@ import (
 	"os"
 	"time"
 
+	"github.com/linanwx/nagobot/tools"
 	"github.com/spf13/cobra"
 )
 
@@ -77,7 +78,13 @@ func runUploadHTML(_ *cobra.Command, args []string) error {
 		return fmt.Errorf("no URL in response: %s", string(body))
 	}
 
-	fmt.Printf("---\ncommand: upload-html\nstatus: ok\nurl: %s\nsite_id: %s\nfile: %s\nsize_bytes: %d\n---\n\n%s\n",
-		result.Data.URL, result.Data.SiteID, args[0], len(content), result.Data.URL)
+	fmt.Print(tools.CmdOutput([][2]string{
+		{"command", "upload-html"},
+		{"status", "ok"},
+		{"url", result.Data.URL},
+		{"site_id", result.Data.SiteID},
+		{"file", args[0]},
+		{"size_bytes", fmt.Sprintf("%d", len(content))},
+	}, result.Data.URL) + "\n")
 	return nil
 }

@@ -275,6 +275,88 @@ func TestForkMessages_EmptyInput(t *testing.T) {
 	}
 }
 
+// TestForkMessages_MultiLineActionStripped is a regression test for the
+// original Discord wake bug: stripFrontmatter must not leak the body of an
+// `action: |-` block scalar into the YAML when reducing to sender+time.
+func TestForkMessages_MultiLineActionStripped(t *testing.T) {
+	content := "---\n" +
+		"source: session\n" +
+		"thread: thread-1\n" +
+		"session: discord:1\n" +
+		"time: 2026-04-22T19:04:57+01:00\n" +
+		"sender: system\n" +
+		"caller_session_key: discord:1:threads:foo\n" +
+		"action: |-\n" +
+		"    Another session woke you. caller_session_key = the IMMEDIATE sender.\n" +
+		"    End this turn with exactly one of:\n" +
+		"    1. dispatch(to=caller) — reply to the waker.\n" +
+		"    MUST NOT: use dispatch({}) when you suspect mis-routing.\n" +
+		"---\n" +
+		"the actual response body"
+
+	msgs := []provider.Message{
+		{Role: "user", Content: content, Source: "session"},
+	}
+	result := ForkMessages(msgs)
+	if len(result) != 1 {
+		t.Fatalf("expected 1 message, got %d", len(result))
+	}
+	got := result[0].Content
+
+	// Action body must NOT appear in the reduced output.
+	for _, leak := range []string{
+		"Another session woke you",
+		"End this turn",
+		"MUST NOT: use dispatch",
+		"action:",
+	} {
+		if strings.Contains(got, leak) {
+			t.Errorf("action block content %q leaked through stripFrontmatter:\n%s", leak, got)
+		}
+	}
+	// Sender and time should remain.
+	if !strings.Contains(got, "sender: system") {
+		t.Errorf("sender lost: %s", got)
+	}
+	if !strings.Contains(got, "time:") {
+		t.Errorf("time lost: %s", got)
+	}
+	// Body preserved.
+	if !strings.Contains(got, "the actual response body") {
+		t.Errorf("body lost: %s", got)
+	}
+}
+
+func TestForkMessages_NestedFrontmatterInBodyPreserved(t *testing.T) {
+	// User message whose body itself contains another `---\n...---\n` block
+	// (e.g. when one wake quotes another). The OUTER frontmatter is reduced,
+	// the inner is preserved verbatim.
+	content := "---\n" +
+		"source: telegram\n" +
+		"thread: t1\n" +
+		"session: telegram:1\n" +
+		"time: 2026-04-10T10:00:00+08:00\n" +
+		"sender: user\n" +
+		"---\n" +
+		"---\ninner: yaml\n---\nquoted body"
+
+	msgs := []provider.Message{{Role: "user", Content: content}}
+	result := ForkMessages(msgs)
+	if len(result) != 1 {
+		t.Fatalf("expected 1 message, got %d", len(result))
+	}
+	got := result[0].Content
+	if !strings.Contains(got, "---\ninner: yaml\n---\nquoted body") {
+		t.Errorf("inner frontmatter must be preserved verbatim in body, got:\n%s", got)
+	}
+	if !strings.Contains(got, "sender: user") {
+		t.Errorf("sender lost: %s", got)
+	}
+	if strings.Contains(got, "source:") {
+		t.Errorf("source should be stripped: %s", got)
+	}
+}
+
 func TestForkMessages_ToolCallWithContent(t *testing.T) {
 	// Assistant message with both tool calls AND content.
 	msgs := []provider.Message{

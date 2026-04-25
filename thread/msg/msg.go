@@ -1,55 +1,37 @@
-// Package msg defines the WakeMessage type shared between thread and tools.
+// Package msg defines the WakeMessage type and the YAML-frontmatter helpers
+// shared across thread, tools, session, and cmd. All YAML frontmatter
+// construction and parsing in this codebase MUST go through frontmatter.go;
+// see that file for the rationale.
 package msg
 
 import (
 	"context"
-	"sort"
 	"strings"
 	"time"
-
-	"gopkg.in/yaml.v3"
 )
 
-// BuildSystemMessage constructs a standardized system message using YAML frontmatter.
-// Fields are rendered in sorted order; content goes into the markdown body.
+// BuildSystemMessage constructs a standardized system message using YAML
+// frontmatter. The output begins with `type` and `sender: system`, then the
+// remaining fields in sorted order, then a blank line and the trimmed body.
 func BuildSystemMessage(msgType string, fields map[string]string, content string) string {
-	// Build ordered map: type, sender, then sorted fields.
-	header := yaml.Node{Kind: yaml.MappingNode}
-	addYAMLPair(&header, "type", msgType)
-	addYAMLPair(&header, "sender", "system")
-
-	if len(fields) > 0 {
-		keys := make([]string, 0, len(fields))
-		for k := range fields {
-			keys = append(keys, k)
-		}
-		sort.Strings(keys)
-		for _, k := range keys {
-			addYAMLPair(&header, k, fields[k])
-		}
+	extras := make(map[string]any, len(fields))
+	for k, v := range fields {
+		extras[k] = v
+	}
+	leading := [][2]string{
+		{"type", msgType},
+		{"sender", "system"},
+	}
+	mapping, err := SortedFieldsMapping(leading, extras)
+	if err != nil {
+		return ""
 	}
 
-	yamlBytes, _ := yaml.Marshal(&yaml.Node{Kind: yaml.DocumentNode, Content: []*yaml.Node{&header}})
-
-	var sb strings.Builder
-	sb.WriteString("---\n")
-	sb.Write(yamlBytes)
-	sb.WriteString("---\n")
-
-	content = strings.TrimSpace(content)
-	if content != "" {
-		sb.WriteString("\n")
-		sb.WriteString(content)
+	body := ""
+	if trimmed := strings.TrimSpace(content); trimmed != "" {
+		body = "\n" + trimmed
 	}
-
-	return sb.String()
-}
-
-func addYAMLPair(node *yaml.Node, key, value string) {
-	node.Content = append(node.Content,
-		&yaml.Node{Kind: yaml.ScalarNode, Value: key},
-		&yaml.Node{Kind: yaml.ScalarNode, Value: value},
-	)
+	return BuildFrontmatter(mapping, body)
 }
 
 // ReactEvent identifies a lifecycle event for reaction purposes.

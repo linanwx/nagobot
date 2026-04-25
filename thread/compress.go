@@ -3,13 +3,13 @@ package thread
 import (
 	"context"
 	"fmt"
+	"strconv"
 	"strings"
 	"time"
 
 	"github.com/linanwx/nagobot/logger"
 	"github.com/linanwx/nagobot/provider"
 	"github.com/linanwx/nagobot/thread/msg"
-	"gopkg.in/yaml.v3"
 )
 
 const (
@@ -377,28 +377,24 @@ var expiredToolHeaderOnly = map[string]bool{
 	"health":     true,
 }
 
-// computeWakeCompressed returns the Compressed value for a user message with wake YAML frontmatter.
-// Strips redundant fields (thread/session/delivery/action) and compresses large system-sender bodies.
-// Returns "" if no compression is needed.
+// computeWakeCompressed returns the Compressed value for a user message with
+// wake YAML frontmatter. Strips redundant fields (thread/session/delivery/
+// action) and compresses large system-sender bodies. Returns "" if no
+// compression is needed.
+//
+// All YAML manipulation goes through msg.* helpers (yaml.Node round-trip).
+// Multi-line block scalars (e.g. `action: |-`) and nested frontmatter in the
+// body are handled correctly; key order is preserved for prefix-cache
+// stability.
 func computeWakeCompressed(m *provider.Message) string {
-	yamlBlock, body, ok := SplitFrontmatter(m.Content)
+	mapping, body, ok := msg.ParseFrontmatter(m.Content)
 	if !ok {
 		return ""
 	}
 
-	// Build trimmed YAML lines (remove redundant fields).
-	var kept []string
-	for _, line := range strings.Split(yamlBlock, "\n") {
-		key := strings.TrimSpace(strings.SplitN(line, ":", 2)[0])
-		if wakeTrimKeys[key] {
-			continue
-		}
-		kept = append(kept, line)
-	}
-	trimmedYAML := strings.Join(kept, "\n")
+	sender := msg.LookupScalar(mapping, "sender")
+	msg.DropKeys(mapping, wakeTrimKeys)
 
-	// Check whether body needs compression: only when actually trimmable.
-	sender := ExtractFrontmatterValue(yamlBlock, "sender")
 	bodyRuneLen := runeLen(body)
 	bodyTrimmable := sender == "system" &&
 		bodyRuneLen > softTrimHeadRunes+softTrimTailRunes &&
@@ -409,21 +405,23 @@ func computeWakeCompressed(m *provider.Message) string {
 		trimmed := n - softTrimHeadRunes - softTrimTailRunes
 		hint := buildRecoveryHint(m.ID)
 		compressedBody := runeHead(body, softTrimHeadRunes) + "\n\n" + hint + "\n\n" + runeTail(body, softTrimTailRunes)
-		bodyYAML := trimmedYAML + "\ncompressed: true"
-		bodyYAML += fmt.Sprintf("\noriginal: %d", n)
-		bodyYAML += fmt.Sprintf("\ntrimmed: %d", trimmed)
-		result := "---\n" + bodyYAML + "\n---\n" + compressedBody
-		// Skip body trim if result is not at least 5% smaller than original.
+
+		msg.AppendScalarPair(mapping, "compressed", "true")
+		msg.AppendScalarPair(mapping, "original", strconv.Itoa(n))
+		msg.AppendScalarPair(mapping, "trimmed", strconv.Itoa(trimmed))
+
+		result := msg.BuildFrontmatter(mapping, compressedBody)
+		// Accept body-trim only if it actually shrinks by ≥5%.
 		if len(result) < int(float64(len(m.Content))*0.95) {
 			return result
 		}
-		// Fall through to wake trim only (strip redundant YAML fields).
+		// Roll back the appended fields and fall through to wake-trim only.
+		mapping.Content = mapping.Content[:len(mapping.Content)-6]
 	}
 
-	// Wake trim only — strip redundant fields but preserve full body.
-	rebuilt := "---\n" + trimmedYAML + "\n---\n" + body
+	rebuilt := msg.BuildFrontmatter(mapping, body)
 	if rebuilt == m.Content {
-		return "" // nothing changed, no compression needed
+		return ""
 	}
 	return rebuilt
 }
@@ -434,31 +432,16 @@ var wakeTrimKeys = map[string]bool{
 	"supports_vision": true, "supports_audio": true, "supports_pdf": true,
 }
 
-// SplitFrontmatter splits a YAML-frontmatter-wrapped string into its YAML block and body.
+// SplitFrontmatter is a re-export of msg.SplitFrontmatter so existing callers
+// importing the thread package keep working. New code SHOULD import msg
+// directly.
 func SplitFrontmatter(content string) (yamlBlock, body string, ok bool) {
-	if !strings.HasPrefix(content, "---\n") {
-		return
-	}
-	endIdx := strings.Index(content[4:], "\n---\n")
-	if endIdx < 0 {
-		return
-	}
-	endIdx += 4
-	yamlBlock = content[4:endIdx]
-	body = content[endIdx+5:] // skip "\n---\n"
-	ok = true
-	return
+	return msg.SplitFrontmatter(content)
 }
 
-// ExtractFrontmatterValue extracts a scalar value from a raw YAML block by key name.
+// ExtractFrontmatterValue is a re-export of msg.ExtractFrontmatterValue.
 func ExtractFrontmatterValue(yamlBlock, key string) string {
-	for _, line := range strings.Split(yamlBlock, "\n") {
-		parts := strings.SplitN(line, ":", 2)
-		if len(parts) == 2 && strings.TrimSpace(parts[0]) == key {
-			return strings.TrimSpace(parts[1])
-		}
-	}
-	return ""
+	return msg.ExtractFrontmatterValue(yamlBlock, key)
 }
 
 // buildRecoveryHint builds the hint string pointing to the original content.
@@ -500,34 +483,22 @@ type compressedHeader struct {
 }
 
 // marshalCompressed builds a YAML-frontmatter compressed marker with optional body.
+// Output format: `---\n<yaml>\n---\n` for empty body, `---\n<yaml>\n---\n\n<body>` otherwise.
 func marshalCompressed(h compressedHeader, body string) string {
-	yamlBytes, _ := yaml.Marshal(h)
-	var sb strings.Builder
-	sb.WriteString("---\n")
-	sb.Write(yamlBytes)
-	sb.WriteString("---")
-	if body != "" {
-		sb.WriteString("\n\n")
-		sb.WriteString(body)
+	mapping, ok := msg.EncodeMapping(h)
+	if !ok {
+		return ""
 	}
-	return sb.String()
+	bodyText := ""
+	if body != "" {
+		bodyText = "\n" + body
+	}
+	return msg.BuildFrontmatter(mapping, bodyText)
 }
 
 // extractSkillName parses the skill name from a use_skill result's YAML frontmatter.
 func extractSkillName(content string) string {
-	if !strings.HasPrefix(content, "---\n") {
-		return ""
-	}
-	endIdx := strings.Index(content[4:], "\n---\n")
-	if endIdx < 0 {
-		return ""
-	}
-	for _, line := range strings.Split(content[4:4+endIdx], "\n") {
-		if strings.HasPrefix(line, "skill: ") {
-			return strings.TrimSpace(line[7:])
-		}
-	}
-	return ""
+	return msg.ExtractFrontmatterValueFromContent(content, "skill")
 }
 
 // tryTierLossyCompress hard-trims session history for agents that opted into
@@ -628,9 +599,5 @@ func applySlideWindow(messages []provider.Message, keepTurns int) []provider.Mes
 // IsInjectedUserMessage reports whether a user message was injected mid-turn
 // (marked via `injected: true` in YAML frontmatter by markInjected).
 func IsInjectedUserMessage(content string) bool {
-	yamlBlock, _, ok := SplitFrontmatter(content)
-	if !ok {
-		return false
-	}
-	return ExtractFrontmatterValue(yamlBlock, "injected") == "true"
+	return msg.IsInjectedUserMessage(content)
 }
