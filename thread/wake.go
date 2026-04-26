@@ -413,7 +413,7 @@ func wakeActionHint(source WakeSource) string {
 	switch source {
 	case WakeSession:
 		return "Another session woke you. `caller_session_key` = the IMMEDIATE sender this turn (sibling/subagent/parent/cron), NOT the original user. Re-read it every turn.\n\n" +
-			"End this turn with exactly one of:\n" +
+			"End this turn with one or more of:\n" +
 			"1. `dispatch(to=caller:session)` — reply to the waker. Also fires if you produce a naive final text response instead of calling dispatch.\n" +
 			"2. `dispatch(to=user)` — redirect to your own channel user (user-facing sessions only).\n" +
 			"3. `dispatch(to=session, session_key=...)` — hand off to a specific session.\n" +
