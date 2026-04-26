@@ -71,8 +71,8 @@ func (t *Thread) sessionFilePath() (string, bool) {
 
 func (t *Thread) contextBudget() ContextThresholds {
 	cfg := t.cfg()
-	_, modelName := t.resolvedProviderModel()
-	contextWindow := provider.EffectiveContextWindow(modelName, cfg.ContextWindowTokens)
+	provName, modelName := t.resolvedProviderModel()
+	contextWindow := provider.EffectiveContextWindow(provName, modelName, cfg.ContextWindowTokens)
 	if cfg.Agents != nil && t.Agent != nil {
 		contextWindow = cfg.Agents.Def(t.Agent.Name).ClampContextWindow(contextWindow)
 	}

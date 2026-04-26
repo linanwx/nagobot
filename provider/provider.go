@@ -156,8 +156,12 @@ var audioCapable = map[string]bool{}
 // pdfCapable tracks provider:model pairs that support PDF document input.
 var pdfCapable = map[string]bool{}
 
-// modelContextWindows maps model keys to context window size in tokens.
-var modelContextWindows = map[string]int{}
+// providerModelContextWindows maps "provider:model" to context window size in tokens.
+// Keyed per provider so that a model accessed via different routes (e.g. openai vs
+// openai-oauth) can have different effective limits — OAuth via the ChatGPT codex
+// backend is account-plan-throttled (~272K for Plus) even when the underlying model
+// supports a 1M window via direct API key.
+var providerModelContextWindows = map[string]int{}
 
 var providerRegistry = map[string]ProviderRegistration{}
 
@@ -200,7 +204,11 @@ func RegisterProvider(name string, reg ProviderRegistration) {
 		}
 	}
 	for k, v := range reg.ContextWindows {
-		modelContextWindows[k] = v
+		k = strings.TrimSpace(k)
+		if k == "" {
+			continue
+		}
+		providerModelContextWindows[name+":"+k] = v
 	}
 	providerRegistry[name] = reg
 	providerModelTypes[name] = append([]string(nil), models...)
@@ -262,10 +270,10 @@ func SupportsPDF(providerName, modelType string) bool {
 	return pdfCapable[providerName+":"+modelType]
 }
 
-// ContextWindowForModel returns the context window size in tokens for a model.
-// Returns 0 if unknown.
-func ContextWindowForModel(modelType string) int {
-	return modelContextWindows[modelType]
+// ContextWindowForModel returns the context window size in tokens for a
+// provider+model pair. Returns 0 if unknown.
+func ContextWindowForModel(providerName, modelType string) int {
+	return providerModelContextWindows[providerName+":"+modelType]
 }
 
 // IsSupportedModel returns true if the model type is registered in any provider.
@@ -288,8 +296,8 @@ func ProviderForModel(modelType string) string {
 
 // EffectiveContextWindow returns min(modelContextWindow, configuredWindow).
 // If the model context window is unknown (0), returns configuredWindow.
-func EffectiveContextWindow(modelType string, configuredWindow int) int {
-	modelWindow := ContextWindowForModel(modelType)
+func EffectiveContextWindow(providerName, modelType string, configuredWindow int) int {
+	modelWindow := ContextWindowForModel(providerName, modelType)
 	if modelWindow <= 0 {
 		return configuredWindow
 	}

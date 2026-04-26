@@ -230,7 +230,7 @@ func listModelRouting(cfg *config.Config) error {
 			if _, ok := cfg.Thread.Models[specialty]; ok {
 				continue
 			}
-			ctx := provider.ContextWindowForModel(m)
+			ctx := provider.ContextWindowForModel(prov, m)
 			if ctx > 0 {
 				fmt.Printf("  %-40s → %s / %s (%s)\n", specialty, prov, m, formatContextTokens(ctx))
 			} else {
@@ -248,7 +248,7 @@ func listModelRouting(cfg *config.Config) error {
 		}
 		fmt.Printf("  %s:\n", prov)
 		for _, m := range models {
-			ctx := provider.ContextWindowForModel(m)
+			ctx := provider.ContextWindowForModel(prov, m)
 			if ctx > 0 {
 				fmt.Printf("    %-40s %s\n", m, formatContextTokens(ctx))
 			} else {
@@ -374,7 +374,7 @@ func listFallbackStatus(cfg *config.Config) error {
 		}
 		fmt.Printf("  %s  [%s]\n", ps.name, reason)
 		for _, m := range ps.models {
-			ctx := provider.ContextWindowForModel(m)
+			ctx := provider.ContextWindowForModel(ps.name, m)
 			if ctx > 0 {
 				fmt.Printf("    %-40s %s\n", m, formatContextTokens(ctx))
 			} else {
@@ -421,7 +421,7 @@ func printProviderModels(name string, models []string, bi *monitor.BalanceInfo) 
 	}
 	fmt.Printf("  %s%s\n", name, balanceStr)
 	for _, m := range models {
-		ctx := provider.ContextWindowForModel(m)
+		ctx := provider.ContextWindowForModel(name, m)
 		if ctx > 0 {
 			fmt.Printf("    %-40s %s\n", m, formatContextTokens(ctx))
 		} else {

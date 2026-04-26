@@ -789,7 +789,7 @@ func (w *WebChannel) handleSessionStats(rw http.ResponseWriter, key string) {
 		if cfg == nil {
 			cfg = config.DefaultConfig()
 		}
-		contextWindow = provider.EffectiveContextWindow(cfg.GetModelName(), cfg.GetContextWindowTokens())
+		contextWindow = provider.EffectiveContextWindow(cfg.GetProvider(), cfg.GetModelName(), cfg.GetContextWindowTokens())
 	}
 	ct := thread.ComputeContextThresholds(contextWindow)
 
