@@ -622,17 +622,18 @@ func TestGrowingIntervals(t *testing.T) {
 	lastActive := time.Date(2025, 1, 1, 12, 0, 0, 0, time.UTC)
 
 	// Expected trigger points and their next intervals.
+	// hbPulseInterval=45m, hbPulseGrowth=30m → gaps 45, 75, 105, 135, 165, 195.
 	expected := []struct {
 		offset       time.Duration
 		nextInterval time.Duration
 	}{
 		{15 * time.Minute, 45 * time.Minute},   // T1
-		{60 * time.Minute, 55 * time.Minute},   // T2: 15+45
-		{115 * time.Minute, 65 * time.Minute},  // T3: 60+55
-		{180 * time.Minute, 75 * time.Minute},  // T4: 115+65
-		{255 * time.Minute, 85 * time.Minute},  // T5: 180+75
-		{340 * time.Minute, 95 * time.Minute},  // T6: 255+85
-		{435 * time.Minute, 105 * time.Minute}, // T7: 340+95
+		{60 * time.Minute, 75 * time.Minute},   // T2: 15+45
+		{135 * time.Minute, 105 * time.Minute}, // T3: 60+75
+		{240 * time.Minute, 135 * time.Minute}, // T4: 135+105
+		{375 * time.Minute, 165 * time.Minute}, // T5: 240+135
+		{540 * time.Minute, 195 * time.Minute}, // T6: 375+165
+		{735 * time.Minute, 225 * time.Minute}, // T7: 540+195
 	}
 
 	for i, exp := range expected {

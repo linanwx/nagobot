@@ -166,7 +166,10 @@ func TestFindLastUserMessage(t *testing.T) {
 	})
 
 	t.Run("non-resumable sources skipped", func(t *testing.T) {
-		for _, source := range []string{"heartbeat", "compression", "resume"} {
+		// "resume" is intentionally NOT excluded — see resume.go nonResumableSources
+		// docstring (commit 6f0dd0b): excluding it would cause infinite resume loops
+		// because the original interrupted message would be re-found on every restart.
+		for _, source := range []string{"heartbeat", "compression"} {
 			msgs := []provider.Message{
 				{Role: "user", Content: normalMsg(source, "msg"), Source: source, Timestamp: now},
 			}
@@ -178,7 +181,7 @@ func TestFindLastUserMessage(t *testing.T) {
 	})
 
 	t.Run("other sources are resumable", func(t *testing.T) {
-		for _, source := range []string{"telegram", "discord", "cron", "child_task", "child_completed", "cron_finished", "external", "sleep_completed"} {
+		for _, source := range []string{"telegram", "discord", "cron", "child_task", "child_completed", "cron_finished", "external", "sleep_completed", "resume"} {
 			msgs := []provider.Message{
 				{Role: "user", Content: normalMsg(source, "msg"), Source: source, Timestamp: now},
 			}
