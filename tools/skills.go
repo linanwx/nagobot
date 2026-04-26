@@ -93,6 +93,9 @@ func (t *UseSkillTool) run(ctx context.Context, args json.RawMessage) string {
 	if strings.TrimSpace(rt.SessionDir) != "" {
 		prompt = strings.ReplaceAll(prompt, "{{SESSIONDIR}}", rt.SessionDir)
 	}
+	if strings.TrimSpace(dir) != "" {
+		prompt = strings.ReplaceAll(prompt, "{{SKILLDIR}}", dir)
+	}
 
 	header := skillHeader{Skill: a.Name}
 	if dir != "" {
