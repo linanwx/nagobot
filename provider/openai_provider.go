@@ -21,10 +21,18 @@ const (
 )
 
 func init() {
-	shared := ProviderRegistration{
-		Models:       []string{"gpt-5.4", "gpt-5.4-mini", "gpt-5.4-nano", "gpt-5.3-codex", "gpt-5.2-codex", "gpt-5.2"},
-		VisionModels: []string{"gpt-5.4", "gpt-5.4-mini", "gpt-5.4-nano", "gpt-5.3-codex", "gpt-5.2-codex", "gpt-5.2"},
+	models := []string{"gpt-5.5", "gpt-5.4", "gpt-5.4-mini", "gpt-5.4-nano", "gpt-5.3-codex", "gpt-5.2-codex", "gpt-5.2"}
+	constructor := func(apiKey, apiBase, modelType, modelName string, maxTokens int, temperature float64) Provider {
+		return newOpenAIProvider(apiKey, apiBase, modelType, modelName, maxTokens, temperature)
+	}
+
+	// "openai" — API key auth, hits api.openai.com directly. Context windows
+	// reflect the model's full API capacity.
+	RegisterProvider("openai", ProviderRegistration{
+		Models:       models,
+		VisionModels: models,
 		ContextWindows: map[string]int{
+			"gpt-5.5":       1048576,
 			"gpt-5.4":       1048576,
 			"gpt-5.4-mini":  400000,
 			"gpt-5.4-nano":  200000,
@@ -32,20 +40,30 @@ func init() {
 			"gpt-5.2-codex": 400000,
 			"gpt-5.2":       400000,
 		},
-		Constructor: func(apiKey, apiBase, modelType, modelName string, maxTokens int, temperature float64) Provider {
-			return newOpenAIProvider(apiKey, apiBase, modelType, modelName, maxTokens, temperature)
+		EnvKey:      "OPENAI_API_KEY",
+		EnvBase:     "OPENAI_API_BASE",
+		Constructor: constructor,
+	})
+
+	// "openai-oauth" — OAuth token auth via the ChatGPT codex backend
+	// (chatgpt.com/backend-api/codex). The codex backend throttles context
+	// to the user's plan limit (272K for ChatGPT Plus) regardless of the
+	// model's underlying capacity. Values sourced from
+	// GET /backend-api/codex/models?client_version=1.0.0.
+	RegisterProvider("openai-oauth", ProviderRegistration{
+		Models:       models,
+		VisionModels: models,
+		ContextWindows: map[string]int{
+			"gpt-5.5":       272000,
+			"gpt-5.4":       272000,
+			"gpt-5.4-mini":  272000,
+			"gpt-5.4-nano":  272000,
+			"gpt-5.3-codex": 272000,
+			"gpt-5.2-codex": 272000,
+			"gpt-5.2":       272000,
 		},
-	}
-
-	// "openai" — API key auth (env var or static config key).
-	apiKeyReg := shared
-	apiKeyReg.EnvKey = "OPENAI_API_KEY"
-	apiKeyReg.EnvBase = "OPENAI_API_BASE"
-	RegisterProvider("openai", apiKeyReg)
-
-	// "openai-oauth" — OAuth token auth (no env var, no API base override).
-	oauthReg := shared
-	RegisterProvider("openai-oauth", oauthReg)
+		Constructor: constructor,
+	})
 }
 
 // OpenAIProvider implements the Provider interface using the OpenAI Responses API.
@@ -334,7 +352,7 @@ func (p *OpenAIProvider) buildRequestBody(req *Request) ([]byte, error) {
 			"summary": "auto",
 		},
 	}
-	if p.modelName == "gpt-5.4" {
+	if p.modelName == "gpt-5.4" || p.modelName == "gpt-5.5" {
 		body["text"] = map[string]any{"verbosity": "low"}
 	}
 	if len(instructions) > 0 {
