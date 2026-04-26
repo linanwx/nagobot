@@ -408,7 +408,7 @@ func senderOrDefault(override string, source WakeSource) string {
 
 func wakeActionHint(source WakeSource) string {
 	if sysmsg.IsUserVisibleSource(source) {
-		return "A user sent a message. React accordingly and be friendly."
+		return "A user sent a message. React accordingly; 1. Fully use tools, like web search and dispatch subagent. 2. Ask the human for a decision if needed. 3. Respond friendly."
 	}
 	switch source {
 	case WakeSession:
