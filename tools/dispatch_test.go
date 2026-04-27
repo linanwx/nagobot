@@ -7,6 +7,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/linanwx/nagobot/provider"
 	"github.com/linanwx/nagobot/thread/msg"
 )
 
@@ -88,8 +89,17 @@ func (m *mockDispatchHost) SignalHalt() { m.halted = true }
 // outcome field plus the full result string for assertions.
 func runDispatch(t *testing.T, host *mockDispatchHost, argsJSON string) (outcome, result string) {
 	t.Helper()
+	return runDispatchWithContent(t, host, argsJSON, "")
+}
+
+// runDispatchWithContent is like runDispatch but seeds the ctx with the
+// assistant content field so the dispatch tool sees what the model emitted
+// alongside the tool_call.
+func runDispatchWithContent(t *testing.T, host *mockDispatchHost, argsJSON, content string) (outcome, result string) {
+	t.Helper()
 	tool := NewDispatchTool(host)
-	result = tool.Run(context.Background(), json.RawMessage(argsJSON))
+	ctx := provider.WithAssistantContent(context.Background(), content)
+	result = tool.Run(ctx, json.RawMessage(argsJSON))
 
 	// Extract outcome from result frontmatter (dispatch-specific).
 	for _, line := range strings.Split(result, "\n") {
@@ -649,5 +659,75 @@ func TestDispatch_ExecFailureHaltsButReportsErrors(t *testing.T) {
 	}
 	if !host.halted {
 		t.Error("expected halt after execution attempted (successes unrecoverable)")
+	}
+}
+
+// dispatch + non-empty assistant content is a validation error: no sends
+// execute, turn does NOT halt, and the offending content is echoed in the
+// error so the model can see what to remove or move into a body.
+func TestDispatch_RejectsAssistantContent(t *testing.T) {
+	host := &mockDispatchHost{
+		currentKey: "telegram:123",
+		callerKind: "user",
+		userFacing: true,
+	}
+	outcome, res := runDispatchWithContent(t, host,
+		`{"sends": [{"to": "caller:user", "body": "hi"}]}`,
+		"I will go check that for you now.")
+	if outcome != "validation-error" {
+		t.Fatalf("expected validation-error, got %q; %s", outcome, res)
+	}
+	if host.halted {
+		t.Error("turn should NOT halt on validation error — model should re-call")
+	}
+	if host.sentToCaller != "" {
+		t.Errorf("no send should have executed, but sentToCaller=%q", host.sentToCaller)
+	}
+	if !strings.Contains(res, "I will go check that for you now.") {
+		t.Errorf("expected offending content echoed in error, got: %s", res)
+	}
+}
+
+// Whitespace-only assistant content is treated as empty — dispatch proceeds.
+func TestDispatch_AllowsWhitespaceAssistantContent(t *testing.T) {
+	host := &mockDispatchHost{
+		currentKey: "telegram:123",
+		callerKind: "user",
+		userFacing: true,
+	}
+	outcome, res := runDispatchWithContent(t, host,
+		`{"sends": [{"to": "caller:user", "body": "hi"}]}`,
+		"  \n\t\n  ")
+	if outcome != "turn-terminated" {
+		t.Fatalf("expected turn-terminated, got %q; %s", outcome, res)
+	}
+	if host.sentToCaller != "hi" {
+		t.Errorf("expected send to execute, got sentToCaller=%q", host.sentToCaller)
+	}
+}
+
+// dispatch({}) with non-empty content is also rejected — no exception for
+// silent termination, since the content still has no recipient.
+func TestDispatch_RejectsAssistantContent_EmptySends(t *testing.T) {
+	host := &mockDispatchHost{currentKey: "cli", callerKind: "user", userFacing: true}
+	outcome, _ := runDispatchWithContent(t, host, `{}`, "thinking out loud")
+	if outcome != "validation-error" {
+		t.Fatalf("expected validation-error for content+empty-sends, got %q", outcome)
+	}
+	if host.halted {
+		t.Error("turn should not halt on validation error")
+	}
+}
+
+// Long content is truncated in the error preview to keep the validation
+// message bounded.
+func TestDispatch_RejectsAssistantContent_TruncatesPreview(t *testing.T) {
+	host := &mockDispatchHost{currentKey: "cli", callerKind: "user", userFacing: true}
+	long := strings.Repeat("a", 500)
+	_, res := runDispatchWithContent(t, host,
+		`{"sends": [{"to": "caller:user", "body": "ok"}]}`,
+		long)
+	if !strings.Contains(res, "...") {
+		t.Error("expected long content to be truncated with ...")
 	}
 }

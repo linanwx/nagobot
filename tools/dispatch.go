@@ -90,6 +90,7 @@ func (t *DispatchTool) Def() provider.ToolDef {
 				"- session: wake an existing session. Fields: session_key, body. The target receives the body and its own dispatch(to=caller:session) routes back to YOUR session (ping-pong recurses until one side halts).\n\n" +
 				"Which caller form to pick: read `caller_session_key` in the wake YAML frontmatter. Present → to=caller:session; absent AND this session is user-facing → to=caller:user; system sources (cron/heartbeat/compression) have no usable caller form, use dispatch({}) or to=user instead. " +
 				"Empty sends — dispatch({}) — is silent turn termination; nothing delivered, history recorded. Only use when you genuinely have nothing to say AND the caller does not need to know you finished. If you received a cross-session wake you believe was mis-routed, dispatch(to=caller:session) with an explanation — do NOT silently drop it via dispatch({}) (the caller never learns). " +
+				"IMPORTANT: when calling dispatch, the assistant message's content field MUST be empty. dispatch only delivers each send's `body`; any text written in content alongside this tool_call has no defined recipient and will be rejected. Either put all user-facing text into a send body, or skip dispatch entirely and let default delivery route your assistant content to the caller. " +
 				"On success the turn ends. On validation error the turn continues — fix and re-call. " +
 				"Scheduling is not supported here; use cron for future wakes.",
 			Parameters: map[string]any{
@@ -184,6 +185,31 @@ func (t *DispatchTool) run(ctx context.Context, args json.RawMessage) string {
 	}
 	if t.host == nil {
 		return toolError("dispatch", "host not configured")
+	}
+
+	// Reject the content+dispatch combo. When the model emits text in the
+	// assistant content field alongside this dispatch tool_call, that text has
+	// no defined recipient: dispatch only delivers the explicit `body` of each
+	// send. Allowing it leaks content inconsistently across channels (chunkable
+	// sinks forward it as intermediate, non-chunkable drop it) and lets the
+	// model assume delivery that does not happen. Force the model to either
+	// move all user-facing text into a send body, or end the turn without
+	// dispatch and let the default sink delivery handle pure content.
+	if content := strings.TrimSpace(provider.AssistantContentFromContext(ctx)); content != "" {
+		preview := content
+		if runes := []rune(preview); len(runes) > previewMaxRunes {
+			preview = string(runes[:previewMaxRunes]) + "..."
+		}
+		preview = strings.ReplaceAll(preview, "\n", " ")
+		return toolResult("dispatch", map[string]any{
+			"outcome": "validation-error",
+		}, "Validation failed — no sends were executed. Fix and re-call dispatch; the turn continues.\n\n"+
+			"Reason: this turn produced non-empty assistant content alongside the dispatch call. dispatch only delivers each send's `body` field — content emitted in the assistant message itself has no defined recipient and will not be delivered as you might expect.\n\n"+
+			"Offending content (preview): \""+preview+"\"\n\n"+
+			"Fix by ONE of:\n"+
+			"  1. Move all user-facing text into the appropriate send body (e.g. dispatch(sends=[{to: \"caller:user\", body: \"<your text>\"}])).\n"+
+			"  2. If you wanted the default delivery (content auto-routed to your caller — user or peer session), do NOT call dispatch at all this turn; just end the turn with the assistant message.\n"+
+			"Re-issue the turn with one of these patterns.")
 	}
 
 	// Empty sends → silent turn termination.

@@ -36,6 +36,28 @@ func SessionKeyFromContext(ctx context.Context) string {
 	return ""
 }
 
+type assistantContentCtxKey struct{}
+
+// WithAssistantContent attaches the assistant message's content field (text
+// emitted alongside tool_calls in the same LLM response) to ctx, so that tools
+// invoked in this turn can inspect it. Used by dispatch to reject the
+// content+dispatch combo, where content has no defined delivery target.
+func WithAssistantContent(ctx context.Context, content string) context.Context {
+	return context.WithValue(ctx, assistantContentCtxKey{}, content)
+}
+
+// AssistantContentFromContext retrieves the assistant content set via
+// WithAssistantContent. Returns empty string if absent.
+func AssistantContentFromContext(ctx context.Context) string {
+	if ctx == nil {
+		return ""
+	}
+	if v, ok := ctx.Value(assistantContentCtxKey{}).(string); ok {
+		return v
+	}
+	return ""
+}
+
 // dumpFirstMessage writes messages[0] to disk under
 // {configDir}/logs/prefix-dump/{sanitized-sessionKey}/{m1hash}.json so
 // prefix drift between turns can be diffed offline. The filename is the
