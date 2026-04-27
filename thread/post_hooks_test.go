@@ -51,7 +51,7 @@ func TestImplicitCallerForwardHook_UserFacingEmitsHint(t *testing.T) {
 	if !strings.Contains(payload, "forwarded to caller session telegram:42") {
 		t.Errorf("payload missing peerKey: %q", payload)
 	}
-	if !strings.Contains(payload, "May also dispatch to user next time") {
+	if !strings.Contains(payload, "User receive nothing - You may need also dispatch to user next time") {
 		t.Errorf("user-facing payload must include user-hint sentence: %q", payload)
 	}
 }
@@ -74,7 +74,7 @@ func TestImplicitCallerForwardHook_NonUserFacingOmitsHint(t *testing.T) {
 	if !strings.Contains(payload, "forwarded to caller session discord:123") {
 		t.Errorf("payload missing peerKey: %q", payload)
 	}
-	if strings.Contains(payload, "May also dispatch to user next time") {
+	if strings.Contains(payload, "User receive nothing") {
 		t.Errorf("non-user-facing payload must NOT include user-hint sentence: %q", payload)
 	}
 }
@@ -132,7 +132,7 @@ func TestImplicitCallerForwardHook_NotForwardedReturnsNil(t *testing.T) {
 }
 
 func TestBuildImplicitCallerForwardPayload_Structure(t *testing.T) {
-	payload := buildImplicitCallerForwardPayload("telegram:42", true, testPostTime)
+	payload := buildImplicitCallerForwardPayload("telegram:42", true, "hello there", testPostTime)
 
 	lines := strings.Split(payload, "\n")
 	if lines[0] != "---" {
@@ -166,8 +166,32 @@ func TestBuildImplicitCallerForwardPayload_Structure(t *testing.T) {
 		t.Errorf("expected blank line after closing ---, got %q", lines[headerEnd+1])
 	}
 	body := strings.Join(lines[headerEnd+2:], "\n")
-	if !strings.HasPrefix(body, "Default output reply detected.") {
+	if !strings.HasPrefix(body, "You are replying to the caller using default output -") {
 		t.Errorf("body must start with the reminder sentence, got: %q", body)
+	}
+	if !strings.Contains(body, "your reply (hello there)") {
+		t.Errorf("body must inline the reply preview in parens, got: %q", body)
+	}
+}
+
+func TestBuildImplicitCallerForwardPayload_PreviewTruncatesAndCollapses(t *testing.T) {
+	long := strings.Repeat("a", 50) + "\n" + strings.Repeat("b", 80)
+	payload := buildImplicitCallerForwardPayload("telegram:42", false, long, testPostTime)
+	if !strings.Contains(payload, "...") {
+		t.Errorf("long reply should be truncated with ..., got: %q", payload)
+	}
+	if strings.Contains(payload, "\n"+strings.Repeat("b", 10)) {
+		t.Errorf("preview should collapse newlines into a single line, got: %q", payload)
+	}
+}
+
+func TestBuildImplicitCallerForwardPayload_EmptyReplyDropsParens(t *testing.T) {
+	payload := buildImplicitCallerForwardPayload("telegram:42", true, "", testPostTime)
+	if strings.Contains(payload, "your reply ()") {
+		t.Errorf("empty reply must not produce empty parens, got: %q", payload)
+	}
+	if !strings.Contains(payload, "default output - your reply has been forwarded to caller session") {
+		t.Errorf("empty reply must fall back to phrasing without parens, got: %q", payload)
 	}
 }
 

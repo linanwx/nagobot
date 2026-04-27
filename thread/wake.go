@@ -258,6 +258,7 @@ func (t *Thread) RunOnce(ctx context.Context) {
 		CallerSessionKey:      msg.CallerSessionKey,
 		IsUserFacing:          t.IsUserFacing(),
 		DefaultReplyForwarded: t.checkAndResetDefaultReplyForwarded(),
+		FinalReply:            response,
 	}), msg.Source)
 
 	t.checkAndResetSinkSuppressed()

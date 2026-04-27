@@ -150,9 +150,11 @@ type ExecutedItem struct {
 
 const previewMaxRunes = 100
 
-// bodyPreview returns a single-line preview of body, at most previewMaxRunes
+// BodyPreview returns a single-line preview of body, at most previewMaxRunes
 // runes, with "..." appended if truncated. Newlines are collapsed to spaces.
-func bodyPreview(body string) string {
+// Exported so other packages (e.g. thread post-hook breadcrumbs) can produce
+// preview strings consistent with dispatch's tool-result formatting.
+func BodyPreview(body string) string {
 	s := strings.TrimSpace(body)
 	s = strings.ReplaceAll(s, "\r\n", " ")
 	s = strings.ReplaceAll(s, "\n", " ")
@@ -238,7 +240,7 @@ func (t *DispatchTool) run(ctx context.Context, args json.RawMessage) string {
 			})
 			continue
 		}
-		item.Preview = bodyPreview(send.Body)
+		item.Preview = BodyPreview(send.Body)
 		executed = append(executed, item)
 	}
 
