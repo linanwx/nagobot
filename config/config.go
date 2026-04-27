@@ -33,6 +33,7 @@ type Config struct {
 	Logging   LoggingConfig   `json:"logging,omitempty" yaml:"logging,omitempty"`
 	Cron      []cronpkg.Job   `json:"cron,omitempty" yaml:"cron,omitempty"`
 	SkillHub SkillHubConfig `json:"skillHub,omitempty" yaml:"skillHub,omitempty"`
+	Env      map[string]string `json:"env,omitempty" yaml:"env,omitempty"` // injected into os.Environ on Load; overrides existing env
 
 	// Hot-reload support for sessionTimezones.
 	sessionTimezonesMu       sync.Mutex        `yaml:"-" json:"-"`

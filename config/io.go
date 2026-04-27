@@ -61,7 +61,22 @@ func Load() (*Config, error) {
 			logger.Warn("failed to persist config changes", "err", err, "migrated", migrated, "defaultsChanged", defaultsChanged)
 		}
 	}
+	cfg.applyEnv()
 	return &cfg, nil
+}
+
+// applyEnv injects cfg.Env into os.Environ so child processes (skills, exec tool)
+// inherit the values. Config entries override existing env vars. Removing a key
+// from config does NOT unset it — restart the process to drop stale keys.
+func (c *Config) applyEnv() {
+	for k, v := range c.Env {
+		if k == "" {
+			continue
+		}
+		if err := os.Setenv(k, v); err != nil {
+			logger.Warn("failed to set env from config", "key", k, "err", err)
+		}
+	}
 }
 
 // Save saves the configuration to config.yaml atomically.
