@@ -14,6 +14,11 @@ import (
 	"github.com/linanwx/nagobot/tools"
 )
 
+// maxIterations caps the agent loop. If the model fails to terminate
+// (no final response, no halt-requesting tool) within this many tool
+// iterations, the loop aborts to prevent runaway token spend.
+const maxIterations = 100
+
 // Runner is a generic agent loop executor.
 type Runner struct {
 	provider       provider.Provider
@@ -113,6 +118,11 @@ func (r *Runner) RunWithMessages(ctx context.Context, messages []provider.Messag
 		// Check for context cancellation before starting a new LLM call.
 		if ctx.Err() != nil {
 			return "", ctx.Err()
+		}
+
+		if r.iterations >= maxIterations {
+			logger.Warn("max iterations reached, aborting agent loop", "iterations", r.iterations)
+			return "", fmt.Errorf("max iterations (%d) reached without final response", maxIterations)
 		}
 
 		if r.metrics != nil {

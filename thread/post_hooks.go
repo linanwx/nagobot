@@ -8,7 +8,6 @@ import (
 
 	"github.com/linanwx/nagobot/logger"
 	"github.com/linanwx/nagobot/provider"
-	"github.com/linanwx/nagobot/tools"
 )
 
 // sourceImplicitCallerForward is the `source:` frontmatter tag used on the
@@ -157,26 +156,14 @@ func (t *Thread) implicitCallerForwardHook() postTurnHook {
 		if !ptc.DefaultReplyForwarded {
 			return nil
 		}
-		return []string{buildImplicitCallerForwardPayload(ptc.CallerSessionKey, ptc.IsUserFacing, ptc.FinalReply, time.Now().In(t.location()))}
+		return []string{buildImplicitCallerForwardPayload(ptc.CallerSessionKey, time.Now().In(t.location()))}
 	}
 }
 
 // buildImplicitCallerForwardPayload renders the system-reminder payload that
 // gets appended to session.jsonl after an implicit caller-forward turn.
-// finalReply is the raw assistant text that was forwarded; an inline preview
-// of it (single line, ≤100 runes, "..." when truncated) is included so the
-// caller-forward breadcrumb is self-describing rather than just naming the
-// destination.
-func buildImplicitCallerForwardPayload(peerKey string, isUserFacing bool, finalReply string, now time.Time) string {
-	preview := tools.BodyPreview(finalReply)
-	replyClause := "your reply"
-	if preview != "" {
-		replyClause = "your reply (" + preview + ")"
-	}
-	body := "You are replying to the caller using default output - " + replyClause + " has been forwarded to caller session " + peerKey + "."
-	if isUserFacing {
-		body += " User receive nothing - You may need also dispatch to user next time if you want to also let the user know this."
-	}
+func buildImplicitCallerForwardPayload(peerKey string, now time.Time) string {
+	body := "Warning! You are replying to the latest caller - your reply has been forwarded to caller session " + peerKey + ". The user receives nothing! Are you sure this is what you want?\n\nThink deeply when you generate a response: if you want to reply to the latest caller (user or session), generate the response. Otherwise, it's better to use dispatch to respond."
 
 	var sb strings.Builder
 	sb.WriteString("---\n")
