@@ -134,3 +134,52 @@ func (noopChannel) Start(ctx context.Context) error                { return nil 
 func (noopChannel) Stop() error                                    { return nil }
 func (noopChannel) Send(ctx context.Context, resp *Response) error { return nil }
 func (noopChannel) Messages() <-chan *Message                      { return nil }
+
+func TestManagerSendResponse_DispatchesImages(t *testing.T) {
+	dir := t.TempDir()
+	imgPath := writeTempImage(t, dir, "m.png")
+
+	stub := &stubImageChannel{}
+	mgr := NewManager()
+	mgr.WorkspaceFn = func() string { return dir }
+	mgr.Register(stub)
+
+	resp := &Response{
+		Text:    "look ![m](" + imgPath + ")",
+		ReplyTo: "target",
+	}
+	if err := mgr.SendResponse(context.Background(), "stub", resp); err != nil {
+		t.Fatalf("SendResponse: %v", err)
+	}
+	if len(stub.received) != 1 {
+		t.Fatalf("got %d image refs, want 1", len(stub.received))
+	}
+}
+
+func TestManagerSendResponse_NoImagesWhenSendFails(t *testing.T) {
+	failChannel := &failingChannel{}
+	mgr := NewManager()
+	mgr.Register(failChannel)
+	resp := &Response{Text: "![x](/foo.png)", ReplyTo: "t"}
+	err := mgr.SendResponse(context.Background(), "fail", resp)
+	if err == nil {
+		t.Fatal("expected error from failing channel")
+	}
+	if failChannel.imageCalled {
+		t.Error("SendImage must not be called when text Send fails")
+	}
+}
+
+type failingChannel struct {
+	imageCalled bool
+}
+
+func (failingChannel) Name() string                                   { return "fail" }
+func (failingChannel) Start(ctx context.Context) error                { return nil }
+func (failingChannel) Stop() error                                    { return nil }
+func (failingChannel) Send(ctx context.Context, resp *Response) error { return errors.New("send failed") }
+func (failingChannel) Messages() <-chan *Message                      { return nil }
+func (f *failingChannel) SendImage(ctx context.Context, replyTo string, ref ImageRef) error {
+	f.imageCalled = true
+	return nil
+}

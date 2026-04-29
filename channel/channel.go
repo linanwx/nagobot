@@ -63,6 +63,9 @@ type Channel interface {
 type Manager struct {
 	mu       sync.RWMutex
 	channels map[string]Channel
+	// WorkspaceFn returns the current workspace root for resolving relative
+	// image paths. Optional; zero value disables relative-path resolution.
+	WorkspaceFn func() string
 }
 
 // NewManager creates a new channel manager.
@@ -137,6 +140,8 @@ func (m *Manager) SendTo(ctx context.Context, channelName, text, replyTo string)
 }
 
 // SendResponse sends a full Response (with optional Metadata) to a named channel.
+// On successful text delivery, parses the response for Markdown image references
+// and dispatches them to the channel's ImageSender capability if implemented.
 func (m *Manager) SendResponse(ctx context.Context, channelName string, resp *Response) error {
 	m.mu.RLock()
 	ch, ok := m.channels[channelName]
@@ -144,7 +149,17 @@ func (m *Manager) SendResponse(ctx context.Context, channelName string, resp *Re
 	if !ok {
 		return fmt.Errorf("channel not found: %s", channelName)
 	}
-	return ch.Send(ctx, resp)
+	if err := ch.Send(ctx, resp); err != nil {
+		return err
+	}
+	if resp != nil && resp.Text != "" {
+		ws := ""
+		if m.WorkspaceFn != nil {
+			ws = m.WorkspaceFn()
+		}
+		dispatchImageRefs(ctx, ch, resp.ReplyTo, resp.Text, ws)
+	}
+	return nil
 }
 
 // StartAll starts all registered channels.
