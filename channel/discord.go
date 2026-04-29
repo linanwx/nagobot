@@ -3,6 +3,8 @@ package channel
 import (
 	"context"
 	"fmt"
+	"os"
+	"path/filepath"
 	"strings"
 	"sync"
 
@@ -124,6 +126,44 @@ func (d *DiscordChannel) Send(_ context.Context, resp *Response) error {
 	}
 	return nil
 }
+
+// SendImage uploads a single image file to Discord as an attachment.
+// replyTo is the same target string used by Send: a channel ID, or
+// "dm:{userID}" to open a DM channel first.
+func (d *DiscordChannel) SendImage(_ context.Context, replyTo string, ref ImageRef) error {
+	if d.session == nil {
+		return fmt.Errorf("discord session not started")
+	}
+	target := replyTo
+	if strings.HasPrefix(target, "dm:") {
+		userID := strings.TrimPrefix(target, "dm:")
+		ch, err := d.session.UserChannelCreate(userID)
+		if err != nil {
+			return fmt.Errorf("discord DM channel creation failed: %w", err)
+		}
+		target = ch.ID
+	}
+	f, err := os.Open(ref.Path)
+	if err != nil {
+		return fmt.Errorf("open image %s: %w", ref.Path, err)
+	}
+	defer f.Close()
+
+	_, err = d.session.ChannelMessageSendComplex(target, &discordgo.MessageSend{
+		Files: []*discordgo.File{{
+			Name:        filepath.Base(ref.Path),
+			ContentType: ref.Mime,
+			Reader:      f,
+		}},
+	})
+	if err != nil {
+		return fmt.Errorf("discord image send: %w", err)
+	}
+	return nil
+}
+
+// Compile-time check: DiscordChannel implements ImageSender.
+var _ ImageSender = (*DiscordChannel)(nil)
 
 // convertTablesToLists converts Markdown tables into numbered list format
 // because Discord's table rendering is poor (misaligned, broken on mobile).
