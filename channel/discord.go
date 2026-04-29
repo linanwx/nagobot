@@ -106,15 +106,9 @@ func (d *DiscordChannel) Send(_ context.Context, resp *Response) error {
 	if d.session == nil {
 		return fmt.Errorf("discord session not started")
 	}
-
-	replyTo := resp.ReplyTo
-	if strings.HasPrefix(replyTo, "dm:") {
-		userID := strings.TrimPrefix(replyTo, "dm:")
-		ch, err := d.session.UserChannelCreate(userID)
-		if err != nil {
-			return fmt.Errorf("discord DM channel creation failed: %w", err)
-		}
-		replyTo = ch.ID
+	replyTo, err := d.resolveTarget(resp.ReplyTo)
+	if err != nil {
+		return err
 	}
 
 	text := convertTablesToLists(resp.Text)
@@ -127,21 +121,28 @@ func (d *DiscordChannel) Send(_ context.Context, resp *Response) error {
 	return nil
 }
 
-// SendImage uploads a single image file to Discord as an attachment.
-// replyTo is the same target string used by Send: a channel ID, or
-// "dm:{userID}" to open a DM channel first.
+// resolveTarget resolves a "dm:{userID}" target to a real DM channel ID.
+// Plain channel IDs pass through unchanged.
+func (d *DiscordChannel) resolveTarget(target string) (string, error) {
+	userID, ok := strings.CutPrefix(target, "dm:")
+	if !ok {
+		return target, nil
+	}
+	ch, err := d.session.UserChannelCreate(userID)
+	if err != nil {
+		return "", fmt.Errorf("discord DM channel creation failed: %w", err)
+	}
+	return ch.ID, nil
+}
+
+// SendImage uploads ref as a Discord attachment. Target convention matches Send.
 func (d *DiscordChannel) SendImage(_ context.Context, replyTo string, ref ImageRef) error {
 	if d.session == nil {
 		return fmt.Errorf("discord session not started")
 	}
-	target := replyTo
-	if strings.HasPrefix(target, "dm:") {
-		userID := strings.TrimPrefix(target, "dm:")
-		ch, err := d.session.UserChannelCreate(userID)
-		if err != nil {
-			return fmt.Errorf("discord DM channel creation failed: %w", err)
-		}
-		target = ch.ID
+	target, err := d.resolveTarget(replyTo)
+	if err != nil {
+		return err
 	}
 	f, err := os.Open(ref.Path)
 	if err != nil {

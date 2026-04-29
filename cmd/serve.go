@@ -80,17 +80,7 @@ func runServe(cmd *cobra.Command, args []string) error {
 		return err
 	}
 	chManager := channel.NewManager()
-	chManager.WorkspaceFn = func() string {
-		c, err := config.Load()
-		if err != nil {
-			return ""
-		}
-		ws, err := c.WorkspacePath()
-		if err != nil {
-			return ""
-		}
-		return ws
-	}
+	chManager.WorkspaceFn = func() string { return workspace }
 
 	// Socket channel is always started for CLI client connections.
 	socketPath, err := config.SocketPath()

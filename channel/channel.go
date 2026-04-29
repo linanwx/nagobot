@@ -61,11 +61,9 @@ type Channel interface {
 
 // Manager manages multiple channels as a pure registry.
 type Manager struct {
-	mu       sync.RWMutex
-	channels map[string]Channel
-	// WorkspaceFn returns the current workspace root for resolving relative
-	// image paths. Optional; zero value disables relative-path resolution.
-	WorkspaceFn func() string
+	mu          sync.RWMutex
+	channels    map[string]Channel
+	WorkspaceFn func() string // optional: workspace root for resolving relative image paths
 }
 
 // NewManager creates a new channel manager.
@@ -139,9 +137,9 @@ func (m *Manager) SendTo(ctx context.Context, channelName, text, replyTo string)
 	return m.SendResponse(ctx, channelName, &Response{Text: text, ReplyTo: replyTo})
 }
 
-// SendResponse sends a full Response (with optional Metadata) to a named channel.
-// On successful text delivery, parses the response for Markdown image references
-// and dispatches them to the channel's ImageSender capability if implemented.
+// SendResponse delivers resp via the named channel. After a successful text
+// send, Markdown image references in resp.Text are dispatched to the channel's
+// ImageSender capability if it implements one.
 func (m *Manager) SendResponse(ctx context.Context, channelName string, resp *Response) error {
 	m.mu.RLock()
 	ch, ok := m.channels[channelName]
@@ -153,7 +151,7 @@ func (m *Manager) SendResponse(ctx context.Context, channelName string, resp *Re
 		return err
 	}
 	if resp != nil && resp.Text != "" {
-		ws := ""
+		var ws string
 		if m.WorkspaceFn != nil {
 			ws = m.WorkspaceFn()
 		}

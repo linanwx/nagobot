@@ -10,17 +10,14 @@ import (
 	"github.com/linanwx/nagobot/logger"
 )
 
-// ImageRef is one validated image attachment ready for delivery.
-// Path is absolute and the file is confirmed to exist with image/* mime.
 type ImageRef struct {
 	Path string
 	Alt  string
 	Mime string
 }
 
-// ImageSender is an optional capability on Channel implementations.
-// Channels that implement this interface receive automatic image delivery
-// when the response text contains Markdown image syntax.
+// ImageSender is the optional capability that lets a channel deliver
+// Markdown image references parsed from a regular text response.
 type ImageSender interface {
 	SendImage(ctx context.Context, replyTo string, ref ImageRef) error
 }
@@ -63,14 +60,9 @@ func dispatchImageRefs(ctx context.Context, ch Channel, replyTo, text, workspace
 	}
 }
 
-// detectImageFile verifies that path exists, is a regular file, and contains
-// real image magic bytes (not just a filename with an image extension).
-// Returns (mime, true) on success or ("", false) on any failure.
+// detectImageFile verifies the file contains real image magic bytes,
+// guarding against text files with .png-style extensions.
 func detectImageFile(path string) (string, bool) {
-	info, err := os.Stat(path)
-	if err != nil || info.IsDir() {
-		return "", false
-	}
 	f, err := os.Open(path)
 	if err != nil {
 		return "", false
@@ -82,10 +74,6 @@ func detectImageFile(path string) (string, bool) {
 		return "", false
 	}
 	mime := http.DetectContentType(head[:n])
-	// Strip any "; charset=..." suffix.
-	if i := strings.IndexByte(mime, ';'); i >= 0 {
-		mime = strings.TrimSpace(mime[:i])
-	}
 	if !strings.HasPrefix(mime, "image/") {
 		return "", false
 	}

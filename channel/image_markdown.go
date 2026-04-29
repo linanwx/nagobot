@@ -5,29 +5,23 @@ import (
 	"strings"
 )
 
-// parsedImage is one Markdown image reference extracted from text.
-// RawPath is the path string as written (absolute or relative); resolution
-// against the workspace happens at delivery time.
 type parsedImage struct {
 	Alt     string
 	RawPath string
 }
 
-// imageSyntaxRe matches ![alt](path) and ![alt](path "title").
-//   - alt: any chars except ']'
-//   - path: any chars except whitespace and ')'
-//   - optional title: whitespace + "..." before close paren
 var imageSyntaxRe = regexp.MustCompile(`!\[([^\]]*)\]\(([^)\s]+)(?:\s+"[^"]*")?\)`)
 
-// parseMarkdownImages returns image references that appear in normal text,
-// skipping any that are inside fenced code blocks (``` or ~~~) or inline
-// code spans (`...`). Order is preserved.
+// parseMarkdownImages returns image references in normal text, skipping any
+// inside fenced code blocks (``` / ~~~) or inline code spans (`...`).
 func parseMarkdownImages(text string) []parsedImage {
+	if !strings.ContainsRune(text, '!') {
+		return nil
+	}
 	var out []parsedImage
-	lines := strings.Split(text, "\n")
 	inFence := false
 	var fenceMarker string
-	for _, line := range lines {
+	for _, line := range strings.Split(text, "\n") {
 		trimmed := strings.TrimSpace(line)
 		if inFence {
 			if strings.HasPrefix(trimmed, fenceMarker) {
@@ -51,7 +45,6 @@ func parseMarkdownImages(text string) []parsedImage {
 	return out
 }
 
-// extractFromLine scans a single non-fenced line, skipping inline code spans.
 func extractFromLine(line string) []parsedImage {
 	var out []parsedImage
 	i := 0
@@ -61,14 +54,15 @@ func extractFromLine(line string) []parsedImage {
 			if end < 0 {
 				return out
 			}
-			i = i + 1 + end + 1
+			i += 2 + end
 			continue
 		}
 		if line[i] == '!' && i+1 < len(line) && line[i+1] == '[' {
 			loc := imageSyntaxRe.FindStringSubmatchIndex(line[i:])
 			if loc != nil && loc[0] == 0 {
-				match := imageSyntaxRe.FindStringSubmatch(line[i : i+loc[1]])
-				out = append(out, parsedImage{Alt: match[1], RawPath: match[2]})
+				alt := line[i+loc[2] : i+loc[3]]
+				path := line[i+loc[4] : i+loc[5]]
+				out = append(out, parsedImage{Alt: alt, RawPath: path})
 				i += loc[1]
 				continue
 			}
