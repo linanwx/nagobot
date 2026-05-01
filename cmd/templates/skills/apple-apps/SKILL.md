@@ -1,11 +1,11 @@
 ---
 name: apple-apps
-description: Manage Apple apps (Calendar, Reminders, Notes, Contacts, Mail) via AppleScript. Loads as a router — read the relevant reference file for the task at hand instead of pulling all five apps into context.
-tags: [apple, macos, productivity, calendar, reminders, notes, contacts, mail]
+description: Control Apple apps (Calendar, Reminders, Notes, Contacts, Mail), macOS system settings (dark mode, volume, Wi-Fi, app launch, Finder, sleep/lock), and Spotlight file search via AppleScript and shell commands. Loads as a router — read the relevant reference file for the task at hand instead of pulling everything into context.
+tags: [apple, macos, productivity, calendar, reminders, notes, contacts, mail, automation, spotlight]
 ---
-# Apple Apps (AppleScript)
+# Apple Apps & macOS
 
-All commands use `osascript`. First run per app triggers a permission dialog — the user must click Allow.
+Most commands use `osascript` (AppleScript) or shell utilities. First run per app may trigger a permission dialog — the user must click Allow. Some operations also require Accessibility permission in System Settings > Privacy & Security > Accessibility.
 
 Date strings are locale-sensitive. If date creation fails, check locale:
 ```
@@ -25,5 +25,7 @@ Read only the file for the task at hand — do NOT read all of them.
 | Notes (free-form text, folders, search) | `{{SKILLDIR}}/notes.md` |
 | Contacts (phone book, search, create) | `{{SKILLDIR}}/contacts.md` |
 | Mail (inbox search, drafts, unread count) | `{{SKILLDIR}}/mail.md` |
+| macOS system (dark mode, volume, Wi-Fi, Bluetooth, app launch/quit, Finder, sleep/lock, keyboard) | `{{SKILLDIR}}/system.md` |
+| Spotlight file search (`mdfind`, `mdls`, metadata queries) | `{{SKILLDIR}}/spotlight.md` |
 
 Workspace root (substituted, used by `mail.md` for the `mail.py` helper script): `{{WORKSPACE}}`.

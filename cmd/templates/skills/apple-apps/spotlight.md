@@ -1,8 +1,3 @@
----
-name: spotlight-search
-description: Search files and metadata using macOS Spotlight (mdfind).
-tags: [macos, search, files, utility]
----
 # Spotlight Search
 
 Search files using macOS Spotlight index via `mdfind` and inspect metadata with `mdls`. Much faster than `find` for indexed locations.
