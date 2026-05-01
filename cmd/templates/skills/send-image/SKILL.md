@@ -1,6 +1,6 @@
 ---
 name: send-image
-description: Send images to the user by writing standard Markdown image syntax in your reply. Currently supported on Discord; falls back to plain text on other channels.
+description: Send images to the user by writing standard Markdown image syntax in your reply. Supported on Discord and WeCom; falls back to plain text on other channels.
 ---
 # Send Image
 
@@ -56,7 +56,7 @@ The line above is shown to the user as plain text — no upload.
 | Channel | Image Send |
 |---|---|
 | Discord | supported |
-| WeCom | not yet |
+| WeCom | supported (≤10 MB per image) |
 | Telegram | not yet |
 | Feishu | not yet |
 | Web / CLI / Socket | not yet |

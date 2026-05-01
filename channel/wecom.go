@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/aes"
 	"crypto/cipher"
+	"crypto/md5"
 	"crypto/rand"
 	"encoding/base64"
 	"encoding/hex"
@@ -38,11 +39,22 @@ const (
 
 // WeCom WebSocket frame commands.
 const (
-	wsCmdSubscribe     = "aibot_subscribe"
-	wsCmdPing          = "ping"
-	wsCmdSendMsg       = "aibot_send_msg"
-	wsCmdMsgCallback   = "aibot_msg_callback"
-	wsCmdEventCallback = "aibot_event_callback"
+	wsCmdSubscribe          = "aibot_subscribe"
+	wsCmdPing               = "ping"
+	wsCmdSendMsg            = "aibot_send_msg"
+	wsCmdMsgCallback        = "aibot_msg_callback"
+	wsCmdEventCallback      = "aibot_event_callback"
+	wsCmdUploadMediaInit    = "aibot_upload_media_init"
+	wsCmdUploadMediaChunk   = "aibot_upload_media_chunk"
+	wsCmdUploadMediaFinish  = "aibot_upload_media_finish"
+)
+
+// Image upload constraints (per WeCom AI Bot WebSocket spec).
+const (
+	wecomImageMaxSize    = 10 << 20  // 10 MB
+	wecomChunkRawSize    = 256 << 10 // 256 KB raw per chunk (server limit is 512 KB; stay safe)
+	wecomMaxChunks       = 100
+	wecomUploadAckWait   = 30 * time.Second
 )
 
 // wsFrame is the unified WeCom WebSocket frame format.
@@ -121,6 +133,11 @@ type WeComChannel struct {
 	reconnectAttempts   int
 	authFailureAttempts int
 	manualClose         atomic.Bool
+
+	// pending request/response correlation: callers register a chan keyed by
+	// req_id and wait for the matching ACK frame (used by image upload flow).
+	pendingMu sync.Mutex
+	pending   map[string]chan wsFrame
 }
 
 // NewWeComChannel creates a new WeCom channel from config.
@@ -143,6 +160,7 @@ func NewWeComChannel(cfg *config.Config) Channel {
 		messages:       make(chan *Message, wecomMessageBufferSize),
 		done:           make(chan struct{}),
 		seen:           make(map[string]time.Time),
+		pending:        make(map[string]chan wsFrame),
 	}
 }
 
@@ -228,6 +246,154 @@ func (w *WeComChannel) Send(ctx context.Context, resp *Response) error {
 		return fmt.Errorf("wecom: not connected")
 	}
 	return w.writeFrame(conn, frame)
+}
+
+// SendImage uploads an image via the 3-step aibot_upload_media_* flow and
+// then pushes it via aibot_send_msg. ImageRef.Path must point to an image
+// file ≤10 MB; larger files are rejected before upload.
+func (w *WeComChannel) SendImage(ctx context.Context, replyTo string, ref ImageRef) error {
+	if replyTo == "" {
+		return fmt.Errorf("wecom: empty replyTo")
+	}
+
+	chatID := replyTo
+	chatType := 1
+	if rest, ok := strings.CutPrefix(replyTo, "group:"); ok {
+		chatID = rest
+		chatType = 2
+	}
+
+	data, err := os.ReadFile(ref.Path)
+	if err != nil {
+		return fmt.Errorf("read image: %w", err)
+	}
+	if len(data) < 5 {
+		return fmt.Errorf("image too small: %d bytes", len(data))
+	}
+	if len(data) > wecomImageMaxSize {
+		return fmt.Errorf("image too large: %d bytes (max %d)", len(data), wecomImageMaxSize)
+	}
+
+	totalChunks := (len(data) + wecomChunkRawSize - 1) / wecomChunkRawSize
+	if totalChunks > wecomMaxChunks {
+		return fmt.Errorf("image needs %d chunks (max %d)", totalChunks, wecomMaxChunks)
+	}
+
+	w.connMu.Lock()
+	conn := w.conn
+	w.connMu.Unlock()
+	if conn == nil {
+		return fmt.Errorf("wecom: not connected")
+	}
+
+	mediaID, err := w.uploadMedia(conn, ref, data, totalChunks)
+	if err != nil {
+		return err
+	}
+
+	body, _ := json.Marshal(map[string]any{
+		"chatid":    chatID,
+		"chat_type": chatType,
+		"msgtype":   "image",
+		"image":     map[string]any{"media_id": mediaID},
+	})
+	frame := wsFrame{
+		Cmd:     wsCmdSendMsg,
+		Headers: map[string]string{"req_id": generateReqID("send")},
+		Body:    body,
+	}
+	return w.writeFrame(conn, frame)
+}
+
+// uploadMedia runs the init → chunk(s) → finish round-trip and returns the media_id.
+func (w *WeComChannel) uploadMedia(conn *websocket.Conn, ref ImageRef, data []byte, totalChunks int) (string, error) {
+	hash := md5.Sum(data)
+	initBody, _ := json.Marshal(map[string]any{
+		"type":         "image",
+		"filename":     filepath.Base(ref.Path),
+		"total_size":   len(data),
+		"total_chunks": totalChunks,
+		"md5":          hex.EncodeToString(hash[:]),
+	})
+	initAck, err := w.writeAndWait(conn, wsFrame{
+		Cmd:     wsCmdUploadMediaInit,
+		Headers: map[string]string{"req_id": generateReqID("upinit")},
+		Body:    initBody,
+	}, wecomUploadAckWait)
+	if err != nil {
+		return "", fmt.Errorf("upload init: %w", err)
+	}
+	var initResp struct {
+		UploadID string `json:"upload_id"`
+	}
+	if err := json.Unmarshal(initAck.Body, &initResp); err != nil || initResp.UploadID == "" {
+		return "", fmt.Errorf("upload init: bad response (body=%s)", string(initAck.Body))
+	}
+
+	for i := range totalChunks {
+		start := i * wecomChunkRawSize
+		end := min(start+wecomChunkRawSize, len(data))
+		chunkBody, _ := json.Marshal(map[string]any{
+			"upload_id":   initResp.UploadID,
+			"chunk_index": i,
+			"base64_data": base64.StdEncoding.EncodeToString(data[start:end]),
+		})
+		if _, err := w.writeAndWait(conn, wsFrame{
+			Cmd:     wsCmdUploadMediaChunk,
+			Headers: map[string]string{"req_id": generateReqID("upchunk")},
+			Body:    chunkBody,
+		}, wecomUploadAckWait); err != nil {
+			return "", fmt.Errorf("upload chunk %d: %w", i, err)
+		}
+	}
+
+	finishBody, _ := json.Marshal(map[string]any{"upload_id": initResp.UploadID})
+	finishAck, err := w.writeAndWait(conn, wsFrame{
+		Cmd:     wsCmdUploadMediaFinish,
+		Headers: map[string]string{"req_id": generateReqID("upfin")},
+		Body:    finishBody,
+	}, wecomUploadAckWait)
+	if err != nil {
+		return "", fmt.Errorf("upload finish: %w", err)
+	}
+	var finishResp struct {
+		MediaID string `json:"media_id"`
+	}
+	if err := json.Unmarshal(finishAck.Body, &finishResp); err != nil || finishResp.MediaID == "" {
+		return "", fmt.Errorf("upload finish: missing media_id (body=%s)", string(finishAck.Body))
+	}
+	return finishResp.MediaID, nil
+}
+
+// writeAndWait sends a frame and blocks until the ACK with the same req_id
+// arrives via handleFrame, or the timeout elapses. Non-zero ErrCode in the ACK
+// returns an error.
+func (w *WeComChannel) writeAndWait(conn *websocket.Conn, frame wsFrame, timeout time.Duration) (wsFrame, error) {
+	reqID := frame.Headers["req_id"]
+	ch := make(chan wsFrame, 1)
+	w.pendingMu.Lock()
+	w.pending[reqID] = ch
+	w.pendingMu.Unlock()
+	defer func() {
+		w.pendingMu.Lock()
+		delete(w.pending, reqID)
+		w.pendingMu.Unlock()
+	}()
+
+	if err := w.writeFrame(conn, frame); err != nil {
+		return wsFrame{}, err
+	}
+	select {
+	case ack := <-ch:
+		if ack.ErrCode != 0 {
+			return ack, fmt.Errorf("errcode=%d errmsg=%s", ack.ErrCode, ack.ErrMsg)
+		}
+		return ack, nil
+	case <-time.After(timeout):
+		return wsFrame{}, fmt.Errorf("ack timeout for req_id %s", reqID)
+	case <-w.done:
+		return wsFrame{}, fmt.Errorf("channel closed")
+	}
 }
 
 // connectLoop manages the WebSocket lifecycle: connect → auth → read loop → reconnect.
@@ -413,7 +579,20 @@ func (w *WeComChannel) handleFrame(frame wsFrame, conn *websocket.Conn, authed c
 		return
 	}
 
-	// Send ACK: surface server-side rejections so failed pushes don't go silent.
+	// Synchronous request waiter (image upload flow): hand the ACK to the
+	// caller blocked on this req_id.
+	w.pendingMu.Lock()
+	ch, waiting := w.pending[reqID]
+	w.pendingMu.Unlock()
+	if waiting {
+		select {
+		case ch <- frame:
+		default:
+		}
+		return
+	}
+
+	// Unhandled ACK: surface server-side rejections so failed pushes don't go silent.
 	if frame.ErrCode != 0 {
 		logger.Warn("wecom send rejected", "req_id", reqID, "errcode", frame.ErrCode, "errmsg", frame.ErrMsg)
 	}
