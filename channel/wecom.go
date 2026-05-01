@@ -36,16 +36,13 @@ const (
 	wecomReconnectMaxDelay = 30 * time.Second
 )
 
-// MetaWeComReqID is the metadata key for WeCom req_id passthrough.
-const MetaWeComReqID = "wecom_req_id"
-
 // WeCom WebSocket frame commands.
 const (
-	wsCmdSubscribe       = "aibot_subscribe"
-	wsCmdPing            = "ping"
-	wsCmdRespondMsg      = "aibot_respond_msg"
-	wsCmdMsgCallback     = "aibot_msg_callback"
-	wsCmdEventCallback   = "aibot_event_callback"
+	wsCmdSubscribe     = "aibot_subscribe"
+	wsCmdPing          = "ping"
+	wsCmdSendMsg       = "aibot_send_msg"
+	wsCmdMsgCallback   = "aibot_msg_callback"
+	wsCmdEventCallback = "aibot_event_callback"
 )
 
 // wsFrame is the unified WeCom WebSocket frame format.
@@ -124,15 +121,6 @@ type WeComChannel struct {
 	reconnectAttempts   int
 	authFailureAttempts int
 	manualClose         atomic.Bool
-
-	// last req_id per target (userid or "group:chatid") for reply routing
-	reqIDMu   sync.Mutex
-	lastReqID map[string]reqIDEntry
-}
-
-type reqIDEntry struct {
-	reqID string
-	at    time.Time
 }
 
 // NewWeComChannel creates a new WeCom channel from config.
@@ -155,7 +143,6 @@ func NewWeComChannel(cfg *config.Config) Channel {
 		messages:       make(chan *Message, wecomMessageBufferSize),
 		done:           make(chan struct{}),
 		seen:           make(map[string]time.Time),
-		lastReqID:      make(map[string]reqIDEntry),
 	}
 }
 
@@ -181,7 +168,6 @@ func (w *WeComChannel) Start(ctx context.Context) error {
 				return
 			case <-ticker.C:
 				w.cleanupSeen()
-				w.cleanupReqIDs()
 			}
 		}
 	}()
@@ -206,36 +192,32 @@ func (w *WeComChannel) Stop() error {
 	return nil
 }
 
-// Send sends a text reply via WebSocket.
-// resp.ReplyTo is the target (userid or "group:{chatid}"), used to look up the last req_id.
+// Send pushes a message via aibot_send_msg (active push).
+// resp.ReplyTo encodes the target: bare userid for single chat, "group:{chatid}" for group.
+// No 24h reply window: works any time after the user has messaged the bot at least once.
 func (w *WeComChannel) Send(ctx context.Context, resp *Response) error {
 	target := resp.ReplyTo
-
-	w.reqIDMu.Lock()
-	reqID := w.lastReqID[target].reqID
-	w.reqIDMu.Unlock()
-
-	if reqID == "" && resp.Metadata != nil {
-		reqID = resp.Metadata[MetaWeComReqID]
-	}
-	if reqID == "" {
-		return fmt.Errorf("wecom: no req_id for target %q (user may not have sent a message yet)", target)
+	if target == "" {
+		return fmt.Errorf("wecom: empty ReplyTo")
 	}
 
-	// WeCom aibot_respond_msg only supports stream msgtype.
-	// Send as a single finished stream (content + finish=true).
-	streamID := generateReqID("stream")
+	chatID := target
+	chatType := 1
+	if rest, ok := strings.CutPrefix(target, "group:"); ok {
+		chatID = rest
+		chatType = 2
+	}
+
+	// aibot_send_msg supports markdown / template_card. Plain text renders fine as markdown.
 	body, _ := json.Marshal(map[string]any{
-		"msgtype": "stream",
-		"stream": map[string]any{
-			"id":      streamID,
-			"content": resp.Text,
-			"finish":  true,
-		},
+		"chatid":    chatID,
+		"chat_type": chatType,
+		"msgtype":   "markdown",
+		"markdown":  map[string]any{"content": resp.Text},
 	})
 	frame := wsFrame{
-		Cmd:     wsCmdRespondMsg,
-		Headers: map[string]string{"req_id": reqID},
+		Cmd:     wsCmdSendMsg,
+		Headers: map[string]string{"req_id": generateReqID("send")},
 		Body:    body,
 	}
 
@@ -431,7 +413,10 @@ func (w *WeComChannel) handleFrame(frame wsFrame, conn *websocket.Conn, authed c
 		return
 	}
 
-	// Reply ACK — ignored (fire-and-forget sends).
+	// Send ACK: surface server-side rejections so failed pushes don't go silent.
+	if frame.ErrCode != 0 {
+		logger.Warn("wecom send rejected", "req_id", reqID, "errcode", frame.ErrCode, "errmsg", frame.ErrMsg)
+	}
 }
 
 func (w *WeComChannel) handleMsgCallback(frame wsFrame) {
@@ -452,7 +437,6 @@ func (w *WeComChannel) handleMsgCallback(frame wsFrame) {
 		return
 	}
 
-	reqID := frame.Headers["req_id"]
 	channelID := "wecom:" + body.From.UserID
 	target := body.From.UserID // used for sink routing
 	if body.ChatType == "group" && body.ChatID != "" {
@@ -460,20 +444,14 @@ func (w *WeComChannel) handleMsgCallback(frame wsFrame) {
 		target = "group:" + body.ChatID
 	}
 
-	// Store latest req_id for this target so Send() can find it.
-	w.reqIDMu.Lock()
-	w.lastReqID[target] = reqIDEntry{reqID: reqID, at: time.Now()}
-	w.reqIDMu.Unlock()
-
 	msg := &Message{
 		ID:        body.MsgID,
 		ChannelID: channelID,
 		UserID:    body.From.UserID,
 		Username:  body.From.UserID,
 		Metadata: map[string]string{
-			MetaWeComReqID: reqID,
-			"chat_type":    body.ChatType,
-			"chat_id":      target,
+			"chat_type": body.ChatType,
+			"chat_id":   target,
 		},
 	}
 
@@ -659,19 +637,6 @@ func (w *WeComChannel) cleanupSeen() {
 	for id, t := range w.seen {
 		if t.Before(cutoff) {
 			delete(w.seen, id)
-		}
-	}
-}
-
-const wecomReqIDTTL = 48 * time.Hour
-
-func (w *WeComChannel) cleanupReqIDs() {
-	w.reqIDMu.Lock()
-	defer w.reqIDMu.Unlock()
-	cutoff := time.Now().Add(-wecomReqIDTTL)
-	for target, entry := range w.lastReqID {
-		if entry.at.Before(cutoff) {
-			delete(w.lastReqID, target)
 		}
 	}
 }

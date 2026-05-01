@@ -26,7 +26,6 @@ type Meta struct {
 	Agent     string          `json:"agent,omitempty"`      // Explicitly assigned agent name.
 	Rephrase  bool            `json:"rephrase,omitempty"`   // Enable rephrase agent for this session.
 	DiscordDM *DiscordDMMeta  `json:"discord_dm,omitempty"` // Discord DM routing.
-	WeCom     *WeComMeta      `json:"wecom,omitempty"`      // WeCom routing.
 
 	// TokenEstimateRatios records the last MaxTokenRatioSamples observations of
 	// (real total tokens) / (estimated total tokens) per "provider/model" key.
@@ -46,11 +45,6 @@ type TokenRatioSample struct {
 type DiscordDMMeta struct {
 	ReplyTo string `json:"reply_to"`
 	UserID  string `json:"user_id,omitempty"`
-}
-
-// WeComMeta holds WeCom routing metadata.
-type WeComMeta struct {
-	ReqID string `json:"req_id"`
 }
 
 // ReadMeta loads meta.json from the session directory.

@@ -408,11 +408,6 @@ func buildDefaultSinkFor(chMgr *channel.Manager, cfg *config.Config, sessionsDir
 				if strings.HasPrefix(target, "group:") {
 					label = "your response will be sent to wecom group " + strings.TrimPrefix(target, "group:")
 				}
-				// Read persisted req_id once at sink creation (survives restart).
-				var persistedReqID string
-				if r := readSessionMeta(sessionsDir, sessionKey); r.WeCom != nil {
-					persistedReqID = r.WeCom.ReqID
-				}
 				return thread.Sink{
 					Label:     label,
 					Chunkable: true,
@@ -423,9 +418,6 @@ func buildDefaultSinkFor(chMgr *channel.Manager, cfg *config.Config, sessionsDir
 						return chMgr.SendResponse(ctx, "wecom", &channel.Response{
 							Text:    response,
 							ReplyTo: target,
-							Metadata: map[string]string{
-								channel.MetaWeComReqID: persistedReqID,
-							},
 						})
 					},
 				}

@@ -493,12 +493,6 @@ func persistChannelRouting(sessionsDir, sessionKey string, msg *channel.Message)
 		}
 	}
 
-	// WeCom: persist req_id so heartbeat can reply after restart.
-	if reqID := strings.TrimSpace(msg.Metadata[channel.MetaWeComReqID]); reqID != "" && strings.HasPrefix(sessionKey, "wecom:") {
-		session.UpdateMeta(sessionDir, func(m *session.Meta) {
-			m.WeCom = &session.WeComMeta{ReqID: reqID}
-		})
-	}
 }
 
 // truncate shortens s to at most maxLen runes. It prefers cutting at a
