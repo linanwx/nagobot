@@ -5,7 +5,7 @@ tags: [image, generation, openai, gpt-image, photoreal, illustration]
 ---
 # Generate Image
 
-Generate an image from a text prompt and save it under `{{WORKSPACE}}/media/`. The CLI prints the saved file path; you then deliver the image to the user with the `send-image` skill (`![](path)` markdown).
+Generate an image from a text prompt and save it under `{{WORKSPACE}}/media/`. The CLI prints the saved file path. **This skill does not deliver the image** — to show it to the user, invoke the `send-image` skill afterwards (it owns channel compatibility, syntax, and fallback behavior).
 
 ## Workflow
 
@@ -15,7 +15,7 @@ Generate an image from a text prompt and save it under `{{WORKSPACE}}/media/`. T
 exec: {{WORKSPACE}}/bin/nagobot generate-image --prompt "<prompt>" --size 1024x1024 --quality medium
 ```
 3. Read the printed `path_0` (or `path_0`, `path_1`, … when `--n > 1`).
-4. Send the image with the `send-image` skill: include `![alt](path)` somewhere in your reply.
+4. Hand the path off to the `send-image` skill — follow whatever delivery rules that skill specifies for the current channel. Do not reproduce its syntax from memory.
 
 ## Flags
 
@@ -57,11 +57,7 @@ path_0: /home/me/.nagobot/workspace/media/img-20260502-143012.png
 /home/me/.nagobot/workspace/media/img-20260502-143012.png
 ```
 
-Then in your reply to the user:
-
-```
-Here you go: ![Shibuya alley](/home/me/.nagobot/workspace/media/img-20260502-143012.png)
-```
+Then invoke the `send-image` skill with `path_0` to deliver it — that skill controls how (or whether) the image is shown on the current channel.
 
 ## When to Use This Skill
 
@@ -79,7 +75,3 @@ Here you go: ![Shibuya alley](/home/me/.nagobot/workspace/media/img-20260502-143
 - `quality=high` on a portrait/landscape can take 30-90s and cost ~$0.20 per image. Default to `medium` unless the user asks for top quality.
 - `n>1` multiplies cost — only use it when the user wants variations to pick from.
 - Output is always returned as base64 from the API and decoded locally; no extra hosting step is needed.
-
-## Channel Compatibility
-
-The generated file lives at a real filesystem path. To reach the user, pair this skill with `send-image` — the channel layer (Discord, WeCom) will then upload it as a native attachment. On channels that don't support `send-image`, share the path or fall back to text.
