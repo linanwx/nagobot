@@ -20,10 +20,12 @@ import (
 const (
 	openaiImagesEndpointDefault = "https://api.openai.com/v1/images/generations"
 	openaiImagesAPIBaseDefault  = "https://api.openai.com"
+	whatAIImagesAPIBase         = "https://api.whatai.cc"
 )
 
 var (
 	genImagePrompt      string
+	genImageProvider    string
 	genImageModel       string
 	genImageSize        string
 	genImageQuality     string
@@ -35,14 +37,15 @@ var (
 
 var generateImageCmd = &cobra.Command{
 	Use:     "generate-image --prompt <text> [flags]",
-	Short:   "Generate an image with OpenAI gpt-image-2 and save it to disk",
+	Short:   "Generate an image (gpt-image-2) and save it to disk",
 	GroupID: "internal",
 	RunE:    runGenerateImage,
 }
 
 func init() {
 	generateImageCmd.Flags().StringVarP(&genImagePrompt, "prompt", "p", "", "Image prompt (required)")
-	generateImageCmd.Flags().StringVar(&genImageModel, "model", "gpt-image-2", "OpenAI image model")
+	generateImageCmd.Flags().StringVar(&genImageProvider, "provider", "openai", "openai (direct) | whatai (relay; uses DALL-E-3-style response_format)")
+	generateImageCmd.Flags().StringVar(&genImageModel, "model", "gpt-image-2", "Image model name as understood by the chosen provider")
 	generateImageCmd.Flags().StringVar(&genImageSize, "size", "auto", "auto | 1024x1024 | 1536x1024 | 1024x1536")
 	generateImageCmd.Flags().StringVar(&genImageQuality, "quality", "auto", "auto | low | medium | high")
 	generateImageCmd.Flags().StringVar(&genImageFormat, "format", "png", "png | jpeg (gpt-image-2 ignores webp and returns png)")
@@ -53,30 +56,23 @@ func init() {
 	rootCmd.AddCommand(generateImageCmd)
 }
 
-type genImageRequest struct {
-	Model             string `json:"model"`
-	Prompt            string `json:"prompt"`
-	N                 int    `json:"n,omitempty"`
-	Size              string `json:"size,omitempty"`
-	Quality           string `json:"quality,omitempty"`
-	OutputFormat      string `json:"output_format,omitempty"`
-	OutputCompression *int   `json:"output_compression,omitempty"`
+// imageGenParams is the validated, provider-agnostic input.
+type imageGenParams struct {
+	Model       string
+	Prompt      string
+	N           int
+	Size        string // "" if auto
+	Quality     string // "" if auto
+	Format      string // "png" or "jpeg"
+	Compression int    // -1 if unset; only applies to jpeg
 }
 
-type genImageResponse struct {
-	Data []struct {
-		B64JSON string `json:"b64_json"`
-	} `json:"data"`
-	Usage struct {
-		InputTokens  int `json:"input_tokens"`
-		OutputTokens int `json:"output_tokens"`
-		TotalTokens  int `json:"total_tokens"`
-	} `json:"usage"`
-	Error *struct {
-		Message string `json:"message"`
-		Type    string `json:"type"`
-		Code    string `json:"code"`
-	} `json:"error,omitempty"`
+// imageGenResult is what each provider implementation returns. Bytes are raw
+// decoded image bytes ready to write to disk; token counts are best-effort.
+type imageGenResult struct {
+	Bytes        [][]byte
+	InputTokens  int
+	OutputTokens int
 }
 
 func runGenerateImage(_ *cobra.Command, _ []string) error {
@@ -101,81 +97,36 @@ func runGenerateImage(_ *cobra.Command, _ []string) error {
 	if err != nil {
 		return fmt.Errorf("load config: %w", err)
 	}
-	pc := cfg.Providers.OpenAI
-	if pc == nil || pc.APIKey == "" {
-		return fmt.Errorf("openai apiKey not configured (run `nagobot set-provider-key openai`)")
-	}
 
-	endpoint := openaiImagesEndpointDefault
-	if base := strings.TrimRight(pc.APIBase, "/"); base != "" && base != openaiImagesAPIBaseDefault {
-		endpoint = base + "/v1/images/generations"
-	}
-
-	req := genImageRequest{
-		Model:  genImageModel,
-		Prompt: prompt,
-		N:      genImageN,
+	params := imageGenParams{
+		Model:       genImageModel,
+		Prompt:      prompt,
+		N:           genImageN,
+		Format:      format,
+		Compression: genImageCompression,
 	}
 	if s := strings.TrimSpace(genImageSize); s != "" && s != "auto" {
-		req.Size = s
+		params.Size = s
 	}
 	if q := strings.TrimSpace(genImageQuality); q != "" && q != "auto" {
-		req.Quality = q
-	}
-	if format == "jpeg" {
-		req.OutputFormat = "jpeg"
-	} else {
-		req.OutputFormat = "png"
-	}
-	if format == "jpeg" && genImageCompression >= 0 {
-		if genImageCompression > 100 {
-			return fmt.Errorf("--compression must be 0-100")
-		}
-		c := genImageCompression
-		req.OutputCompression = &c
+		params.Quality = q
 	}
 
-	body, err := json.Marshal(req)
+	provider := strings.ToLower(strings.TrimSpace(genImageProvider))
+	var result imageGenResult
+	switch provider {
+	case "openai":
+		result, err = generateViaOpenAI(cfg, params)
+	case "whatai":
+		result, err = generateViaWhatAI(cfg, params)
+	default:
+		return fmt.Errorf("--provider must be openai or whatai (got %q)", genImageProvider)
+	}
 	if err != nil {
-		return fmt.Errorf("marshal request: %w", err)
+		return err
 	}
 
-	httpReq, err := http.NewRequest("POST", endpoint, bytes.NewReader(body))
-	if err != nil {
-		return fmt.Errorf("build request: %w", err)
-	}
-	httpReq.Header.Set("Authorization", "Bearer "+pc.APIKey)
-	httpReq.Header.Set("Content-Type", "application/json")
-
-	client := &http.Client{Timeout: 5 * time.Minute}
-	resp, err := client.Do(httpReq)
-	if err != nil {
-		return fmt.Errorf("openai request failed: %w", err)
-	}
-	defer resp.Body.Close()
-
-	respBytes, err := io.ReadAll(io.LimitReader(resp.Body, 1<<27)) // 128 MiB cap
-	if err != nil {
-		return fmt.Errorf("read response: %w", err)
-	}
-
-	var parsed genImageResponse
-	if err := json.Unmarshal(respBytes, &parsed); err != nil {
-		return fmt.Errorf("parse response (HTTP %d): %w; body: %s",
-			resp.StatusCode, err, truncateGenImg(string(respBytes), 400))
-	}
-	if resp.StatusCode != http.StatusOK {
-		msg := "unknown error"
-		if parsed.Error != nil && parsed.Error.Message != "" {
-			msg = parsed.Error.Message
-		}
-		return fmt.Errorf("openai HTTP %d: %s", resp.StatusCode, msg)
-	}
-	if len(parsed.Data) == 0 {
-		return fmt.Errorf("openai returned no images: %s", truncateGenImg(string(respBytes), 400))
-	}
-
-	outputs, err := writeImages(cfg, parsed.Data, format)
+	outputs, err := writeImages(cfg, result.Bytes, format)
 	if err != nil {
 		return err
 	}
@@ -183,37 +134,267 @@ func runGenerateImage(_ *cobra.Command, _ []string) error {
 	pairs := [][2]string{
 		{"command", "generate-image"},
 		{"status", "ok"},
+		{"provider", provider},
 		{"model", genImageModel},
 		{"count", fmt.Sprintf("%d", len(outputs))},
-		{"input_tokens", fmt.Sprintf("%d", parsed.Usage.InputTokens)},
-		{"output_tokens", fmt.Sprintf("%d", parsed.Usage.OutputTokens)},
+		{"input_tokens", fmt.Sprintf("%d", result.InputTokens)},
+		{"output_tokens", fmt.Sprintf("%d", result.OutputTokens)},
 	}
-	if req.Size != "" {
-		pairs = append(pairs, [2]string{"size", req.Size})
+	if params.Size != "" {
+		pairs = append(pairs, [2]string{"size", params.Size})
 	}
-	if req.Quality != "" {
-		pairs = append(pairs, [2]string{"quality", req.Quality})
+	if params.Quality != "" {
+		pairs = append(pairs, [2]string{"quality", params.Quality})
 	}
 	pairs = append(pairs, [2]string{"format", format})
 	for i, p := range outputs {
 		pairs = append(pairs, [2]string{fmt.Sprintf("path_%d", i), p})
 	}
 
-	body0 := strings.Join(outputs, "\n")
-	fmt.Print(tools.CmdOutput(pairs, body0) + "\n")
+	fmt.Print(tools.CmdOutput(pairs, strings.Join(outputs, "\n")) + "\n")
 	return nil
 }
 
-func writeImages(cfg *config.Config, data []struct {
-	B64JSON string `json:"b64_json"`
-}, format string) ([]string, error) {
+// ============================================================================
+// Provider: openai (direct OpenAI API)
+//
+// Contract: gpt-image-2 always returns b64_json. response_format is rejected
+// (HTTP 400 "Unknown parameter"). Honors output_format/output_compression.
+// ============================================================================
+
+type openaiImgRequest struct {
+	Model             string `json:"model"`
+	Prompt            string `json:"prompt"`
+	N                 int    `json:"n,omitempty"`
+	Size              string `json:"size,omitempty"`
+	Quality           string `json:"quality,omitempty"`
+	OutputFormat      string `json:"output_format,omitempty"`
+	OutputCompression *int   `json:"output_compression,omitempty"`
+}
+
+type openaiImgResponse struct {
+	Data []struct {
+		B64JSON string `json:"b64_json"`
+	} `json:"data"`
+	Usage struct {
+		InputTokens  int `json:"input_tokens"`
+		OutputTokens int `json:"output_tokens"`
+		TotalTokens  int `json:"total_tokens"`
+	} `json:"usage"`
+	Error *struct {
+		Message string `json:"message"`
+		Type    string `json:"type"`
+		Code    string `json:"code"`
+	} `json:"error,omitempty"`
+}
+
+func generateViaOpenAI(cfg *config.Config, p imageGenParams) (imageGenResult, error) {
+	pc := cfg.Providers.OpenAI
+	if pc == nil || pc.APIKey == "" {
+		return imageGenResult{}, fmt.Errorf("openai apiKey not configured (run `nagobot set-provider-key openai`)")
+	}
+
+	endpoint := openaiImagesEndpointDefault
+	if base := strings.TrimRight(pc.APIBase, "/"); base != "" && base != openaiImagesAPIBaseDefault {
+		endpoint = base + "/v1/images/generations"
+	}
+
+	req := openaiImgRequest{Model: p.Model, Prompt: p.Prompt, N: p.N, Size: p.Size, Quality: p.Quality}
+	if p.Format == "jpeg" {
+		req.OutputFormat = "jpeg"
+	} else {
+		req.OutputFormat = "png"
+	}
+	if p.Format == "jpeg" && p.Compression >= 0 {
+		if p.Compression > 100 {
+			return imageGenResult{}, fmt.Errorf("--compression must be 0-100")
+		}
+		c := p.Compression
+		req.OutputCompression = &c
+	}
+
+	respBytes, statusCode, err := doImagePOST(endpoint, pc.APIKey, req)
+	if err != nil {
+		return imageGenResult{}, fmt.Errorf("openai request failed: %w", err)
+	}
+
+	var parsed openaiImgResponse
+	if err := json.Unmarshal(respBytes, &parsed); err != nil {
+		return imageGenResult{}, fmt.Errorf("openai parse (HTTP %d): %w; body: %s",
+			statusCode, err, truncateGenImg(string(respBytes), 400))
+	}
+	if statusCode != http.StatusOK {
+		msg := "unknown error"
+		if parsed.Error != nil && parsed.Error.Message != "" {
+			msg = parsed.Error.Message
+		}
+		return imageGenResult{}, fmt.Errorf("openai HTTP %d: %s", statusCode, msg)
+	}
+	if len(parsed.Data) == 0 {
+		return imageGenResult{}, fmt.Errorf("openai returned no images: %s", truncateGenImg(string(respBytes), 400))
+	}
+
+	out := imageGenResult{
+		Bytes:        make([][]byte, 0, len(parsed.Data)),
+		InputTokens:  parsed.Usage.InputTokens,
+		OutputTokens: parsed.Usage.OutputTokens,
+	}
+	for i, d := range parsed.Data {
+		if d.B64JSON == "" {
+			return imageGenResult{}, fmt.Errorf("openai data[%d].b64_json is empty", i)
+		}
+		raw, err := base64.StdEncoding.DecodeString(d.B64JSON)
+		if err != nil {
+			return imageGenResult{}, fmt.Errorf("openai data[%d] b64 decode: %w", i, err)
+		}
+		out.Bytes = append(out.Bytes, raw)
+	}
+	return out, nil
+}
+
+// ============================================================================
+// Provider: whatai (api.whatai.cc relay)
+//
+// Quirks vs real OpenAI:
+//   - Routes gpt-image-2 through DALL-E-3-style protocol.
+//   - Default response is {data:[{url:"..."}]}; needs response_format=b64_json
+//     to switch to b64. We always send response_format so we always get b64.
+//   - output_format / output_compression are ignored (relay only honors basic
+//     fields). We omit them.
+//   - Pricing is fixed $0.04/call regardless of size/quality/n (per their
+//     model card).
+// ============================================================================
+
+type whataiImgRequest struct {
+	Model          string `json:"model"`
+	Prompt         string `json:"prompt"`
+	N              int    `json:"n,omitempty"`
+	Size           string `json:"size,omitempty"`
+	Quality        string `json:"quality,omitempty"`
+	ResponseFormat string `json:"response_format"` // always "b64_json"
+}
+
+type whataiImgResponse struct {
+	Data []struct {
+		B64JSON string `json:"b64_json"`
+		URL     string `json:"url"`
+	} `json:"data"`
+	Usage struct {
+		InputTokens  int `json:"input_tokens"`
+		OutputTokens int `json:"output_tokens"`
+		TotalTokens  int `json:"total_tokens"`
+	} `json:"usage"`
+	Error *struct {
+		Message string `json:"message"`
+		Type    string `json:"type"`
+		Code    string `json:"code"`
+	} `json:"error,omitempty"`
+}
+
+func generateViaWhatAI(cfg *config.Config, p imageGenParams) (imageGenResult, error) {
+	pc := cfg.Providers.WhatAI
+	if pc == nil || pc.APIKey == "" {
+		return imageGenResult{}, fmt.Errorf("whatai apiKey not configured (add providers.whatai.apiKey to config.yaml)")
+	}
+
+	base := strings.TrimRight(pc.APIBase, "/")
+	if base == "" {
+		base = whatAIImagesAPIBase
+	}
+	endpoint := base + "/v1/images/generations"
+
+	req := whataiImgRequest{
+		Model:          p.Model,
+		Prompt:         p.Prompt,
+		N:              p.N,
+		Size:           p.Size,
+		Quality:        p.Quality,
+		ResponseFormat: "b64_json",
+	}
+
+	respBytes, statusCode, err := doImagePOST(endpoint, pc.APIKey, req)
+	if err != nil {
+		return imageGenResult{}, fmt.Errorf("whatai request failed: %w", err)
+	}
+
+	var parsed whataiImgResponse
+	if err := json.Unmarshal(respBytes, &parsed); err != nil {
+		return imageGenResult{}, fmt.Errorf("whatai parse (HTTP %d): %w; body: %s",
+			statusCode, err, truncateGenImg(string(respBytes), 400))
+	}
+	if statusCode != http.StatusOK {
+		msg := "unknown error"
+		if parsed.Error != nil && parsed.Error.Message != "" {
+			msg = parsed.Error.Message
+		}
+		return imageGenResult{}, fmt.Errorf("whatai HTTP %d: %s", statusCode, msg)
+	}
+	if len(parsed.Data) == 0 {
+		return imageGenResult{}, fmt.Errorf("whatai returned no images: %s", truncateGenImg(string(respBytes), 400))
+	}
+
+	out := imageGenResult{
+		Bytes:        make([][]byte, 0, len(parsed.Data)),
+		InputTokens:  parsed.Usage.InputTokens,
+		OutputTokens: parsed.Usage.OutputTokens,
+	}
+	for i, d := range parsed.Data {
+		if d.B64JSON == "" {
+			// We asked for b64_json explicitly; if relay still gave us a URL
+			// the contract is broken — surface it instead of silently
+			// fetching the URL (this would mask further drift).
+			if d.URL != "" {
+				return imageGenResult{}, fmt.Errorf("whatai data[%d] returned url despite response_format=b64_json: %s", i, d.URL)
+			}
+			return imageGenResult{}, fmt.Errorf("whatai data[%d] has neither b64_json nor url", i)
+		}
+		raw, err := base64.StdEncoding.DecodeString(d.B64JSON)
+		if err != nil {
+			return imageGenResult{}, fmt.Errorf("whatai data[%d] b64 decode: %w", i, err)
+		}
+		out.Bytes = append(out.Bytes, raw)
+	}
+	return out, nil
+}
+
+// ============================================================================
+// Shared helpers
+// ============================================================================
+
+// doImagePOST marshals payload, posts to endpoint with bearer auth, returns
+// raw response bytes and HTTP status code. The 5-min timeout matches the
+// worst-case latency for high-quality non-square gpt-image-2 generations.
+func doImagePOST(endpoint, apiKey string, payload any) ([]byte, int, error) {
+	body, err := json.Marshal(payload)
+	if err != nil {
+		return nil, 0, fmt.Errorf("marshal request: %w", err)
+	}
+	httpReq, err := http.NewRequest("POST", endpoint, bytes.NewReader(body))
+	if err != nil {
+		return nil, 0, fmt.Errorf("build request: %w", err)
+	}
+	httpReq.Header.Set("Authorization", "Bearer "+apiKey)
+	httpReq.Header.Set("Content-Type", "application/json")
+
+	client := &http.Client{Timeout: 5 * time.Minute}
+	resp, err := client.Do(httpReq)
+	if err != nil {
+		return nil, 0, err
+	}
+	defer resp.Body.Close()
+	respBytes, err := io.ReadAll(io.LimitReader(resp.Body, 1<<27)) // 128 MiB cap
+	if err != nil {
+		return nil, resp.StatusCode, fmt.Errorf("read response: %w", err)
+	}
+	return respBytes, resp.StatusCode, nil
+}
+
+func writeImages(cfg *config.Config, datas [][]byte, format string) ([]string, error) {
 	ext := format
 	if ext == "jpeg" {
 		ext = "jpg"
 	}
 
-	// Resolve base path. If user supplied --output we honor it (and append
-	// -0/-1/... for n>1). Otherwise default to {workspace}/media/img-{ts}.ext
 	var basePath string
 	if genImageOutput != "" {
 		basePath = genImageOutput
@@ -236,17 +417,10 @@ func writeImages(cfg *config.Config, data []struct {
 		}
 	}
 
-	outputs := make([]string, 0, len(data))
-	for i, d := range data {
-		if d.B64JSON == "" {
-			return nil, fmt.Errorf("data[%d].b64_json is empty", i)
-		}
-		raw, err := base64.StdEncoding.DecodeString(d.B64JSON)
-		if err != nil {
-			return nil, fmt.Errorf("decode b64 for data[%d]: %w", i, err)
-		}
+	outputs := make([]string, 0, len(datas))
+	for i, raw := range datas {
 		path := basePath
-		if len(data) > 1 {
+		if len(datas) > 1 {
 			extDot := filepath.Ext(basePath)
 			stem := strings.TrimSuffix(basePath, extDot)
 			path = fmt.Sprintf("%s-%d%s", stem, i, extDot)

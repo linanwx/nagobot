@@ -22,6 +22,7 @@ exec: {{WORKSPACE}}/bin/nagobot generate-image --prompt "<prompt>" --size 1024x1
 | Flag | Default | Notes |
 |---|---|---|
 | `--prompt` (required) | — | Up to 32k chars. |
+| `--provider` | `openai` | `openai` for direct API; `whatai` to route through the api.whatai.cc relay (useful when the host can't reach api.openai.com reliably — e.g. mainland China). |
 | `--model` | `gpt-image-2` | Use `gpt-image-1` if you need transparent background (gpt-image-2 does not support it). |
 | `--size` | `auto` | `auto` / `1024x1024` / `1536x1024` (landscape) / `1024x1536` (portrait). |
 | `--quality` | `auto` | `low` (~$0.006) / `medium` (~$0.05) / `high` (~$0.21). Default to `medium` unless the user asks for draft or premium. |
@@ -75,3 +76,8 @@ Then invoke the `send-image` skill with `path_0` to deliver it — that skill co
 - `quality=high` on a portrait/landscape can take 30-90s and cost ~$0.20 per image. Default to `medium` unless the user asks for top quality.
 - `n>1` multiplies cost — only use it when the user wants variations to pick from.
 - Output is always returned as base64 from the API and decoded locally; no extra hosting step is needed.
+
+## Provider Notes
+
+- **`--provider openai`** (default): direct OpenAI API. Honors `--format`/`--compression` (output_format / output_compression). Pricing is token-based.
+- **`--provider whatai`**: routes through api.whatai.cc, which uses DALL-E-3-style protocol internally. We always pass `response_format: b64_json` to force binary return. `--format`/`--compression` are silently ignored by the relay; output is whatever PNG the underlying model produces. Pricing is fixed `$0.04` per call regardless of `--quality`/`--size`/`--n`.
