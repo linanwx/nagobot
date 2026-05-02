@@ -33,6 +33,7 @@ type Config struct {
 	Logging   LoggingConfig   `json:"logging,omitempty" yaml:"logging,omitempty"`
 	Cron      []cronpkg.Job   `json:"cron,omitempty" yaml:"cron,omitempty"`
 	SkillHub SkillHubConfig `json:"skillHub,omitempty" yaml:"skillHub,omitempty"`
+	R2       *R2Config         `json:"r2,omitempty" yaml:"r2,omitempty"` // Cloudflare R2 object storage for upload-html and other public file hosting
 	Env      map[string]string `json:"env,omitempty" yaml:"env,omitempty"` // injected into os.Environ on Load; overrides existing env
 
 	// Hot-reload support for sessionTimezones.
@@ -184,6 +185,17 @@ type OAuthTokenConfig struct {
 type ProviderConfig struct {
 	APIKey  string `json:"apiKey" yaml:"apiKey"`
 	APIBase string `json:"apiBase,omitempty" yaml:"apiBase,omitempty"` // optional custom base URL
+}
+
+// R2Config holds Cloudflare R2 object storage credentials. The endpoint is
+// derived from AccountID; PublicBaseURL is the bucket's public origin (the
+// auto-generated pub-<hash>.r2.dev or a connected custom domain).
+type R2Config struct {
+	AccountID       string `json:"accountId" yaml:"accountId"`
+	AccessKeyID     string `json:"accessKeyId" yaml:"accessKeyId"`
+	SecretAccessKey string `json:"secretAccessKey" yaml:"secretAccessKey"`
+	Bucket          string `json:"bucket" yaml:"bucket"`
+	PublicBaseURL   string `json:"publicBaseURL" yaml:"publicBaseURL"`
 }
 
 // GetProviderConfig returns the provider config for a given name, or nil if not found.
