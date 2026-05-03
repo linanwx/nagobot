@@ -27,7 +27,7 @@ import (
 )
 
 // PreviewTimeout is the maximum time for a single preview LLM call.
-const PreviewTimeout = 5 * time.Second
+const PreviewTimeout = 30 * time.Second
 
 // MediaType classifies a media file for preview routing.
 type MediaType int
@@ -53,10 +53,13 @@ type previewCandidate struct {
 }
 
 // imagePriority is the default priority chain for image preview.
+// whatai sits at the end so it only activates when no higher-priority provider
+// is configured.
 var imagePriority = []previewCandidate{
 	{ProviderName: "openrouter", ModelType: "google/gemini-3.1-flash-lite-preview"},
 	{ProviderName: "openai", ModelType: "gpt-5.4-nano"},
 	{ProviderName: "anthropic", ModelType: "claude-haiku-4-5"},
+	{ProviderName: "whatai", ModelType: "gpt-5.4-mini"},
 }
 
 // audioPriority is the priority chain for audio preview.
