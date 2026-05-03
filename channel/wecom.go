@@ -227,11 +227,16 @@ func (w *WeComChannel) Send(ctx context.Context, resp *Response) error {
 	}
 
 	// aibot_send_msg supports markdown / template_card. Plain text renders fine as markdown.
+	// WeCom's markdown renderer tries to fetch ![](url) and shows a broken-image
+	// placeholder when the URL is unreachable (e.g. local file paths). The image
+	// itself is delivered separately via SendImage, so strip image markdown from
+	// the text bubble to avoid the broken placeholder.
+	content := stripMarkdownImages(resp.Text)
 	body, _ := json.Marshal(map[string]any{
 		"chatid":    chatID,
 		"chat_type": chatType,
 		"msgtype":   "markdown",
-		"markdown":  map[string]any{"content": resp.Text},
+		"markdown":  map[string]any{"content": content},
 	})
 	frame := wsFrame{
 		Cmd:     wsCmdSendMsg,

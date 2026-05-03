@@ -93,6 +93,73 @@ func TestParseMarkdownImages(t *testing.T) {
 	}
 }
 
+func TestStripMarkdownImages(t *testing.T) {
+	tests := []struct {
+		name string
+		in   string
+		want string
+	}{
+		{
+			name: "no images returns text unchanged",
+			in:   "hello world",
+			want: "hello world",
+		},
+		{
+			name: "image on its own line leaves a single paragraph break",
+			in:   "before\n![pic](/x.png)\nafter",
+			want: "before\n\nafter",
+		},
+		{
+			name: "consecutive image lines collapse to single blank line",
+			in:   "before\n![a](/a.png)\n![b](/b.png)\n![c](/c.png)\nafter",
+			want: "before\n\nafter",
+		},
+		{
+			name: "inline image is removed leaving surrounding text",
+			in:   "see ![cat](/c.jpg) here",
+			want: "see  here",
+		},
+		{
+			name: "multiple images on one line all removed",
+			in:   "![a](/a.jpg) and ![b](/b.jpg) done",
+			want: "and  done",
+		},
+		{
+			name: "image inside fenced code block is preserved",
+			in:   "```\n![keep](/k.jpg)\n```",
+			want: "```\n![keep](/k.jpg)\n```",
+		},
+		{
+			name: "image inside inline code is preserved",
+			in:   "literal `![keep](/k.jpg)` text",
+			want: "literal `![keep](/k.jpg)` text",
+		},
+		{
+			name: "image with title is removed",
+			in:   `![alt](/x.jpg "title") rest`,
+			want: "rest",
+		},
+		{
+			name: "lone image becomes empty",
+			in:   "![x](/x.jpg)",
+			want: "",
+		},
+		{
+			name: "trailing whitespace after stripped image is trimmed",
+			in:   "text ![x](/x.jpg)   \nmore",
+			want: "text\nmore",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := stripMarkdownImages(tt.in)
+			if got != tt.want {
+				t.Errorf("stripMarkdownImages(%q) = %q, want %q", tt.in, got, tt.want)
+			}
+		})
+	}
+}
+
 func TestParseMarkdownImages_StreamingChunkSafety(t *testing.T) {
 	// Each chunk in the streaming pipeline is a complete Markdown block.
 	// Parsing each chunk independently must not double-extract images
