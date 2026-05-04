@@ -43,5 +43,5 @@ The split is purely on input modality. If you have at least one reference image 
 
 ## When NOT to use this skill
 
-- **Diagrams, charts, flowcharts, architecture sketches, data viz, text-heavy graphics** → use `create-html-image` (precise SVG rendering).
+- **Diagrams, charts, flowcharts, architecture sketches, data viz, text-heavy graphics, reports, infographics** → use `create-html` (HTML+SVG rendering, hosted via `upload-html`).
 - **Sending an image the user already provided** → use `send-image` with the existing path.
