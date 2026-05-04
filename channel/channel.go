@@ -139,7 +139,9 @@ func (m *Manager) SendTo(ctx context.Context, channelName, text, replyTo string)
 
 // SendResponse delivers resp via the named channel. After a successful text
 // send, Markdown image references in resp.Text are dispatched to the channel's
-// ImageSender capability if it implements one.
+// ImageSender capability, and Markdown link references whose targets are local
+// files are dispatched to the channel's DocSender capability — both are
+// best-effort side-effects that do not affect the returned error.
 func (m *Manager) SendResponse(ctx context.Context, channelName string, resp *Response) error {
 	m.mu.RLock()
 	ch, ok := m.channels[channelName]
@@ -156,6 +158,7 @@ func (m *Manager) SendResponse(ctx context.Context, channelName string, resp *Re
 			ws = m.WorkspaceFn()
 		}
 		dispatchImageRefs(ctx, ch, resp.ReplyTo, resp.Text, ws)
+		dispatchDocRefs(ctx, ch, resp.ReplyTo, resp.Text, ws)
 	}
 	return nil
 }

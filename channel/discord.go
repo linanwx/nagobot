@@ -166,6 +166,44 @@ func (d *DiscordChannel) SendImage(_ context.Context, replyTo string, ref ImageR
 // Compile-time check: DiscordChannel implements ImageSender.
 var _ ImageSender = (*DiscordChannel)(nil)
 
+// SendDoc uploads ref as a Discord file attachment. Target convention matches
+// Send. Discord enforces its own size limit (25 MB without Nitro boost) and
+// rejects oversized uploads — the error is returned to the caller for logging.
+func (d *DiscordChannel) SendDoc(_ context.Context, replyTo string, ref DocRef) error {
+	if d.session == nil {
+		return fmt.Errorf("discord session not started")
+	}
+	target, err := d.resolveTarget(replyTo)
+	if err != nil {
+		return err
+	}
+	f, err := os.Open(ref.Path)
+	if err != nil {
+		return fmt.Errorf("open doc %s: %w", ref.Path, err)
+	}
+	defer f.Close()
+
+	name := ref.Name
+	if name == "" {
+		name = filepath.Base(ref.Path)
+	}
+
+	_, err = d.session.ChannelMessageSendComplex(target, &discordgo.MessageSend{
+		Files: []*discordgo.File{{
+			Name:        name,
+			ContentType: ref.Mime,
+			Reader:      f,
+		}},
+	})
+	if err != nil {
+		return fmt.Errorf("discord doc send: %w", err)
+	}
+	return nil
+}
+
+// Compile-time check: DiscordChannel implements DocSender.
+var _ DocSender = (*DiscordChannel)(nil)
+
 // convertTablesToLists converts Markdown tables into numbered list format
 // because Discord's table rendering is poor (misaligned, broken on mobile).
 func convertTablesToLists(text string) string {
