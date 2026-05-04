@@ -8,7 +8,7 @@ A channel is a message input/output component. `cli`, `telegram`, and `cron` are
 
 A session is a chat history made of a series of messages. A session is identified by a session key. For example, a Telegram session key is `telegram:<user_id>`.
 
-Each session owns its own session file and working directory. The session key identifies one nagobot living entity — also called a *lifeform*. A nagobot lifeform has its own attributes, such as which Agent it runs as. When lifeforms communicate with each other, they identify themselves by their own session key. Each lifeform typically uses its current working directory to maintain and record information — reports, conclusions, logs, and so on.
+Each session owns its own session file and working directory. The session key identifies one nagobot living entity — also called a *lifeform*. A nagobot lifeform has its own attributes, such as which Agent it runs as. When lifeforms communicate with each other, they identify themselves by their own session key. Each lifeform typically uses its current working directory(session directory) to maintain and record information — reports, conclusions, logs, and so on.
 
 A thread is an object used to run LLM reasoning. It can be created or resumed by user messages, by another thread via `dispatch` (with `to=subagent`, `to=fork`, or `to=session`), or by cron when waking a cron session. In general, if a wake targets a session that does not exist yet, a new thread is created and bound to that session. Idle threads are reclaimed after a period of inactivity.
 
