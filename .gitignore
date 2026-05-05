@@ -31,3 +31,5 @@ __pycache__/
 
 # Experiments (local testing)
 /experiments/
+.agents/**
+AGENTS.md

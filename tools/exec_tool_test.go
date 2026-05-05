@@ -18,6 +18,51 @@ func runExec(t *testing.T, tool *ExecTool, command, confirm string) string {
 	return tool.Run(context.Background(), b)
 }
 
+func TestPipInstallRequiresConfirmation(t *testing.T) {
+	tool := newTestExecTool()
+	for _, cmd := range []string{
+		"pip install lxml",
+		"pip3 install lxml --break-system-packages -q",
+		"pip3 install --user defusedxml",
+		"sudo pip install requests",
+		"python3 -m pip install lxml",
+		"cd /tmp && pip install foo",
+		"bash -c 'pip install foo'",
+	} {
+		result := runExec(t, tool, cmd, "")
+		if !strings.Contains(result, "pip install") || !strings.Contains(result, "uv run") {
+			t.Fatalf("cmd %q: expected pip-install prompt with uv suggestion, got: %s", cmd, result)
+		}
+	}
+}
+
+func TestPipInstallWithCorrectHMAC(t *testing.T) {
+	tool := newTestExecTool()
+	cmd := "pip install --dry-run nonexistent-pkg-xyz-zzz"
+	token := tool.computeHMAC(cmd)
+	result := runExec(t, tool, cmd, token)
+	if strings.Contains(result, "Dangerous command detected") {
+		t.Fatalf("expected execution with valid token, got confirmation prompt: %s", result)
+	}
+}
+
+func TestPipInstallSafeCommandsNotBlocked(t *testing.T) {
+	for _, cmd := range []string{
+		"uv run --with lxml script.py",
+		"uv pip install lxml",
+		"pipx install black",
+		"npx --package=docx node script.js",
+		".venv/bin/pip install lxml",
+		"./venv/bin/pip install lxml",
+		"echo pip install foo",          // mention as text, not invocation
+		"grep 'pip install' README.md",  // searching for the literal string
+	} {
+		if isPipInstallCommand(cmd) {
+			t.Errorf("cmd %q should not be flagged as pip install", cmd)
+		}
+	}
+}
+
 func TestRmRequiresConfirmation(t *testing.T) {
 	tool := newTestExecTool()
 	result := runExec(t, tool, "rm file.txt", "")

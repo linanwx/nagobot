@@ -33,6 +33,15 @@ var rmPattern = regexp.MustCompile(`(?:^|[|&;]\s*)rm(?:\s|$)`)
 // (python, osascript, bash, etc.) where quoted rm will actually be executed.
 var subshellRmPattern = regexp.MustCompile(`(?:python[23]?|osascript|bash|sh|zsh|ruby|perl|node)\b.*\brm\b`)
 
+// pipInstallPattern matches `pip install` / `pip3 install` and the equivalent
+// `python -m pip install` form, at the start or after a shell operator. Catches
+// any flag combination including --break-system-packages and --user.
+var pipInstallPattern = regexp.MustCompile(`(?:^|[|&;]\s*)(?:sudo\s+)?(?:python3?\s+-m\s+pip|pip3?)\s+install\b`)
+
+// subshellPipInstallPattern catches pip install hidden inside a sub-shell
+// executor's arguments (e.g. `bash -c "pip install ..."`).
+var subshellPipInstallPattern = regexp.MustCompile(`(?:python[23]?|bash|sh|zsh)\b.*\bpip3?\s+install\b`)
+
 // ExecTool executes shell commands.
 type ExecTool struct {
 	workspace           string
@@ -110,6 +119,15 @@ func isRmCommand(cmd string) bool {
 	return rmPattern.MatchString(cmd) || subshellRmPattern.MatchString(cmd)
 }
 
+// isPipInstallCommand reports whether the shell command runs `pip install` /
+// `pip3 install` (or the python -m pip equivalent) directly or via a sub-shell.
+func isPipInstallCommand(cmd string) bool {
+	if !strings.Contains(cmd, "pip") {
+		return false
+	}
+	return pipInstallPattern.MatchString(cmd) || subshellPipInstallPattern.MatchString(cmd)
+}
+
 // Run executes the tool.
 func (t *ExecTool) Run(ctx context.Context, args json.RawMessage) string {
 	var a execArgs
@@ -123,6 +141,20 @@ func (t *ExecTool) Run(ctx context.Context, args json.RawMessage) string {
 			return toolError("exec", fmt.Sprintf("Dangerous command detected: rm. "+
 				"Prefer using safer alternatives like `trash` or `gio trash` to move files to trash instead of permanent deletion. "+
 				"If you still need to use rm, re-call this tool with the same command and set confirm to: %s", t.computeHMAC(a.Command)))
+		}
+		if !hmac.Equal([]byte(a.Confirm), []byte(t.computeHMAC(a.Command))) {
+			return toolError("exec", "invalid confirmation token. The command may have been modified. Please retry without the confirm parameter.")
+		}
+	}
+
+	// Check for pip install — pollutes host Python.
+	if isPipInstallCommand(a.Command) {
+		if a.Confirm == "" {
+			return toolError("exec", fmt.Sprintf("Dangerous command detected: pip install. "+
+				"Installing packages with pip pollutes the host Python environment (system or Homebrew). "+
+				"Prefer `uv run --with <pkg> <script>` for one-off script runs, `uv tool install <pkg>` or `pipx install <pkg>` for CLI tools, "+
+				"or run pip from inside an activated venv (e.g. `.venv/bin/pip install <pkg>`). "+
+				"If you still need to run this exact command, re-call this tool with the same command and set confirm to: %s", t.computeHMAC(a.Command)))
 		}
 		if !hmac.Equal([]byte(a.Confirm), []byte(t.computeHMAC(a.Command))) {
 			return toolError("exec", "invalid confirmation token. The command may have been modified. Please retry without the confirm parameter.")
