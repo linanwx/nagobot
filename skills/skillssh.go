@@ -119,7 +119,9 @@ func (c *SkillsShClient) search(query string) (*skillsShSearchResponse, error) {
 }
 
 // Install downloads a skill from skills.sh and saves it to skillsDir/{skillName}/.
-// The slug is resolved via the skills.sh API, then files are downloaded from GitHub.
+// The slug is resolved via the skills.sh API, then the entire skill directory tree
+// (SKILL.md + scripts/ + references/ + any other subdirs/files) is fetched from
+// GitHub via the Contents API, preserving directory structure.
 func (c *SkillsShClient) Install(slug string, skillsDir string) (skillName string, err error) {
 	entry, err := c.Resolve(slug)
 	if err != nil {
@@ -130,13 +132,8 @@ func (c *SkillsShClient) Install(slug string, skillsDir string) (skillName strin
 		return "", fmt.Errorf("skill %q has no source repository", slug)
 	}
 
-	// Construct GitHub raw base URL from source (owner/repo) and skillId.
-	// Skills live at: github.com/{source}/tree/main/skills/{skillId}
-	rawBase := fmt.Sprintf("https://raw.githubusercontent.com/%s/main/skills/%s",
-		entry.Source, entry.SkillID)
-
-	// Construct GitHub Contents API URL for references.
-	contentsRefsURL := fmt.Sprintf("https://api.github.com/repos/%s/contents/skills/%s/references?ref=main",
+	// Root of the skill in the source repo: github.com/{source}/tree/main/skills/{skillId}
+	rootContentsURL := fmt.Sprintf("https://api.github.com/repos/%s/contents/skills/%s?ref=main",
 		entry.Source, entry.SkillID)
 
 	// Create temp dir for atomic install.
@@ -149,19 +146,15 @@ func (c *SkillsShClient) Install(slug string, skillsDir string) (skillName strin
 	}
 	defer os.RemoveAll(tmpDir)
 
-	// Download SKILL.md (required).
-	skillMDURL := rawBase + "/SKILL.md"
-	body, err := c.downloadFile(skillMDURL)
-	if err != nil {
-		return "", fmt.Errorf("cannot download SKILL.md: %w", err)
-	}
-	if err := os.WriteFile(filepath.Join(tmpDir, "SKILL.md"), body, 0644); err != nil {
-		return "", err
+	// Recursively download the entire skill directory tree.
+	if err := c.downloadDirRecursive(rootContentsURL, tmpDir); err != nil {
+		return "", fmt.Errorf("cannot download skill tree: %w", err)
 	}
 
-	// Try to download references/ directory via GitHub Contents API.
-	// This is best-effort — many skills don't have references.
-	c.downloadRefsFromAPI(contentsRefsURL, tmpDir)
+	// SKILL.md is required — fail loudly if missing rather than installing a broken skill.
+	if _, err := os.Stat(filepath.Join(tmpDir, "SKILL.md")); err != nil {
+		return "", fmt.Errorf("SKILL.md not found in downloaded skill")
+	}
 
 	skillName = entry.SkillID
 
@@ -173,6 +166,62 @@ func (c *SkillsShClient) Install(slug string, skillsDir string) (skillName strin
 	}
 
 	return skillName, nil
+}
+
+// downloadDirRecursive walks a GitHub Contents API endpoint and writes every
+// file to destDir, recursing into subdirectories so the output preserves the
+// remote tree layout. Errors on individual files (download failure, oversized)
+// abort the whole install — partial skills are worse than no skill.
+func (c *SkillsShClient) downloadDirRecursive(contentsURL string, destDir string) error {
+	resp, err := c.client.Get(contentsURL)
+	if err != nil {
+		return fmt.Errorf("list %s: %w", contentsURL, err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return fmt.Errorf("list %s: HTTP %s", contentsURL, resp.Status)
+	}
+
+	var entries []struct {
+		Name        string `json:"name"`
+		Path        string `json:"path"`
+		Type        string `json:"type"` // "file" or "dir"
+		DownloadURL string `json:"download_url"`
+		URL         string `json:"url"` // contents API URL for the entry (used for dir recursion)
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&entries); err != nil {
+		return fmt.Errorf("parse %s: %w", contentsURL, err)
+	}
+
+	if err := os.MkdirAll(destDir, 0755); err != nil {
+		return err
+	}
+
+	for _, e := range entries {
+		switch e.Type {
+		case "file":
+			if e.DownloadURL == "" {
+				continue // git-lfs or symlink — skip
+			}
+			body, err := c.downloadFile(e.DownloadURL)
+			if err != nil {
+				return fmt.Errorf("download %s: %w", e.Name, err)
+			}
+			if err := os.WriteFile(filepath.Join(destDir, e.Name), body, 0644); err != nil {
+				return err
+			}
+		case "dir":
+			subURL := e.URL
+			if subURL == "" {
+				continue
+			}
+			if err := c.downloadDirRecursive(subURL, filepath.Join(destDir, e.Name)); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
 }
 
 // downloadFile fetches a URL and returns the body, with size limits.
@@ -198,43 +247,3 @@ func (c *SkillsShClient) downloadFile(rawURL string) ([]byte, error) {
 	return body, nil
 }
 
-// downloadRefsFromAPI downloads files from a GitHub Contents API URL into destDir/references/.
-func (c *SkillsShClient) downloadRefsFromAPI(contentsURL string, destDir string) {
-	resp, err := c.client.Get(contentsURL)
-	if err != nil || resp.StatusCode != http.StatusOK {
-		if resp != nil {
-			resp.Body.Close()
-		}
-		return
-	}
-	defer resp.Body.Close()
-
-	var entries []struct {
-		Name        string `json:"name"`
-		DownloadURL string `json:"download_url"`
-		Type        string `json:"type"`
-	}
-	if err := json.NewDecoder(resp.Body).Decode(&entries); err != nil {
-		return
-	}
-
-	if len(entries) == 0 {
-		return
-	}
-
-	refsDir := filepath.Join(destDir, "references")
-	if err := os.MkdirAll(refsDir, 0755); err != nil {
-		return
-	}
-
-	for _, e := range entries {
-		if e.Type != "file" || e.DownloadURL == "" {
-			continue
-		}
-		body, err := c.downloadFile(e.DownloadURL)
-		if err != nil {
-			continue
-		}
-		_ = os.WriteFile(filepath.Join(refsDir, e.Name), body, 0644)
-	}
-}

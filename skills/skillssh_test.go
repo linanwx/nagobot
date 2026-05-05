@@ -217,9 +217,11 @@ func TestSkillsShInstallEndToEnd(t *testing.T) {
 		t.Errorf("SKILL.md content mismatch: got %q", string(body))
 	}
 
-	// Test downloadRefsFromAPI.
+	// Test downloadDirRecursive (single-level: references/ has one file).
 	tmpDir := t.TempDir()
-	client.downloadRefsFromAPI(srv.URL+"/api/repos/testorg/testrepo/contents/skills/my-skill/references", tmpDir)
+	if err := client.downloadDirRecursive(srv.URL+"/api/repos/testorg/testrepo/contents/skills/my-skill/references", filepath.Join(tmpDir, "references")); err != nil {
+		t.Fatal(err)
+	}
 
 	guide, err := os.ReadFile(filepath.Join(tmpDir, "references", "guide.md"))
 	if err != nil {
@@ -227,5 +229,65 @@ func TestSkillsShInstallEndToEnd(t *testing.T) {
 	}
 	if string(guide) != refContent {
 		t.Errorf("guide.md: got %q, want %q", string(guide), refContent)
+	}
+}
+
+func TestSkillsShDownloadDirRecursive(t *testing.T) {
+	mux := http.NewServeMux()
+	var srvURL string
+
+	// Root listing: README.md (file) + scripts/ (dir).
+	mux.HandleFunc("/api/repos/o/r/contents/skills/s", func(w http.ResponseWriter, r *http.Request) {
+		entries := []map[string]string{
+			{"name": "SKILL.md", "type": "file", "download_url": srvURL + "/raw/SKILL.md"},
+			{"name": "scripts", "type": "dir", "url": srvURL + "/api/repos/o/r/contents/skills/s/scripts"},
+		}
+		json.NewEncoder(w).Encode(entries)
+	})
+
+	// scripts/ listing: nested dir office/ + a top-level helper.py.
+	mux.HandleFunc("/api/repos/o/r/contents/skills/s/scripts", func(w http.ResponseWriter, r *http.Request) {
+		entries := []map[string]string{
+			{"name": "helper.py", "type": "file", "download_url": srvURL + "/raw/helper.py"},
+			{"name": "office", "type": "dir", "url": srvURL + "/api/repos/o/r/contents/skills/s/scripts/office"},
+		}
+		json.NewEncoder(w).Encode(entries)
+	})
+
+	// scripts/office/ listing: unpack.py.
+	mux.HandleFunc("/api/repos/o/r/contents/skills/s/scripts/office", func(w http.ResponseWriter, r *http.Request) {
+		entries := []map[string]string{
+			{"name": "unpack.py", "type": "file", "download_url": srvURL + "/raw/unpack.py"},
+		}
+		json.NewEncoder(w).Encode(entries)
+	})
+
+	// Raw files.
+	mux.HandleFunc("/raw/SKILL.md", func(w http.ResponseWriter, r *http.Request) { w.Write([]byte("skill")) })
+	mux.HandleFunc("/raw/helper.py", func(w http.ResponseWriter, r *http.Request) { w.Write([]byte("helper")) })
+	mux.HandleFunc("/raw/unpack.py", func(w http.ResponseWriter, r *http.Request) { w.Write([]byte("unpack")) })
+
+	srv := httptest.NewServer(mux)
+	defer srv.Close()
+	srvURL = srv.URL
+
+	client := &SkillsShClient{BaseURL: srv.URL, client: srv.Client()}
+	dest := t.TempDir()
+	if err := client.downloadDirRecursive(srv.URL+"/api/repos/o/r/contents/skills/s", dest); err != nil {
+		t.Fatal(err)
+	}
+
+	for path, want := range map[string]string{
+		"SKILL.md":                  "skill",
+		"scripts/helper.py":         "helper",
+		"scripts/office/unpack.py":  "unpack",
+	} {
+		got, err := os.ReadFile(filepath.Join(dest, path))
+		if err != nil {
+			t.Fatalf("%s: %v", path, err)
+		}
+		if string(got) != want {
+			t.Errorf("%s: got %q want %q", path, got, want)
+		}
 	}
 }
