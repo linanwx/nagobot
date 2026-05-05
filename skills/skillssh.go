@@ -9,6 +9,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 )
 
 const (
@@ -22,10 +23,13 @@ type SkillsShClient struct {
 }
 
 // NewSkillsShClient creates a client for the skills.sh registry.
+// Uses a longer per-request timeout than hubHTTPTimeout because tree-walk
+// installs make many GitHub raw + Contents API calls in a row, and a single
+// timeout on a transient slow connection would abort the whole install.
 func NewSkillsShClient() *SkillsShClient {
 	return &SkillsShClient{
 		BaseURL: skillsShBaseURL,
-		client:  &http.Client{Timeout: hubHTTPTimeout},
+		client:  &http.Client{Timeout: 60 * time.Second},
 	}
 }
 
@@ -173,14 +177,9 @@ func (c *SkillsShClient) Install(slug string, skillsDir string) (skillName strin
 // remote tree layout. Errors on individual files (download failure, oversized)
 // abort the whole install — partial skills are worse than no skill.
 func (c *SkillsShClient) downloadDirRecursive(contentsURL string, destDir string) error {
-	resp, err := c.client.Get(contentsURL)
+	body, err := c.downloadFile(contentsURL)
 	if err != nil {
 		return fmt.Errorf("list %s: %w", contentsURL, err)
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		return fmt.Errorf("list %s: HTTP %s", contentsURL, resp.Status)
 	}
 
 	var entries []struct {
@@ -190,7 +189,7 @@ func (c *SkillsShClient) downloadDirRecursive(contentsURL string, destDir string
 		DownloadURL string `json:"download_url"`
 		URL         string `json:"url"` // contents API URL for the entry (used for dir recursion)
 	}
-	if err := json.NewDecoder(resp.Body).Decode(&entries); err != nil {
+	if err := json.Unmarshal(body, &entries); err != nil {
 		return fmt.Errorf("parse %s: %w", contentsURL, err)
 	}
 
@@ -225,7 +224,28 @@ func (c *SkillsShClient) downloadDirRecursive(contentsURL string, destDir string
 }
 
 // downloadFile fetches a URL and returns the body, with size limits.
+// Retries up to 3 times on transient network errors (timeout, 5xx) so a
+// single flaky request doesn't abort an install that touches dozens of files.
 func (c *SkillsShClient) downloadFile(rawURL string) ([]byte, error) {
+	var lastErr error
+	for attempt := range 3 {
+		if attempt > 0 {
+			time.Sleep(time.Duration(attempt) * time.Second)
+		}
+		body, err := c.downloadFileOnce(rawURL)
+		if err == nil {
+			return body, nil
+		}
+		lastErr = err
+		// Don't retry hard 4xx (404 etc) — they won't get better.
+		if strings.Contains(err.Error(), "HTTP 4") {
+			return nil, err
+		}
+	}
+	return nil, lastErr
+}
+
+func (c *SkillsShClient) downloadFileOnce(rawURL string) ([]byte, error) {
 	resp, err := c.client.Get(rawURL)
 	if err != nil {
 		return nil, err
