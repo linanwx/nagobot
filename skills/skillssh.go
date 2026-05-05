@@ -16,6 +16,16 @@ const (
 	skillsShBaseURL = "https://skills.sh"
 )
 
+// githubMirrors are reverse-proxy front-ends that can fetch GitHub raw and
+// API URLs from regions where direct connectivity to github.com is unstable
+// (mainland China). downloadFile tries the direct URL first, then each mirror
+// as a fallback. Kept in sync with cmd/update.go's chinaMirrors list.
+var githubMirrors = []string{
+	"https://gh-proxy.com/",
+	"https://ghfast.top/",
+	"https://gh-proxy.org/",
+}
+
 // SkillsShClient interacts with the skills.sh skill registry.
 type SkillsShClient struct {
 	BaseURL string
@@ -224,25 +234,39 @@ func (c *SkillsShClient) downloadDirRecursive(contentsURL string, destDir string
 }
 
 // downloadFile fetches a URL and returns the body, with size limits.
-// Retries up to 3 times on transient network errors (timeout, 5xx) so a
-// single flaky request doesn't abort an install that touches dozens of files.
+// Tries the direct URL first, then each githubMirror prefix as a fallback —
+// covers regions where raw.githubusercontent.com / api.github.com timeouts.
+// Hard 4xx (404 etc.) on the direct URL short-circuits without trying mirrors,
+// since the file genuinely doesn't exist.
 func (c *SkillsShClient) downloadFile(rawURL string) ([]byte, error) {
-	var lastErr error
-	for attempt := range 3 {
-		if attempt > 0 {
-			time.Sleep(time.Duration(attempt) * time.Second)
+	sources := []string{rawURL}
+	if isGitHubURL(rawURL) {
+		for _, m := range githubMirrors {
+			sources = append(sources, m+rawURL)
 		}
-		body, err := c.downloadFileOnce(rawURL)
+	}
+
+	var lastErr error
+	for _, src := range sources {
+		body, err := c.downloadFileOnce(src)
 		if err == nil {
 			return body, nil
 		}
 		lastErr = err
-		// Don't retry hard 4xx (404 etc) — they won't get better.
-		if strings.Contains(err.Error(), "HTTP 4") {
+		// 4xx on the direct URL means the resource doesn't exist — mirrors
+		// won't fix it. Bail out fast.
+		if src == rawURL && strings.Contains(err.Error(), "HTTP 4") {
 			return nil, err
 		}
 	}
 	return nil, lastErr
+}
+
+// isGitHubURL returns true for raw.githubusercontent.com and api.github.com URLs
+// — the only kinds the China mirrors can proxy.
+func isGitHubURL(rawURL string) bool {
+	return strings.HasPrefix(rawURL, "https://raw.githubusercontent.com/") ||
+		strings.HasPrefix(rawURL, "https://api.github.com/")
 }
 
 func (c *SkillsShClient) downloadFileOnce(rawURL string) ([]byte, error) {
