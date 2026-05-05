@@ -1,6 +1,6 @@
 ---
 name: send-docs
-description: Send a local file (PDF, document, archive, code, log, generated HTML, anything non-image) to the user as a native channel attachment by writing standard Markdown link syntax `[label](path)` in your reply. Currently supported on Discord; falls back to plain text on other channels.
+description: Send a local file (PDF, document, archive, code, log, generated HTML, anything non-image) to the user as a native channel attachment by writing standard Markdown link syntax `[label](path)` in your reply. Supported on Discord and WeCom; falls back to plain text on other channels.
 ---
 # Send Docs
 
@@ -82,7 +82,7 @@ The line above is shown to the user as plain text — no upload.
 | Channel | Doc Send |
 |---|---|
 | Discord | supported (≤25 MB without Nitro boost; oversized uploads fail and are logged) |
-| WeCom | not yet |
+| WeCom | supported (≤20 MB; uploaded via aibot media flow as `msgtype=file`) |
 | Telegram | not yet |
 | Feishu | not yet |
 | Web / CLI / Socket | not yet |
