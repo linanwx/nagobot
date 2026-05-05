@@ -49,9 +49,10 @@ const (
 	wsCmdUploadMediaFinish  = "aibot_upload_media_finish"
 )
 
-// Image upload constraints (per WeCom AI Bot WebSocket spec).
+// Media upload constraints (per WeCom AI Bot WebSocket spec).
 const (
 	wecomImageMaxSize    = 10 << 20  // 10 MB
+	wecomFileMaxSize     = 20 << 20  // 20 MB
 	wecomChunkRawSize    = 256 << 10 // 256 KB raw per chunk (server limit is 512 KB; stay safe)
 	wecomMaxChunks       = 100
 	wecomUploadAckWait   = 30 * time.Second
@@ -291,7 +292,7 @@ func (w *WeComChannel) SendImage(ctx context.Context, replyTo string, ref ImageR
 		return fmt.Errorf("wecom: not connected")
 	}
 
-	mediaID, err := w.uploadMedia(conn, ref, data, totalChunks)
+	mediaID, err := w.uploadMedia(conn, "image", filepath.Base(ref.Path), data, totalChunks)
 	if err != nil {
 		return err
 	}
@@ -310,12 +311,77 @@ func (w *WeComChannel) SendImage(ctx context.Context, replyTo string, ref ImageR
 	return w.writeFrame(conn, frame)
 }
 
+// SendDoc uploads a file via the 3-step aibot_upload_media_* flow (type=file)
+// and pushes it via aibot_send_msg with msgtype=file. File ≤20 MB.
+func (w *WeComChannel) SendDoc(ctx context.Context, replyTo string, ref DocRef) error {
+	if replyTo == "" {
+		return fmt.Errorf("wecom: empty replyTo")
+	}
+
+	chatID := replyTo
+	chatType := 1
+	if rest, ok := strings.CutPrefix(replyTo, "group:"); ok {
+		chatID = rest
+		chatType = 2
+	}
+
+	data, err := os.ReadFile(ref.Path)
+	if err != nil {
+		return fmt.Errorf("read doc: %w", err)
+	}
+	if len(data) == 0 {
+		return fmt.Errorf("doc is empty")
+	}
+	if len(data) > wecomFileMaxSize {
+		return fmt.Errorf("doc too large: %d bytes (max %d)", len(data), wecomFileMaxSize)
+	}
+
+	totalChunks := (len(data) + wecomChunkRawSize - 1) / wecomChunkRawSize
+	if totalChunks > wecomMaxChunks {
+		return fmt.Errorf("doc needs %d chunks (max %d)", totalChunks, wecomMaxChunks)
+	}
+
+	w.connMu.Lock()
+	conn := w.conn
+	w.connMu.Unlock()
+	if conn == nil {
+		return fmt.Errorf("wecom: not connected")
+	}
+
+	filename := ref.Name
+	if filename == "" {
+		filename = filepath.Base(ref.Path)
+	}
+
+	mediaID, err := w.uploadMedia(conn, "file", filename, data, totalChunks)
+	if err != nil {
+		return err
+	}
+
+	body, _ := json.Marshal(map[string]any{
+		"chatid":    chatID,
+		"chat_type": chatType,
+		"msgtype":   "file",
+		"file":      map[string]any{"media_id": mediaID},
+	})
+	frame := wsFrame{
+		Cmd:     wsCmdSendMsg,
+		Headers: map[string]string{"req_id": generateReqID("send")},
+		Body:    body,
+	}
+	return w.writeFrame(conn, frame)
+}
+
+// Compile-time check: WeComChannel implements DocSender.
+var _ DocSender = (*WeComChannel)(nil)
+
 // uploadMedia runs the init → chunk(s) → finish round-trip and returns the media_id.
-func (w *WeComChannel) uploadMedia(conn *websocket.Conn, ref ImageRef, data []byte, totalChunks int) (string, error) {
+// mediaType is "image" or "file" per the WeCom AI Bot upload spec.
+func (w *WeComChannel) uploadMedia(conn *websocket.Conn, mediaType, filename string, data []byte, totalChunks int) (string, error) {
 	hash := md5.Sum(data)
 	initBody, _ := json.Marshal(map[string]any{
-		"type":         "image",
-		"filename":     filepath.Base(ref.Path),
+		"type":         mediaType,
+		"filename":     filename,
 		"total_size":   len(data),
 		"total_chunks": totalChunks,
 		"md5":          hex.EncodeToString(hash[:]),
