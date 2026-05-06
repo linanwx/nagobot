@@ -413,11 +413,11 @@ func wakeActionHint(source WakeSource) string {
 	}
 	switch source {
 	case WakeSession:
-		return "Another session sent you a message. You can generate a response and it will be sent back, but better use dispatch to specify your response.\n\n" +
+		return "Another session sent you a message. This message is ONLY visible to you and user cannot see it. This message is for nagobot lifeform communication. You can generate a response and it will be sent back, but better use dispatch to specify your response.\n\n" +
 			"End this turn with one or more of:\n" +
-			"1. `dispatch(to=caller:session)` — reply to the session who sent you the message. Same as if you output text without dispatch.\n" +
-			"2. `dispatch(to=user)` — redirect to your own channel user (user-facing sessions only).\n" +
-			"3. `dispatch(to=session, session_key=...)` — hand off to a specific session.\n" +
+			"1. `dispatch(to=caller:session)` — send to the session who sent you the message. Same as if you output text without dispatch.\n" +
+			"2. `dispatch(to=user)` — send a message to your own channel user (if you are one of the user-facing sessions).\n" +
+			"3. `dispatch(to=session, session_key=...)` — send to a specific session.\n" +
 			"4. `dispatch({})` — silent end, no delivery.\n\n" +
 			"When replying to the caller (option 1 or naive text), start your reply body with a standalone line:\n" +
 			"`> Re: \"<excerpt>\"`\n" +
