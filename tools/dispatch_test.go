@@ -168,33 +168,35 @@ func TestDispatch_CallerSession_OK(t *testing.T) {
 	}
 }
 
-// Hint fires when caller is the channel user and dispatch sends to caller:user —
-// the assistant message in this turn would already auto-deliver, so this is redundant.
-func TestDispatch_CallerUser_HintsRedundantWhenCallerIsUser(t *testing.T) {
+// dispatch(to=caller:user) when caller is the channel user must NOT emit
+// any "redundant" or "noUserReminder" hint — the user did receive the
+// message, and forcing a single canonical delivery path is not nagobot's
+// policy (naive text and dispatch are equivalent).
+func TestDispatch_CallerUser_NoHintsWhenCallerIsUser(t *testing.T) {
 	host := &mockDispatchHost{
 		currentKey: "cli",
 		callerKind: "user",
 		userFacing: true,
 	}
 	_, res := runDispatch(t, host, `{"sends": [{"to": "caller:user", "body": "hi"}]}`)
-	if !strings.Contains(res, "redundant") {
-		t.Errorf("expected redundant-delivery hint; got: %s", res)
+	if strings.Contains(res, "redundant") {
+		t.Errorf("redundant-delivery hint should be removed; got: %s", res)
 	}
 	if strings.Contains(res, "had no to=user entry") {
 		t.Errorf("noUserReminder must NOT fire when reach-user path is taken; got: %s", res)
 	}
 }
 
-// Hint also fires for to=user when caller is the channel user.
-func TestDispatch_User_HintsRedundantWhenCallerIsUser(t *testing.T) {
+// Same for to=user — no spurious hint.
+func TestDispatch_User_NoHintsWhenCallerIsUser(t *testing.T) {
 	host := &mockDispatchHost{
 		currentKey: "cli",
 		callerKind: "user",
 		userFacing: true,
 	}
 	_, res := runDispatch(t, host, `{"sends": [{"to": "user", "body": "hi"}]}`)
-	if !strings.Contains(res, "redundant") {
-		t.Errorf("expected redundant-delivery hint; got: %s", res)
+	if strings.Contains(res, "redundant") {
+		t.Errorf("redundant-delivery hint should be removed; got: %s", res)
 	}
 }
 

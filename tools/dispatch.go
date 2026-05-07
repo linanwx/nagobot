@@ -246,11 +246,10 @@ func (t *DispatchTool) run(ctx context.Context, args json.RawMessage) string {
 
 	t.host.SignalHalt()
 	isUserFacing := t.host.IsUserFacing()
-	callerKind, _, _ := t.host.CallerInfo()
 	if len(execErrs) > 0 {
-		return buildDispatchMixedResult(executed, execErrs, isUserFacing, callerKind)
+		return buildDispatchMixedResult(executed, execErrs, isUserFacing)
 	}
-	return buildDispatchSuccessResult(executed, isUserFacing, callerKind)
+	return buildDispatchSuccessResult(executed, isUserFacing)
 }
 
 // validateAll performs all static, existence, and dedup checks.
@@ -463,8 +462,6 @@ func hasReachedUser(executed []ExecutedItem) bool {
 
 const noUserReminder = "Reminder: this dispatch had no to=user entry. Any reply above went to another AI session, not to your channel user. Unless you explicitly dispatch(to=user), nothing in this turn is visible to the human user."
 
-const callerUserRedundantHint = "Hint: this turn was woken by the channel user (caller:user). For a user-facing reply, prefer ending the turn with a plain assistant message — its content is auto-delivered to the channel user, so an explicit dispatch to user/caller:user is redundant and may double-deliver if you also produced text earlier in the turn."
-
 func buildDispatchErrorResult(errs []DispatchError) string {
 	var sb strings.Builder
 	sb.WriteString("Validation failed — no sends were executed. Fix and re-call dispatch; the turn continues.\n\nErrors:\n")
@@ -480,7 +477,7 @@ func buildDispatchErrorResult(errs []DispatchError) string {
 	}, strings.TrimRight(sb.String(), "\n"))
 }
 
-func buildDispatchSuccessResult(executed []ExecutedItem, isUserFacing bool, callerKind msg.CallerKind) string {
+func buildDispatchSuccessResult(executed []ExecutedItem, isUserFacing bool) string {
 	var sb strings.Builder
 	if len(executed) == 1 {
 		sb.WriteString("Executed 1 send. Turn ended.\n\n")
@@ -490,10 +487,7 @@ func buildDispatchSuccessResult(executed []ExecutedItem, isUserFacing bool, call
 	for i, ex := range executed {
 		fmt.Fprintf(&sb, "  %d. %s\n", i+1, describeExecuted(ex))
 	}
-	if reached := hasReachedUser(executed); reached && callerKind == msg.CallerKindUser {
-		sb.WriteString("\n")
-		sb.WriteString(callerUserRedundantHint)
-	} else if isUserFacing && !reached {
+	if isUserFacing && !hasReachedUser(executed) {
 		sb.WriteString("\n")
 		sb.WriteString(noUserReminder)
 	}
@@ -502,7 +496,7 @@ func buildDispatchSuccessResult(executed []ExecutedItem, isUserFacing bool, call
 	}, strings.TrimRight(sb.String(), "\n"))
 }
 
-func buildDispatchMixedResult(executed []ExecutedItem, errs []DispatchError, isUserFacing bool, callerKind msg.CallerKind) string {
+func buildDispatchMixedResult(executed []ExecutedItem, errs []DispatchError, isUserFacing bool) string {
 	var sb strings.Builder
 	fmt.Fprintf(&sb, "Partial failure: %d send(s) executed, %d failed. Turn ended — executed deliveries cannot be unrolled.\n", len(executed), len(errs))
 	if len(executed) > 0 {
@@ -521,10 +515,7 @@ func buildDispatchMixedResult(executed []ExecutedItem, errs []DispatchError, isU
 			}
 		}
 	}
-	if reached := hasReachedUser(executed); reached && callerKind == msg.CallerKindUser {
-		sb.WriteString("\n")
-		sb.WriteString(callerUserRedundantHint)
-	} else if isUserFacing && !reached {
+	if isUserFacing && !hasReachedUser(executed) {
 		sb.WriteString("\n")
 		sb.WriteString(noUserReminder)
 	}
