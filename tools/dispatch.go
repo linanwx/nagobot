@@ -214,7 +214,9 @@ func (t *DispatchTool) run(ctx context.Context, args json.RawMessage) string {
 			"Re-issue the turn with one of these patterns.")
 	}
 
-	// Empty sends → silent turn termination.
+	// HIGHEST PRIORITY: dispatch({}) is ALWAYS a valid silent termination,
+	// regardless of session kind, caller kind, or any other rule. The model
+	// explicitly chose to say nothing — respect it and end the turn.
 	if len(a.Sends) == 0 {
 		t.host.SignalHalt()
 		return toolResult("dispatch", map[string]any{
@@ -222,9 +224,32 @@ func (t *DispatchTool) run(ctx context.Context, args json.RawMessage) string {
 		}, "Turn terminated silently. No delivery; history recorded.")
 	}
 
-	// Validate entire batch first (all-or-nothing on validation).
+	// Validate entire batch first (all-or-nothing on validation). Per-send
+	// validation runs before the user-progress rule so that specific errors
+	// (unknown to=, malformed task_id, missing session_key, caller-kind
+	// mismatch, etc.) get specific feedback instead of being shadowed by a
+	// generic "no user-facing target" message.
 	if errs := t.validateAll(a.Sends); len(errs) > 0 {
 		return buildDispatchErrorResult(errs)
+	}
+
+	// User-progress enforcement: on a user-facing session woken
+	// "interactively" — by the channel user OR by another session (peer
+	// asking, child reporting back via child_completed) — a non-empty
+	// dispatch call MUST include a user-facing target (to=user or
+	// to=caller:user). Otherwise the user gets no progress update from this
+	// turn even though real work happened (subagents spawned, peers
+	// notified, etc.). System wakes (cron / heartbeat / compression /
+	// resume / rephrase) are exempt — silent skip is part of their design.
+	//
+	// Escape valve: the model can still skip dispatch entirely and let
+	// naive assistant text auto-route to the user via the default sink, OR
+	// call dispatch({}) to deliberately stay silent (handled above).
+	callerKind, _, _ := t.host.CallerInfo()
+	enforceUserProgress := t.host.IsUserFacing() &&
+		(callerKind == msg.CallerKindUser || callerKind == msg.CallerKindSession)
+	if enforceUserProgress && !batchHasUserFacingSend(a.Sends) {
+		return buildUserDispatchRequiredResult(a.Sends)
 	}
 
 	// Execute. Partial failure possible — SignalHalt either way.
@@ -461,6 +486,37 @@ func hasReachedUser(executed []ExecutedItem) bool {
 }
 
 const noUserReminder = "Reminder: this dispatch had no to=user entry. Any reply above went to another AI session, not to your channel user. Unless you explicitly dispatch(to=user), nothing in this turn is visible to the human user."
+
+// batchHasUserFacingSend reports whether the batch contains at least one send
+// that delivers to the channel user (to=user or to=caller:user). Empty batch
+// is treated as not user-facing.
+func batchHasUserFacingSend(sends []DispatchSend) bool {
+	for _, s := range sends {
+		if s.To == TargetUser || s.To == TargetCallerUser {
+			return true
+		}
+	}
+	return false
+}
+
+// buildUserDispatchRequiredResult is the validation-error response when a
+// user-facing session (woken interactively by user or another session)
+// produced a non-empty dispatch with no user-facing target. The turn
+// continues so the model can re-call. Note: dispatch({}) is intentionally
+// allowed elsewhere as the silent-termination escape valve and never reaches
+// this function.
+func buildUserDispatchRequiredResult(sends []DispatchSend) string {
+	var sb strings.Builder
+	sb.WriteString("Validation failed — no sends were executed. Fix and re-call dispatch; the turn continues.\n\n")
+	fmt.Fprintf(&sb, "Reason: this is a user-facing session and the wake came from the user or a peer session, so any non-empty dispatch MUST include a user-facing target (to=user or to=caller:user) so the user sees progress. Your batch had %d send(s) but none targeted the user — work happened (subagent / fork / session / caller:session) but the user got nothing.\n\n", len(sends))
+	sb.WriteString("Fix by ONE of:\n")
+	sb.WriteString("  1. Add a to=caller:user (or to=user) send to the batch with a brief progress message — e.g. dispatch(sends=[{to: \"caller:user\", body: \"Working on it — will report back.\"}, ...your other sends...]).\n")
+	sb.WriteString("  2. Skip dispatch entirely this turn and let your assistant text auto-deliver to the user (works for plain reply-to-user turns).\n")
+	sb.WriteString("  3. Genuinely have nothing to say AND nothing to spawn? Use dispatch({}) for silent termination (always allowed, highest priority).\n")
+	return toolResult("dispatch", map[string]any{
+		"outcome": "validation-error",
+	}, strings.TrimRight(sb.String(), "\n"))
+}
 
 func buildDispatchErrorResult(errs []DispatchError) string {
 	var sb strings.Builder

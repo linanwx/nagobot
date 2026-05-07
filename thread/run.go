@@ -283,21 +283,43 @@ func (t *Thread) executeRunner(ctx, runCtx context.Context, p provider.Provider,
 			if sink.Chunkable {
 				if err := sink.Send(ctx, m.Content); err != nil {
 					logger.Warn("intermediate delivery failed", "key", t.sessionKey, "sink", sink.Label, "err", err)
-				} else {
-					t.markDefaultReplyForwarded()
 				}
 			}
 		} else {
 			// Final response: deliver with retry.
 			if err := sink.WithRetry(3).Send(ctx, m.Content); err != nil {
 				logger.Warn("final delivery failed", "key", t.sessionKey, "sink", sink.Label, "err", err)
-			} else {
-				t.markDefaultReplyForwarded()
 			}
 		}
 	})
 
 	runner.OnIterationEnd(injectFn)
+
+	// OnNoToolCalls: enforce explicit dispatch on wake sources where naive
+	// text routing is ambiguous (currently WakeSession — covers peer-asked
+	// and child-completed). The hook suppresses the about-to-fire sink
+	// delivery and returns a system reminder; the runner persists the
+	// rejected text, appends the reminder, and iterates again until the
+	// model emits dispatch (or maxIterations aborts).
+	runner.OnNoToolCalls(func(_ string) []provider.Message {
+		t.mu.Lock()
+		src := t.lastWakeSource
+		peerKey := t.currentCallerKey
+		t.mu.Unlock()
+		if !src.RequiresExplicitDispatch() {
+			return nil
+		}
+		if peerKey == "" {
+			return nil
+		}
+		t.SetSuppressSink()
+		payload := buildCrossThreadDispatchRequiredPayload(peerKey, time.Now().In(t.location()))
+		return []provider.Message{{
+			Role:    "user",
+			Content: payload,
+			Source:  sourceCrossThreadDispatchRequired,
+		}}
+	})
 	runCtx = provider.WithSessionKey(runCtx, t.sessionKey)
 	response, err = runner.RunWithMessages(runCtx, messages)
 	usage = runner.TotalUsage()

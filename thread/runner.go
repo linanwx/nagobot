@@ -33,6 +33,7 @@ type Runner struct {
 	onMessage      func(provider.Message)            // optional: called for every message (assistant, tool, injected)
 	onEvent        func(event RunnerEvent, detail string) // optional: lifecycle events (tool calls, etc.)
 	onIterationEnd func() []provider.Message         // optional: called after each tool iteration; returned messages are injected before the next LLM call
+	onNoToolCalls  func(content string) []provider.Message // optional: called when the LLM emits a final response without tool calls; returning non-empty messages rejects the finish and forces another LLM iteration with those messages appended (the assistant's rejected text is still appended/persisted so the model sees its prior attempt). Used by cross-thread wakes to require explicit dispatch.
 	shouldHalt     func() bool                       // optional: if true, stop loop after current tool calls
 	onEstimationSample func(providerName, modelName string, ratio float64) // optional: called after each LLM call with the (real / estimated) total-token ratio
 	providerLabel   string             // effective provider name from last response
@@ -69,6 +70,18 @@ func (r *Runner) OnMessage(fn func(provider.Message)) { r.onMessage = fn }
 // completes, before the next LLM call. If it returns messages, they are
 // appended to the conversation (e.g. mid-execution user messages).
 func (r *Runner) OnIterationEnd(fn func() []provider.Message) { r.onIterationEnd = fn }
+
+// OnNoToolCalls sets a callback invoked when the LLM emits a final response
+// with no tool calls. It receives the assistant's text content. Returning a
+// non-empty message slice rejects the finish: the assistant's text is still
+// appended to history (so the model sees its rejected attempt), the returned
+// messages are appended after it, and the loop continues with another LLM
+// call. Returning nil or empty accepts the finish (current default).
+//
+// Side-effects allowed: the callback runs BEFORE the assistant message is
+// emitted via OnMessage, so it may call thread methods like SetSuppressSink
+// to gate sink delivery before the OnMessage handler decides whether to send.
+func (r *Runner) OnNoToolCalls(fn func(content string) []provider.Message) { r.onNoToolCalls = fn }
 
 // ShouldHalt sets a callback checked after each tool-call iteration.
 // If it returns true, the loop exits immediately without calling the LLM again.
@@ -219,16 +232,44 @@ func (r *Runner) RunWithMessages(ctx context.Context, messages []provider.Messag
 			if resp.Content != "" && !streamingSignaled && r.onEvent != nil {
 				r.onEvent(EventStreaming, "")
 			}
+
+			// Give the caller a chance to reject this no-tool-calls finish and
+			// inject system messages forcing another iteration (e.g. cross-thread
+			// wakes that require an explicit dispatch). The hook may also gate
+			// sink delivery before OnMessage fires (via SetSuppressSink etc).
+			var rejectionMsgs []provider.Message
+			if r.onNoToolCalls != nil {
+				rejectionMsgs = r.onNoToolCalls(resp.Content)
+			}
+
 			// Emit final response via onMessage — symmetric with the tool-calls path,
 			// so intermediates always contains the complete message set.
 			// The caller handles delivery (streaming content was already sent via
-			// OnStream; non-streaming delivery happens inside onMessage).
+			// OnStream; non-streaming delivery happens inside onMessage; rejection
+			// turns rely on the hook having suppressed the sink first).
+			assistantMsg := provider.AssistantMessageWithTools(resp.Content, resp.ReasoningContent, resp.ReasoningDetails, nil)
+			assistantMsg.ReasoningTokens = resp.Usage.ReasoningTokens
 			if r.onMessage != nil {
-				msg := provider.AssistantMessageWithTools(resp.Content, resp.ReasoningContent, resp.ReasoningDetails, nil)
-				msg.ReasoningTokens = resp.Usage.ReasoningTokens
-				r.onMessage(msg)
+				r.onMessage(assistantMsg)
 			}
-			return resp.Content, nil
+
+			if len(rejectionMsgs) == 0 {
+				return resp.Content, nil
+			}
+
+			// Rejection path: append assistant text + injected reminders so the
+			// next LLM call sees both, and continue iterating. iterations++ keeps
+			// the maxIterations cap honest in case the model keeps emitting naive
+			// text instead of dispatching.
+			messages = append(messages, assistantMsg)
+			for _, m := range rejectionMsgs {
+				messages = append(messages, m)
+				if r.onMessage != nil {
+					r.onMessage(m)
+				}
+			}
+			r.iterations++
+			continue
 		}
 
 		// Fallbacks: fire events if provider didn't signal during streaming.

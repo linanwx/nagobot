@@ -10,129 +10,11 @@ import (
 // Fixed reference time so payload tests don't depend on wall clock.
 var testPostTime = time.Date(2026, 4, 22, 10, 30, 0, 0, time.FixedZone("CST", 8*3600))
 
-// newThreadWithLoc creates a minimal Thread with the given location for
-// post-hook tests. The location path goes through cfg().SessionTimezoneFor,
-// which is absent here, so t.location() falls back to time.Now().Location().
-// Tests that need a deterministic time value call buildImplicitCallerForwardPayload
-// directly with a fixed timestamp instead of going through the hook.
-func newThreadWithLoc() *Thread {
-	return &Thread{
-		id:         "test-thread",
-		sessionKey: "discord:1480577226356789",
-	}
-}
-
-func TestImplicitCallerForwardHook_EmitsWarning(t *testing.T) {
-	th := newThreadWithLoc()
-	hook := th.implicitCallerForwardHook()
-
-	result := hook(context.Background(), postTurnContext{
-		ThreadID:              "th",
-		SessionKey:            "discord:1480577226356789",
-		WakeSource:            WakeSession,
-		CallerSessionKey:      "telegram:42",
-		IsUserFacing:          true,
-		DefaultReplyForwarded: true,
-	})
-
-	if len(result) != 1 {
-		t.Fatalf("expected 1 payload, got %d", len(result))
-	}
-	payload := result[0]
-	if !strings.Contains(payload, "source: implicit-caller-forward") {
-		t.Errorf("payload missing source frontmatter: %q", payload)
-	}
-	if !strings.Contains(payload, "sender: system") {
-		t.Errorf("payload missing sender: system: %q", payload)
-	}
-	if !strings.Contains(payload, "injected: true") {
-		t.Errorf("payload missing injected: true: %q", payload)
-	}
-	if !strings.Contains(payload, "forwarded to caller session telegram:42") {
-		t.Errorf("payload missing peerKey: %q", payload)
-	}
-	if !strings.Contains(payload, "The user receives nothing!") {
-		t.Errorf("payload must include user-receive-nothing warning: %q", payload)
-	}
-	if !strings.Contains(payload, "Think deeply when you generate a response") {
-		t.Errorf("payload must include deep-thinking guidance: %q", payload)
-	}
-}
-
-func TestImplicitCallerForwardHook_NonUserFacingStillEmits(t *testing.T) {
-	th := newThreadWithLoc()
-	hook := th.implicitCallerForwardHook()
-
-	result := hook(context.Background(), postTurnContext{
-		WakeSource:            WakeSession,
-		CallerSessionKey:      "discord:123",
-		IsUserFacing:          false,
-		DefaultReplyForwarded: true,
-	})
-
-	if len(result) != 1 {
-		t.Fatalf("expected 1 payload, got %d", len(result))
-	}
-	payload := result[0]
-	if !strings.Contains(payload, "forwarded to caller session discord:123") {
-		t.Errorf("payload missing peerKey: %q", payload)
-	}
-}
-
-func TestImplicitCallerForwardHook_WrongSourceReturnsNil(t *testing.T) {
-	th := newThreadWithLoc()
-	hook := th.implicitCallerForwardHook()
-
-	cases := []WakeSource{WakeTelegram, WakeDiscord, WakeCron, WakeHeartbeat, WakeCompression, WakeRephrase}
-	for _, src := range cases {
-		result := hook(context.Background(), postTurnContext{
-			WakeSource:            src,
-			CallerSessionKey:      "telegram:42",
-			IsUserFacing:          true,
-			DefaultReplyForwarded: true,
-		})
-		if result != nil {
-			t.Errorf("source=%s must return nil, got %v", src, result)
-		}
-	}
-}
-
-func TestImplicitCallerForwardHook_EmptyCallerKeyReturnsNil(t *testing.T) {
-	th := newThreadWithLoc()
-	hook := th.implicitCallerForwardHook()
-
-	result := hook(context.Background(), postTurnContext{
-		WakeSource:            WakeSession,
-		CallerSessionKey:      "",
-		IsUserFacing:          true,
-		DefaultReplyForwarded: true,
-	})
-	if result != nil {
-		t.Errorf("empty callerKey must return nil, got %v", result)
-	}
-}
-
-// When the default sink never actually delivered the LLM's text (e.g. LLM
-// emitted text alongside a dispatch tool call on a non-Chunkable sink), the
-// hook must NOT fire — the previous ResponseNonEmpty signal was a false
-// positive for this case.
-func TestImplicitCallerForwardHook_NotForwardedReturnsNil(t *testing.T) {
-	th := newThreadWithLoc()
-	hook := th.implicitCallerForwardHook()
-
-	result := hook(context.Background(), postTurnContext{
-		WakeSource:            WakeSession,
-		CallerSessionKey:      "telegram:42",
-		IsUserFacing:          true,
-		DefaultReplyForwarded: false,
-	})
-	if result != nil {
-		t.Errorf("no actual forward must return nil, got %v", result)
-	}
-}
-
-func TestBuildImplicitCallerForwardPayload_Structure(t *testing.T) {
-	payload := buildImplicitCallerForwardPayload("telegram:42", testPostTime)
+// TestBuildCrossThreadDispatchRequiredPayload_Structure verifies the
+// system-reminder payload shape used by the runner's OnNoToolCalls hook
+// when it rejects a naive (no-tool-call) reply on a cross-thread wake.
+func TestBuildCrossThreadDispatchRequiredPayload_Structure(t *testing.T) {
+	payload := buildCrossThreadDispatchRequiredPayload("telegram:42", testPostTime)
 
 	lines := strings.Split(payload, "\n")
 	if lines[0] != "---" {
@@ -148,10 +30,9 @@ func TestBuildImplicitCallerForwardPayload_Structure(t *testing.T) {
 	if headerEnd < 0 {
 		t.Fatalf("no closing --- found in payload: %q", payload)
 	}
-	// Required frontmatter fields must all appear between the two --- lines.
 	frontmatter := strings.Join(lines[1:headerEnd], "\n")
 	mustContain := []string{
-		"source: implicit-caller-forward",
+		"source: cross-thread-dispatch-required",
 		"sender: system",
 		"injected: true",
 		"time: 2026-04-22T10:30:00+08:00",
@@ -161,19 +42,42 @@ func TestBuildImplicitCallerForwardPayload_Structure(t *testing.T) {
 			t.Errorf("frontmatter missing %q; got:\n%s", needle, frontmatter)
 		}
 	}
-	// Body starts after a blank line following the closing ---.
 	if lines[headerEnd+1] != "" {
 		t.Errorf("expected blank line after closing ---, got %q", lines[headerEnd+1])
 	}
 	body := strings.Join(lines[headerEnd+2:], "\n")
-	if !strings.HasPrefix(body, "Warning! You are replying to the latest caller -") {
-		t.Errorf("body must start with the warning sentence, got: %q", body)
+	mustBodyContain := []string{
+		"caller is session telegram:42",
+		"rejected and NOT forwarded",
+		"dispatch(sends=[{to: \"caller:session\"",
+		"dispatch(sends=[{to: \"user\"",
+		"dispatch({})",
 	}
-	if !strings.Contains(body, "forwarded to caller session telegram:42") {
-		t.Errorf("body must name the peer session, got: %q", body)
+	for _, needle := range mustBodyContain {
+		if !strings.Contains(body, needle) {
+			t.Errorf("body missing %q; got:\n%s", needle, body)
+		}
 	}
-	if !strings.Contains(body, "Think deeply when you generate a response") {
-		t.Errorf("body must include deep-thinking guidance, got: %q", body)
+}
+
+// TestRequiresExplicitDispatch_Coverage verifies which WakeSources require
+// explicit dispatch on no-tool-calls. Only WakeSession does today (covers
+// peer-asked and child-completed both); other sources allow naive text.
+func TestRequiresExplicitDispatch_Coverage(t *testing.T) {
+	requires := []WakeSource{WakeSession}
+	allowsNaive := []WakeSource{
+		WakeTelegram, WakeDiscord, WakeWeb, WakeFeishu, WakeWeCom,
+		WakeCron, WakeHeartbeat, WakeCompression, WakeResume, WakeRephrase,
+	}
+	for _, src := range requires {
+		if !src.RequiresExplicitDispatch() {
+			t.Errorf("WakeSource(%q): expected RequiresExplicitDispatch()=true", src)
+		}
+	}
+	for _, src := range allowsNaive {
+		if src.RequiresExplicitDispatch() {
+			t.Errorf("WakeSource(%q): expected RequiresExplicitDispatch()=false", src)
+		}
 	}
 }
 

@@ -252,13 +252,12 @@ func (t *Thread) RunOnce(ctx context.Context) {
 	// the state accurately. Returned strings are persisted as user-role
 	// messages and become visible to subsequent turns.
 	t.persistPostInjections(t.runPostHooks(ctx, postTurnContext{
-		ThreadID:              t.id,
-		SessionKey:            t.sessionKey,
-		WakeSource:            msg.Source,
-		CallerSessionKey:      msg.CallerSessionKey,
-		IsUserFacing:          t.IsUserFacing(),
-		DefaultReplyForwarded: t.checkAndResetDefaultReplyForwarded(),
-		FinalReply:            response,
+		ThreadID:         t.id,
+		SessionKey:       t.sessionKey,
+		WakeSource:       msg.Source,
+		CallerSessionKey: msg.CallerSessionKey,
+		IsUserFacing:     t.IsUserFacing(),
+		FinalReply:       response,
 	}), msg.Source)
 
 	t.checkAndResetSinkSuppressed()

@@ -156,6 +156,24 @@ func IsUserVisibleSource(source WakeSource) bool {
 	return false
 }
 
+// RequiresExplicitDispatch reports whether a turn woken by this source must
+// terminate via the dispatch tool — naive text (no tool calls) is rejected
+// and the runner forces another iteration with a system reminder injected.
+//
+// Why: for these wake sources the destination of a naive reply is ambiguous
+// (e.g. WakeSession could mean reply-to-peer, alert-user, or both) and the
+// implicit auto-route is too easy to misuse. Forcing dispatch makes the
+// model's routing intent explicit and auditable.
+func (s WakeSource) RequiresExplicitDispatch() bool {
+	switch s {
+	case WakeSession:
+		// Includes both "peer session asked me a question" and
+		// "child subagent/fork reported back" — both arrive as WakeSession.
+		return true
+	}
+	return false
+}
+
 // CallerKind is the high-level classification of a wake's caller, used by
 // dispatch's caller:user / caller:session validation.
 type CallerKind string

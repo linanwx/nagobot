@@ -10,11 +10,13 @@ import (
 	"github.com/linanwx/nagobot/provider"
 )
 
-// sourceImplicitCallerForward is the `source:` frontmatter tag used on the
-// system-reminder messages this package appends after an implicit caller
-// forward. Not a WakeSource — no thread is woken by this tag; it only appears
-// in persisted session history as an audit crumb.
-const sourceImplicitCallerForward = "implicit-caller-forward"
+// sourceCrossThreadDispatchRequired is the `source:` frontmatter tag used on
+// the system-reminder messages injected mid-turn when a cross-thread (WakeSession)
+// turn produced a no-tool-calls reply. Not a WakeSource — no thread is woken
+// by this tag; it appears in persisted session history (and the in-flight
+// runner messages) so the model sees its rejected attempt followed by the
+// requirement to use dispatch.
+const sourceCrossThreadDispatchRequired = "cross-thread-dispatch-required"
 
 // postTurnHook runs after a turn completes. Returned strings are persisted as
 // user-role messages in session.jsonl and become part of subsequent turns'
@@ -25,13 +27,12 @@ type postTurnHook func(ctx context.Context, ptc postTurnContext) []string
 // ThreadID and SessionKey are populated for logging only; hooks should make
 // decisions from the remaining fields, not from identity strings.
 type postTurnContext struct {
-	ThreadID              string
-	SessionKey            string
-	WakeSource            WakeSource
-	CallerSessionKey      string // peer session when WakeSource == WakeSession; empty otherwise
-	IsUserFacing          bool
-	DefaultReplyForwarded bool   // true when the default sink actually delivered assistant text this turn (as opposed to "LLM emitted text" which may have been dropped because sink is not Chunkable)
-	FinalReply            string // raw final assistant text this turn; consumed by hooks that want to surface a preview of what was forwarded
+	ThreadID         string
+	SessionKey       string
+	WakeSource       WakeSource
+	CallerSessionKey string // peer session when WakeSource == WakeSession; empty otherwise
+	IsUserFacing     bool
+	FinalReply       string // raw final assistant text this turn; consumed by hooks that want to surface a preview of what was forwarded
 }
 
 func (t *Thread) registerPostHook(h postTurnHook) {
@@ -137,37 +138,26 @@ func (t *Thread) persistPostInjections(payloads []string, source WakeSource) {
 	}
 }
 
-// implicitCallerForwardHook records an outbound breadcrumb whenever a turn
-// ended with naive final text being implicitly routed back to the waking peer
-// session via the paired caller sink. The explicit dispatch(to=caller:session)
-// path already leaves a tool result documenting the routing; the implicit
-// path does not, leaving subsequent turns unable to see that the text left
-// the session. Fires only when the default sink actually delivered the text
-// (DefaultReplyForwarded); turns where the LLM emitted text but it was dropped
-// at the sink (e.g. non-Chunkable sink + tool_calls) do NOT trigger.
-func (t *Thread) implicitCallerForwardHook() postTurnHook {
-	return func(_ context.Context, ptc postTurnContext) []string {
-		if ptc.WakeSource != WakeSession {
-			return nil
-		}
-		if ptc.CallerSessionKey == "" {
-			return nil
-		}
-		if !ptc.DefaultReplyForwarded {
-			return nil
-		}
-		return []string{buildImplicitCallerForwardPayload(ptc.CallerSessionKey, time.Now().In(t.location()))}
-	}
-}
-
-// buildImplicitCallerForwardPayload renders the system-reminder payload that
-// gets appended to session.jsonl after an implicit caller-forward turn.
-func buildImplicitCallerForwardPayload(peerKey string, now time.Time) string {
-	body := "Warning! You are replying to the latest caller - your reply has been forwarded to caller session " + peerKey + ". The user receives nothing! Are you sure this is what you want?\n\nThink deeply when you generate a response: if you want to reply to the latest caller (user or session), generate the response. Otherwise, it's better to use dispatch to respond."
+// buildCrossThreadDispatchRequiredPayload renders the system reminder injected
+// mid-turn (via the runner's OnNoToolCalls hook) when a cross-thread
+// (WakeSession) wake produced a reply with no tool calls. The reply has been
+// suppressed (NOT forwarded to the peer); the model must redo the turn with
+// an explicit dispatch.
+func buildCrossThreadDispatchRequiredPayload(peerKey string, now time.Time) string {
+	body := fmt.Sprintf(
+		"Cross-thread wake (caller is session %s) requires an explicit dispatch — your prior reply was rejected and NOT forwarded to the peer. Nothing was delivered.\n\n"+
+			"Re-issue the turn with one of:\n"+
+			"  - dispatch(sends=[{to: \"caller:session\", body: \"...\"}]) — reply to the peer session\n"+
+			"  - dispatch(sends=[{to: \"user\", body: \"...\"}]) — alert your channel user instead (only if user-facing)\n"+
+			"  - dispatch({}) — silently end the turn\n"+
+			"  - dispatch(sends=[{to: \"session\", session_key: \"...\", body: \"...\"}]) — wake a different session\n\n"+
+			"Naive text content alongside cross-thread wakes is ambiguous (could mean reply-to-peer, alert-user, or both) and is no longer auto-routed; pick a target explicitly.",
+		peerKey,
+	)
 
 	var sb strings.Builder
 	sb.WriteString("---\n")
-	fmt.Fprintf(&sb, "source: %s\n", sourceImplicitCallerForward)
+	fmt.Fprintf(&sb, "source: %s\n", sourceCrossThreadDispatchRequired)
 	fmt.Fprintf(&sb, "time: %s\n", formatWakeTime(now))
 	sb.WriteString("sender: system\n")
 	sb.WriteString("---\n\n")

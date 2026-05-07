@@ -363,16 +363,70 @@ func TestDispatch_NoReminderWhenCallerUser(t *testing.T) {
 }
 
 // caller:session goes to another session, NOT the user. The reminder must fire.
-func TestDispatch_ReminderWhenCallerSession(t *testing.T) {
+// On a user-facing session woken by a peer (callerKind=session, e.g. parent
+// receiving child_completed), dispatch with no user-facing target is now a
+// hard validation error — the user must see progress. Previously this case
+// only emitted a soft "noUserReminder" appended to a successful result.
+func TestDispatch_UserFacingSessionCallerRejectedWithoutUserTarget(t *testing.T) {
 	host := &mockDispatchHost{
 		currentKey: "telegram:42",
 		callerKind: "session",
 		callerKey:  "cli",
 		userFacing: true,
 	}
-	_, res := runDispatch(t, host, `{"sends": [{"to": "caller:session", "body": "hi"}]}`)
-	if !strings.Contains(res, "no to=user entry") {
-		t.Errorf("noUserReminder must fire when caller is a peer session; got:\n%s", res)
+	outcome, res := runDispatch(t, host, `{"sends": [{"to": "caller:session", "body": "hi"}]}`)
+	if outcome != "validation-error" {
+		t.Fatalf("outcome=%q, want validation-error; full result:\n%s", outcome, res)
+	}
+	if !strings.Contains(res, "user-facing target") {
+		t.Errorf("expected user-progress rejection text; got:\n%s", res)
+	}
+	if host.halted {
+		t.Error("validation error must not halt the turn")
+	}
+	if host.sentToCaller != "" {
+		t.Errorf("rejected dispatch must not deliver; got sentToCaller=%q", host.sentToCaller)
+	}
+}
+
+// Adding a to=user (or to=caller:user) send to the same scenario satisfies
+// the user-progress rule and the dispatch executes normally.
+func TestDispatch_UserFacingSessionCallerAcceptedWithUserTarget(t *testing.T) {
+	host := &mockDispatchHost{
+		currentKey: "telegram:42",
+		callerKind: "session",
+		callerKey:  "cli",
+		userFacing: true,
+	}
+	outcome, _ := runDispatch(t, host, `{"sends": [
+		{"to": "user", "body": "child reported back: ..."},
+		{"to": "caller:session", "body": "ack"}
+	]}`)
+	if outcome != "turn-terminated" {
+		t.Fatalf("outcome=%q, want turn-terminated", outcome)
+	}
+	if host.sentToUser == "" {
+		t.Error("expected to=user delivery to fire")
+	}
+	if host.sentToCaller == "" {
+		t.Error("expected to=caller:session delivery to fire")
+	}
+}
+
+// dispatch({}) is the silent-termination escape valve — ALWAYS allowed,
+// even on a user-facing session woken interactively. Highest priority.
+func TestDispatch_EmptySendsAllowedOnUserFacingSession(t *testing.T) {
+	host := &mockDispatchHost{
+		currentKey: "telegram:42",
+		callerKind: "user",
+		userFacing: true,
+	}
+	outcome, _ := runDispatch(t, host, `{"sends": []}`)
+	if outcome != "turn-terminated-silent" {
+		t.Fatalf("outcome=%q, want turn-terminated-silent (dispatch({}) is unconditional)", outcome)
+	}
+	if !host.halted {
+		t.Error("dispatch({}) must SignalHalt")
 	}
 }
 

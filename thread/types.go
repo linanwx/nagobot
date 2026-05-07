@@ -126,7 +126,6 @@ type Thread struct {
 	lastWakeSource        msg.WakeSource // Source of the most recent wake (set at RunOnce start).
 	suppressSink          bool           // When true, RunOnce skips sink delivery (reset after each turn).
 	haltLoop              bool           // When true, Runner stops after current tool calls complete.
-	defaultReplyForwarded bool           // When true, the default sink actually delivered assistant text this turn (reset after each turn). Used by implicitCallerForwardHook.
 	currentSink           Sink           // Current turn's active sink (set by run(), cleared on turn end). Used by dispatch(to=caller:*).
 	currentCallerKey      string         // Caller session key for the current wake; empty for user/system wakes.
 
