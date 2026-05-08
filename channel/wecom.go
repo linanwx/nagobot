@@ -15,7 +15,6 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
-	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -768,7 +767,7 @@ func (w *WeComChannel) handleMixedMsg(items []struct {
 	} `json:"image,omitempty"`
 }, metadata map[string]string) string {
 	var parts []string
-	imgIdx := 0
+	var summaries []string
 	for _, item := range items {
 		switch item.MsgType {
 		case "text":
@@ -778,16 +777,14 @@ func (w *WeComChannel) handleMixedMsg(items []struct {
 		case "image":
 			if item.Image != nil {
 				if path := downloadWeComMedia(w.mediaDir, item.Image.URL, item.Image.AESKey); path != "" {
-					key := "media_summary"
-					if imgIdx > 0 {
-						key = "media_summary_" + strconv.Itoa(imgIdx)
-					}
-					metadata[key] = MediaSummary("photo", "image_path", path)
-					imgIdx++
+					summaries = append(summaries, MediaSummary("photo", "image_path", path))
 					parts = append(parts, "[Image]")
 				}
 			}
 		}
+	}
+	if len(summaries) > 0 {
+		metadata["media_summary"] = strings.Join(summaries, "\n\n")
 	}
 	if len(parts) == 0 {
 		return "[Mixed message]"
