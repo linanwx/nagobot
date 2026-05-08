@@ -278,7 +278,84 @@ func newOpenRouterProvider(apiKey, apiBase, modelType, modelName string, maxToke
 func toOpenAIChatMessages(messages []Message, visionCapable, audioCapable, pdfCapable bool) ([]openai.ChatCompletionMessageParamUnion, error) {
 	result := make([]openai.ChatCompletionMessageParamUnion, 0, len(messages))
 
+	// Pending media parts accumulated across consecutive tool messages. OpenAI
+	// requires every tool message after assistant.tool_calls to appear back-to-
+	// back, so we cannot inject a synthetic user message between them. Instead
+	// we defer all media into a single synthetic user message that is flushed
+	// when we hit the next non-tool role (or end of loop).
+	var pendingParts []openai.ChatCompletionContentPartUnionParam
+	var pendingMarkers []MediaMarker
+	flushPendingMedia := func() {
+		if len(pendingParts) == 0 {
+			return
+		}
+		var hint strings.Builder
+		hint.WriteString("[Media returned by the tool call(s) above:")
+		for _, marker := range pendingMarkers {
+			hint.WriteString("\n- ")
+			hint.WriteString(marker.FilePath)
+			hint.WriteString(" (")
+			hint.WriteString(marker.MimeType)
+			hint.WriteString(")")
+		}
+		hint.WriteString("]")
+		parts := append([]openai.ChatCompletionContentPartUnionParam{
+			openai.TextContentPart(hint.String()),
+		}, pendingParts...)
+		result = append(result, openai.ChatCompletionMessageParamUnion{
+			OfUser: &openai.ChatCompletionUserMessageParam{
+				Content: openai.ChatCompletionUserMessageParamContentUnion{
+					OfArrayOfContentParts: parts,
+				},
+			},
+		})
+		pendingParts = nil
+		pendingMarkers = nil
+	}
+
+	collectMediaPart := func(marker MediaMarker) {
+		isImage := strings.HasPrefix(marker.MimeType, "image/")
+		isAudio := strings.HasPrefix(marker.MimeType, "audio/")
+		isPDF := marker.MimeType == "application/pdf"
+		if (isImage && !visionCapable) || (isAudio && !audioCapable) || (isPDF && !pdfCapable) {
+			return
+		}
+		if !isImage && !isAudio && !isPDF {
+			return
+		}
+		b64, err := ReadFileAsBase64(marker.FilePath)
+		if err != nil {
+			return
+		}
+		if isImage || isPDF {
+			pendingParts = append(pendingParts, openai.ChatCompletionContentPartUnionParam{
+				OfImageURL: &openai.ChatCompletionContentPartImageParam{
+					ImageURL: openai.ChatCompletionContentPartImageImageURLParam{
+						URL: "data:" + marker.MimeType + ";base64," + b64,
+					},
+				},
+			})
+		} else if isAudio {
+			ext := strings.TrimPrefix(marker.MimeType, "audio/")
+			if ext == "mpeg" {
+				ext = "mp3"
+			}
+			pendingParts = append(pendingParts, openai.InputAudioContentPart(
+				openai.ChatCompletionContentPartInputAudioInputAudioParam{
+					Data:   b64,
+					Format: ext,
+				},
+			))
+		}
+		pendingMarkers = append(pendingMarkers, marker)
+	}
+
 	for _, m := range messages {
+		// Any non-tool role breaks the assistant→tool→tool→… chain, so flush
+		// the deferred synthetic-user (media) message before emitting it.
+		if m.Role != "tool" {
+			flushPendingMedia()
+		}
 		switch m.Role {
 		case "system":
 			result = append(result, openai.SystemMessage(m.Content))
@@ -335,130 +412,18 @@ func toOpenAIChatMessages(messages []Message, visionCapable, audioCapable, pdfCa
 		case "tool":
 			cleanedText, markers := ParseMediaMarkers(m.Content)
 			result = append(result, openai.ToolMessage(cleanedText, m.ToolCallID))
-			// Chat Completions doesn't support media in tool messages.
-			// Inject a synthetic user message with media content as a workaround.
-			if len(markers) > 0 {
-				var parts []openai.ChatCompletionContentPartUnionParam
-				for _, marker := range markers {
-					isImage := strings.HasPrefix(marker.MimeType, "image/")
-					isAudio := strings.HasPrefix(marker.MimeType, "audio/")
-					isPDF := marker.MimeType == "application/pdf"
-					if (isImage && !visionCapable) || (isAudio && !audioCapable) || (isPDF && !pdfCapable) {
-						continue
-					}
-					if !isImage && !isAudio && !isPDF {
-						continue
-					}
-					b64, err := ReadFileAsBase64(marker.FilePath)
-					if err != nil {
-						continue
-					}
-					if isImage || isPDF {
-						parts = append(parts, openai.ChatCompletionContentPartUnionParam{
-							OfImageURL: &openai.ChatCompletionContentPartImageParam{
-								ImageURL: openai.ChatCompletionContentPartImageImageURLParam{
-									URL: "data:" + marker.MimeType + ";base64," + b64,
-								},
-							},
-						})
-					} else if isAudio {
-						// OpenRouter input_audio format.
-						ext := strings.TrimPrefix(marker.MimeType, "audio/")
-						if ext == "mpeg" {
-							ext = "mp3"
-						}
-						parts = append(parts, openai.InputAudioContentPart(
-							openai.ChatCompletionContentPartInputAudioInputAudioParam{
-								Data:   b64,
-								Format: ext,
-							},
-						))
-					}
-				}
-				if len(parts) > 0 {
-					// Build descriptive hint listing each media file.
-					var hint strings.Builder
-					hint.WriteString("[Media returned by the tool call above:")
-					for _, marker := range markers {
-						hint.WriteString("\n- ")
-						hint.WriteString(marker.FilePath)
-						hint.WriteString(" (")
-						hint.WriteString(marker.MimeType)
-						hint.WriteString(")")
-					}
-					hint.WriteString("]")
-					parts = append([]openai.ChatCompletionContentPartUnionParam{
-						openai.TextContentPart(hint.String()),
-					}, parts...)
-					result = append(result, openai.ChatCompletionMessageParamUnion{
-						OfUser: &openai.ChatCompletionUserMessageParam{
-							Content: openai.ChatCompletionUserMessageParamContentUnion{
-								OfArrayOfContentParts: parts,
-							},
-						},
-					})
-				}
+			// Chat Completions doesn't support media in tool messages. Defer
+			// the media into a synthetic user message that is flushed after
+			// the run of consecutive tool messages ends — otherwise we would
+			// break OpenAI's "tool messages must follow tool_calls back-to-
+			// back" contract on parallel tool calls.
+			for _, marker := range markers {
+				collectMediaPart(marker)
 			}
-			// Process explicit media attachments (tool role).
 			if len(m.Media) > 0 {
 				_, mediaMarkers := ParseMediaMarkers(strings.Join(m.Media, "\n"))
-				var mediaParts []openai.ChatCompletionContentPartUnionParam
 				for _, marker := range mediaMarkers {
-					isImage := strings.HasPrefix(marker.MimeType, "image/")
-					isAudio := strings.HasPrefix(marker.MimeType, "audio/")
-					isPDF := marker.MimeType == "application/pdf"
-					if (isImage && !visionCapable) || (isAudio && !audioCapable) || (isPDF && !pdfCapable) {
-						continue
-					}
-					if !isImage && !isAudio && !isPDF {
-						continue
-					}
-					b64, err := ReadFileAsBase64(marker.FilePath)
-					if err != nil {
-						continue
-					}
-					if isImage || isPDF {
-						mediaParts = append(mediaParts, openai.ChatCompletionContentPartUnionParam{
-							OfImageURL: &openai.ChatCompletionContentPartImageParam{
-								ImageURL: openai.ChatCompletionContentPartImageImageURLParam{
-									URL: "data:" + marker.MimeType + ";base64," + b64,
-								},
-							},
-						})
-					} else if isAudio {
-						ext := strings.TrimPrefix(marker.MimeType, "audio/")
-						if ext == "mpeg" {
-							ext = "mp3"
-						}
-						mediaParts = append(mediaParts, openai.InputAudioContentPart(
-							openai.ChatCompletionContentPartInputAudioInputAudioParam{
-								Data:   b64,
-								Format: ext,
-							},
-						))
-					}
-				}
-				if len(mediaParts) > 0 {
-					var hint strings.Builder
-					hint.WriteString("[Media returned by the tool call above:")
-					for _, marker := range mediaMarkers {
-						hint.WriteString("\n- ")
-						hint.WriteString(marker.FilePath)
-						hint.WriteString(" (")
-						hint.WriteString(marker.MimeType)
-						hint.WriteString(")")
-					}
-					hint.WriteString("]")
-					mediaParts = append([]openai.ChatCompletionContentPartUnionParam{
-						openai.TextContentPart(hint.String()),
-					}, mediaParts...)
-					result = append(result, openai.ChatCompletionMessageParamUnion{
-						OfUser: &openai.ChatCompletionUserMessageParam{
-							Content: openai.ChatCompletionUserMessageParamContentUnion{
-								OfArrayOfContentParts: mediaParts,
-							},
-						},
-					})
+					collectMediaPart(marker)
 				}
 			}
 		case "assistant":
@@ -505,6 +470,8 @@ func toOpenAIChatMessages(messages []Message, visionCapable, audioCapable, pdfCa
 			return nil, fmt.Errorf("unsupported message role: %s", m.Role)
 		}
 	}
+	// Flush any media deferred from a trailing run of tool messages.
+	flushPendingMedia()
 
 	return result, nil
 }
