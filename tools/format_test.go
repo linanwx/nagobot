@@ -3,9 +3,19 @@ package tools
 import (
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/linanwx/nagobot/thread/msg"
 )
+
+// stubNow temporarily overrides nowFn for deterministic timestamps.
+// Returns a restore function — defer it.
+func stubNow(t *testing.T, fixed time.Time) {
+	t.Helper()
+	orig := nowFn
+	nowFn = func() time.Time { return fixed }
+	t.Cleanup(func() { nowFn = orig })
+}
 
 // ---------- toolResult ----------
 
@@ -22,6 +32,11 @@ func TestToolResult_BasicShape(t *testing.T) {
 	if got := msg.LookupScalar(mapping, "status"); got != "ok" {
 		t.Errorf("status = %q", got)
 	}
+	if got := msg.LookupScalar(mapping, "time"); got == "" {
+		t.Errorf("time field missing")
+	} else if _, err := time.Parse(time.RFC3339, got); err != nil {
+		t.Errorf("time field not RFC3339: %q (%v)", got, err)
+	}
 	if got := msg.LookupScalar(mapping, "path"); got != "/tmp/x" {
 		t.Errorf("path = %q", got)
 	}
@@ -37,11 +52,40 @@ func TestToolResult_KeyOrder(t *testing.T) {
 	out := toolResult("foo", map[string]any{"zzz": 1, "aaa": 2, "mid": 3}, "")
 	tIdx := strings.Index(out, "tool:")
 	sIdx := strings.Index(out, "status:")
+	tmIdx := strings.Index(out, "time:")
 	aIdx := strings.Index(out, "aaa:")
 	mIdx := strings.Index(out, "mid:")
 	zIdx := strings.Index(out, "zzz:")
-	if !(tIdx < sIdx && sIdx < aIdx && aIdx < mIdx && mIdx < zIdx) {
-		t.Errorf("expected order tool<status<aaa<mid<zzz, got:\n%s", out)
+	if !(tIdx < sIdx && sIdx < tmIdx && tmIdx < aIdx && aIdx < mIdx && mIdx < zIdx) {
+		t.Errorf("expected order tool<status<time<aaa<mid<zzz, got:\n%s", out)
+	}
+}
+
+func TestToolResult_TimeRoundTrips(t *testing.T) {
+	fixed := time.Date(2026, 5, 9, 12, 34, 56, 0, time.UTC)
+	stubNow(t, fixed)
+	out := toolResult("foo", nil, "")
+	mapping, _, ok := msg.ParseFrontmatter(out)
+	if !ok {
+		t.Fatalf("not parseable: %s", out)
+	}
+	got := msg.LookupScalar(mapping, "time")
+	want := fixed.Format(time.RFC3339)
+	if got != want {
+		t.Errorf("time = %q, want %q", got, want)
+	}
+}
+
+func TestToolError_HasTime(t *testing.T) {
+	fixed := time.Date(2026, 5, 9, 1, 2, 3, 0, time.UTC)
+	stubNow(t, fixed)
+	out := toolError("foo", "boom")
+	mapping, _, ok := msg.ParseFrontmatter(out)
+	if !ok {
+		t.Fatalf("not parseable: %s", out)
+	}
+	if got := msg.LookupScalar(mapping, "time"); got != fixed.Format(time.RFC3339) {
+		t.Errorf("time = %q", got)
 	}
 }
 
@@ -87,6 +131,8 @@ func TestToolResult_EmptyBody(t *testing.T) {
 
 func TestToolResult_Determinism(t *testing.T) {
 	// Map iteration order is randomized; output must be stable.
+	// Stub time so the timestamp doesn't tick mid-loop.
+	stubNow(t, time.Date(2026, 5, 9, 12, 0, 0, 0, time.UTC))
 	fields := map[string]any{"a": 1, "b": 2, "c": 3, "d": 4, "e": 5}
 	first := toolResult("foo", fields, "body")
 	for i := 0; i < 30; i++ {

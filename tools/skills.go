@@ -97,7 +97,7 @@ func (t *UseSkillTool) run(ctx context.Context, args json.RawMessage) string {
 		prompt = strings.ReplaceAll(prompt, "{{SKILLDIR}}", dir)
 	}
 
-	header := skillHeader{Skill: a.Name}
+	header := skillHeader{Skill: a.Name, Time: nowStamp()}
 	if dir != "" {
 		header.Dir = dir
 	}
@@ -110,5 +110,6 @@ func (t *UseSkillTool) run(ctx context.Context, args json.RawMessage) string {
 
 type skillHeader struct {
 	Skill string `yaml:"skill"`
+	Time  string `yaml:"time"`
 	Dir   string `yaml:"dir,omitempty"`
 }
