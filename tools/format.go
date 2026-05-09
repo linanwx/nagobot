@@ -1,17 +1,28 @@
 package tools
 
 import (
+	"time"
+
 	"github.com/linanwx/nagobot/thread/msg"
 )
 
+// nowFn returns the current time. Indirection so tests can stub it.
+var nowFn = time.Now
+
+// nowStamp formats the current time as RFC3339 in local timezone.
+// RFC3339 is self-describing — the offset is included.
+func nowStamp() string {
+	return nowFn().Format(time.RFC3339)
+}
+
 // toolResult builds a YAML frontmatter + body tool result via msg.* helpers
 // so quoting, escaping, and multi-line value handling are correct by
-// construction. The "tool" field is always first, then "status: ok", then
-// remaining fields in sorted order. body is appended verbatim after a blank
-// line; pass body="" for header-only output.
+// construction. Leading fields are "tool", "status: ok", "time: <RFC3339>";
+// remaining fields are appended in sorted order. body is appended verbatim
+// after a blank line; pass body="" for header-only output.
 func toolResult(tool string, fields map[string]any, body string) string {
 	mapping, err := msg.SortedFieldsMapping(
-		[][2]string{{"tool", tool}, {"status", "ok"}},
+		[][2]string{{"tool", tool}, {"status", "ok"}, {"time", nowStamp()}},
 		fields,
 	)
 	if err != nil {
@@ -28,7 +39,7 @@ func toolResult(tool string, fields map[string]any, body string) string {
 // Body starts with "Error: " for backward compatibility with legacy detection.
 func toolError(tool, message string) string {
 	mapping, err := msg.SortedFieldsMapping(
-		[][2]string{{"tool", tool}, {"status", "error"}},
+		[][2]string{{"tool", tool}, {"status", "error"}, {"time", nowStamp()}},
 		nil,
 	)
 	if err != nil {
