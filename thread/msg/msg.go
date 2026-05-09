@@ -206,4 +206,5 @@ type WakeMessage struct {
 	Sender            string            // Optional sender override (e.g. rephrase inherits original sender).
 	CallerSessionKey  string            // For Source=WakeSession: the session that woke us. Empty otherwise.
 	OnComplete        func(response string) // Called after the turn completes with the full response text.
+	EnqueuedAt        time.Time         // Set by Thread.Enqueue if zero. Used as the wake `time` field so the LLM sees enqueue time, not processing time.
 }

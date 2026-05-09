@@ -17,6 +17,9 @@ func (t *Thread) Enqueue(msg *WakeMessage) {
 	if msg == nil {
 		return
 	}
+	if msg.EnqueuedAt.IsZero() {
+		msg.EnqueuedAt = time.Now()
+	}
 	t.inbox <- msg
 	// Non-blocking notify: if signal already has a pending notification, skip.
 	select {
@@ -214,7 +217,7 @@ func (t *Thread) RunOnce(ctx context.Context) {
 	}
 	t.mu.Unlock()
 	sender := senderOrDefault(msg.Sender, msg.Source)
-	userMessage := buildWakePayload(msg.Source, msg.Message, t.id, t.sessionKey, sessionDir, deliveryLabel, modelLabel, agentName, loc, sender, msg.CallerSessionKey, msg.Vars)
+	userMessage := buildWakePayload(msg.Source, msg.Message, t.id, t.sessionKey, sessionDir, deliveryLabel, modelLabel, agentName, loc, sender, msg.CallerSessionKey, msg.EnqueuedAt, msg.Vars)
 
 	// Build injection function: between tool iterations, drain inbox for
 	// mergeable user messages and inject them into the LLM conversation.
@@ -226,7 +229,7 @@ func (t *Thread) RunOnce(ctx context.Context) {
 			select {
 			case next := <-t.inbox:
 				if canMerge(msg, next) {
-					payload := buildWakePayload(next.Source, next.Message, t.id, t.sessionKey, sessionDir, deliveryLabel, modelLabel, agentName, loc, senderOrDefault(next.Sender, next.Source), next.CallerSessionKey)
+					payload := buildWakePayload(next.Source, next.Message, t.id, t.sessionKey, sessionDir, deliveryLabel, modelLabel, agentName, loc, senderOrDefault(next.Sender, next.Source), next.CallerSessionKey, next.EnqueuedAt)
 					if payload != "" {
 						payload = markInjected(payload)
 						injected = append(injected, provider.UserMessage(payload))
@@ -280,7 +283,7 @@ func (t *Thread) RunOnce(ctx context.Context) {
 // buildWakePayload constructs the user message from a wake source and message.
 // Uses YAML frontmatter + markdown body so the AI knows the wake context
 // and the sender (user vs system).
-func buildWakePayload(source WakeSource, message, threadID, sessionKey, sessionDir, deliveryLabel, model, agent string, loc *time.Location, sender, callerSessionKey string, vars ...map[string]string) string {
+func buildWakePayload(source WakeSource, message, threadID, sessionKey, sessionDir, deliveryLabel, model, agent string, loc *time.Location, sender, callerSessionKey string, enqueuedAt time.Time, vars ...map[string]string) string {
 	message = strings.TrimSpace(message)
 	if message == "" {
 		return ""
@@ -289,7 +292,10 @@ func buildWakePayload(source WakeSource, message, threadID, sessionKey, sessionD
 		source = "unknown"
 	}
 
-	now := time.Now().In(loc)
+	if enqueuedAt.IsZero() {
+		enqueuedAt = time.Now()
+	}
+	now := enqueuedAt.In(loc)
 
 	delivery := deliveryLabel
 	if delivery == "" {

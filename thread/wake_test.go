@@ -17,7 +17,7 @@ func TestBuildWakePayload_SupportsVisionAudio(t *testing.T) {
 		"Hello with image",
 		"thread-1", "telegram:123", "/tmp/sessions/telegram:123",
 		"telegram delivery", "gemini/gemini-3-flash-preview", "soul",
-		loc, "user", "",
+		loc, "user", "", time.Time{},
 	)
 
 	if !strings.Contains(payload, "supports_vision: true") {
@@ -37,7 +37,7 @@ func TestBuildWakePayload_SystemSource_WithCapabilities(t *testing.T) {
 		"Heartbeat pulse",
 		"thread-1", "telegram:123", "/tmp/sessions/telegram:123",
 		"", "gemini/gemini-3-flash-preview", "soul",
-		loc, "system", "",
+		loc, "system", "", time.Time{},
 	)
 
 	if !strings.Contains(payload, "supports_vision: true") {
@@ -54,7 +54,7 @@ func TestBuildWakePayload_NoModel_NoMultimodalInfo(t *testing.T) {
 		"Hello",
 		"thread-1", "telegram:123", "/tmp/sessions/telegram:123",
 		"telegram delivery", "", "soul",
-		loc, "", "",
+		loc, "", "", time.Time{},
 	)
 
 	if strings.Contains(payload, "supports_vision") {
@@ -72,7 +72,7 @@ func TestBuildWakePayload_FalseCapabilities_Omitted(t *testing.T) {
 		"Hello",
 		"thread-1", "telegram:123", "/tmp/sessions/telegram:123",
 		"telegram delivery", "openrouter/z-ai/glm-5", "soul",
-		loc, "", "",
+		loc, "", "", time.Time{},
 	)
 
 	if strings.Contains(payload, "supports_vision") {
@@ -88,7 +88,7 @@ func TestBuildWakePayload_FalseCapabilities_Omitted(t *testing.T) {
 func TestMarkInjected_Basic(t *testing.T) {
 	loc := time.UTC
 	payload := buildWakePayload(
-		WakeTelegram, "Hi", "t-1", "telegram:1", "", "telegram delivery", "", "soul", loc, "user", "",
+		WakeTelegram, "Hi", "t-1", "telegram:1", "", "telegram delivery", "", "soul", loc, "user", "", time.Time{},
 	)
 	out := markInjected(payload)
 	if !strings.Contains(out, "injected: true") {
@@ -106,7 +106,7 @@ func TestMarkInjected_PreservesMultiLineActionScalar(t *testing.T) {
 		"the body content",
 		"t-1", "discord:s1", "/sessions/discord/s1",
 		"reply forwarded to caller", "", "soul",
-		loc, "system", "discord:s1:threads:foo",
+		loc, "system", "discord:s1:threads:foo", time.Time{},
 	)
 	if !strings.Contains(payload, "action: |") {
 		// Wake action hint may not always be a block scalar depending on
@@ -146,6 +146,43 @@ func TestMarkInjected_PreservesMultiLineActionScalar(t *testing.T) {
 		// AppendScalarPair appends unconditionally; this is expected behavior.
 		// We're documenting it: callers must ensure markInjected runs once.
 		t.Logf("note: markInjected adds another `injected` entry on each call (current behavior); count=%d", injectedCount)
+	}
+}
+
+func TestBuildWakePayload_UsesEnqueuedAt(t *testing.T) {
+	// When enqueuedAt is provided, the `time:` field must reflect that
+	// timestamp (rendered in the given location), not time.Now().
+	loc := time.FixedZone("UTC+8", 8*3600)
+	enqueued := time.Date(2026, 5, 9, 4, 5, 6, 0, time.UTC) // → 12:05:06+08:00
+
+	payload := buildWakePayload(
+		WakeTelegram, "hi",
+		"t-1", "telegram:1", "",
+		"telegram delivery", "", "soul",
+		loc, "user", "", enqueued,
+	)
+
+	if !strings.Contains(payload, "time: 2026-05-09T12:05:06+08:00") {
+		t.Errorf("expected enqueued time rendered in loc, got:\n%s", payload)
+	}
+}
+
+func TestBuildWakePayload_ZeroEnqueuedAtFallsBackToNow(t *testing.T) {
+	// Zero enqueuedAt → fall back to time.Now() so direct callers still work.
+	loc := time.UTC
+	payload := buildWakePayload(
+		WakeTelegram, "hi",
+		"t-1", "telegram:1", "",
+		"telegram delivery", "", "soul",
+		loc, "user", "", time.Time{},
+	)
+
+	if !strings.Contains(payload, "time: ") {
+		t.Errorf("payload missing time field:\n%s", payload)
+	}
+	// Year must be reasonable (not 0001).
+	if strings.Contains(payload, "time: 0001-") {
+		t.Errorf("zero enqueuedAt leaked into payload:\n%s", payload)
 	}
 }
 
