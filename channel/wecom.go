@@ -1006,6 +1006,9 @@ func decryptWeComFile(encrypted []byte, aesKeyB64 string) ([]byte, error) {
 }
 
 // detectExtFromMagic detects file extension from magic bytes.
+// For ZIP-based formats (OOXML), it peeks inside the archive to distinguish
+// docx/xlsx/pptx — WeCom's WebSocket protocol omits the original filename,
+// so filename-based detection alone leaves all office docs as .dat.
 func detectExtFromMagic(data []byte) string {
 	if len(data) < 4 {
 		return ""
@@ -1023,6 +1026,31 @@ func detectExtFromMagic(data []byte) string {
 		return ".mp4"
 	case data[0] == '%' && data[1] == 'P' && data[2] == 'D' && data[3] == 'F':
 		return ".pdf"
+	case data[0] == 'P' && data[1] == 'K' && (data[2] == 0x03 || data[2] == 0x05 || data[2] == 0x07):
+		return detectZipSubtype(data)
 	}
 	return ""
+}
+
+// detectZipSubtype peeks inside ZIP-based archives to identify OOXML variants
+// by scanning for well-known internal paths in the local file headers. Returns
+// the specific OOXML extension when matched, otherwise ".zip".
+func detectZipSubtype(data []byte) string {
+	// Scan up to first 4 MB — OOXML local file headers list all entry names
+	// near the start; central directory at the tail also lists them.
+	limit := len(data)
+	const scanCap = 4 << 20
+	if limit > scanCap {
+		limit = scanCap
+	}
+	s := string(data[:limit])
+	switch {
+	case strings.Contains(s, "word/document.xml"):
+		return ".docx"
+	case strings.Contains(s, "xl/workbook.xml"), strings.Contains(s, "xl/sharedStrings.xml"):
+		return ".xlsx"
+	case strings.Contains(s, "ppt/presentation.xml"), strings.Contains(s, "ppt/slides/"):
+		return ".pptx"
+	}
+	return ".zip"
 }
