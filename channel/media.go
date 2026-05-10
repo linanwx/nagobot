@@ -104,6 +104,11 @@ func extensionFromURL(url string) string {
 		return ext
 	case ".ogg", ".oga", ".mp3", ".wav", ".m4a", ".flac", ".aac", ".opus":
 		return ext
+	case ".pdf", ".docx", ".doc", ".xlsx", ".xls", ".pptx", ".ppt",
+		".csv", ".tsv", ".txt", ".md", ".rtf",
+		".json", ".xml", ".yaml", ".yml", ".html", ".htm",
+		".zip", ".tar", ".gz", ".7z", ".rar":
+		return ext
 	}
 	return ""
 }
@@ -132,6 +137,47 @@ func extensionFromContentType(ct string) string {
 		return ".flac"
 	case strings.HasPrefix(ct, "audio/aac"):
 		return ".aac"
+	// Document types.
+	case strings.HasPrefix(ct, "application/pdf"):
+		return ".pdf"
+	case strings.HasPrefix(ct, "application/vnd.openxmlformats-officedocument.wordprocessingml.document"):
+		return ".docx"
+	case strings.HasPrefix(ct, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"):
+		return ".xlsx"
+	case strings.HasPrefix(ct, "application/vnd.openxmlformats-officedocument.presentationml.presentation"):
+		return ".pptx"
+	case strings.HasPrefix(ct, "application/msword"):
+		return ".doc"
+	case strings.HasPrefix(ct, "application/vnd.ms-excel"):
+		return ".xls"
+	case strings.HasPrefix(ct, "application/vnd.ms-powerpoint"):
+		return ".ppt"
+	case strings.HasPrefix(ct, "application/rtf"), strings.HasPrefix(ct, "text/rtf"):
+		return ".rtf"
+	case strings.HasPrefix(ct, "text/csv"):
+		return ".csv"
+	case strings.HasPrefix(ct, "text/tab-separated-values"):
+		return ".tsv"
+	case strings.HasPrefix(ct, "text/markdown"):
+		return ".md"
+	case strings.HasPrefix(ct, "text/html"):
+		return ".html"
+	case strings.HasPrefix(ct, "text/xml"), strings.HasPrefix(ct, "application/xml"):
+		return ".xml"
+	case strings.HasPrefix(ct, "application/json"):
+		return ".json"
+	case strings.HasPrefix(ct, "application/zip"):
+		return ".zip"
+	case strings.HasPrefix(ct, "application/x-7z-compressed"):
+		return ".7z"
+	case strings.HasPrefix(ct, "application/x-rar-compressed"), strings.HasPrefix(ct, "application/vnd.rar"):
+		return ".rar"
+	case strings.HasPrefix(ct, "application/gzip"), strings.HasPrefix(ct, "application/x-gzip"):
+		return ".gz"
+	case strings.HasPrefix(ct, "application/x-tar"):
+		return ".tar"
+	case strings.HasPrefix(ct, "text/plain"):
+		return ".txt"
 	}
 	return ""
 }

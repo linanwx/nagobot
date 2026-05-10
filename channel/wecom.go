@@ -711,7 +711,7 @@ func (w *WeComChannel) handleMsgCallback(frame wsFrame) {
 		}
 	case "image":
 		if body.Image != nil {
-			if path := downloadWeComMedia(w.mediaDir, body.Image.URL, body.Image.AESKey); path != "" {
+			if path := downloadWeComMedia(w.mediaDir, body.Image.URL, body.Image.AESKey, ""); path != "" {
 				msg.Metadata["media_summary"] = MediaSummary("photo", "image_path", path)
 				msg.Text = "[Image received]"
 			} else {
@@ -724,7 +724,7 @@ func (w *WeComChannel) handleMsgCallback(frame wsFrame) {
 		}
 	case "file":
 		if body.File != nil {
-			if path := downloadWeComMedia(w.mediaDir, body.File.URL, body.File.AESKey); path != "" {
+			if path := downloadWeComMedia(w.mediaDir, body.File.URL, body.File.AESKey, body.File.FileName); path != "" {
 				msg.Metadata["media_summary"] = MediaSummary("file",
 					"file_name", body.File.FileName,
 					"file_path", path,
@@ -736,7 +736,7 @@ func (w *WeComChannel) handleMsgCallback(frame wsFrame) {
 		}
 	case "video":
 		if body.Video != nil {
-			if path := downloadWeComMedia(w.mediaDir, body.Video.URL, body.Video.AESKey); path != "" {
+			if path := downloadWeComMedia(w.mediaDir, body.Video.URL, body.Video.AESKey, ""); path != "" {
 				msg.Metadata["media_summary"] = MediaSummary("video", "file_path", path)
 				msg.Text = "[Video received]"
 			} else {
@@ -776,7 +776,7 @@ func (w *WeComChannel) handleMixedMsg(items []struct {
 			}
 		case "image":
 			if item.Image != nil {
-				if path := downloadWeComMedia(w.mediaDir, item.Image.URL, item.Image.AESKey); path != "" {
+				if path := downloadWeComMedia(w.mediaDir, item.Image.URL, item.Image.AESKey, ""); path != "" {
 					summaries = append(summaries, MediaSummary("photo", "image_path", path))
 					parts = append(parts, "[Image]")
 				}
@@ -897,7 +897,10 @@ func generateReqID(prefix string) string {
 }
 
 // downloadWeComMedia downloads and decrypts an AES-encrypted media file from WeCom.
-func downloadWeComMedia(mediaDir, url, aesKey string) string {
+// originalFileName, when non-empty, takes precedence for extension detection — this
+// is critical for office documents (docx/xlsx/pptx) whose magic bytes (PK zip) are
+// indistinguishable and whose Content-Type from the WeCom CDN is often opaque.
+func downloadWeComMedia(mediaDir, url, aesKey, originalFileName string) string {
 	if mediaDir == "" || url == "" {
 		return ""
 	}
@@ -932,8 +935,15 @@ func downloadWeComMedia(mediaDir, url, aesKey string) string {
 		content = encrypted
 	}
 
-	// Detect extension from content type or default.
-	ext := extensionFromContentType(resp.Header.Get("Content-Type"))
+	// Detect extension: original filename (authoritative for user uploads) →
+	// Content-Type → magic bytes → fallback.
+	ext := ""
+	if originalFileName != "" {
+		ext = strings.ToLower(filepath.Ext(originalFileName))
+	}
+	if ext == "" {
+		ext = extensionFromContentType(resp.Header.Get("Content-Type"))
+	}
 	if ext == "" {
 		ext = detectExtFromMagic(content)
 	}
