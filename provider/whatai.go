@@ -21,10 +21,12 @@ const (
 
 func init() {
 	RegisterProvider("whatai", ProviderRegistration{
-		Models:       []string{"gpt-5.4-mini"},
-		VisionModels: []string{"gpt-5.4-mini"},
+		Models:       []string{"gpt-5.4-mini", "gemini-3-flash-preview"},
+		VisionModels: []string{"gpt-5.4-mini", "gemini-3-flash-preview"},
+		PDFModels:    []string{"gemini-3-flash-preview"},
 		ContextWindows: map[string]int{
-			"gpt-5.4-mini": 400000,
+			"gpt-5.4-mini":           400000,
+			"gemini-3-flash-preview": 1048576,
 		},
 		EnvKey:  "WHATAI_API_KEY",
 		EnvBase: "WHATAI_API_BASE",
@@ -81,7 +83,7 @@ func (p *WhatAIProvider) Chat(ctx context.Context, req *Request) (ChatResult, er
 	start := time.Now()
 	inputChars := inputChars(req.Messages)
 
-	messages, err := toOpenAIChatMessages(req.Messages, SupportsVision("whatai", p.modelType), false, false)
+	messages, err := toOpenAIChatMessages(req.Messages, SupportsVision("whatai", p.modelType), false, SupportsPDF("whatai", p.modelType))
 	if err != nil {
 		return nil, fmt.Errorf("failed to convert messages: %w", err)
 	}
