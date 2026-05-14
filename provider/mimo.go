@@ -403,11 +403,14 @@ func toMMMessages(messages []Message) []mmMessage {
 			}
 			// MiMo requires prior reasoning_content in multi-turn thinking mode.
 			// Per platform.xiaomimimo.com: "keep all previous reasoning_content
-			// in the messages array for each subsequent request". Compression
-			// already clears ReasoningContent for trimmed messages via
-			// ApplyCompressedMessage, so pass whatever remains.
+			// in the messages array for each subsequent request". When Tier-1
+			// trim clears the reasoning, the key must still be present with an
+			// empty string — omitting it entirely breaks multi-turn thinking.
 			if m.ReasoningContent != "" {
 				rc := m.ReasoningContent
+				dm.ReasoningContent = &rc
+			} else if m.ReasoningTrimmed {
+				rc := ""
 				dm.ReasoningContent = &rc
 			}
 			if len(m.ToolCalls) > 0 {

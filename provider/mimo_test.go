@@ -51,18 +51,34 @@ func TestToMMMessagesCarriesReasoning(t *testing.T) {
 	}
 }
 
-func TestToMMMessagesOmitsReasoningWhenEmpty(t *testing.T) {
-	// Compression (ApplyCompressedMessage) clears ReasoningContent when
-	// ReasoningTrimmed is set, so an empty string must not serialize.
+func TestToMMMessagesOmitsReasoningWhenNeverPresent(t *testing.T) {
+	// An assistant message that never had reasoning (non-thinking turn) must
+	// not serialize a reasoning_content key.
 	msgs := []Message{
-		{Role: "assistant", Content: "trimmed turn", ReasoningContent: ""},
+		{Role: "assistant", Content: "plain turn", ReasoningContent: ""},
 	}
 	out := toMMMessages(msgs)
 	if out[0].ReasoningContent != nil {
-		t.Errorf("expected nil reasoning_content when empty, got %q", *out[0].ReasoningContent)
+		t.Errorf("expected nil reasoning_content when never present, got %q", *out[0].ReasoningContent)
 	}
 	body, _ := json.Marshal(out[0])
 	if strings.Contains(string(body), "reasoning_content") {
-		t.Errorf("reasoning_content key must be omitted when empty: %s", body)
+		t.Errorf("reasoning_content key must be omitted when never present: %s", body)
+	}
+}
+
+func TestToMMMessagesSendsEmptyReasoningWhenTrimmed(t *testing.T) {
+	// Tier-1 trim clears ReasoningContent but sets ReasoningTrimmed. The key
+	// must still be sent as "" — omitting it breaks MiMo multi-turn thinking.
+	msgs := []Message{
+		{Role: "assistant", Content: "trimmed turn", ReasoningContent: "", ReasoningTrimmed: true},
+	}
+	out := toMMMessages(msgs)
+	if out[0].ReasoningContent == nil || *out[0].ReasoningContent != "" {
+		t.Errorf("expected empty-string reasoning_content for trimmed message, got %v", out[0].ReasoningContent)
+	}
+	body, _ := json.Marshal(out[0])
+	if !strings.Contains(string(body), `"reasoning_content":""`) {
+		t.Errorf("reasoning_content must serialize as empty string when trimmed: %s", body)
 	}
 }
