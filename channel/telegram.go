@@ -3,8 +3,11 @@ package channel
 import (
 	"context"
 	"fmt"
+	"net/http"
 	"strconv"
+	"strings"
 	"sync"
+	"time"
 
 	"github.com/go-telegram/bot"
 	"github.com/go-telegram/bot/models"
@@ -16,6 +19,8 @@ import (
 const (
 	telegramMessageBufferSize = 100
 	TelegramMaxMessageLength  = 4096
+	telegramPollTimeout       = 60 * time.Second
+	telegramHTTPClientTimeout = 120 * time.Second
 )
 
 // TelegramChannel implements the Channel interface for Telegram.
@@ -76,10 +81,28 @@ func (t *TelegramChannel) Name() string {
 
 // Start begins polling for updates.
 func (t *TelegramChannel) Start(ctx context.Context) error {
+	// isGetUpdatesTimeoutErr checks if an error from the go-telegram/bot library
+	// is a recoverable getUpdates long-poll timeout. These are normal in long-polling
+	// and should not be logged at ERROR level.
+	isGetUpdatesTimeoutErr := func(err error) bool {
+		msg := err.Error()
+		return strings.Contains(msg, "getUpdates") &&
+			(strings.Contains(msg, "context deadline exceeded") ||
+				strings.Contains(msg, "Client.Timeout") ||
+				strings.Contains(msg, "EOF"))
+	}
+
 	opts := []bot.Option{
 		bot.WithDefaultHandler(t.handleUpdate),
 		bot.WithErrorsHandler(func(err error) {
-			logger.Error("telegram bot error", "error", err)
+			if isGetUpdatesTimeoutErr(err) {
+				logger.Warn("telegram getUpdates timeout (recoverable)", "error", err)
+			} else {
+				logger.Error("telegram bot error", "error", err)
+			}
+		}),
+		bot.WithHTTPClient(telegramPollTimeout, &http.Client{
+			Timeout: telegramHTTPClientTimeout,
 		}),
 	}
 
