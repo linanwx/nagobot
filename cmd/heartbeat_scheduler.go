@@ -236,13 +236,20 @@ func (s *heartbeatScheduler) maybeFirePulse(key string, now time.Time, lastActiv
 	}
 	elapsed := now.Sub(lastActive).Round(time.Second)
 
-	_ = buildHeartbeatMessage(mdModified, nextPulse, pulseIndex, elapsed, lastPulse)
+	message := buildHeartbeatMessage(mdModified, nextPulse, pulseIndex, elapsed, lastPulse)
 
-	// TODO: switch to fork wake — create fork session, spawn child thread.
-	// s.mgr.Wake(key, &thread.WakeMessage{
-	// 	Source:  thread.WakeHeartbeat,
-	// 	Message: message,
-	// })
+	// Only wake for pulse indices that have registered handlers.
+	// Currently: index 2 (60min) → session-reflect.
+	if pulseIndex == 2 {
+		s.mgr.Wake(key, &thread.WakeMessage{
+			Source:  thread.WakeHeartbeat,
+			Message: message,
+			Sink: thread.Sink{
+				Label: "heartbeat pulse — no auto-delivery, use dispatch to send messages",
+				Send:  func(_ context.Context, _ string) error { return nil },
+			},
+		})
+	}
 
 	// Update state and persist.
 	s.mu.Lock()
