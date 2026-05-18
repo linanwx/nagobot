@@ -18,6 +18,9 @@ const metaFileName = "meta.json"
 // RephraseSessionSuffix is the session key suffix for rephrase sibling sessions.
 const RephraseSessionSuffix = ":rephrase"
 
+// PreThinkSessionSuffix is the session key suffix for pre-think sibling sessions.
+const PreThinkSessionSuffix = ":prethink"
+
 // ForkSessionInfix is the infix used in fork session keys: {parent}:fork:{purpose}.
 const ForkSessionInfix = ":fork:"
 

@@ -144,6 +144,7 @@ const (
 	WakeHeartbeat  WakeSource = "heartbeat"
 	WakeResume     WakeSource = "resume"
 	WakeRephrase   WakeSource = "rephrase"
+	WakePreThink   WakeSource = "prethink"
 )
 
 // IsUserVisibleSource reports whether the given source represents a real
