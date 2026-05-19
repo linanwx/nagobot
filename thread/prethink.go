@@ -2,6 +2,7 @@ package thread
 
 import (
 	"context"
+	"regexp"
 	"strings"
 	"time"
 
@@ -10,8 +11,8 @@ import (
 )
 
 const (
-	preThinkTimeout      = 10 * time.Second
-	preThinkChatEntries  = 5 // recent chat.jsonl lines passed in the pre-think YAML header
+	preThinkTimeout     = 10 * time.Second
+	preThinkChatEntries = 5 // recent chat.jsonl lines passed in the pre-think YAML header
 )
 
 // isPreThinkSession reports whether the session key is a pre-think sibling.
@@ -63,8 +64,17 @@ func preThinkAction(ctx context.Context, t *Thread, userMsg string) string {
 	select {
 	case result := <-ch:
 		result = strings.TrimSpace(result)
-		if result != "" {
+		parsed := parsePreThinkXML(result)
+		if parsed != "" {
 			logger.Info("pre-think completed",
+				"sessionKey", t.sessionKey,
+				"rawLen", len(result),
+				"parsedLen", len(parsed),
+			)
+			return parsed
+		}
+		if result != "" {
+			logger.Warn("pre-think XML parse fallback to raw",
 				"sessionKey", t.sessionKey,
 				"resultLen", len(result),
 			)
@@ -76,4 +86,80 @@ func preThinkAction(ctx context.Context, t *Thread, userMsg string) string {
 	case <-ctx.Done():
 		return ""
 	}
+}
+
+var (
+	intentRE = regexp.MustCompile(`(?is)<intent>(.*?)</intent>`)
+	searchRE = regexp.MustCompile(`(?is)<search>(.*?)</search>`)
+	toolsRE  = regexp.MustCompile(`(?is)<tools>(.*?)</tools>`)
+	toneRE   = regexp.MustCompile(`(?is)<tone>(.*?)</tone>`)
+	riskRE   = regexp.MustCompile(`(?is)<risk\s+name="([^"]+)"\s+level="([^"]+)"\s*>(.*?)</risk>`)
+)
+
+// parsePreThinkXML extracts structured fields from pre-think output and
+// composes a clean action hint. Risk tags with level="low" are filtered out.
+// Returns "" when no recognizable tags are found (caller falls back to raw).
+func parsePreThinkXML(raw string) string {
+	if raw == "" {
+		return ""
+	}
+
+	var parts []string
+
+	if m := intentRE.FindStringSubmatch(raw); len(m) == 2 {
+		if v := cleanTagBody(m[1]); v != "" {
+			parts = append(parts, "Intent: "+v+".")
+		}
+	}
+
+	for _, m := range riskRE.FindAllStringSubmatch(raw, -1) {
+		name := strings.ToLower(strings.TrimSpace(m[1]))
+		level := strings.ToLower(strings.TrimSpace(m[2]))
+		reason := cleanTagBody(m[3])
+		if level != "medium" && level != "high" {
+			continue
+		}
+		if name == "" {
+			continue
+		}
+		entry := strings.ToUpper(level[:1]) + level[1:] + " " + name + " risk"
+		if reason != "" {
+			entry += ": " + reason
+		}
+		parts = append(parts, entry+".")
+	}
+
+	if m := searchRE.FindStringSubmatch(raw); len(m) == 2 {
+		if v := cleanTagBody(m[1]); v != "" {
+			parts = append(parts, "Search: "+v+".")
+		}
+	}
+
+	if m := toolsRE.FindStringSubmatch(raw); len(m) == 2 {
+		if v := cleanTagBody(m[1]); v != "" {
+			parts = append(parts, "Tools: "+v+".")
+		}
+	}
+
+	if m := toneRE.FindStringSubmatch(raw); len(m) == 2 {
+		if v := cleanTagBody(m[1]); v != "" {
+			parts = append(parts, "Tone: "+v+".")
+		}
+	}
+
+	if len(parts) == 0 {
+		return ""
+	}
+	return strings.Join(parts, " ")
+}
+
+func cleanTagBody(s string) string {
+	s = strings.TrimSpace(s)
+	s = strings.ReplaceAll(s, "\n", " ")
+	s = strings.ReplaceAll(s, "\r", " ")
+	for strings.Contains(s, "  ") {
+		s = strings.ReplaceAll(s, "  ", " ")
+	}
+	s = strings.TrimRight(s, ".")
+	return s
 }
