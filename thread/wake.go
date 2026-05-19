@@ -281,6 +281,12 @@ func (t *Thread) RunOnce(ctx context.Context) {
 		}
 	}
 
+	if sink.Flush != nil {
+		if flushErr := sink.Flush(ctx); flushErr != nil {
+			logger.Warn("sink flush failed", "threadID", t.id, "sessionKey", t.sessionKey, "err", flushErr)
+		}
+	}
+
 	if msg.OnComplete != nil {
 		msg.OnComplete(response)
 	}

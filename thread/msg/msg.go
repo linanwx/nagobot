@@ -67,8 +67,9 @@ func (r ReactFunc) Do(ctx context.Context, event ReactEvent) {
 type Sink struct {
 	Label     string
 	Send      func(ctx context.Context, response string) error
-	React     ReactFunc // Optional: fire-and-forget emoji reaction on the source message.
-	Chunkable bool      // True for sinks that accept chunked streaming delivery (telegram, discord, feishu, cli).
+	React     ReactFunc                              // Optional: fire-and-forget emoji reaction on the source message.
+	Chunkable bool                                   // True for sinks that accept chunked streaming delivery (telegram, discord, feishu, cli).
+	Flush     func(ctx context.Context) error        // Optional: signals end-of-turn; recorders use this to commit buffered output.
 }
 
 // IsZero reports whether the sink has no delivery function.

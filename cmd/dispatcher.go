@@ -7,6 +7,8 @@ import (
 	"os"
 	"regexp"
 	"strings"
+	"sync"
+	"time"
 
 	"github.com/linanwx/nagobot/channel"
 	"github.com/linanwx/nagobot/config"
@@ -14,6 +16,7 @@ import (
 	"github.com/linanwx/nagobot/media"
 	"github.com/linanwx/nagobot/session"
 	"github.com/linanwx/nagobot/thread"
+	sysmsg "github.com/linanwx/nagobot/thread/msg"
 )
 
 // Dispatcher routes channel messages to threads. It is the bridge between
@@ -93,10 +96,16 @@ func (d *Dispatcher) dispatch(ctx context.Context, ch channel.Channel, msg *chan
 	if sd, err := d.cfg.SessionsDir(); err == nil {
 		persistChannelRouting(sd, sessionKey, msg)
 	}
-	sink := d.buildSink(ch, msg)
+	sink := d.buildSink(ch, msg, sessionKey)
 	agentName, vars := d.resolveAgentName(sessionKey, msg)
 	userMessage := d.preprocessMessage(msg)
 	source := d.wakeSource(ch)
+
+	if sysmsg.IsUserVisibleSource(source) {
+		if err := session.AppendChat(d.threads.SessionDir(sessionKey), session.ChatRoleUser, userMessage, time.Now()); err != nil {
+			logger.Warn("chat.jsonl user-write failed", "sessionKey", sessionKey, "err", err)
+		}
+	}
 
 	d.threads.Wake(sessionKey, &thread.WakeMessage{
 		Source:    source,
@@ -132,7 +141,7 @@ func (d *Dispatcher) handleInit(ctx context.Context, ch channel.Channel, msg *ch
 		}
 	}
 
-	sink := d.buildSink(ch, msg)
+	sink := d.buildSink(ch, msg, d.route(msg))
 	if !sink.IsZero() {
 		_ = sink.Send(ctx, response)
 	}
@@ -204,7 +213,7 @@ func (d *Dispatcher) routeChatChannel(msg *channel.Message, prefix string, group
 
 // buildSink creates a per-wake sink that delivers the response back to the
 // originating channel.
-func (d *Dispatcher) buildSink(ch channel.Channel, msg *channel.Message) thread.Sink {
+func (d *Dispatcher) buildSink(ch channel.Channel, msg *channel.Message, sessionKey string) thread.Sink {
 	if ch.Name() == "cron" {
 		return d.buildCronSink(msg)
 	}
@@ -220,6 +229,15 @@ func (d *Dispatcher) buildSink(ch channel.Channel, msg *channel.Message) thread.
 		replyTo = strings.TrimSpace(msg.ReplyTo)
 	}
 
+	// chat.jsonl recording: accumulate every Send into a per-turn buffer; flush
+	// at end-of-turn writes one assistant entry. The buffer is reset on flush
+	// so the same sink can serve sequential turns. Mutex guards against the
+	// (theoretical) case of overlapping callers — Threads are single-RunOnce
+	// at a time, but the sink may be reused by rephrase siblings.
+	sessionDir := d.threads.SessionDir(sessionKey)
+	var bufMu sync.Mutex
+	var buf strings.Builder
+
 	sink := thread.Sink{
 		Label:     "your response will be sent to the user via " + channelName,
 		Chunkable: true,
@@ -227,7 +245,23 @@ func (d *Dispatcher) buildSink(ch channel.Channel, msg *channel.Message) thread.
 			if strings.TrimSpace(response) == "" {
 				return nil
 			}
+			bufMu.Lock()
+			buf.WriteString(response)
+			bufMu.Unlock()
 			return manager.SendTo(ctx, channelName, response, replyTo)
+		},
+		Flush: func(ctx context.Context) error {
+			bufMu.Lock()
+			content := buf.String()
+			buf.Reset()
+			bufMu.Unlock()
+			if strings.TrimSpace(content) == "" {
+				return nil
+			}
+			if err := session.AppendChat(sessionDir, session.ChatRoleAssistant, content, time.Now()); err != nil {
+				logger.Warn("chat.jsonl assistant-write failed", "sessionKey", sessionKey, "err", err)
+			}
+			return nil
 		},
 	}
 

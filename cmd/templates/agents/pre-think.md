@@ -4,7 +4,7 @@ description: Analyzes user requests to generate tailored response guidance for t
 specialty: fast
 context_window_cap: 64k
 tier_lossy_mode: slide_window
-tier_lossy_keep: 5
+tier_lossy_keep: 10
 sections:
   - user_memory_section
   - memory_index_section
