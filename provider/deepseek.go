@@ -223,6 +223,8 @@ func (p *DeepSeekProvider) buildRequest(req *Request, thinkingEnabled, streaming
 	}
 	if thinkingEnabled {
 		r.Thinking = &dsThinking{Type: "enabled"}
+	} else {
+		r.Thinking = &dsThinking{Type: "disabled"}
 	}
 	if streaming {
 		r.StreamOptions = &dsStreamOpts{IncludeUsage: true}

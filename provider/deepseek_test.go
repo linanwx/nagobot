@@ -123,19 +123,21 @@ func TestToDSMessagesTrimmedReasoningSendsEmptyString(t *testing.T) {
 	}
 }
 
-// -instant aliases must strip the suffix from the wire model name and turn
-// off thinking mode. The buildRequest output is checked to confirm `thinking`
-// is omitted entirely (omitempty + nil pointer) when thinking is disabled.
+// -instant aliases must strip the suffix from the wire model name and send
+// `thinking: {type: "disabled"}` explicitly — DeepSeek's API defaults to
+// thinking-on when the field is omitted, so an explicit disabled value is
+// required to actually suppress reasoning.
 func TestDeepSeekInstantSuffix(t *testing.T) {
 	tests := []struct {
-		modelType        string
-		wantWire         string
-		wantThinking     bool
+		modelType    string
+		wantWire     string
+		wantThinking bool
+		wantWireType string
 	}{
-		{"deepseek-v4-flash", "deepseek-v4-flash", true},
-		{"deepseek-v4-pro", "deepseek-v4-pro", true},
-		{"deepseek-v4-flash-instant", "deepseek-v4-flash", false},
-		{"deepseek-v4-pro-instant", "deepseek-v4-pro", false},
+		{"deepseek-v4-flash", "deepseek-v4-flash", true, "enabled"},
+		{"deepseek-v4-pro", "deepseek-v4-pro", true, "enabled"},
+		{"deepseek-v4-flash-instant", "deepseek-v4-flash", false, "disabled"},
+		{"deepseek-v4-pro-instant", "deepseek-v4-pro", false, "disabled"},
 	}
 	for _, tc := range tests {
 		p := newDeepSeekProvider("k", "", tc.modelType, tc.modelType, 0, 0)
@@ -149,11 +151,12 @@ func TestDeepSeekInstantSuffix(t *testing.T) {
 		if r.Model != tc.wantWire {
 			t.Errorf("%s: dsRequest.Model = %q, want %q", tc.modelType, r.Model, tc.wantWire)
 		}
-		if tc.wantThinking && r.Thinking == nil {
-			t.Errorf("%s: expected thinking enabled on wire", tc.modelType)
+		if r.Thinking == nil {
+			t.Errorf("%s: thinking field must be present on wire", tc.modelType)
+			continue
 		}
-		if !tc.wantThinking && r.Thinking != nil {
-			t.Errorf("%s: expected thinking nil on wire, got %+v", tc.modelType, r.Thinking)
+		if r.Thinking.Type != tc.wantWireType {
+			t.Errorf("%s: thinking.type = %q, want %q", tc.modelType, r.Thinking.Type, tc.wantWireType)
 		}
 	}
 }
