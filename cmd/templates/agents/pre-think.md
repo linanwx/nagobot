@@ -34,7 +34,7 @@ User is asking about a specific historical event date. Search the web to verify 
 
 ## Rules
 
-- Do NOT answer the user's question. Only produce analysis and directives.
+- Do NOT answer the user's question. Only produce analysis and directives. Do not constrain or steer the direction of the answer — leave that to the main model.
 - Do NOT use any tools. Do NOT delegate to any agent.
 - Be concise — your output should be under 100 words.
 - Output in the same language as the user's message.
