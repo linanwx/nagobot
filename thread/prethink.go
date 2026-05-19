@@ -9,7 +9,10 @@ import (
 	"github.com/linanwx/nagobot/session"
 )
 
-const preThinkTimeout = 10 * time.Second
+const (
+	preThinkTimeout      = 10 * time.Second
+	preThinkChatEntries  = 5 // recent chat.jsonl lines passed in the pre-think YAML header
+)
 
 // isPreThinkSession reports whether the session key is a pre-think sibling.
 func isPreThinkSession(key string) bool {
@@ -46,10 +49,12 @@ func preThinkAction(ctx context.Context, t *Thread, userMsg string) string {
 
 	ch := make(chan string, 1)
 	preThinkKey := t.sessionKey + session.PreThinkSessionSuffix
+	recentChat := session.ReadRecentChat(t.mgr.SessionDir(t.sessionKey), preThinkChatEntries)
 	t.mgr.Wake(preThinkKey, &WakeMessage{
-		Source:    WakePreThink,
-		Message:   userMsg,
-		AgentName: "pre-think",
+		Source:     WakePreThink,
+		Message:    userMsg,
+		AgentName:  "pre-think",
+		RecentChat: recentChat,
 		OnComplete: func(response string) {
 			ch <- response
 		},

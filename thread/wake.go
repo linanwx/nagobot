@@ -223,7 +223,7 @@ func (t *Thread) RunOnce(ctx context.Context) {
 	if sysmsg.IsUserVisibleSource(msg.Source) {
 		actionOverride = preThinkAction(ctx, t, msg.Message)
 	}
-	userMessage := buildWakePayload(msg.Source, msg.Message, t.id, t.sessionKey, sessionDir, deliveryLabel, modelLabel, agentName, loc, sender, msg.CallerSessionKey, msg.EnqueuedAt, actionOverride, msg.Vars)
+	userMessage := buildWakePayload(msg.Source, msg.Message, t.id, t.sessionKey, sessionDir, deliveryLabel, modelLabel, agentName, loc, sender, msg.CallerSessionKey, msg.EnqueuedAt, actionOverride, msg.RecentChat, msg.Vars)
 
 	// Build injection function: between tool iterations, drain inbox for
 	// mergeable user messages and inject them into the LLM conversation.
@@ -235,7 +235,7 @@ func (t *Thread) RunOnce(ctx context.Context) {
 			select {
 			case next := <-t.inbox:
 				if canMerge(msg, next) {
-					payload := buildWakePayload(next.Source, next.Message, t.id, t.sessionKey, sessionDir, deliveryLabel, modelLabel, agentName, loc, senderOrDefault(next.Sender, next.Source), next.CallerSessionKey, next.EnqueuedAt, "", next.Vars)
+					payload := buildWakePayload(next.Source, next.Message, t.id, t.sessionKey, sessionDir, deliveryLabel, modelLabel, agentName, loc, senderOrDefault(next.Sender, next.Source), next.CallerSessionKey, next.EnqueuedAt, "", next.RecentChat, next.Vars)
 					if payload != "" {
 						payload = markInjected(payload)
 						injected = append(injected, provider.UserMessage(payload))
@@ -297,9 +297,11 @@ func (t *Thread) RunOnce(ctx context.Context) {
 // and the sender (user vs system).
 //
 // actionOverride, when non-empty, replaces the default wakeActionHint for this
-// payload (used by pre-think). vars passes per-source template substitutions
-// (currently only ORIGINAL_PREVIEW for rephrase).
-func buildWakePayload(source WakeSource, message, threadID, sessionKey, sessionDir, deliveryLabel, model, agent string, loc *time.Location, sender, callerSessionKey string, enqueuedAt time.Time, actionOverride string, vars map[string]string) string {
+// payload (used by pre-think). recentChat is rendered into the YAML header as
+// a block-scalar so helper agents can see prior conversation context. vars
+// passes per-source template substitutions (currently only ORIGINAL_PREVIEW
+// for rephrase).
+func buildWakePayload(source WakeSource, message, threadID, sessionKey, sessionDir, deliveryLabel, model, agent string, loc *time.Location, sender, callerSessionKey string, enqueuedAt time.Time, actionOverride, recentChat string, vars map[string]string) string {
 	message = strings.TrimSpace(message)
 	if message == "" {
 		return ""
@@ -329,6 +331,7 @@ func buildWakePayload(source WakeSource, message, threadID, sessionKey, sessionD
 		Delivery:         delivery,
 		Sender:           sender,
 		CallerSessionKey: callerSessionKey,
+		RecentChat:       recentChat,
 	}
 	if hint := wakeActionHint(source); hint != "" {
 		if actionOverride != "" {
@@ -388,6 +391,7 @@ type wakeHeader struct {
 	Sender           string `yaml:"sender"`
 	CallerSessionKey string `yaml:"caller_session_key,omitempty"`
 	Action           string `yaml:"action,omitempty"`
+	RecentChat       string `yaml:"recent_chat,omitempty"`
 	SupportsVision   *bool  `yaml:"supports_vision,omitempty"`
 	SupportsAudio    *bool  `yaml:"supports_audio,omitempty"`
 	SupportsPDF      *bool  `yaml:"supports_pdf,omitempty"`
