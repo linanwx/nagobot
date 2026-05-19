@@ -17,7 +17,7 @@ func defaultCronSeeds() []cronpkg.Job {
 	return []cronpkg.Job{
 		{
 			ID:    "tidyup",
-			Expr:  "0 4 * * *",
+			Expr:  "0 4 * * 1",
 			Task:  `You must call use_skill("tidyup-dispatcher") and follow its instructions. use_skill function can not skip.`,
 			Agent: "tidyup",
 		},
