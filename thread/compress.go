@@ -531,7 +531,7 @@ func (m *Manager) tryTierLossyCompress(sessionKey string) {
 		return
 	}
 
-	if def.TierLossyMode != "slide_window" {
+	if def.TierLossyMode != "slide_window" && def.TierLossyMode != "stateless" {
 		return
 	}
 
@@ -540,7 +540,13 @@ func (m *Manager) tryTierLossyCompress(sessionKey string) {
 		return
 	}
 
-	trimmed := applySlideWindow(sess.Messages, def.TierLossyKeep)
+	var trimmed []provider.Message
+	switch def.TierLossyMode {
+	case "slide_window":
+		trimmed = applySlideWindow(sess.Messages, def.TierLossyKeep)
+	case "stateless":
+		trimmed = nil
+	}
 	if len(trimmed) == len(sess.Messages) {
 		return
 	}
@@ -552,9 +558,10 @@ func (m *Manager) tryTierLossyCompress(sessionKey string) {
 		return
 	}
 
-	logger.Info("tier-lossy compress: slide_window applied",
+	logger.Info("tier-lossy compress applied",
 		"sessionKey", sessionKey,
 		"agent", agentName,
+		"mode", def.TierLossyMode,
 		"keep", def.TierLossyKeep,
 		"dropped", dropped,
 		"remaining", len(trimmed),

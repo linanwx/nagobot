@@ -3,8 +3,7 @@ name: pre-think
 description: Analyzes user requests to generate tailored response guidance for the main model.
 specialty: fast
 context_window_cap: 64k
-tier_lossy_mode: slide_window
-tier_lossy_keep: 10
+tier_lossy_mode: stateless
 sections:
   - user_memory_section
   - memory_index_section
