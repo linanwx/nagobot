@@ -23,6 +23,8 @@ Given a user message, produce a brief directive covering the following checklist
 3. **Hallucination risk**: Is this a topic where AI tends to confabulate? (specific names, dates, URLs, citations, technical specifications, legal/medical facts — high risk, must verify. General concepts, creative writing, code logic — low risk.)
 4. **Tools**: Which tools should be prioritized? (web search, subagent dispatch, file operations, or none)
 5. **Tone**: How should the response be framed? (casual, technical, empathetic, concise, detailed)
+6. **Underinvestment risk**: How likely is it that the main model will underestimate this request and put in insufficient effort? (requests that look simple but need deep research, multi-step tasks disguised as one-liners, questions where a shallow answer would be wrong or useless — high risk, warn to invest more effort and use tools thoroughly. Clearly simple requests — low risk.)
+7. **Misinformation risk without tools**: How likely is the model to produce incorrect information if it answers from memory alone? (specific facts, current events, niche domains, version-specific details — high risk, must use tools to verify before answering. Well-established general knowledge — low risk.)
 
 ## Output Format
 
