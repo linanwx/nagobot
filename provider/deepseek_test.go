@@ -122,3 +122,38 @@ func TestToDSMessagesTrimmedReasoningSendsEmptyString(t *testing.T) {
 		t.Errorf("expected explicit empty string in wire: %s", body)
 	}
 }
+
+// -instant aliases must strip the suffix from the wire model name and turn
+// off thinking mode. The buildRequest output is checked to confirm `thinking`
+// is omitted entirely (omitempty + nil pointer) when thinking is disabled.
+func TestDeepSeekInstantSuffix(t *testing.T) {
+	tests := []struct {
+		modelType        string
+		wantWire         string
+		wantThinking     bool
+	}{
+		{"deepseek-v4-flash", "deepseek-v4-flash", true},
+		{"deepseek-v4-pro", "deepseek-v4-pro", true},
+		{"deepseek-v4-flash-instant", "deepseek-v4-flash", false},
+		{"deepseek-v4-pro-instant", "deepseek-v4-pro", false},
+	}
+	for _, tc := range tests {
+		p := newDeepSeekProvider("k", "", tc.modelType, tc.modelType, 0, 0)
+		if p.modelName != tc.wantWire {
+			t.Errorf("%s: wire modelName = %q, want %q", tc.modelType, p.modelName, tc.wantWire)
+		}
+		if p.thinking != tc.wantThinking {
+			t.Errorf("%s: thinking = %v, want %v", tc.modelType, p.thinking, tc.wantThinking)
+		}
+		r := p.buildRequest(&Request{Messages: []Message{{Role: "user", Content: "q"}}}, p.thinking, true)
+		if r.Model != tc.wantWire {
+			t.Errorf("%s: dsRequest.Model = %q, want %q", tc.modelType, r.Model, tc.wantWire)
+		}
+		if tc.wantThinking && r.Thinking == nil {
+			t.Errorf("%s: expected thinking enabled on wire", tc.modelType)
+		}
+		if !tc.wantThinking && r.Thinking != nil {
+			t.Errorf("%s: expected thinking nil on wire, got %+v", tc.modelType, r.Thinking)
+		}
+	}
+}

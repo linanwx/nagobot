@@ -16,12 +16,21 @@ import (
 
 const deepSeekAPIBase = "https://api.deepseek.com"
 
+// instantSuffix marks DeepSeek model aliases that disable thinking mode.
+// E.g. "deepseek-v4-flash-instant" wires to "deepseek-v4-flash" with thinking off.
+const instantSuffix = "-instant"
+
 func init() {
 	RegisterProvider("deepseek", ProviderRegistration{
-		Models: []string{"deepseek-v4-pro", "deepseek-v4-flash"},
+		Models: []string{
+			"deepseek-v4-pro", "deepseek-v4-flash",
+			"deepseek-v4-pro-instant", "deepseek-v4-flash-instant",
+		},
 		ContextWindows: map[string]int{
-			"deepseek-v4-pro":   1000000,
-			"deepseek-v4-flash": 1000000,
+			"deepseek-v4-pro":           1000000,
+			"deepseek-v4-flash":         1000000,
+			"deepseek-v4-pro-instant":   1000000,
+			"deepseek-v4-flash-instant": 1000000,
 		},
 		EnvKey:  "DEEPSEEK_API_KEY",
 		EnvBase: "DEEPSEEK_API_BASE",
@@ -138,10 +147,11 @@ type streamToolCallAcc struct {
 type DeepSeekProvider struct {
 	apiKey      string
 	apiBase     string
-	modelName   string
-	modelType   string
+	modelName   string // wire model name sent to DeepSeek (suffix stripped)
+	modelType   string // nagobot-facing alias (may carry -instant suffix)
 	maxTokens   int
 	temperature float64
+	thinking    bool // false for -instant aliases; suppresses thinking mode
 	client      *http.Client
 }
 
@@ -149,6 +159,8 @@ func newDeepSeekProvider(apiKey, apiBase, modelType, modelName string, maxTokens
 	if modelName == "" {
 		modelName = modelType
 	}
+	thinking := !strings.HasSuffix(modelType, instantSuffix)
+	modelName = strings.TrimSuffix(modelName, instantSuffix)
 	if apiBase == "" {
 		apiBase = deepSeekAPIBase
 	}
@@ -163,6 +175,7 @@ func newDeepSeekProvider(apiKey, apiBase, modelType, modelName string, maxTokens
 		modelType:   modelType,
 		maxTokens:   maxTokens,
 		temperature: temperature,
+		thinking:    thinking,
 		client:      &http.Client{},
 	}
 }
@@ -175,9 +188,9 @@ func (p *DeepSeekProvider) endpoint() string {
 func (p *DeepSeekProvider) Chat(ctx context.Context, req *Request) (ChatResult, error) {
 	start := time.Now()
 	inputChars := inputChars(req.Messages)
-	// DeepSeek V4 always runs in thinking mode (reasoning_effort defaults to "high"
-	// on DeepSeek's side). nagobot does not expose a thinking toggle.
-	thinkingEnabled := true
+	// Thinking mode is off only for -instant aliases; the default v4-pro/v4-flash
+	// always run with reasoning_effort=high on DeepSeek's side.
+	thinkingEnabled := p.thinking
 
 	logger.Info(
 		"deepseek request",
