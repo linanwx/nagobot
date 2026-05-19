@@ -615,12 +615,22 @@ func TestApplySlideWindow(t *testing.T) {
 		t.Errorf("2 turns with keep=5: expected 4 messages, got %d", len(got))
 	}
 
-	// Exactly keep turns → unchanged (cut index lands at 0).
+	// Below 2*keep threshold (hysteresis): unchanged so the prefix stays
+	// stable for prompt caching. 10 turns / keep=10 → 10 < 20, no trim.
 	if got := applySlideWindow(ten, 10); len(got) != 20 {
 		t.Errorf("10 turns with keep=10: expected 20 messages, got %d", len(got))
 	}
 
-	// Trim: 10 turns, keep 5 → last 10 messages.
+	// Just below threshold: 9 turns with keep=5 → 9 < 10, no trim.
+	var nine []provider.Message
+	for i := 0; i < 9; i++ {
+		nine = append(nine, turn(i)...)
+	}
+	if got := applySlideWindow(nine, 5); len(got) != 18 {
+		t.Errorf("9 turns with keep=5: expected unchanged (18 messages), got %d", len(got))
+	}
+
+	// At threshold: 10 turns, keep=5 → 10 >= 10, trim to last 5 (10 messages).
 	got := applySlideWindow(ten, 5)
 	if len(got) != 10 {
 		t.Fatalf("10 turns with keep=5: expected 10 messages, got %d", len(got))
@@ -634,29 +644,33 @@ func TestApplySlideWindow(t *testing.T) {
 }
 
 func TestApplySlideWindow_PreservesToolCallPairs(t *testing.T) {
-	// A turn with tool calls: user → assistant(tc) → tool → tool → assistant(final)
+	// 4 turns total so we hit the 2*keep=4 hysteresis threshold; the
+	// tool-using turn must survive intact as the cut lands at turn 3 user.
 	messages := []provider.Message{
 		// Turn 1 (plain)
 		{Role: "user", Content: "t1 user"},
 		{Role: "assistant", Content: "t1 reply"},
-		// Turn 2 (with tools)
+		// Turn 2 (plain)
 		{Role: "user", Content: "t2 user"},
+		{Role: "assistant", Content: "t2 reply"},
+		// Turn 3 (with tools)
+		{Role: "user", Content: "t3 user"},
 		{Role: "assistant", Content: "", ToolCalls: []provider.ToolCall{{ID: "c1"}, {ID: "c2"}}},
 		{Role: "tool", ToolCallID: "c1", Content: "r1"},
 		{Role: "tool", ToolCallID: "c2", Content: "r2"},
-		{Role: "assistant", Content: "t2 final"},
-		// Turn 3 (plain)
-		{Role: "user", Content: "t3 user"},
-		{Role: "assistant", Content: "t3 reply"},
+		{Role: "assistant", Content: "t3 final"},
+		// Turn 4 (plain)
+		{Role: "user", Content: "t4 user"},
+		{Role: "assistant", Content: "t4 reply"},
 	}
 
-	// Keep last 2 turns: drop turn 1.
+	// 4 turns >= 2*2 → trim to last 2 turns: drop turns 1 and 2.
 	got := applySlideWindow(messages, 2)
 	if len(got) != 7 {
 		t.Fatalf("expected 7 messages after trim, got %d", len(got))
 	}
-	if got[0].Content != "t2 user" {
-		t.Errorf("cut should land at turn 2 user, got %q", got[0].Content)
+	if got[0].Content != "t3 user" {
+		t.Errorf("cut should land at turn 3 user, got %q", got[0].Content)
 	}
 	// Verify tool_call pair wasn't split.
 	if len(got[1].ToolCalls) != 2 || got[2].Role != "tool" || got[3].Role != "tool" {
@@ -877,15 +891,17 @@ func TestApplySlideWindow_SkipsInjectedUserMessages(t *testing.T) {
 		{Role: "assistant", Content: "reply 2"},
 		{Role: "user", Content: normalContent("turn 3")},
 		{Role: "assistant", Content: "reply 3"},
+		{Role: "user", Content: normalContent("turn 4")},
+		{Role: "assistant", Content: "reply 4"},
 	}
 
-	// Keep last 2 turns: drop turn 1 only. Injected should not count.
+	// 4 non-injected turns >= 2*2 → trim to last 2 turns (turns 3 and 4).
+	// Injected user msg between turns 2 and 3 must not count toward the window.
 	got := applySlideWindow(messages, 2)
-	if len(got) != 5 {
-		t.Fatalf("expected 5 messages after trim (turns 2+3 incl injected), got %d", len(got))
+	if len(got) != 4 {
+		t.Fatalf("expected 4 messages after trim (turns 3+4), got %d", len(got))
 	}
-	// First kept message should be "turn 2" (not the injected one).
-	if !strings.Contains(got[0].Content, "turn 2") {
-		t.Errorf("expected first kept message to be turn 2, got: %q", got[0].Content)
+	if !strings.Contains(got[0].Content, "turn 3") {
+		t.Errorf("expected first kept message to be turn 3, got: %q", got[0].Content)
 	}
 }

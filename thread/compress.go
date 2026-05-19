@@ -561,9 +561,12 @@ func (m *Manager) tryTierLossyCompress(sessionKey string) {
 	)
 }
 
-// applySlideWindow returns a suffix of messages containing the last keepTurns
-// user-initiated turns. A turn starts at a non-injected user message and
-// extends until the next non-injected user message (or end of slice).
+// applySlideWindow trims history with hysteresis: the cut runs only when the
+// session has accumulated at least 2*keepTurns non-injected user turns, and
+// when it runs it keeps the most recent keepTurns turns (dropping the older
+// half). Between cuts, history is left untouched so the prompt prefix stays
+// byte-identical across calls — providers' prefix caches stay hot for
+// keepTurns turns at a stretch instead of being invalidated every turn.
 //
 // The cut always lands on a non-injected user message, so tool_call/tool pairs
 // within any retained turn are preserved atomically. Orphan tool messages that
@@ -574,22 +577,31 @@ func applySlideWindow(messages []provider.Message, keepTurns int) []provider.Mes
 		return messages
 	}
 
-	userSeen := 0
+	// Single pass from the end: stop as soon as we've counted 2*keepTurns user
+	// turns (the hysteresis threshold) — at that point cutIdx is already
+	// pinned at the keepTurns-th from the end, so we have everything needed.
+	// For long sessions this caps the scan at ~2*keepTurns user turns instead
+	// of a full O(len(messages)) walk on every compression run.
+	totalUserTurns := 0
 	cutIdx := -1
 	for i := len(messages) - 1; i >= 0; i-- {
-		if messages[i].Role != "user" {
+		if messages[i].Role != "user" || IsInjectedUserMessage(messages[i].Content) {
 			continue
 		}
-		if IsInjectedUserMessage(messages[i].Content) {
-			continue
-		}
-		userSeen++
-		if userSeen == keepTurns {
+		totalUserTurns++
+		if totalUserTurns == keepTurns {
 			cutIdx = i
+		}
+		if totalUserTurns == 2*keepTurns {
 			break
 		}
 	}
 
+	// Hysteresis: only trim when count is at least 2*keepTurns, otherwise leave
+	// the history alone to preserve prefix-cache stability.
+	if totalUserTurns < 2*keepTurns {
+		return messages
+	}
 	if cutIdx <= 0 {
 		return messages
 	}
