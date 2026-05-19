@@ -332,13 +332,57 @@ func (t *Thread) executeRunner(ctx, runCtx context.Context, p provider.Provider,
 	return response, intermediates, usage, runner.LastQuota(), providerLabel, modelLabel, nil
 }
 
-// buildUserSection resolves the per-session USER.md into a YAML-frontmattered section.
-func (t *Thread) buildUserSection() string {
+// parentSessionKey strips known sibling/fork markers from a session key.
+// Returns the input unchanged if no marker matches.
+func parentSessionKey(key string) string {
+	if strings.HasSuffix(key, session.RephraseSessionSuffix) {
+		return strings.TrimSuffix(key, session.RephraseSessionSuffix)
+	}
+	if strings.HasSuffix(key, session.PreThinkSessionSuffix) {
+		return strings.TrimSuffix(key, session.PreThinkSessionSuffix)
+	}
+	if idx := strings.Index(key, session.ForkSessionInfix); idx > 0 {
+		return key[:idx]
+	}
+	return key
+}
+
+// sectionDir returns the directory to look up a per-session section entry
+// (e.g. "USER.md", "memory", "heartbeat.md"). Tries own session dir first;
+// if the entry is missing there, falls back to the parent session dir computed
+// by stripping known sibling markers. Sibling/fork sessions thus inherit the
+// parent's USER.md and memory/ without copying.
+func (t *Thread) sectionDir(entry string) string {
 	sessionPath, ok := t.sessionFilePath()
 	if !ok {
 		return ""
 	}
-	userPath := filepath.Join(filepath.Dir(sessionPath), "USER.md")
+	ownDir := filepath.Dir(sessionPath)
+	if _, err := os.Stat(filepath.Join(ownDir, entry)); err == nil {
+		return ownDir
+	}
+	parentKey := parentSessionKey(t.sessionKey)
+	if parentKey == "" || parentKey == t.sessionKey {
+		return ownDir
+	}
+	cfg := t.cfg()
+	if cfg.Sessions == nil {
+		return ownDir
+	}
+	parentDir := filepath.Dir(cfg.Sessions.PathForKey(parentKey))
+	if _, err := os.Stat(filepath.Join(parentDir, entry)); err == nil {
+		return parentDir
+	}
+	return ownDir
+}
+
+// buildUserSection resolves the per-session USER.md into a YAML-frontmattered section.
+func (t *Thread) buildUserSection() string {
+	dir := t.sectionDir("USER.md")
+	if dir == "" {
+		return ""
+	}
+	userPath := filepath.Join(dir, "USER.md")
 	absPath, _ := filepath.Abs(userPath)
 
 	content, err := os.ReadFile(userPath)
@@ -359,11 +403,11 @@ func (t *Thread) buildUserSection() string {
 
 // buildHeartbeatSection resolves the per-session heartbeat.md into a YAML-frontmattered section.
 func (t *Thread) buildHeartbeatSection() string {
-	sessionPath, ok := t.sessionFilePath()
-	if !ok {
+	dir := t.sectionDir("heartbeat.md")
+	if dir == "" {
 		return ""
 	}
-	hbPath := filepath.Join(filepath.Dir(sessionPath), "heartbeat.md")
+	hbPath := filepath.Join(dir, "heartbeat.md")
 	absPath, _ := filepath.Abs(hbPath)
 
 	var body string
@@ -380,11 +424,11 @@ func (t *Thread) buildHeartbeatSection() string {
 
 // buildMemoryIndexSection builds a per-session memory recall index from summarized memory files.
 func (t *Thread) buildMemoryIndexSection() string {
-	sessionPath, ok := t.sessionFilePath()
-	if !ok {
+	dir := t.sectionDir("memory")
+	if dir == "" {
 		return ""
 	}
-	memoryDir := filepath.Join(filepath.Dir(sessionPath), "memory")
+	memoryDir := filepath.Join(dir, "memory")
 	absMemoryDir, _ := filepath.Abs(memoryDir)
 
 	// Modtime guard: skip re-scan if directory hasn't changed since last build.
