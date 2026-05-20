@@ -11,7 +11,6 @@ func TestParsePreThinkXML_FullStructure(t *testing.T) {
   <risk name="hallucination" level="high">具体日期和公司名容易混淆</risk>
   <risk name="misinformation" level="high">时事信息必须搜索确认</risk>
   <search>needed: 时事数据</search>
-  <tools>web_search</tools>
   <tone>concise, factual</tone>
 </prethink>`
 
@@ -24,7 +23,6 @@ func TestParsePreThinkXML_FullStructure(t *testing.T) {
 		"High hallucination risk",
 		"High misinformation risk",
 		"Search: needed",
-		"Tools: web_search",
 		"Tone: concise, factual",
 	} {
 		if !strings.Contains(out, want) {

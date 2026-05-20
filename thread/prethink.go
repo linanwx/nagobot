@@ -91,7 +91,7 @@ func preThinkAction(ctx context.Context, t *Thread, userMsg string) string {
 var (
 	intentRE = regexp.MustCompile(`(?is)<intent>(.*?)</intent>`)
 	searchRE = regexp.MustCompile(`(?is)<search>(.*?)</search>`)
-	toolsRE  = regexp.MustCompile(`(?is)<tools>(.*?)</tools>`)
+	fanoutRE = regexp.MustCompile(`(?is)<fanout>(.*?)</fanout>`)
 	toneRE   = regexp.MustCompile(`(?is)<tone>(.*?)</tone>`)
 	riskRE   = regexp.MustCompile(`(?is)<risk\s+name="([^"]+)"\s+level="([^"]+)"\s*>(.*?)</risk>`)
 )
@@ -135,9 +135,9 @@ func parsePreThinkXML(raw string) string {
 		}
 	}
 
-	if m := toolsRE.FindStringSubmatch(raw); len(m) == 2 {
+	if m := fanoutRE.FindStringSubmatch(raw); len(m) == 2 {
 		if v := cleanTagBody(m[1]); v != "" {
-			parts = append(parts, "Tools: "+v+".")
+			parts = append(parts, "Fanout: "+v+".")
 		}
 	}
 
