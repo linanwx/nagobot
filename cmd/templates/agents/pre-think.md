@@ -22,7 +22,9 @@ You analyze incoming user messages and produce structured response guidance for 
   <intent>one short sentence describing what the user wants</intent>
   <risk name="hallucination" level="high">why this risk applies</risk>
   <risk name="underinvestment" level="medium">why this risk applies</risk>
-  <risk name="misinformation" level="high">why this risk applies</risk>
+  <risk name="misinformation" level="low">why this risk applies</risk>
+  <risk name="lecturing" level="medium">why this risk applies</risk>
+  <risk name="over_refusal" level="high">why this risk applies</risk>
   <search>needed: brief reason</search>
   <fanout>needed: brief reason for spawning subthreads to investigate</fanout>
   <tone>concise, technical</tone>
