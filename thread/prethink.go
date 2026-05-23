@@ -12,7 +12,7 @@ import (
 
 const (
 	preThinkTimeout     = 10 * time.Second
-	preThinkChatEntries = 5 // recent chat.jsonl lines passed in the pre-think YAML header
+	preThinkChatEntries = 50 // recent chat.jsonl lines passed in the pre-think YAML header
 )
 
 // isPreThinkSession reports whether the session key is a pre-think sibling.
