@@ -26,18 +26,22 @@ const (
 
 // FeishuChannel implements the Channel interface for Feishu (Lark)
 // using the official SDK's WebSocket long connection (no public URL needed).
+type feishuWebSocketClient interface {
+	Start(ctx context.Context) error
+	Close()
+}
+
 type FeishuChannel struct {
 	appID, appSecret string
 	allowedOpenIDs   map[string]bool // nil or empty = allow all
 
-	apiClient *lark.Client   // REST client for sending messages
-	wsClient  *larkws.Client // WebSocket client for receiving events
+	apiClient *lark.Client          // REST client for sending messages
+	wsClient  feishuWebSocketClient // WebSocket client for receiving events
 
-	messages  chan *Message
-	done      chan struct{}
-	cancel    context.CancelFunc
-	startDone chan struct{} // closed when wsClient.Start() returns
-	wg        sync.WaitGroup
+	messages chan *Message
+	done     chan struct{}
+	cancel   context.CancelFunc
+	wg       sync.WaitGroup
 
 	// Event dedup: Feishu may deliver duplicate events.
 	seenMu   sync.Mutex
@@ -93,15 +97,12 @@ func (f *FeishuChannel) Start(ctx context.Context) error {
 		larkws.WithLogLevel(larkcore.LogLevelDebug),
 	)
 
-	// WebSocket connection goroutine — Start() blocks until context is cancelled.
+	// WebSocket connection goroutine — SDK Start() blocks indefinitely even
+	// after context cancellation, so this goroutine is intentionally not joined.
 	startCtx, cancel := context.WithCancel(ctx)
 	f.cancel = cancel
-	f.startDone = make(chan struct{})
 
-	f.wg.Add(1)
 	go func() {
-		defer f.wg.Done()
-		defer close(f.startDone)
 		if err := f.wsClient.Start(startCtx); err != nil {
 			select {
 			case <-f.done:
@@ -138,13 +139,9 @@ func (f *FeishuChannel) Stop() error {
 		close(f.done)
 		if f.cancel != nil {
 			f.cancel()
-			// Wait for wsClient.Start() to return, with a 5s timeout as a safeguard
-			// in case the SDK doesn't respond to context cancellation.
-			select {
-			case <-f.startDone:
-			case <-time.After(5 * time.Second):
-				logger.Warn("feishu websocket shutdown timed out after 5s")
-			}
+		}
+		if f.wsClient != nil {
+			f.wsClient.Close()
 		}
 		f.wg.Wait()
 		close(f.messages)

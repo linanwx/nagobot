@@ -54,6 +54,8 @@ var (
 	serveWeCom    bool
 )
 
+const serveShutdownForceTimeout = 10 * time.Second
+
 func init() {
 	serveCmd.Flags().BoolVar(&serveTelegram, "telegram", false, "Enable Telegram bot channel")
 	serveCmd.Flags().BoolVar(&serveFeishu, "feishu", false, "Enable Feishu (Lark) bot channel")
@@ -215,15 +217,7 @@ func runServe(cmd *cobra.Command, args []string) error {
 
 	sigChan := make(chan os.Signal, 1)
 	signal.Notify(sigChan, syscall.SIGINT, syscall.SIGTERM)
-	go func() {
-		select {
-		case <-sigChan:
-			logger.Info("shutdown signal received")
-		case <-shutdownCh:
-			logger.Info("shutdown requested via RPC")
-		}
-		cancel()
-	}()
+	installShutdownHandler(sigChan, shutdownCh, cancel, os.Exit, serveShutdownForceTimeout)
 
 	logger.Info("nagobot is running. Press Ctrl+C to stop.")
 
@@ -282,6 +276,30 @@ func runServe(cmd *cobra.Command, args []string) error {
 
 	logger.Info("nagobot service stopped")
 	return nil
+}
+
+func installShutdownHandler(sigChan <-chan os.Signal, shutdownCh <-chan struct{}, cancel context.CancelFunc, forceExit func(int), forceAfter time.Duration) {
+	go func() {
+		select {
+		case <-sigChan:
+			logger.Info("shutdown signal received")
+		case <-shutdownCh:
+			logger.Info("shutdown requested via RPC")
+		}
+		cancel()
+
+		timer := time.NewTimer(forceAfter)
+		defer timer.Stop()
+
+		select {
+		case <-sigChan:
+			logger.Warn("second shutdown signal received, forcing exit")
+			forceExit(1)
+		case <-timer.C:
+			logger.Warn("shutdown timed out, forcing exit", "timeout", forceAfter)
+			forceExit(1)
+		}
+	}()
 }
 
 // buildDefaultAgentFor returns a factory that resolves the default agent name for a given session key.

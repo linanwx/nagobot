@@ -2,8 +2,11 @@ package cmd
 
 import (
 	"context"
+	"os"
 	"strings"
+	"syscall"
 	"testing"
+	"time"
 
 	"github.com/linanwx/nagobot/channel"
 	"github.com/linanwx/nagobot/session"
@@ -143,5 +146,64 @@ func TestBuildDefaultSinkFor_DiscordSnowflakeSendsToChannel(t *testing.T) {
 	}
 	if got := discordCh.sent[0].ReplyTo; got != "1502707848944287895" {
 		t.Fatalf("replyTo = %q, want channel snowflake", got)
+	}
+}
+
+func TestInstallShutdownHandlerForcesExitOnSecondSignal(t *testing.T) {
+	sigCh := make(chan os.Signal, 2)
+	shutdownCh := make(chan struct{})
+	cancelled := make(chan struct{})
+	exitCode := make(chan int, 1)
+
+	installShutdownHandler(sigCh, shutdownCh, func() {
+		close(cancelled)
+	}, func(code int) {
+		exitCode <- code
+	}, time.Hour)
+
+	sigCh <- syscall.SIGTERM
+	select {
+	case <-cancelled:
+	case <-time.After(100 * time.Millisecond):
+		t.Fatal("shutdown handler did not call cancel after first signal")
+	}
+
+	sigCh <- syscall.SIGTERM
+	select {
+	case got := <-exitCode:
+		if got != 1 {
+			t.Fatalf("exit code = %d, want 1", got)
+		}
+	case <-time.After(100 * time.Millisecond):
+		t.Fatal("shutdown handler did not force exit after second signal")
+	}
+}
+
+func TestInstallShutdownHandlerForcesExitAfterTimeout(t *testing.T) {
+	sigCh := make(chan os.Signal, 1)
+	shutdownCh := make(chan struct{})
+	cancelled := make(chan struct{})
+	exitCode := make(chan int, 1)
+
+	installShutdownHandler(sigCh, shutdownCh, func() {
+		close(cancelled)
+	}, func(code int) {
+		exitCode <- code
+	}, 10*time.Millisecond)
+
+	close(shutdownCh)
+	select {
+	case <-cancelled:
+	case <-time.After(100 * time.Millisecond):
+		t.Fatal("shutdown handler did not call cancel after RPC shutdown")
+	}
+
+	select {
+	case got := <-exitCode:
+		if got != 1 {
+			t.Fatalf("exit code = %d, want 1", got)
+		}
+	case <-time.After(200 * time.Millisecond):
+		t.Fatal("shutdown handler did not force exit after timeout")
 	}
 }
