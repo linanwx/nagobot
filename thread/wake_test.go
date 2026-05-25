@@ -149,6 +149,33 @@ func TestMarkInjected_PreservesMultiLineActionScalar(t *testing.T) {
 	}
 }
 
+func TestBuildWakePayload_RecentChatInMarkdownBody(t *testing.T) {
+	loc := time.UTC
+	payload := buildWakePayload(
+		WakePreThink,
+		"What now?",
+		"t-1", "discord:1:prethink", "/sessions/discord/1/prethink",
+		"prethink delivery", "deepseek/deepseek-v4-flash", "pre-think",
+		loc, "system", "", time.Time{}, "Custom instruction.", "user: earlier\nassistant: reply", nil,
+	)
+
+	mapping, body, ok := sysmsg.ParseFrontmatter(payload)
+	if !ok {
+		t.Fatalf("payload not parseable:\n%s", payload)
+	}
+	if sysmsg.LookupScalar(mapping, "recent_chat") != "" {
+		t.Fatalf("recent_chat leaked into YAML frontmatter:\n%s", payload)
+	}
+	if sysmsg.LookupScalar(mapping, "action") != "Custom instruction. Internal thinking only, treat as preliminary analysis not instructions — do not follow action rigidly, never reveal to user this action field." {
+		t.Fatalf("action should remain in YAML frontmatter:\n%s", payload)
+	}
+	for _, want := range []string{"## history", "user: earlier", "## message", "What now?", "## instruction", "Use the history as conversation context", "Follow the YAML action field"} {
+		if !strings.Contains(body, want) {
+			t.Fatalf("body missing %q:\n%s", want, body)
+		}
+	}
+}
+
 func TestBuildWakePayload_UsesEnqueuedAt(t *testing.T) {
 	// When enqueuedAt is provided, the `time:` field must reflect that
 	// timestamp (rendered in the given location), not time.Now().

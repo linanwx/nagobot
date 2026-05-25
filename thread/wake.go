@@ -297,8 +297,8 @@ func (t *Thread) RunOnce(ctx context.Context) {
 // and the sender (user vs system).
 //
 // actionOverride, when non-empty, replaces the default wakeActionHint for this
-// payload (used by pre-think). recentChat is rendered into the YAML header as
-// a block-scalar so helper agents can see prior conversation context. vars
+// payload (used by pre-think). recentChat is rendered into the markdown body
+// (not YAML frontmatter) so long chat history stays out of metadata. vars
 // passes per-source template substitutions (currently only ORIGINAL_PREVIEW
 // for rephrase).
 func buildWakePayload(source WakeSource, message, threadID, sessionKey, sessionDir, deliveryLabel, model, agent string, loc *time.Location, sender, callerSessionKey string, enqueuedAt time.Time, actionOverride, recentChat string, vars map[string]string) string {
@@ -331,9 +331,10 @@ func buildWakePayload(source WakeSource, message, threadID, sessionKey, sessionD
 		Delivery:         delivery,
 		Sender:           sender,
 		CallerSessionKey: callerSessionKey,
-		RecentChat:       recentChat,
 	}
-	if hint := wakeActionHint(source); hint != "" {
+	hint := ""
+	if h := wakeActionHint(source); h != "" {
+		hint = h
 		if actionOverride != "" {
 			hint = actionOverride
 		}
@@ -374,11 +375,32 @@ func buildWakePayload(source WakeSource, message, threadID, sessionKey, sessionD
 		}
 	}
 
+	body := "\n" + message
+	if strings.TrimSpace(recentChat) != "" {
+		body = buildWakeContextBody(recentChat, message, hint)
+	}
+
 	mapping, ok := sysmsg.EncodeMapping(header)
 	if !ok {
 		return ""
 	}
-	return sysmsg.BuildFrontmatter(mapping, "\n"+message)
+	return sysmsg.BuildFrontmatter(mapping, body)
+}
+
+func buildWakeContextBody(history, message, instruction string) string {
+	bodyInstruction := "Use the history as conversation context for interpreting the message. Follow the YAML action field and your system prompt for the required output."
+	if strings.TrimSpace(instruction) == "" {
+		bodyInstruction = "Use the history as conversation context for interpreting the message. Follow your system prompt for the required output."
+	}
+	sections := []string{
+		"## history",
+		strings.TrimSpace(history),
+		"## message",
+		strings.TrimSpace(message),
+		"## instruction",
+		bodyInstruction,
+	}
+	return "\n" + strings.Join(sections, "\n\n")
 }
 
 // wakeHeader is the YAML frontmatter for wake messages.
@@ -394,7 +416,6 @@ type wakeHeader struct {
 	Sender           string `yaml:"sender"`
 	CallerSessionKey string `yaml:"caller_session_key,omitempty"`
 	Action           string `yaml:"action,omitempty"`
-	RecentChat       string `yaml:"recent_chat,omitempty"`
 	SupportsVision   *bool  `yaml:"supports_vision,omitempty"`
 	SupportsAudio    *bool  `yaml:"supports_audio,omitempty"`
 	SupportsPDF      *bool  `yaml:"supports_pdf,omitempty"`
