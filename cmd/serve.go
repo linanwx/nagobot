@@ -300,6 +300,30 @@ func readSessionMeta(sessionsDir, sessionKey string) session.Meta {
 	return session.ReadMeta(session.SessionDir(sessionsDir, sessionKey))
 }
 
+func isDiscordSnowflake(s string) bool {
+	if s == "" {
+		return false
+	}
+	for _, r := range s {
+		if r < '0' || r > '9' {
+			return false
+		}
+	}
+	return true
+}
+
+func internalDiscordSink(sessionKey string) thread.Sink {
+	return thread.Sink{
+		Label: "internal discord session - result will not be delivered",
+		Send: func(_ context.Context, response string) error {
+			if strings.TrimSpace(response) != "" {
+				logger.Debug("internal discord default sink dropped", "session", sessionKey, "bytes", len(response))
+			}
+			return nil
+		},
+	}
+}
+
 // buildDefaultSinkFor returns a factory that resolves the fallback sink for a given session key.
 func buildDefaultSinkFor(chMgr *channel.Manager, cfg *config.Config, sessionsDir string, threadMgr *thread.Manager, cronJobFn func(string) (cronpkg.Job, bool)) func(string) thread.Sink {
 	return func(sessionKey string) thread.Sink {
@@ -350,7 +374,7 @@ func buildDefaultSinkFor(chMgr *channel.Manager, cfg *config.Config, sessionsDir
 			userID := strings.TrimPrefix(sessionKey, "telegram:")
 			if userID != "" {
 				return thread.Sink{
-					Label:      "your response will be sent to telegram user " + userID,
+					Label:     "your response will be sent to telegram user " + userID,
 					Chunkable: true,
 					Send: func(ctx context.Context, response string) error {
 						if strings.TrimSpace(response) == "" {
@@ -367,7 +391,7 @@ func buildDefaultSinkFor(chMgr *channel.Manager, cfg *config.Config, sessionsDir
 			openID := strings.TrimPrefix(sessionKey, "feishu:")
 			if openID != "" {
 				return thread.Sink{
-					Label:      "your response will be sent to feishu user " + openID,
+					Label:     "your response will be sent to feishu user " + openID,
 					Chunkable: true,
 					Send: func(ctx context.Context, response string) error {
 						if strings.TrimSpace(response) == "" {
@@ -382,21 +406,22 @@ func buildDefaultSinkFor(chMgr *channel.Manager, cfg *config.Config, sessionsDir
 		// discord:{channelOrUserID} → check channel.json for DM routing, fallback to raw ID.
 		if strings.HasPrefix(sessionKey, "discord:") {
 			channelID := strings.TrimPrefix(sessionKey, "discord:")
-			if channelID != "" {
-				replyTo := channelID
-				if r := readSessionMeta(sessionsDir, sessionKey); r.DiscordDM != nil && r.DiscordDM.ReplyTo != "" {
-					replyTo = r.DiscordDM.ReplyTo
-				}
-				return thread.Sink{
-					Label:      "your response will be sent to discord channel " + channelID,
-					Chunkable: true,
-					Send: func(ctx context.Context, response string) error {
-						if strings.TrimSpace(response) == "" {
-							return nil
-						}
-						return chMgr.SendTo(ctx, "discord", response, replyTo)
-					},
-				}
+			if !isDiscordSnowflake(channelID) {
+				return internalDiscordSink(sessionKey)
+			}
+			replyTo := channelID
+			if r := readSessionMeta(sessionsDir, sessionKey); r.DiscordDM != nil && r.DiscordDM.ReplyTo != "" {
+				replyTo = r.DiscordDM.ReplyTo
+			}
+			return thread.Sink{
+				Label:     "your response will be sent to discord channel " + channelID,
+				Chunkable: true,
+				Send: func(ctx context.Context, response string) error {
+					if strings.TrimSpace(response) == "" {
+						return nil
+					}
+					return chMgr.SendTo(ctx, "discord", response, replyTo)
+				},
 			}
 		}
 
@@ -428,7 +453,7 @@ func buildDefaultSinkFor(chMgr *channel.Manager, cfg *config.Config, sessionsDir
 		if sessionKey == "cli" {
 			if _, ok := chMgr.Get("socket"); ok {
 				return thread.Sink{
-					Label:      "your response will be sent to the CLI client via socket",
+					Label:     "your response will be sent to the CLI client via socket",
 					Chunkable: true,
 					Send: func(ctx context.Context, response string) error {
 						if strings.TrimSpace(response) == "" {
@@ -443,7 +468,6 @@ func buildDefaultSinkFor(chMgr *channel.Manager, cfg *config.Config, sessionsDir
 		return thread.Sink{}
 	}
 }
-
 
 type serveTargets struct {
 	telegram, feishu, discord, web, wecom bool
@@ -506,9 +530,9 @@ func refreshChannelsLoop(ctx context.Context, chMgr *channel.Manager, dispatcher
 
 // channelSpec describes a dynamically loadable channel.
 type channelSpec struct {
-	name      string
-	hasToken  func(*config.Config) bool
-	newCh     func(*config.Config) channel.Channel
+	name     string
+	hasToken func(*config.Config) bool
+	newCh    func(*config.Config) channel.Channel
 }
 
 var dynamicChannels = []channelSpec{
