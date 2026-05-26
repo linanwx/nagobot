@@ -51,6 +51,35 @@ func TestParsePreThinkXML_FiltersLow(t *testing.T) {
 	}
 }
 
+func TestParsePreThinkXML_MisunderstandingRiskRequiresClarification(t *testing.T) {
+	raw := `<prethink>
+  <intent>用户想修改模板，但措辞可能有歧义</intent>
+  <risk name="misunderstanding" level="medium">需求明确但沟通差一点</risk>
+  <tone>careful</tone>
+</prethink>`
+
+	out := parsePreThinkXML(raw)
+	if !strings.Contains(out, "Medium misunderstanding risk: 需求明确但沟通差一点") {
+		t.Errorf("medium misunderstanding risk should be kept, got: %s", out)
+	}
+	if !strings.Contains(out, "Clarification required: ask the user a clarifying question and wait for their answer before continuing") {
+		t.Errorf("misunderstanding risk should require clarification, got: %s", out)
+	}
+}
+
+func TestParsePreThinkXML_LowMisunderstandingDoesNotRequireClarification(t *testing.T) {
+	raw := `<prethink>
+  <intent>用户的问题很清楚</intent>
+  <risk name="misunderstanding" level="low">no ambiguity</risk>
+  <tone>concise</tone>
+</prethink>`
+
+	out := parsePreThinkXML(raw)
+	if strings.Contains(out, "Clarification required") {
+		t.Errorf("low misunderstanding risk should not require clarification, got: %s", out)
+	}
+}
+
 func TestParsePreThinkXML_CasualMinimal(t *testing.T) {
 	raw := `<prethink>
   <intent>casual conversation</intent>
