@@ -98,6 +98,7 @@ var (
 
 // parsePreThinkXML extracts structured fields from pre-think output and
 // composes a clean action hint. Risk tags with level="low" are filtered out.
+// Medium/high misunderstanding risk adds a mandatory clarification step.
 // Returns "" when no recognizable tags are found (caller falls back to raw).
 func parsePreThinkXML(raw string) string {
 	if raw == "" {
@@ -105,6 +106,7 @@ func parsePreThinkXML(raw string) string {
 	}
 
 	var parts []string
+	clarificationRequired := false
 
 	if m := intentRE.FindStringSubmatch(raw); len(m) == 2 {
 		if v := cleanTagBody(m[1]); v != "" {
@@ -127,6 +129,13 @@ func parsePreThinkXML(raw string) string {
 			entry += ": " + reason
 		}
 		parts = append(parts, entry+".")
+		if isMisunderstandingRiskName(name) {
+			clarificationRequired = true
+		}
+	}
+
+	if clarificationRequired {
+		parts = append(parts, "Clarification required: ask the user a clarifying question and wait for their answer before continuing.")
 	}
 
 	if m := searchRE.FindStringSubmatch(raw); len(m) == 2 {
@@ -151,6 +160,17 @@ func parsePreThinkXML(raw string) string {
 		return ""
 	}
 	return strings.Join(parts, " ")
+}
+
+func isMisunderstandingRiskName(name string) bool {
+	name = strings.ToLower(strings.TrimSpace(name))
+	name = strings.ReplaceAll(name, "-", "_")
+	switch name {
+	case "misunderstanding", "misunderstanding_risk", "misinterpretation", "miscommunication", "误解", "误解风险":
+		return true
+	default:
+		return false
+	}
 }
 
 func cleanTagBody(s string) string {
