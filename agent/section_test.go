@@ -237,8 +237,8 @@ func TestSectionRegistry_RealSections(t *testing.T) {
 	if err := reg.Load(); err != nil {
 		t.Fatal(err)
 	}
-	if reg.Count() < 8 {
-		t.Errorf("expected at least 8 sections, got %d", reg.Count())
+	if reg.Count() < 6 {
+		t.Errorf("expected at least 6 sections, got %d", reg.Count())
 	}
 	result := reg.Assemble()
 	if !strings.Contains(result, "How nagobot works") {

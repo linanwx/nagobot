@@ -26,8 +26,12 @@ type WebSearchTool struct {
 	defaultMaxResults int
 	providers         map[string]SearchProvider
 	healthChecker     *SearchHealthChecker
-	Guide             string // injected from WEB_SEARCH_GUIDE.md, appended to error responses
 }
+
+// webSearchGuideSkill is the skill that holds the full source-selection guide.
+// Error/empty responses reference it via use_skill instead of inlining the guide
+// text, so repeated failures don't bloat the conversation history.
+const webSearchGuideSkill = "web-search-guide"
 
 // Def returns the tool definition.
 func (t *WebSearchTool) Def() provider.ToolDef {
@@ -128,11 +132,11 @@ func (t *WebSearchTool) Run(ctx context.Context, args json.RawMessage) string {
 }
 
 func (t *WebSearchTool) sourceError(msg string) string {
-	return buildSourceError(msg, t.healthChecker, t.Guide)
+	return buildSourceError(msg, t.healthChecker, webSearchGuideSkill)
 }
 
 func (t *WebSearchTool) searchError(source, query string, err error) string {
-	return buildToolError("web_search", fmt.Sprintf("Error: search on %q failed: %v", source, err), t.healthChecker, t.Guide)
+	return buildToolError("web_search", fmt.Sprintf("Error: search on %q failed: %v", source, err), t.healthChecker, webSearchGuideSkill)
 }
 
 func (t *WebSearchTool) emptyResults(source, query string) string {
@@ -146,7 +150,7 @@ func (t *WebSearchTool) emptyResults(source, query string) string {
 	if t.healthChecker != nil {
 		body.WriteString(t.healthChecker.DetailedStatus())
 	}
-	appendGuide(&body, t.Guide)
+	appendGuideSkillHint(&body, webSearchGuideSkill)
 	return toolResult("web_search", fields, body.String())
 }
 
@@ -167,8 +171,11 @@ const webFetchCacheTTL = 10 * time.Minute
 type WebFetchTool struct {
 	providers     map[string]FetchProvider
 	healthChecker *SearchHealthChecker // reused from web_search — tracks fetch outcomes
-	Guide         string              // injected from WEB_FETCH_GUIDE.md, appended to error responses
 }
+
+// webFetchGuideSkill is the skill that holds the full fetch source guide.
+// Error responses reference it via use_skill instead of inlining the guide text.
+const webFetchGuideSkill = "web-fetch-guide"
 
 // Def returns the tool definition.
 func (t *WebFetchTool) Def() provider.ToolDef {
@@ -312,11 +319,11 @@ func (t *WebFetchTool) Run(ctx context.Context, args json.RawMessage) string {
 }
 
 func (t *WebFetchTool) fetchSourceError(msg string) string {
-	return buildSourceError(msg, t.healthChecker, t.Guide)
+	return buildSourceError(msg, t.healthChecker, webFetchGuideSkill)
 }
 
 func (t *WebFetchTool) fetchError(source, fetchURL string, err error) string {
-	return buildToolError("web_fetch", fmt.Sprintf("Error: fetch %q via %s failed: %v", fetchURL, source, err), t.healthChecker, t.Guide)
+	return buildToolError("web_fetch", fmt.Sprintf("Error: fetch %q via %s failed: %v", fetchURL, source, err), t.healthChecker, webFetchGuideSkill)
 }
 
 func webFetchCacheLookup(key string) (string, bool) {
@@ -378,32 +385,34 @@ func extractTextContent(html string) string {
 }
 
 // buildSourceError builds an error message with health status and guide for source selection failures.
-func buildSourceError(msg string, hc *SearchHealthChecker, guide string) string {
+func buildSourceError(msg string, hc *SearchHealthChecker, guideSkill string) string {
 	var sb strings.Builder
 	sb.WriteString(fmt.Sprintf("Error: %s.\n\n", msg))
 	if hc != nil {
 		sb.WriteString(hc.DetailedStatus())
 	}
-	appendGuide(&sb, guide)
+	appendGuideSkillHint(&sb, guideSkill)
 	return sb.String()
 }
 
-// buildToolError builds a tool error with health status and guide.
-func buildToolError(toolName, errMsg string, hc *SearchHealthChecker, guide string) string {
+// buildToolError builds a tool error with health status and a guide skill hint.
+func buildToolError(toolName, errMsg string, hc *SearchHealthChecker, guideSkill string) string {
 	var sb strings.Builder
 	sb.WriteString(errMsg)
 	sb.WriteString("\n\nTry a different source.\n")
 	if hc != nil {
 		sb.WriteString(hc.DetailedStatus())
 	}
-	appendGuide(&sb, guide)
+	appendGuideSkillHint(&sb, guideSkill)
 	return toolError(toolName, sb.String())
 }
 
-func appendGuide(sb *strings.Builder, guide string) {
-	if guide != "" {
-		sb.WriteString("\n")
-		sb.WriteString(guide)
-		sb.WriteString("\n")
+// appendGuideSkillHint appends a one-line pointer to the source-selection guide
+// skill instead of inlining the full guide text. This keeps error/empty results
+// compact so repeated failures don't accumulate large duplicated guides in the
+// conversation history.
+func appendGuideSkillHint(sb *strings.Builder, guideSkill string) {
+	if guideSkill != "" {
+		sb.WriteString(fmt.Sprintf("\nFor source options and selection guidance, call use_skill(%q).\n", guideSkill))
 	}
 }

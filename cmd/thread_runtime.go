@@ -2,9 +2,7 @@ package cmd
 
 import (
 	"fmt"
-	"os"
 	"path/filepath"
-	"strings"
 
 	"github.com/linanwx/nagobot/agent"
 	"github.com/linanwx/nagobot/config"
@@ -182,24 +180,13 @@ func buildThreadManager(cfg *config.Config, enableSessions bool) (*thread.Manage
 
 	fetchHealthChecker := tools.NewFetchHealthChecker(fetchProviders)
 
-	webSearchGuide := ""
-	if guideData, err := os.ReadFile(filepath.Join(workspace, "system", "WEB_SEARCH_GUIDE.md")); err == nil {
-		webSearchGuide = strings.TrimSpace(string(guideData))
-	}
-	webFetchGuide := ""
-	if guideData, err := os.ReadFile(filepath.Join(workspace, "system", "WEB_FETCH_GUIDE.md")); err == nil {
-		webFetchGuide = strings.TrimSpace(string(guideData))
-	}
-
 	toolRegistry.RegisterDefaultTools(workspace, tools.DefaultToolsConfig{
 		ExecTimeout:         cfg.GetExecTimeout(),
 		WebSearchMaxResults: cfg.GetWebSearchMaxResults(),
-		WebSearchGuide:      webSearchGuide,
 		SearchProviders:     searchProviders,
 		SearchHealthChecker: searchHealthChecker,
 		FetchProviders:      fetchProviders,
 		FetchHealthChecker:  fetchHealthChecker,
-		WebFetchGuide:       webFetchGuide,
 		RestrictToWorkspace: cfg.GetExecRestrictToWorkspace(),
 		Skills:              skillRegistry,
 		LogsDir:             logsDir,
@@ -268,8 +255,8 @@ func buildThreadManager(cfg *config.Config, enableSessions bool) (*thread.Manage
 		SkillsDir:           skillsDir,
 		BuiltinSkillsDir:    builtinSkillsDir,
 		SessionsDir:         sessionsDir,
-		ContextWindowTokens:  cfg.GetContextWindowTokens(),
-		MaxCompletionTokens:  cfg.Thread.MaxTokens,
+		ContextWindowTokens: cfg.GetContextWindowTokens(),
+		MaxCompletionTokens: cfg.Thread.MaxTokens,
 		Sessions:            sessions,
 		HealthChannelsFn:    healthChannelsFn,
 		ProviderFactory:     providerFactory,
@@ -281,9 +268,9 @@ func buildThreadManager(cfg *config.Config, enableSessions bool) (*thread.Manage
 			}
 			return c.Thread.Models
 		},
-		SessionTimezoneFor:  cfg.SessionTimezone,
-		MetricsStore:        metricsStore,
-		Sections:            initSectionRegistry(workspace),
+		SessionTimezoneFor: cfg.SessionTimezone,
+		MetricsStore:       metricsStore,
+		Sections:           initSectionRegistry(workspace),
 	}), searchHealthChecker, fetchHealthChecker, nil
 }
 

@@ -1,7 +1,6 @@
 ---
 name: web-search-guide
-priority: 410
-parent: tools
+description: Use when choosing or switching web_search sources, or when web_search returns no/poor results — lists available sources, their cost and strengths, and source-selection rules.
 ---
 # web_search source guide
 
