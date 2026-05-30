@@ -17,6 +17,7 @@ const (
 	SectionUserMemory      = "user_memory_section"
 	SectionHeartbeatPrompt = "heartbeat_prompt_section"
 	SectionMemoryIndex     = "memory_index_section"
+	SectionDream           = "dream_section"
 )
 
 // headingLevel returns the ATX heading level (1-6) of a markdown line, or 0 if not a heading.

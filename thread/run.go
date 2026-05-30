@@ -132,6 +132,7 @@ func (t *Thread) buildSystemPrompt() string {
 	activeAgent.Set(agent.SectionUserMemory, t.buildUserSection())
 	activeAgent.Set(agent.SectionHeartbeatPrompt, t.buildHeartbeatSection())
 	activeAgent.Set(agent.SectionMemoryIndex, t.buildMemoryIndexSection())
+	activeAgent.Set(agent.SectionDream, t.buildDreamSection())
 	prompt := activeAgent.Build()
 	if strings.TrimSpace(prompt) == "" {
 		return "You are a helpful AI assistant."
@@ -419,6 +420,29 @@ func (t *Thread) buildHeartbeatSection() string {
 	if body == "" {
 		return header
 	}
+	return header + "\n\n" + body
+}
+
+// buildDreamSection resolves the per-session dream.md into a YAML-frontmattered section.
+// Returns "" when no dream.md exists, so sessions that have never dreamed add nothing
+// to the prompt. The dream skill overwrites dream.md each night; the soul agent
+// consumes it here to let the latest dream quietly inform conversations.
+func (t *Thread) buildDreamSection() string {
+	dir := t.sectionDir("dream.md")
+	if dir == "" {
+		return ""
+	}
+	dreamPath := filepath.Join(dir, "dream.md")
+	data, err := os.ReadFile(dreamPath)
+	if err != nil {
+		return ""
+	}
+	body := strings.TrimSpace(string(data))
+	if body == "" {
+		return ""
+	}
+	absPath, _ := filepath.Abs(dreamPath)
+	header := fmt.Sprintf("---\ntype: dream_reflection\nfile_path: %s\nprompt: Your most recent dream — a background reflection over the past day's conversation, rewritten each night by the dream skill. Let it quietly inform how you understand and respond to the user.\n---", absPath)
 	return header + "\n\n" + body
 }
 

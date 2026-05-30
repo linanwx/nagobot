@@ -23,6 +23,7 @@ const (
 	hbPulseInterval  = 45 * time.Minute // Base gap between pulses (grows by hbPulseGrowth each cycle).
 	hbPulseGrowth    = 30 * time.Minute // Each subsequent interval grows by this amount.
 	hbActivityWindow = 48 * time.Hour   // Only pulse sessions active within this window.
+	hbDreamDedup     = 4 * time.Hour    // After a dream fires, suppress dreams for this session for this long.
 )
 
 // hbSessionState holds persisted per-session heartbeat state.
@@ -46,19 +47,25 @@ type heartbeatScheduler struct {
 	sessions map[string]*hbSessionState // sessionKey → state
 
 	statePath string // path to heartbeat-state.json
+
+	dreamLogPath string               // path to dream_log.jsonl
+	lastDream    map[string]time.Time // sessionKey → last dream time (dedup, guarded by mu)
 }
 
 func newHeartbeatScheduler(mgr *thread.Manager, cfgFn func() *config.Config) *heartbeatScheduler {
 	s := &heartbeatScheduler{
-		mgr:      mgr,
-		cfgFn:    cfgFn,
-		sessions: make(map[string]*hbSessionState),
+		mgr:       mgr,
+		cfgFn:     cfgFn,
+		sessions:  make(map[string]*hbSessionState),
+		lastDream: make(map[string]time.Time),
 	}
 	// Load persisted state.
 	if cfg := cfgFn(); cfg != nil {
 		if workspace, err := cfg.WorkspacePath(); err == nil {
 			s.statePath = filepath.Join(workspace, "system", "heartbeat-state.json")
 			s.loadState()
+			s.dreamLogPath = filepath.Join(workspace, "system", "dream_log.jsonl")
+			s.loadDreamLog()
 		}
 	}
 	return s
@@ -109,6 +116,100 @@ func (s *heartbeatScheduler) saveState() {
 	dir := filepath.Dir(s.statePath)
 	os.MkdirAll(dir, 0o755)
 	os.WriteFile(s.statePath, data, 0o644)
+}
+
+// dreamLogEntry is one append-only record in dream_log.jsonl.
+type dreamLogEntry struct {
+	SessionKey string    `json:"session_key"`
+	DreamedAt  time.Time `json:"dreamed_at"`
+}
+
+// loadDreamLog reads the append-only dream log and rebuilds the per-session
+// last-dream map, keeping the most recent timestamp per session. This survives
+// restarts so a nighttime restart does not re-trigger dreams already done.
+func (s *heartbeatScheduler) loadDreamLog() {
+	if s.dreamLogPath == "" {
+		return
+	}
+	data, err := os.ReadFile(s.dreamLogPath)
+	if err != nil {
+		return
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for _, line := range strings.Split(string(data), "\n") {
+		line = strings.TrimSpace(line)
+		if line == "" {
+			continue
+		}
+		var e dreamLogEntry
+		if err := json.Unmarshal([]byte(line), &e); err != nil {
+			continue
+		}
+		if e.SessionKey == "" {
+			continue
+		}
+		if prev, ok := s.lastDream[e.SessionKey]; !ok || e.DreamedAt.After(prev) {
+			s.lastDream[e.SessionKey] = e.DreamedAt
+		}
+	}
+}
+
+// recordDream appends a dream event to dream_log.jsonl and updates the in-memory
+// dedup map. Called at fire time so the dedup window holds even if the LLM's
+// dream turn fails — the next dream chance is the following night.
+func (s *heartbeatScheduler) recordDream(key string, now time.Time) {
+	s.mu.Lock()
+	s.lastDream[key] = now
+	s.mu.Unlock()
+	if s.dreamLogPath == "" {
+		return
+	}
+	data, err := json.Marshal(dreamLogEntry{SessionKey: key, DreamedAt: now.UTC()})
+	if err != nil {
+		return
+	}
+	os.MkdirAll(filepath.Dir(s.dreamLogPath), 0o755)
+	f, err := os.OpenFile(s.dreamLogPath, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o644)
+	if err != nil {
+		logger.Warn("dream log append failed", "key", key, "err", err)
+		return
+	}
+	defer f.Close()
+	if _, err := f.Write(append(data, '\n')); err != nil {
+		logger.Warn("dream log write failed", "key", key, "err", err)
+	}
+}
+
+// nightHour reports whether now falls in the 02:00–06:00 window of the session's
+// configured timezone, falling back to the system timezone when unset/invalid.
+func (s *heartbeatScheduler) nightHour(key string, now time.Time) bool {
+	tz := s.cfgFn().SessionTimezone(key)
+	loc, err := time.LoadLocation(tz)
+	if err != nil {
+		loc = time.Local
+	}
+	h := now.In(loc).Hour()
+	return h >= 2 && h < 6
+}
+
+// shouldDream decides whether this pulse should also trigger a dream.
+// Conditions: pulse_index > 2 (user quiet > ~135 min), session-local night
+// (02:00–06:00), and no dream for this session within the dedup window.
+func (s *heartbeatScheduler) shouldDream(key string, now time.Time, pulseIndex int) bool {
+	if pulseIndex <= 2 {
+		return false
+	}
+	if !s.nightHour(key, now) {
+		return false
+	}
+	s.mu.Lock()
+	last := s.lastDream[key]
+	s.mu.Unlock()
+	if !last.IsZero() && now.Sub(last) < hbDreamDedup {
+		return false
+	}
+	return true
 }
 
 func (s *heartbeatScheduler) scan(ctx context.Context) {
@@ -236,11 +337,12 @@ func (s *heartbeatScheduler) maybeFirePulse(key string, now time.Time, lastActiv
 	}
 	elapsed := now.Sub(lastActive).Round(time.Second)
 
-	message := buildHeartbeatMessage(mdModified, nextPulse, pulseIndex, elapsed, lastPulse)
+	dream := s.shouldDream(key, now, pulseIndex)
+	message := buildHeartbeatMessage(mdModified, nextPulse, pulseIndex, elapsed, lastPulse, dream)
 
-	// Only wake for pulse indices that have registered handlers.
-	// Currently: index 2 (60min) → session-reflect.
-	if pulseIndex == 2 {
+	// Wake for pulse indices that have registered handlers, or when a dream is due.
+	// index 2 (60min) → session-reflect; pulse_index > 2 at night → dream.
+	if pulseIndex == 2 || dream {
 		s.mgr.Wake(key, &thread.WakeMessage{
 			Source:  thread.WakeHeartbeat,
 			Message: message,
@@ -249,6 +351,9 @@ func (s *heartbeatScheduler) maybeFirePulse(key string, now time.Time, lastActiv
 				Send:  func(_ context.Context, _ string) error { return nil },
 			},
 		})
+		if dream {
+			s.recordDream(key, now)
+		}
 	}
 
 	// Update state and persist.
@@ -414,7 +519,7 @@ func loadPostponeConfig(path string) map[string]postponeEntry {
 
 // buildHeartbeatMessage constructs a heartbeat system message.
 // heartbeat.md content is already in the system prompt via heartbeat_prompt_section — no need to duplicate here.
-func buildHeartbeatMessage(mdModified, nextPulse string, pulseIndex int, elapsed time.Duration, lastPulse time.Time) string {
+func buildHeartbeatMessage(mdModified, nextPulse string, pulseIndex int, elapsed time.Duration, lastPulse time.Time, shouldDream bool) string {
 	fields := map[string]string{}
 	if nextPulse != "" {
 		fields["next_pulse"] = nextPulse
@@ -426,6 +531,9 @@ func buildHeartbeatMessage(mdModified, nextPulse string, pulseIndex int, elapsed
 	fields["elapsed_since_user"] = elapsed.String()
 	if !lastPulse.IsZero() {
 		fields["last_pulse"] = lastPulse.UTC().Format(time.RFC3339)
+	}
+	if shouldDream {
+		fields["should_dream"] = "true"
 	}
 
 	message := sysmsg.BuildSystemMessage("heartbeat", fields, "")
