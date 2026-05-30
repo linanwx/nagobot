@@ -62,7 +62,7 @@ func TestParsePreThinkXML_MisunderstandingRiskRequiresClarification(t *testing.T
 	if !strings.Contains(out, "Medium misunderstanding risk: 需求明确但沟通差一点") {
 		t.Errorf("medium misunderstanding risk should be kept, got: %s", out)
 	}
-	if !strings.Contains(out, "Clarification required: ask the user a clarifying question and wait for their answer before continuing") {
+	if !strings.Contains(out, "Clarification required: you must stop and ask the user a clarifying question and wait for their answer before continuing") {
 		t.Errorf("misunderstanding risk should require clarification, got: %s", out)
 	}
 }
