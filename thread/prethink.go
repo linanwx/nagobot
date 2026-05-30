@@ -135,7 +135,7 @@ func parsePreThinkXML(raw string) string {
 	}
 
 	if clarificationRequired {
-		parts = append(parts, "Clarification required: ask the user a clarifying question and wait for their answer before continuing.")
+		parts = append(parts, "Clarification required: you must stop and ask the user a clarifying question and wait for their answer before continuing.")
 	}
 
 	if m := searchRE.FindStringSubmatch(raw); len(m) == 2 {
