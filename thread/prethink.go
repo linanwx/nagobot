@@ -146,7 +146,7 @@ func parsePreThinkXML(raw string) string {
 
 	if m := fanoutRE.FindStringSubmatch(raw); len(m) == 2 {
 		if v := cleanTagBody(m[1]); v != "" {
-			parts = append(parts, "Fanout: "+v+".")
+			parts = append(parts, "Fanout: "+v+". You must call dispatch to fan out subagents before responding to the user.")
 		}
 	}
 
