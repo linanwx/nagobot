@@ -1,7 +1,6 @@
 ---
 name: web-fetch-guide
-priority: 420
-parent: tools
+description: Use when choosing or switching web_fetch sources, or when web_fetch fails (403/503/anti-bot) — lists available fetch sources and source-selection tips.
 ---
 # web_fetch source guide
 
