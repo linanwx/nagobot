@@ -149,22 +149,11 @@ func (t *Thread) buildMessageHistory(ctx context.Context, systemPrompt, userMess
 
 	ct := t.contextBudget()
 	contextWindowTokens := ct.ContextWindow
-
-	// Compute precise session budget by subtracting known overhead from context window.
-	systemPromptTokens := EstimateMessageTokens(messages[0])
-	userMsgTokens := EstimateTextTokens(userMessage) + 6
 	toolDefsTokens := EstimateToolDefsTokens(t.tools.Defs())
 	maxCompletionTokens := t.cfg().MaxCompletionTokens
-	sessionBudget := int(float64(contextWindowTokens-systemPromptTokens-userMsgTokens-toolDefsTokens-maxCompletionTokens) * 0.96)
-	if sessionBudget < 0 {
-		sessionBudget = 0
-	}
 
-	var sessionMessages []provider.Message
-	var sessionEstimatedTokens int
 	if sess != nil {
-		sessionMessages = ApplyCompressed(provider.SanitizeMessages(sess.Messages))
-		sessionMessages, sessionEstimatedTokens = t.applyTier0Truncation(sessionMessages, sessionBudget)
+		sessionMessages := ApplyCompressed(provider.SanitizeMessages(sess.Messages))
 		messages = append(messages, sessionMessages...)
 	}
 
@@ -173,12 +162,17 @@ func (t *Thread) buildMessageHistory(ctx context.Context, systemPrompt, userMess
 	messages = append(messages, userMsg)
 	turnUserMessages = append(turnUserMessages, userMsg)
 
-	requestEstimatedTokens := sessionEstimatedTokens + EstimateMessageTokens(messages[0]) + EstimateMessageTokens(userMsg) + toolDefsTokens + 3
+	// Bound the request to the shared context budget: drop the oldest
+	// assistant+tool_call groups, preserving the system prompt and all user
+	// messages (including the first task message). Same logic and budget as the
+	// in-loop guard; idempotent and ephemeral (the session file is untouched).
+	messages = trimMessageGroups(messages, toolDefsTokens, contextLoopBudget(contextWindowTokens, maxCompletionTokens))
+
+	requestEstimatedTokens := EstimateMessagesTokens(messages) + toolDefsTokens
 	logger.Debug(
 		"context estimate",
 		"threadID", t.id,
 		"sessionKey", t.sessionKey,
-		"sessionEstimatedTokens", sessionEstimatedTokens,
 		"requestEstimatedTokens", requestEstimatedTokens,
 		"contextWindowTokens", contextWindowTokens,
 		"warnToken", ct.WarnToken,
@@ -190,7 +184,6 @@ func (t *Thread) buildMessageHistory(ctx context.Context, systemPrompt, userMess
 		SessionKey:             t.sessionKey,
 		SessionPath:            sessionPath,
 		UserMessage:            userMessage,
-		SessionEstimatedTokens: sessionEstimatedTokens,
 		RequestEstimatedTokens: requestEstimatedTokens,
 		ContextWindowTokens:    contextWindowTokens,
 		WarnToken:              ct.WarnToken,
@@ -212,10 +205,7 @@ func (t *Thread) buildMessageHistory(ctx context.Context, systemPrompt, userMess
 func (t *Thread) executeRunner(ctx, runCtx context.Context, p provider.Provider, metrics *ExecMetrics, messages []provider.Message, sink Sink, injectFn func() []provider.Message, persistMsg func(provider.Message)) (response string, intermediates []provider.Message, usage provider.Usage, quota *provider.Quota, providerLabel string, modelLabel string, err error) {
 	contextWindowTokens := t.contextBudget().ContextWindow
 	maxCompletionTokens := t.cfg().MaxCompletionTokens
-	loopBudget := int(float64(contextWindowTokens-maxCompletionTokens) * 0.9)
-	if loopBudget < 0 {
-		loopBudget = 0
-	}
+	loopBudget := contextLoopBudget(contextWindowTokens, maxCompletionTokens)
 	runner := NewRunner(p, t.tools, metrics, loopBudget)
 	runner.ShouldHalt(t.isHaltLoop)
 	runner.SetUserVisible(sysmsg.IsUserVisibleSource(t.lastWakeSource))

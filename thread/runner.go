@@ -372,12 +372,19 @@ func (r *Runner) RunWithMessages(ctx context.Context, messages []provider.Messag
 	}
 }
 
-// trimLoopMessages removes the oldest tool-call + tool-result pairs when
-// the total estimated tokens exceed contextBudget. It preserves the system
-// prompt (messages[0]) and never removes the last assistant+tool group.
-func (r *Runner) trimLoopMessages(messages []provider.Message) []provider.Message {
-	total := EstimateMessagesTokens(messages) + r.toolDefsTokens
-	if total <= r.contextBudget {
+// trimMessageGroups drops the oldest assistant+tool_call groups until
+// EstimateMessagesTokens(messages)+toolDefsTokens <= budget. It preserves the
+// system prompt (messages[0]) and EVERY user message — including the first task
+// message — and always keeps the most recent group. Returns messages unchanged
+// when there is at most one droppable group, so it does NOT guarantee a fit for
+// sessions with too few tool groups (e.g. pure chat). Ephemeral — never modifies
+// the session file. Shared by the turn-start trim and the in-loop guard.
+func trimMessageGroups(messages []provider.Message, toolDefsTokens, budget int) []provider.Message {
+	if budget <= 0 {
+		return messages
+	}
+	total := EstimateMessagesTokens(messages) + toolDefsTokens
+	if total <= budget {
 		return messages
 	}
 
@@ -409,7 +416,7 @@ func (r *Runner) trimLoopMessages(messages []provider.Message) []provider.Messag
 
 	// Remove groups from the oldest until under budget, but keep the last group.
 	removed := 0
-	for gi := 0; gi < len(groups)-1 && total > r.contextBudget; gi++ {
+	for gi := 0; gi < len(groups)-1 && total > budget; gi++ {
 		g := groups[gi]
 		for j := g.start; j < g.end; j++ {
 			total -= EstimateMessageTokens(messages[j])
@@ -432,13 +439,28 @@ func (r *Runner) trimLoopMessages(messages []provider.Message) []provider.Messag
 		}
 	}
 
-	logger.Info("loop token guard: trimmed old tool groups",
+	logger.Info("context budget guard: trimmed old tool groups",
 		"removed", removed,
 		"remainingTokens", total,
-		"contextBudget", r.contextBudget,
+		"budget", budget,
 	)
 
 	return result
+}
+
+// contextLoopBudget is the shared token budget for in-context trimming: 90% of
+// the window left after reserving completion tokens. Returns 0 when non-positive.
+func contextLoopBudget(contextWindow, maxCompletion int) int {
+	b := int(float64(contextWindow-maxCompletion) * 0.9)
+	if b < 0 {
+		return 0
+	}
+	return b
+}
+
+// trimLoopMessages bounds the in-loop context to the shared budget.
+func (r *Runner) trimLoopMessages(messages []provider.Message) []provider.Message {
+	return trimMessageGroups(messages, r.toolDefsTokens, r.contextBudget)
 }
 
 // logEstimationAccuracy logs the delta between our token estimation and the
