@@ -1315,7 +1315,7 @@
         </div>
         <div class="header-right">
           <button class="header-btn" id="configBtn" aria-label="Open config">Config</button>
-          <button class="header-btn" id="heartbeatBtn" aria-label="Open heartbeat">&#9829; HB</button>
+          <button class="header-btn" id="filesBtn" aria-label="Open session files">&#128193; Files</button>
         </div>
       </div>
 
@@ -1364,14 +1364,14 @@
       </div>
     </div>
 
-    <!-- Heartbeat Modal -->
-    <div class="modal-overlay" id="heartbeatModal" role="dialog" aria-modal="true" aria-label="Heartbeat">
+    <!-- Session Files Modal -->
+    <div class="modal-overlay" id="filesModal" role="dialog" aria-modal="true" aria-label="Session files">
       <div class="modal">
         <div class="modal-header">
-          Heartbeat
-          <button class="modal-close" id="heartbeatClose" aria-label="Close">&times;</button>
+          Session Files
+          <button class="modal-close" id="filesClose" aria-label="Close">&times;</button>
         </div>
-        <div class="modal-body" id="heartbeatBody">Loading...</div>
+        <div class="modal-body" id="filesBody">Loading...</div>
       </div>
     </div>
 
@@ -1404,10 +1404,10 @@
       const configModal = $("configModal");
       const configClose = $("configClose");
       const configBody = $("configBody");
-      const heartbeatBtn = $("heartbeatBtn");
-      const heartbeatModal = $("heartbeatModal");
-      const heartbeatClose = $("heartbeatClose");
-      const heartbeatBody = $("heartbeatBody");
+      const filesBtn = $("filesBtn");
+      const filesModal = $("filesModal");
+      const filesClose = $("filesClose");
+      const filesBody = $("filesBody");
       const resizeHandle = $("resizeHandle");
       const mainEl = document.querySelector(".main");
 
@@ -1830,7 +1830,7 @@
           if (!res.ok) return;
           sessions = await res.json();
           renderSessionList();
-          updateHeartbeatBtn();
+          updateFilesBtn();
         } catch { /* silent */ }
       }
 
@@ -2094,7 +2094,7 @@
         chatInput.placeholder = "Send a message to " + key + "...";
         updateInputState();
         renderSessionList();
-        updateHeartbeatBtn();
+        updateFilesBtn();
 
         // Bind WebSocket
         if (ws && ws.readyState === WebSocket.OPEN) {
@@ -2594,17 +2594,9 @@
         }
       }
 
-      function updateHeartbeatBtn() {
-        if (!currentSession) {
-          heartbeatBtn.classList.remove("hb-active");
-          return;
-        }
-        const s = sessions.find(s => s.key === currentSession);
-        if (s && s.has_heartbeat) {
-          heartbeatBtn.classList.add("hb-active");
-        } else {
-          heartbeatBtn.classList.remove("hb-active");
-        }
+      function updateFilesBtn() {
+        // The folder button is meaningful whenever a session is selected.
+        filesBtn.classList.toggle("hb-active", !!currentSession);
       }
 
       function sendMessage() {
@@ -2864,61 +2856,62 @@
         }
       }
 
-      // ── Heartbeat Modal ────────────────────────────────────
+      // ── Session Files Modal ────────────────────────────────
 
-      heartbeatBtn.addEventListener("click", async () => {
-        heartbeatModal.classList.add("open");
-        heartbeatBody.textContent = "Loading...";
+      filesBtn.addEventListener("click", async () => {
+        filesModal.classList.add("open");
+        filesBody.textContent = "Loading...";
 
-        // Find all sessions with heartbeat
-        const hbSessions = sessions.filter(s => s.has_heartbeat);
-        if (hbSessions.length === 0) {
-          heartbeatBody.innerHTML = '<div class="heartbeat-empty">No sessions with heartbeat</div>';
+        if (!currentSession) {
+          filesBody.innerHTML = '<div class="heartbeat-empty">Select a session first</div>';
           return;
         }
 
-        heartbeatBody.innerHTML = "";
+        let files = [];
+        try {
+          const path = currentSession.split(":").map(encodeURIComponent).join("/");
+          const res = await fetch("/api/sessions/" + path + ":files");
+          if (!res.ok) {
+            filesBody.innerHTML = '<div class="heartbeat-empty">Failed to load files: HTTP ' + res.status + '</div>';
+            return;
+          }
+          const data = await res.json();
+          files = (data && data.files) || [];
+        } catch (err) {
+          filesBody.innerHTML = '<div class="heartbeat-empty">Error: ' + err.message + '</div>';
+          return;
+        }
 
-        // Fetch all heartbeats in parallel
-        const results = await Promise.allSettled(
-          hbSessions.map(s =>
-            fetch("/api/heartbeat/" + s.key.split(":").map(encodeURIComponent).join("/"))
-              .then(r => r.ok ? r.json() : null)
-              .then(d => ({ key: s.key, content: d && d.content ? d.content : "" }))
-              .catch(() => ({ key: s.key, content: "" }))
-          )
-        );
+        if (files.length === 0) {
+          filesBody.innerHTML = '<div class="heartbeat-empty">No markdown files in this session</div>';
+          return;
+        }
 
-        heartbeatBody.innerHTML = "";
-        let hasAny = false;
-        for (const r of results) {
-          const { key, content } = r.value || r.reason || {};
-          if (!content) continue;
-          hasAny = true;
-
+        filesBody.innerHTML = "";
+        for (const f of files) {
           const card = document.createElement("div");
           card.className = "hb-card";
 
           const hdr = document.createElement("div");
           hdr.className = "hb-card-header";
-          const heart = document.createElement("span");
-          heart.className = "hb-card-heart";
-          heart.textContent = "♥";
-          const keyEl = document.createElement("span");
-          keyEl.className = "hb-card-key";
-          keyEl.textContent = key;
+          const icon = document.createElement("span");
+          icon.className = "hb-card-heart";
+          icon.textContent = "📄";
+          const nameEl = document.createElement("span");
+          nameEl.className = "hb-card-key";
+          nameEl.textContent = f.name;
           const arrow = document.createElement("span");
           arrow.className = "hb-card-arrow";
           arrow.textContent = "▸";
-          hdr.appendChild(heart);
-          hdr.appendChild(keyEl);
+          hdr.appendChild(icon);
+          hdr.appendChild(nameEl);
           hdr.appendChild(arrow);
 
           const body = document.createElement("div");
           body.className = "hb-card-body";
           const pre = document.createElement("div");
           pre.className = "heartbeat-content";
-          pre.textContent = content;
+          pre.textContent = f.content && f.content.trim() ? f.content : "(empty)";
           body.appendChild(pre);
 
           hdr.addEventListener("click", () => {
@@ -2929,26 +2922,14 @@
 
           card.appendChild(hdr);
           card.appendChild(body);
-          heartbeatBody.appendChild(card);
+          filesBody.appendChild(card);
         }
 
-        // Auto-expand if only one result, or if current session matches
-        const cards = heartbeatBody.querySelectorAll(".hb-card");
-        if (cards.length === 1) {
-          cards[0].querySelector(".hb-card-body").classList.add("open");
-          cards[0].querySelector(".hb-card-arrow").classList.add("open");
-        } else if (currentSession) {
-          for (const c of cards) {
-            if (c.querySelector(".hb-card-key").textContent === currentSession) {
-              c.querySelector(".hb-card-body").classList.add("open");
-              c.querySelector(".hb-card-arrow").classList.add("open");
-              break;
-            }
-          }
-        }
-
-        if (!hasAny) {
-          heartbeatBody.innerHTML = '<div class="heartbeat-empty">No heartbeat items</div>';
+        // Auto-expand the first file.
+        const first = filesBody.querySelector(".hb-card");
+        if (first) {
+          first.querySelector(".hb-card-body").classList.add("open");
+          first.querySelector(".hb-card-arrow").classList.add("open");
         }
       });
 
@@ -2959,20 +2940,20 @@
       }
 
       configClose.addEventListener("click", () => closeModal(configModal));
-      heartbeatClose.addEventListener("click", () => closeModal(heartbeatModal));
+      filesClose.addEventListener("click", () => closeModal(filesModal));
 
       configModal.addEventListener("click", (e) => {
         if (e.target === configModal) closeModal(configModal);
       });
 
-      heartbeatModal.addEventListener("click", (e) => {
-        if (e.target === heartbeatModal) closeModal(heartbeatModal);
+      filesModal.addEventListener("click", (e) => {
+        if (e.target === filesModal) closeModal(filesModal);
       });
 
       document.addEventListener("keydown", (e) => {
         if (e.key === "Escape") {
           closeModal(configModal);
-          closeModal(heartbeatModal);
+          closeModal(filesModal);
         }
       });
 

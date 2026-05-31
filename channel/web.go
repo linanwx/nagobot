@@ -621,6 +621,12 @@ func (w *WebChannel) handleSessionMessages(rw http.ResponseWriter, r *http.Reque
 		w.handleSessionStats(rw, key)
 		return
 	}
+
+	// Route: /api/sessions/{key...}/files
+	if key, ok := strings.CutSuffix(raw, ":files"); ok {
+		w.handleSessionFiles(rw, key)
+		return
+	}
 	key := raw
 
 	path := w.resolveSessionFile(key, session.SessionFileName)
@@ -952,4 +958,58 @@ func (w *WebChannel) handleHeartbeat(rw http.ResponseWriter, r *http.Request) {
 
 	rw.Header().Set("Content-Type", "application/json")
 	_ = json.NewEncoder(rw).Encode(heartbeatResponse{Key: key, Content: string(content)})
+}
+
+// --- GET /api/sessions/{key...}/files ---
+
+type sessionMarkdownFile struct {
+	Name    string `json:"name"`
+	Content string `json:"content"`
+}
+
+type sessionFilesResponse struct {
+	Key   string                `json:"key"`
+	Files []sessionMarkdownFile `json:"files"`
+}
+
+// handleSessionFiles lists every top-level .md file in the session's directory
+// (USER.md, dream.md, heartbeat.md, ...) along with its content, so the UI can
+// browse the session's markdown memory files. Subdirectories are not descended.
+func (w *WebChannel) handleSessionFiles(rw http.ResponseWriter, key string) {
+	if w.workspace == "" {
+		http.Error(rw, "workspace is not configured", http.StatusInternalServerError)
+		return
+	}
+
+	// Resolve the session directory via the canonical session file, then list it.
+	marker := w.resolveSessionFile(key, session.SessionFileName)
+	if marker == "" {
+		http.Error(rw, "invalid session key", http.StatusBadRequest)
+		return
+	}
+	dir := filepath.Dir(marker)
+
+	resp := sessionFilesResponse{Key: key, Files: []sessionMarkdownFile{}}
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		// No directory yet (e.g. brand-new session) → empty list, not an error.
+		rw.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(rw).Encode(resp)
+		return
+	}
+
+	for _, e := range entries {
+		if e.IsDir() || !strings.HasSuffix(e.Name(), ".md") {
+			continue
+		}
+		content, err := os.ReadFile(filepath.Join(dir, e.Name()))
+		if err != nil {
+			continue
+		}
+		resp.Files = append(resp.Files, sessionMarkdownFile{Name: e.Name(), Content: string(content)})
+	}
+	sort.Slice(resp.Files, func(i, j int) bool { return resp.Files[i].Name < resp.Files[j].Name })
+
+	rw.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(rw).Encode(resp)
 }

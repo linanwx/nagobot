@@ -80,3 +80,59 @@ func TestHandleSessionStats_TierTriggerPercents(t *testing.T) {
 		t.Errorf("context_window_tokens = %v, want 200000", got)
 	}
 }
+
+func TestHandleSessionFiles(t *testing.T) {
+	ch := newTestWebChannelWithSession(t, "web:files")
+
+	sessDir := filepath.Join(ch.workspace, sessionsDirName, "web", "files")
+	// Top-level markdown files (the session.jsonl from the harness must be excluded).
+	mustWrite(t, filepath.Join(sessDir, "USER.md"), "user prefs")
+	mustWrite(t, filepath.Join(sessDir, "dream.md"), "last night's dream")
+	mustWrite(t, filepath.Join(sessDir, "heartbeat.md"), "follow-ups")
+	// A non-markdown file and a markdown file in a subdir must NOT be listed.
+	mustWrite(t, filepath.Join(sessDir, "notes.txt"), "ignored")
+	mustWrite(t, filepath.Join(sessDir, "memory", "m1.md"), "ignored subdir")
+
+	rw := httptest.NewRecorder()
+	ch.handleSessionFiles(rw, "web:files")
+	if rw.Code != http.StatusOK {
+		t.Fatalf("status = %d, body = %s", rw.Code, rw.Body.String())
+	}
+
+	var resp struct {
+		Key   string `json:"key"`
+		Files []struct {
+			Name    string `json:"name"`
+			Content string `json:"content"`
+		} `json:"files"`
+	}
+	if err := json.Unmarshal(rw.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+
+	// Sorted, top-level .md only: dream.md, heartbeat.md, USER.md.
+	gotNames := make([]string, len(resp.Files))
+	gotContent := map[string]string{}
+	for i, f := range resp.Files {
+		gotNames[i] = f.Name
+		gotContent[f.Name] = f.Content
+	}
+	// Handler sorts ASCII: uppercase 'U' (0x55) sorts before lowercase 'd'/'h'.
+	want := []string{"USER.md", "dream.md", "heartbeat.md"}
+	if strings.Join(gotNames, ",") != strings.Join(want, ",") {
+		t.Fatalf("files = %v, want %v", gotNames, want)
+	}
+	if gotContent["dream.md"] != "last night's dream" {
+		t.Errorf("dream.md content = %q", gotContent["dream.md"])
+	}
+}
+
+func mustWrite(t *testing.T, path, content string) {
+	t.Helper()
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+		t.Fatal(err)
+	}
+}
