@@ -129,7 +129,7 @@ func parsePreThinkXML(raw string) string {
 			entry += ": " + reason
 		}
 		parts = append(parts, entry+".")
-		if isMisunderstandingRiskName(name) {
+		if level == "high" && isMisunderstandingRiskName(name) {
 			clarificationRequired = true
 		}
 	}
