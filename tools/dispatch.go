@@ -321,7 +321,7 @@ func (t *DispatchTool) validateOne(send DispatchSend, currentSession string) str
 		case msg.CallerKindSession:
 			return fmt.Sprintf("to=caller:user but actual caller is another session (%s). Use to=caller:session, or to=user to reach your channel user directly.", callerKey)
 		case msg.CallerKindSystem:
-			return "to=caller:user but actual caller is system (cron/heartbeat/compression — replies are dropped). Use dispatch({}) to end silently, or to=user if you need to reach your channel user."
+			return "to=caller:user but actual caller is system (cron/heartbeat/compression — replies are dropped). This wake has no channel-user caller; choose an explicit target instead."
 		default:
 			return "current wake has no routable caller"
 		}
@@ -336,7 +336,7 @@ func (t *DispatchTool) validateOne(send DispatchSend, currentSession string) str
 		case msg.CallerKindUser:
 			return "to=caller:session but actual caller is the channel user. Use to=caller:user, or to=user for direct channel delivery."
 		case msg.CallerKindSystem:
-			return "to=caller:session but actual caller is system (cron/heartbeat/compression — replies are dropped). Use dispatch({}) to end silently, or to=user."
+			return "to=caller:session but actual caller is system (cron/heartbeat/compression — replies are dropped). This wake has no session caller; choose an explicit target instead."
 		default:
 			return "current wake has no routable caller"
 		}
