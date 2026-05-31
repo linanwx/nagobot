@@ -52,3 +52,22 @@ body`
 		t.Errorf("parsed cap = %d, want 64000", got)
 	}
 }
+
+func TestParseTemplateDisableTools(t *testing.T) {
+	on, _, _, err := ParseTemplate("---\nname: pre-think\ndisable_tools: true\n---\nbody")
+	if err != nil {
+		t.Fatalf("ParseTemplate: %v", err)
+	}
+	if !on.DisableTools {
+		t.Error("disable_tools: true should parse to DisableTools == true")
+	}
+
+	// Absent → false (default; agents keep their tools).
+	off, _, _, err := ParseTemplate("---\nname: soul\n---\nbody")
+	if err != nil {
+		t.Fatalf("ParseTemplate: %v", err)
+	}
+	if off.DisableTools {
+		t.Error("DisableTools should default to false when the field is absent")
+	}
+}

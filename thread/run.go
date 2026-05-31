@@ -127,7 +127,7 @@ func (t *Thread) buildSystemPrompt() string {
 	skillsSection := t.buildSkillsSection()
 	activeAgent.SetLocation(t.location())
 	activeAgent.SetSections(t.cfg().Sections)
-	activeAgent.Set("TOOLS", t.tools.Names())
+	activeAgent.Set("TOOLS", t.toolsForTurn().Names())
 	activeAgent.Set("SKILLS", skillsSection)
 	activeAgent.Set(agent.SectionUserMemory, t.buildUserSection())
 	activeAgent.Set(agent.SectionHeartbeatPrompt, t.buildHeartbeatSection())
@@ -149,7 +149,7 @@ func (t *Thread) buildMessageHistory(ctx context.Context, systemPrompt, userMess
 
 	ct := t.contextBudget()
 	contextWindowTokens := ct.ContextWindow
-	toolDefsTokens := EstimateToolDefsTokens(t.tools.Defs())
+	toolDefsTokens := EstimateToolDefsTokens(t.toolsForTurn().Defs())
 	maxCompletionTokens := t.cfg().MaxCompletionTokens
 
 	if sess != nil {
@@ -206,7 +206,7 @@ func (t *Thread) executeRunner(ctx, runCtx context.Context, p provider.Provider,
 	contextWindowTokens := t.contextBudget().ContextWindow
 	maxCompletionTokens := t.cfg().MaxCompletionTokens
 	loopBudget := contextLoopBudget(contextWindowTokens, maxCompletionTokens)
-	runner := NewRunner(p, t.tools, metrics, loopBudget)
+	runner := NewRunner(p, t.toolsForTurn(), metrics, loopBudget)
 	runner.ShouldHalt(t.isHaltLoop)
 	runner.SetUserVisible(sysmsg.IsUserVisibleSource(t.lastWakeSource))
 
@@ -711,6 +711,20 @@ func (t *Thread) resolveProvider() provider.Provider {
 	}
 
 	return t.provider
+}
+
+// toolsForTurn returns the thread's tool registry, or an empty registry when the
+// active agent declares disable_tools in its frontmatter (e.g. pre-think,
+// rephrase). An empty registry means no tools are sent to the provider, the
+// {{TOOLS}} placeholder is empty, and tool-def tokens are zero for this turn.
+func (t *Thread) toolsForTurn() *tools.Registry {
+	cfg := t.cfg()
+	if t.Agent != nil && cfg.Agents != nil {
+		if def := cfg.Agents.Def(t.Agent.Name); def != nil && def.DisableTools {
+			return tools.NewRegistry()
+		}
+	}
+	return t.tools
 }
 
 func (t *Thread) buildTools() *tools.Registry {

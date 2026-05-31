@@ -5,6 +5,7 @@ specialty: writing
 context_window_cap: 64k
 tier_lossy_mode: slide_window
 tier_lossy_keep: 5
+disable_tools: true
 sections:
   - user_memory_section
 ---

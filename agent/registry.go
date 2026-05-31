@@ -21,6 +21,7 @@ type AgentDef struct {
 	ContextWindowCap int    // Parsed token cap; 0 = no cap
 	TierLossyMode    string // "slide_window" | "stateless" | "" (disabled)
 	TierLossyKeep    int    // slide_window: last N turns to retain (ignored for stateless)
+	DisableTools     bool   // when true, the agent runs with no tools
 }
 
 const agentsBuiltinDir = "agents-builtin"
@@ -168,6 +169,7 @@ func loadAgentsFromDir(dir string, dest map[string]*AgentDef) {
 			ContextWindowCap: capTokens,
 			TierLossyMode:    tierLossyMode,
 			TierLossyKeep:    tierLossyKeep,
+			DisableTools:     meta.DisableTools,
 		}
 	}
 }

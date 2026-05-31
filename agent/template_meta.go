@@ -18,6 +18,7 @@ type TemplateMeta struct {
 	ContextWindowCap string   `yaml:"context_window_cap,omitempty"` // human-readable cap (e.g. "64k", "200k", "1M") — clamps effective context window for this agent
 	TierLossyMode    string   `yaml:"tier_lossy_mode,omitempty"`    // lossy compression mode: "slide_window" (phase 1) | "ratio" (future)
 	TierLossyKeep    int      `yaml:"tier_lossy_keep,omitempty"`    // slide_window: last N user-assistant turns to retain
+	DisableTools     bool     `yaml:"disable_tools,omitempty"`      // when true, the agent runs with no tools (the tool list is not constructed)
 }
 
 // ParseTokenAmount parses a human-readable token count.
