@@ -119,8 +119,20 @@ func (m *Manager) tryTier1Compress(sessionKey string) {
 	)
 }
 
-// tryTier2Compress silently wakes the thread to run AI-driven compression.
-func (m *Manager) tryTier2Compress(sessionKey string) {
+// tryTier2Compress wakes an idle session to run AI-driven compression once it
+// exceeds the Tier 2 token threshold. Scan-driven (idle ≥30 min).
+func (m *Manager) tryTier2Compress(sessionKey string) { m.tryAICompress(sessionKey, false) }
+
+// tryTier3Compress wakes a session to run AI-driven compression once it exceeds
+// the higher Tier 3 threshold. Called at turn-end so an actively growing session
+// compacts in a separate background turn instead of injecting a compression
+// reminder into the user's next turn.
+func (m *Manager) tryTier3Compress(sessionKey string) { m.tryAICompress(sessionKey, true) }
+
+// tryAICompress silently enqueues a WakeCompression turn when the session's
+// estimated tokens exceed the selected reserve threshold. tier3 selects the
+// higher-usage WarnToken reserve; otherwise the Tier 2 reserve is used.
+func (m *Manager) tryAICompress(sessionKey string, tier3 bool) {
 	cfg := m.cfg
 
 	sess, err := cfg.Sessions.Reload(sessionKey)
@@ -141,7 +153,13 @@ func (m *Manager) tryTier2Compress(sessionKey string) {
 	tokens := EstimateMessagesTokens(ApplyCompressed(sess.Messages)) + EstimateToolDefsTokens(toolDefs)
 	ct := t.contextBudget()
 	effectiveWindow := ct.ContextWindow
-	threshold := effectiveWindow - ct.Tier2Token
+	reserve := ct.Tier2Token
+	label := "tier2"
+	if tier3 {
+		reserve = ct.WarnToken
+		label = "tier3"
+	}
+	threshold := effectiveWindow - reserve
 	if tokens < threshold {
 		return
 	}
@@ -183,7 +201,7 @@ func (m *Manager) tryTier2Compress(sessionKey string) {
 		},
 	})
 
-	logger.Info("tier2 compress: AI compression wake enqueued",
+	logger.Info(label+" compress: AI compression wake enqueued",
 		"sessionKey", sessionKey,
 		"tokens", tokens,
 		"threshold", threshold,

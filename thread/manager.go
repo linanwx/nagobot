@@ -123,9 +123,18 @@ func (m *Manager) scheduleReady(ctx context.Context, sem chan struct{}) {
 				if thread.lastWakeSource == WakeCompression {
 					thread.lastCompressedAt = now
 				}
+				justEnded := thread.lastWakeSource
 				thread.state = threadIdle
 				hasMore := thread.hasMessages()
 				m.mu.Unlock()
+
+				// Turn-end Tier 3: if this turn grew context past the Tier 3
+				// threshold, enqueue a separate background compression turn,
+				// decoupled from the user's next message. Skipped after a
+				// compression turn to avoid looping.
+				if justEnded != WakeCompression {
+					m.tryTier3Compress(thread.sessionKey)
+				}
 
 				if hasMore {
 					m.notify()
@@ -200,7 +209,6 @@ func (m *Manager) NewThread(sessionKey, agentName string) (*Thread, error) {
 		t.defaultSink = m.cfg.DefaultSinkFor(sessionKey)
 	}
 	t.tools = t.buildTools()
-	t.registerHook(t.contextPressureHook())
 	t.registerHook(t.balanceWarningHook())
 	m.threads[sessionKey] = t
 	return t, nil

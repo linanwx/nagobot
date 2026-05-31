@@ -1,14 +1,10 @@
 package thread
 
 import (
-	"context"
 	"encoding/json"
-	"fmt"
 	"strings"
 
-	"github.com/linanwx/nagobot/logger"
 	"github.com/linanwx/nagobot/provider"
-	"github.com/linanwx/nagobot/thread/msg"
 )
 
 // tier2Multiplier scales WarnToken to get the Tier 2 threshold.
@@ -92,16 +88,6 @@ func PressureStatus(usedTokens int, ct ContextThresholds) string {
 		return "warning"
 	}
 	return "ok"
-}
-
-func (t *Thread) buildCompressionNotice(requestTokens, contextWindowTokens int, usageRatio float64, sessionPath string) string {
-	return msg.BuildSystemMessage("context_pressure", map[string]string{
-		"estimated_request_tokens":        fmt.Sprintf("%d", requestTokens),
-		"configured_context_window_tokens": fmt.Sprintf("%d", contextWindowTokens),
-		"estimated_usage_ratio":           fmt.Sprintf("%.2f", usageRatio),
-		"session_key":                     t.sessionKey,
-		"session_file":                    sessionPath,
-	}, `You MUST load and execute skill "context-ops" NOW, before responding to the user. Then you can respond to the user request. Follow the skill instructions to compact the session file safely. Keep critical facts, decisions, IDs, and unresolved tasks.`)
 }
 
 // EstimateTextTokens returns a tiktoken-based token estimate for a string.
@@ -204,37 +190,3 @@ func EstimateMessagesTokens(messages []provider.Message) int {
 	return total
 }
 
-func (t *Thread) contextPressureHook() turnHook {
-	return func(ctx context.Context, tc turnContext) []string {
-		if strings.TrimSpace(tc.SessionPath) == "" {
-			return nil
-		}
-		if tc.ContextWindowTokens <= 0 || tc.WarnToken <= 0 {
-			return nil
-		}
-
-		threshold := tc.ContextWindowTokens - tc.WarnToken
-		if tc.RequestEstimatedTokens < threshold {
-			return nil
-		}
-
-		usageRatio := float64(tc.RequestEstimatedTokens) / float64(tc.ContextWindowTokens)
-		notice := t.buildCompressionNotice(
-			tc.RequestEstimatedTokens,
-			tc.ContextWindowTokens,
-			usageRatio,
-			tc.SessionPath,
-		)
-
-		logger.Info(
-			"context threshold reached, compression reminder injected into current turn",
-			"threadID", tc.ThreadID,
-			"sessionKey", tc.SessionKey,
-			"sessionPath", tc.SessionPath,
-			"requestEstimatedTokens", tc.RequestEstimatedTokens,
-			"contextWindowTokens", tc.ContextWindowTokens,
-			"thresholdTokens", threshold,
-		)
-		return []string{notice}
-	}
-}
