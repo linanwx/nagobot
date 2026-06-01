@@ -220,3 +220,32 @@ func TestMinimaxSDKRequestBody(t *testing.T) {
 
 	t.Log("All checks passed: SDK correctly sends reasoning_split and parses reasoning_details")
 }
+
+// TestMinimaxM3Registration locks in the MiniMax-M3 additions: it is thinking
+// enabled, maps to the official "MiniMax-M3" API name, and is registered with
+// vision support and the 512K (guaranteed-minimum) context window on every
+// provider that exposes it.
+func TestMinimaxM3Registration(t *testing.T) {
+	if !minimaxThinkingEnabled("minimax-m3") {
+		t.Error("minimax-m3 should be thinking enabled")
+	}
+	if got := minimaxModelAPINames["minimax-m3"]; got != "MiniMax-M3" {
+		t.Errorf("minimax-m3 API name = %q, want MiniMax-M3", got)
+	}
+
+	// Direct providers expose minimax-m3 with vision; OpenRouter uses the
+	// google-style id. All three pin the 512K context window.
+	cases := []struct{ provider, model string }{
+		{"minimax-cn", "minimax-m3"},
+		{"minimax-global", "minimax-m3"},
+		{"openrouter", "minimax/minimax-m3"},
+	}
+	for _, c := range cases {
+		if !SupportsVision(c.provider, c.model) {
+			t.Errorf("%s:%s should support vision", c.provider, c.model)
+		}
+		if got := ContextWindowForModel(c.provider, c.model); got != 524288 {
+			t.Errorf("%s:%s context window = %d, want 524288", c.provider, c.model, got)
+		}
+	}
+}
