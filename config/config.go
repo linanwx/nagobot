@@ -139,7 +139,7 @@ type ThreadConfig struct {
 }
 
 // PreviewConfig overrides the default preview priority chain.
-// Format: "provider/model" (e.g. "openrouter/google/gemini-3.1-flash-lite-preview").
+// Format: "provider/model" (e.g. "openrouter/google/gemini-3.1-flash-lite").
 type PreviewConfig struct {
 	Image string `json:"image,omitempty" yaml:"image,omitempty"` // override image preview
 	Audio string `json:"audio,omitempty" yaml:"audio,omitempty"` // override audio preview

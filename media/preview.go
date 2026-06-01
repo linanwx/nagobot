@@ -56,7 +56,7 @@ type previewCandidate struct {
 // whatai sits at the end so it only activates when no higher-priority provider
 // is configured.
 var imagePriority = []previewCandidate{
-	{ProviderName: "openrouter", ModelType: "google/gemini-3.1-flash-lite-preview"},
+	{ProviderName: "openrouter", ModelType: "google/gemini-3.1-flash-lite"},
 	{ProviderName: "openai", ModelType: "gpt-5.4-nano"},
 	{ProviderName: "anthropic", ModelType: "claude-haiku-4-5"},
 	{ProviderName: "whatai", ModelType: "gpt-5.4-mini"},
@@ -64,9 +64,9 @@ var imagePriority = []previewCandidate{
 
 // audioPriority is the priority chain for audio preview.
 var audioPriority = []previewCandidate{
-	{ProviderName: "openrouter", ModelType: "google/gemini-3.1-flash-lite-preview"},
+	{ProviderName: "openrouter", ModelType: "google/gemini-3.1-flash-lite"},
 	{ProviderName: "openai", ModelType: "gpt-4o-mini-transcribe", Mode: modeSTT},
-	{ProviderName: "gemini", ModelType: "gemini-3.1-flash-lite-preview"},
+	{ProviderName: "gemini", ModelType: "gemini-3.1-flash-lite"},
 }
 
 // Previewer generates quick media previews using lightweight LLM calls.
