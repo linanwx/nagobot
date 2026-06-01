@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"strings"
+	"time"
 
 	"github.com/linanwx/nagobot/logger"
 	"github.com/linanwx/nagobot/session"
@@ -204,7 +205,22 @@ func (t *Thread) SendToUser(ctx context.Context, body string) error {
 	if sink.IsZero() {
 		return fmt.Errorf("session %q defaultSink is unset", t.sessionKey)
 	}
-	return sink.Send(ctx, body)
+	if err := sink.Send(ctx, body); err != nil {
+		return err
+	}
+	// to=user is the proactive path (heartbeat / cron / cross-session wakes):
+	// it delivers via defaultSink, which bypasses the per-wake chat.jsonl sink.
+	// Record the assistant message here so the clean chat log — and thus
+	// pre-think's recent-chat context — stays aware of messages the bot
+	// initiated on its own.
+	if t.mgr != nil {
+		if dir := t.mgr.SessionDir(t.sessionKey); dir != "" {
+			if err := session.AppendChat(dir, session.ChatRoleAssistant, body, time.Now()); err != nil {
+				logger.Warn("chat.jsonl to=user write failed", "sessionKey", t.sessionKey, "err", err)
+			}
+		}
+	}
+	return nil
 }
 
 // IsUserFacing reports whether this session's defaultSink is a user-channel sink
