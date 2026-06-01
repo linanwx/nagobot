@@ -48,14 +48,22 @@ func TestBuildCrossThreadDispatchRequiredPayload_Structure(t *testing.T) {
 	body := strings.Join(lines[headerEnd+2:], "\n")
 	mustBodyContain := []string{
 		"caller is session telegram:42",
-		"rejected and NOT forwarded",
-		"dispatch(sends=[{to: \"caller:session\"",
-		"dispatch(sends=[{to: \"user\"",
-		"dispatch({})",
+		"rejected and dropped, NOT forwarded",
+		"dispatch(sends=[{to: \"user\", body: \"...\"}]) — send to user",
+		"dispatch({}) — silently end the turn",
+		"dispatch(sends=[{to: \"session\", session_key: \"...\", body: \"...\"}]) — send to a session",
 	}
 	for _, needle := range mustBodyContain {
 		if !strings.Contains(body, needle) {
 			t.Errorf("body missing %q; got:\n%s", needle, body)
+		}
+	}
+	// The corrective prompt must never offer caller:* targets: a model that
+	// already failed to dispatch cannot be relied on to recall who woke it.
+	// It is handed the explicit session_key instead.
+	for _, banned := range []string{"caller:session", "caller:user"} {
+		if strings.Contains(body, banned) {
+			t.Errorf("body must not suggest %q; got:\n%s", banned, body)
 		}
 	}
 }

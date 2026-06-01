@@ -145,12 +145,11 @@ func (t *Thread) persistPostInjections(payloads []string, source WakeSource) {
 // an explicit dispatch.
 func buildCrossThreadDispatchRequiredPayload(peerKey string, now time.Time) string {
 	body := fmt.Sprintf(
-		"Cross-thread wake (caller is session %s) requires an explicit dispatch — your prior reply was rejected and NOT forwarded to the peer. Nothing was delivered.\n\n"+
-			"Re-issue the turn with one of:\n"+
-			"  - dispatch(sends=[{to: \"caller:session\", body: \"...\"}]) — reply to the peer session\n"+
-			"  - dispatch(sends=[{to: \"user\", body: \"...\"}]) — alert your channel user instead (only if user-facing)\n"+
+		"Cross-thread wake (caller is session %s) requires an explicit dispatch — your prior reply was rejected and dropped, NOT forwarded to the peer. Nothing was delivered.\n\n"+
+			"You must copy your last message and re-issue the turn with one of:\n"+
+			"  - dispatch(sends=[{to: \"user\", body: \"...\"}]) — send to user\n"+
 			"  - dispatch({}) — silently end the turn\n"+
-			"  - dispatch(sends=[{to: \"session\", session_key: \"...\", body: \"...\"}]) — wake a different session\n\n"+
+			"  - dispatch(sends=[{to: \"session\", session_key: \"...\", body: \"...\"}]) — send to a session\n\n"+
 			"Naive text content alongside cross-thread wakes is ambiguous (could mean reply-to-peer, alert-user, or both) and is no longer auto-routed; pick a target explicitly.",
 		peerKey,
 	)
