@@ -95,9 +95,10 @@ type ThreadConfig struct {
 	DefaultAgentFor     func(sessionKey string) string // Session key → default agent name
 	HealthChannelsFn    func() *tools.HealthChannelsInfo
 	ProviderFactory     *provider.Factory                     // For per-agent model routing
-	Models              map[string]*config.ModelConfig        // Model type → provider/model mapping (startup snapshot)
-	ModelsFn            func() map[string]*config.ModelConfig // Hot-reload: returns latest Models from config
-	SessionTimezoneFor  func(sessionKey string) string        // Session key → IANA timezone
+	Models              map[string]*config.ModelConfig          // Model type → provider/model mapping (startup snapshot)
+	ModelsFn            func() map[string]*config.ModelConfig   // Hot-reload: returns latest Models from config
+	DefaultModelFn      func() (providerName, modelName string) // Hot-reload: returns latest default provider/model from config
+	SessionTimezoneFor  func(sessionKey string) string          // Session key → IANA timezone
 	MetricsStore        *monitor.Store                        // Turn metrics storage (optional)
 	Sections            *agent.SectionRegistry                // Shared section registry for prompt assembly
 }

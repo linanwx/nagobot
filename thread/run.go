@@ -616,6 +616,14 @@ func (t *Thread) resolvedProviderModel() (string, string) {
 	if mc := t.resolvedModelConfig(); mc != nil {
 		return mc.Provider, mc.ModelType
 	}
+	// Prefer the hot-reload view of the default so a config.yaml edit to
+	// thread.provider/modelType is reflected without a restart (mirrors
+	// ModelsFn). cfg.ProviderName/ModelName is a startup snapshot fallback.
+	if cfg.DefaultModelFn != nil {
+		if pn, mn := cfg.DefaultModelFn(); pn != "" {
+			return pn, mn
+		}
+	}
 	return cfg.ProviderName, cfg.ModelName
 }
 

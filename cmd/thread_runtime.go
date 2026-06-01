@@ -268,6 +268,13 @@ func buildThreadManager(cfg *config.Config, enableSessions bool) (*thread.Manage
 			}
 			return c.Thread.Models
 		},
+		DefaultModelFn: func() (string, string) {
+			c, err := config.Load()
+			if err != nil {
+				return cfg.Thread.Provider, cfg.GetModelName()
+			}
+			return c.Thread.Provider, c.GetModelName()
+		},
 		SessionTimezoneFor: cfg.SessionTimezone,
 		MetricsStore:       metricsStore,
 		Sections:           initSectionRegistry(workspace),
