@@ -125,9 +125,10 @@ func (t *WebSearchTool) Run(ctx context.Context, args json.RawMessage) string {
 		"source":  source + sourceTags,
 		"results": len(results),
 	}
-	if t.healthChecker != nil {
-		fields["source_status"] = t.healthChecker.StatusSummary()
-	}
+	// source_status is intentionally omitted on the results>0 path: the search
+	// already succeeded, so provider-health stats add no actionable value here
+	// and bloat every result (and the accumulated history). Health detail is
+	// still surfaced where it matters — empty results and errors (DetailedStatus).
 	return toolResult("web_search", fields, FormatSearchResults(a.Query, results))
 }
 
