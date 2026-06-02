@@ -7,11 +7,10 @@ import (
 
 func TestParsePreThinkXML_FullStructure(t *testing.T) {
 	raw := `<prethink>
-  <intent>用户想查 2026 年最近的科技新闻</intent>
-  <risk name="hallucination" level="high">具体日期和公司名容易混淆</risk>
-  <risk name="misinformation" level="high">时事信息必须搜索确认</risk>
-  <search>needed: 时事数据</search>
-  <tone>concise, factual</tone>
+  <intent>帮我搭一个端到端的数据流程</intent>
+  <is_multi_step>true</is_multi_step>
+  <search>需要联网核实最新版本</search>
+  <tone>concise, technical</tone>
 </prethink>`
 
 	out := parsePreThinkXML(raw)
@@ -19,11 +18,10 @@ func TestParsePreThinkXML_FullStructure(t *testing.T) {
 		t.Fatal("expected non-empty output")
 	}
 	for _, want := range []string{
-		"Intent: 用户想查",
-		"High hallucination risk",
-		"High misinformation risk",
-		"Search: needed",
-		"Tone: concise, factual",
+		"Intent: 帮我搭一个端到端的数据流程",
+		"Multi-step task: plan the steps and complete all of them before responding.",
+		"Search: 需要联网核实最新版本",
+		"Tone: concise, technical",
 	} {
 		if !strings.Contains(out, want) {
 			t.Errorf("output missing %q\ngot: %s", want, out)
@@ -31,68 +29,72 @@ func TestParsePreThinkXML_FullStructure(t *testing.T) {
 	}
 }
 
-func TestParsePreThinkXML_FiltersLow(t *testing.T) {
+func TestParsePreThinkXML_IsMultiStep(t *testing.T) {
 	raw := `<prethink>
-  <intent>chat</intent>
-  <risk name="hallucination" level="low">none</risk>
-  <risk name="underinvestment" level="medium">looks simple but tricky</risk>
-  <tone>warm</tone>
+  <intent>帮我搭一个端到端流程</intent>
+  <is_multi_step>true</is_multi_step>
+  <tone>thorough</tone>
 </prethink>`
 
 	out := parsePreThinkXML(raw)
-	if strings.Contains(strings.ToLower(out), "low") {
-		t.Errorf("expected no 'low' in output, got: %s", out)
-	}
-	if strings.Contains(out, "hallucination") {
-		t.Errorf("low hallucination should be filtered, got: %s", out)
-	}
-	if !strings.Contains(out, "Medium underinvestment risk") {
-		t.Errorf("medium underinvestment should be kept, got: %s", out)
+	if !strings.Contains(out, "Multi-step task: plan the steps and complete all of them before responding.") {
+		t.Errorf("is_multi_step should render, got: %s", out)
 	}
 }
 
-func TestParsePreThinkXML_MisunderstandingRiskRequiresClarification(t *testing.T) {
+func TestParsePreThinkXML_FalseBoolTreatedAsAbsent(t *testing.T) {
 	raw := `<prethink>
-  <intent>用户想修改模板，但措辞可能有歧义</intent>
-  <risk name="misunderstanding" level="high">需求明确但沟通差一点</risk>
-  <tone>careful</tone>
-</prethink>`
-
-	out := parsePreThinkXML(raw)
-	if !strings.Contains(out, "High misunderstanding risk: 需求明确但沟通差一点") {
-		t.Errorf("high misunderstanding risk should be kept, got: %s", out)
-	}
-	if !strings.Contains(out, "Clarification required: you must stop and ask the user a clarifying question and wait for their answer before continuing") {
-		t.Errorf("high misunderstanding risk should require clarification, got: %s", out)
-	}
-}
-
-func TestParsePreThinkXML_MediumMisunderstandingDoesNotRequireClarification(t *testing.T) {
-	raw := `<prethink>
-  <intent>用户想修改模板，但措辞可能有歧义</intent>
-  <risk name="misunderstanding" level="medium">需求明确但沟通差一点</risk>
-  <tone>careful</tone>
-</prethink>`
-
-	out := parsePreThinkXML(raw)
-	if !strings.Contains(out, "Medium misunderstanding risk: 需求明确但沟通差一点") {
-		t.Errorf("medium misunderstanding risk should still be kept as an entry, got: %s", out)
-	}
-	if strings.Contains(out, "Clarification required") {
-		t.Errorf("medium misunderstanding risk must NOT require clarification (only high), got: %s", out)
-	}
-}
-
-func TestParsePreThinkXML_LowMisunderstandingDoesNotRequireClarification(t *testing.T) {
-	raw := `<prethink>
-  <intent>用户的问题很清楚</intent>
-  <risk name="misunderstanding" level="low">no ambiguity</risk>
+  <intent>clear one-shot question</intent>
+  <is_multi_step>false</is_multi_step>
   <tone>concise</tone>
 </prethink>`
 
 	out := parsePreThinkXML(raw)
-	if strings.Contains(out, "Clarification required") {
-		t.Errorf("low misunderstanding risk should not require clarification, got: %s", out)
+	if strings.Contains(out, "Multi-step") {
+		t.Errorf("explicit false is_multi_step must be ignored, got: %s", out)
+	}
+}
+
+func TestParsePreThinkXML_ConfusingTerminologyRequiresClarification(t *testing.T) {
+	raw := `<prethink>
+  <intent>用户想修改模板，但措辞可能有歧义</intent>
+  <confusing_terminology>"标签"既可能指 risk 也可能指 XML tag</confusing_terminology>
+  <tone>careful</tone>
+</prethink>`
+
+	out := parsePreThinkXML(raw)
+	// The string content is carried so the main model knows what to clarify.
+	if !strings.Contains(out, `Confusing terminology: "标签"既可能指 risk 也可能指 XML tag.`) {
+		t.Errorf("confusing_terminology content should be included, got: %s", out)
+	}
+	if !strings.Contains(out, "You must stop and ask the user a clarifying question and wait for their answer before continuing.") {
+		t.Errorf("confusing_terminology should require clarification, got: %s", out)
+	}
+}
+
+func TestParsePreThinkXML_NoConfusingTerminologyNoClarification(t *testing.T) {
+	raw := `<prethink>
+  <intent>用户的问题很清楚</intent>
+  <is_multi_step>true</is_multi_step>
+  <tone>concise</tone>
+</prethink>`
+
+	out := parsePreThinkXML(raw)
+	if strings.Contains(out, "stop and ask the user a clarifying question") {
+		t.Errorf("absent confusing_terminology must NOT trigger clarification, got: %s", out)
+	}
+}
+
+func TestParsePreThinkXML_InvestigatorForcesDispatch(t *testing.T) {
+	raw := `<prethink>
+  <intent>调查一下竞品定价</intent>
+  <is_include_investigator>true</is_include_investigator>
+  <tone>thorough</tone>
+</prethink>`
+
+	out := parsePreThinkXML(raw)
+	if !strings.Contains(out, "Investigator: you must call dispatch to fan out an investigator subagent before responding to the user.") {
+		t.Errorf("is_include_investigator should force dispatch, got: %s", out)
 	}
 }
 
@@ -109,8 +111,11 @@ func TestParsePreThinkXML_CasualMinimal(t *testing.T) {
 	if !strings.Contains(out, "Tone: warm, friendly") {
 		t.Errorf("got: %s", out)
 	}
-	if strings.Contains(out, "risk") {
-		t.Errorf("no risks expected, got: %s", out)
+	// Only intent + tone — no flag phrases.
+	for _, unexpected := range []string{"Multi-step", "Confusing terminology", "Investigator", "Search:"} {
+		if strings.Contains(out, unexpected) {
+			t.Errorf("unexpected %q in minimal output: %s", unexpected, out)
+		}
 	}
 }
 
@@ -124,15 +129,6 @@ func TestParsePreThinkXML_NoTagsReturnsEmpty(t *testing.T) {
 func TestParsePreThinkXML_EmptyInput(t *testing.T) {
 	if out := parsePreThinkXML(""); out != "" {
 		t.Errorf("expected empty, got: %s", out)
-	}
-}
-
-func TestParsePreThinkXML_PartialTags(t *testing.T) {
-	// Only one risk tag, no other fields — should still parse.
-	raw := `Random prose <risk name="misinformation" level="high">current events</risk> more text.`
-	out := parsePreThinkXML(raw)
-	if !strings.Contains(out, "High misinformation risk: current events") {
-		t.Errorf("partial parse failed, got: %s", out)
 	}
 }
 

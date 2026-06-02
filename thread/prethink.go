@@ -88,89 +88,85 @@ func preThinkAction(ctx context.Context, t *Thread, userMsg string) string {
 	}
 }
 
+// String fields carry text (omitted by the agent when empty).
 var (
-	intentRE = regexp.MustCompile(`(?is)<intent>(.*?)</intent>`)
-	searchRE = regexp.MustCompile(`(?is)<search>(.*?)</search>`)
-	fanoutRE = regexp.MustCompile(`(?is)<fanout>(.*?)</fanout>`)
-	toneRE   = regexp.MustCompile(`(?is)<tone>(.*?)</tone>`)
-	riskRE   = regexp.MustCompile(`(?is)<risk\s+name="([^"]+)"\s+level="([^"]+)"\s*>(.*?)</risk>`)
+	intentRE        = regexp.MustCompile(`(?is)<intent>(.*?)</intent>`)
+	confusingTermRE = regexp.MustCompile(`(?is)<confusing_terminology>(.*?)</confusing_terminology>`)
+	searchRE        = regexp.MustCompile(`(?is)<search>(.*?)</search>`)
+	toneRE          = regexp.MustCompile(`(?is)<tone>(.*?)</tone>`)
 )
 
-// parsePreThinkXML extracts structured fields from pre-think output and
-// composes a clean action hint. Risk tags with level="low" are filtered out.
-// Medium/high misunderstanding risk adds a mandatory clarification step.
-// Returns "" when no recognizable tags are found (caller falls back to raw).
+// Bool fields are presence-based true/false flags (omitted by the agent when
+// false).
+var (
+	multiStepRE    = regexp.MustCompile(`(?is)<is_multi_step>(.*?)</is_multi_step>`)
+	investigatorRE = regexp.MustCompile(`(?is)<is_include_investigator>(.*?)</is_include_investigator>`)
+)
+
+// stringTag returns the cleaned body of a string field, or "" if absent/empty.
+func stringTag(re *regexp.Regexp, raw string) string {
+	if m := re.FindStringSubmatch(raw); len(m) == 2 {
+		return cleanTagBody(m[1])
+	}
+	return ""
+}
+
+// boolTag reports whether a presence-based bool field is true. Absent tags and
+// explicit false/no/0/empty bodies count as false; any other body counts as
+// true (the agent is told to omit false tags, so presence usually means true).
+func boolTag(re *regexp.Regexp, raw string) bool {
+	m := re.FindStringSubmatch(raw)
+	if len(m) != 2 {
+		return false
+	}
+	switch strings.ToLower(strings.TrimSpace(m[1])) {
+	case "", "false", "no", "0":
+		return false
+	default:
+		return true
+	}
+}
+
+// parsePreThinkXML extracts the bool/string fields from pre-think output and
+// composes a clean action hint. A non-empty <confusing_terminology> tag adds a
+// mandatory clarification step; an <is_include_investigator> flag forces an
+// explicit dispatch. Returns "" when no recognizable tags are found (caller
+// falls back to raw).
 func parsePreThinkXML(raw string) string {
 	if raw == "" {
 		return ""
 	}
 
 	var parts []string
-	clarificationRequired := false
 
-	if m := intentRE.FindStringSubmatch(raw); len(m) == 2 {
-		if v := cleanTagBody(m[1]); v != "" {
-			parts = append(parts, "Intent: "+v+".")
-		}
+	if v := stringTag(intentRE, raw); v != "" {
+		parts = append(parts, "Intent: "+v+".")
 	}
 
-	for _, m := range riskRE.FindAllStringSubmatch(raw, -1) {
-		name := strings.ToLower(strings.TrimSpace(m[1]))
-		level := strings.ToLower(strings.TrimSpace(m[2]))
-		reason := cleanTagBody(m[3])
-		if level != "medium" && level != "high" {
-			continue
-		}
-		if name == "" {
-			continue
-		}
-		entry := strings.ToUpper(level[:1]) + level[1:] + " " + name + " risk"
-		if reason != "" {
-			entry += ": " + reason
-		}
-		parts = append(parts, entry+".")
-		if level == "high" && isMisunderstandingRiskName(name) {
-			clarificationRequired = true
-		}
+	if boolTag(multiStepRE, raw) {
+		parts = append(parts, "Multi-step task: plan the steps and complete all of them before responding.")
 	}
 
-	if clarificationRequired {
-		parts = append(parts, "Clarification required: you must stop and ask the user a clarifying question and wait for their answer before continuing.")
+	if v := stringTag(confusingTermRE, raw); v != "" {
+		parts = append(parts, "Confusing terminology: "+v+". You must stop and ask the user a clarifying question and wait for their answer before continuing.")
 	}
 
-	if m := searchRE.FindStringSubmatch(raw); len(m) == 2 {
-		if v := cleanTagBody(m[1]); v != "" {
-			parts = append(parts, "Search: "+v+".")
-		}
+	if v := stringTag(searchRE, raw); v != "" {
+		parts = append(parts, "Search: "+v+".")
 	}
 
-	if m := fanoutRE.FindStringSubmatch(raw); len(m) == 2 {
-		if v := cleanTagBody(m[1]); v != "" {
-			parts = append(parts, "Fanout: "+v+". You must call dispatch to fan out subagents before responding to the user.")
-		}
+	if boolTag(investigatorRE, raw) {
+		parts = append(parts, "Investigator: you must call dispatch to fan out an investigator subagent before responding to the user.")
 	}
 
-	if m := toneRE.FindStringSubmatch(raw); len(m) == 2 {
-		if v := cleanTagBody(m[1]); v != "" {
-			parts = append(parts, "Tone: "+v+".")
-		}
+	if v := stringTag(toneRE, raw); v != "" {
+		parts = append(parts, "Tone: "+v+".")
 	}
 
 	if len(parts) == 0 {
 		return ""
 	}
 	return strings.Join(parts, " ")
-}
-
-func isMisunderstandingRiskName(name string) bool {
-	name = strings.ToLower(strings.TrimSpace(name))
-	name = strings.ReplaceAll(name, "-", "_")
-	switch name {
-	case "misunderstanding", "misunderstanding_risk", "misinterpretation", "miscommunication", "误解", "误解风险":
-		return true
-	default:
-		return false
-	}
 }
 
 func cleanTagBody(s string) string {
