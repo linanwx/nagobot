@@ -16,7 +16,7 @@ func TestReadRecentChat(t *testing.T) {
 		"third",
 		"fourth",
 		"fifth",
-		strings.Repeat("漢", 250), // 250 runes, must be truncated to 200
+		strings.Repeat("A", 250) + strings.Repeat("Z", 250), // 500 runes → head 200 + " [...] " + tail 200
 		"seventh   with    extra spaces",
 	} {
 		role := ChatRoleUser
@@ -41,8 +41,8 @@ func TestReadRecentChat(t *testing.T) {
 	if strings.Contains(got, "\nwith newline") {
 		t.Errorf("expected newlines collapsed, found embedded newline: %q", got)
 	}
-	// Rune-truncation: the 250-rune line should now have at most 200 runes
-	// after the "user: " / "assistant: " prefix.
+	// Head+tail preview: every entry is capped at head + tail + the marker.
+	maxContent := chatPreviewHead + chatPreviewTail + runeLen(" [...] ")
 	for _, line := range lines {
 		role, content, ok := strings.Cut(line, ": ")
 		if !ok {
@@ -52,9 +52,22 @@ func TestReadRecentChat(t *testing.T) {
 		if role != ChatRoleUser && role != ChatRoleAssistant {
 			t.Errorf("unexpected role %q in line %q", role, line)
 		}
-		if runeLen(content) > 200 {
-			t.Errorf("content exceeds 200 runes (%d): %q", runeLen(content), content)
+		if runeLen(content) > maxContent {
+			t.Errorf("content exceeds %d runes (%d): %q", maxContent, runeLen(content), content)
 		}
+	}
+	// The 500-rune assistant entry must keep BOTH its head and tail with the
+	// middle elided — head-only truncation (the prior behavior) would have
+	// dropped the trailing Z run entirely.
+	long := lines[3]
+	if !strings.HasPrefix(long, "assistant: "+strings.Repeat("A", chatPreviewHead)+" [...] ") {
+		t.Errorf("elided entry should start with head + marker, got %q", long)
+	}
+	if !strings.HasSuffix(long, " [...] "+strings.Repeat("Z", chatPreviewTail)) {
+		t.Errorf("elided entry should end with marker + tail, got %q", long)
+	}
+	if strings.Contains(long, strings.Repeat("A", chatPreviewHead+1)) {
+		t.Errorf("middle should be elided, found more than %d head runes: %q", chatPreviewHead, long)
 	}
 	// Last line should be the 7th seeded entry, with collapsed spaces.
 	if !strings.HasPrefix(lines[4], "user: seventh with extra spaces") {

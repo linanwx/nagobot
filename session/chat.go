@@ -76,11 +76,19 @@ func AppendChat(sessionDir, role, content string, ts time.Time) error {
 	return nil
 }
 
-const chatPreviewRunes = 200
+// Per-entry preview keeps the head AND tail of the content: the opening shows
+// what the message is about, the closing keeps the conclusion/action — which a
+// head-only truncation dropped for assistant messages (the part pre-think most
+// needs to read intent).
+const (
+	chatPreviewHead = 200
+	chatPreviewTail = 200
+)
 
 // ReadRecentChat returns up to n most-recent chat.jsonl entries from sessionDir,
 // each rendered as "role: content" on a single line — newlines collapsed to
-// spaces, content truncated to chatPreviewRunes runes. Returns "" if the file
+// spaces, content previewed as head + tail (first chatPreviewHead and last
+// chatPreviewTail runes, middle elided with " [...] "). Returns "" if the file
 // is missing or empty. Output is chronological (oldest of the N first).
 func ReadRecentChat(sessionDir string, n int) string {
 	if sessionDir == "" || n <= 0 {
@@ -115,7 +123,7 @@ func ReadRecentChat(sessionDir string, n int) string {
 			continue
 		}
 		content := collapseSpaces(e.Content)
-		content = truncateRunes(content, chatPreviewRunes)
+		content = headTailRunes(content, chatPreviewHead, chatPreviewTail)
 		if b.Len() > 0 {
 			b.WriteByte('\n')
 		}
@@ -147,17 +155,16 @@ func collapseSpaces(s string) string {
 	return strings.TrimRight(out, " ")
 }
 
-// truncateRunes returns the first n runes of s, or s unchanged if shorter.
-func truncateRunes(s string, n int) string {
-	if n <= 0 {
-		return ""
+// headTailRunes keeps the first head and last tail runes, eliding the middle
+// with " [...] " when the content is longer than head+tail runes. Content that
+// already fits is returned unchanged (no marker inserted).
+func headTailRunes(s string, head, tail int) string {
+	if head < 0 || tail < 0 {
+		return s
 	}
-	count := 0
-	for i := range s {
-		if count == n {
-			return s[:i]
-		}
-		count++
+	runes := []rune(s)
+	if len(runes) <= head+tail {
+		return s
 	}
-	return s
+	return string(runes[:head]) + " [...] " + string(runes[len(runes)-tail:])
 }
