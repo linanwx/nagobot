@@ -46,6 +46,7 @@ Review the conversation history and extract learnings into USER.md. This runs in
    - Merge new findings with existing content. Do NOT duplicate entries that already exist.
    - If an existing entry conflicts with a newer observation, update it to reflect the latest preference.
    - Maintain a `## Reflection Log` section at the bottom with a timestamp for each reflection pass (e.g., `- 2025-01-15: extracted language preference, recorded correction about X`).
+   - Keep the `## Reflection Log` bounded: only when it exceeds 20 entries, merge or delete the oldest 10 (keeping the ~10 most recent). Do this in a batch when it crosses 20 — do NOT prune every pass.
    - If the file exceeds 200 lines after your update, consolidate: merge similar entries, remove outdated observations, compress verbose entries.
    - Write in the same language the user predominantly uses in conversation.
    - Use `write_file` to save.
