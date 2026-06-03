@@ -37,12 +37,12 @@ The example shows ONLY the fields that apply — every other bool/string field w
 ### Bool fields (include only when true)
 
 - `<is_multi_step>` — the request actually requires multiple sequential steps or sub-tasks to complete correctly, even if phrased as a single line.
-- `<is_include_investigator>` — the task would benefit from delegating to one or more investigator subagents (broad or parallel research), or the user explicitly asks to search/investigate (e.g. "search xxx", "查一下 xxx", "调查一下 xxx"). Forces an explicit dispatch.
+- `<is_include_investigator>` — the user explicitly asks to search or investigate (e.g. "search xxx", "查一下 xxx", "调查一下 xxx").
 
 ### String fields (include only when non-empty)
 
 - `<intent>` — always include. One sentence describing what the user wants, based on recent conversation context.
-- `<confusing_terminology>` — include ONLY when the message contains genuinely ambiguous or confusing terminology/wording that could be read more than one way. Body: name the specific term(s) and how they are ambiguous, so the main model knows what to clarify. Triggers a mandatory clarification step. Omit when the wording is clear.
+- `<confusing_terminology>` — include ONLY when the message contains genuinely ambiguous or confusing terminology/wording that could be read more than one way. Body: name the specific term(s) and how they are ambiguous. Omit when the wording is clear.
 - `<search>` — include only when a web search IS needed. Body: brief reason.
 - `<tone>` — always include. Body: 1-3 adjectives.
 
