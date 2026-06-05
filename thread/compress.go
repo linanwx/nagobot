@@ -50,6 +50,14 @@ func runeLen(s string) int {
 // runCompressionScan scans idle threads and applies the appropriate compression tier:
 //   - Tier 1 (idle 5-30min): mechanical compression of tools and large assistant-only user messages
 //   - Tier 2 (idle ≥30min, >60% tokens): AI-driven silent compression via context-ops skill
+//
+// Idle is measured from lastActiveAt — the thread's own last turn (user OR
+// system) — not lastUserActiveAt. So the scan only fires once a session has
+// genuinely been quiet for a while, and system-only sessions (pre-think/
+// rephrase) get a real "quiet for N min" clock instead of one frozen at thread
+// creation (which used to wipe them on the next tick). Sessions that stay busy
+// with system turns never go idle here; their token pressure is handled at
+// turn-end by Tier 3 instead.
 func (m *Manager) runCompressionScan() {
 	cfg := m.cfg
 	if cfg.Sessions == nil || cfg.ContextWindowTokens <= 0 {
@@ -65,7 +73,7 @@ func (m *Manager) runCompressionScan() {
 	var candidates []candidate
 	now := time.Now()
 	for key, t := range m.threads {
-		idle := now.Sub(t.lastUserActiveAt)
+		idle := now.Sub(t.lastActiveAt)
 		if t.state == threadIdle && idle >= tier1IdleMin {
 			candidates = append(candidates, candidate{key: key, idle: idle})
 		}
@@ -80,7 +88,7 @@ func (m *Manager) runCompressionScan() {
 		// Tier 1 always runs first (mechanical, idempotent, cheap).
 		m.tryTier1Compress(c.key)
 		// Tier-lossy runs next for agents that opt in — hard-deletes old history
-		// via slide_window to keep simple writing models from ever hitting Tier 2/3.
+		// via slide_window / stateless to keep simple writing models off Tier 2/3.
 		m.tryTierLossyCompress(c.key)
 		// Tier 2 runs additionally when idle long enough and tokens exceed threshold.
 		if c.idle >= tier2IdleMin {
