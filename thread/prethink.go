@@ -101,6 +101,7 @@ var (
 var (
 	multiStepRE    = regexp.MustCompile(`(?is)<is_multi_step>(.*?)</is_multi_step>`)
 	investigatorRE = regexp.MustCompile(`(?is)<is_include_investigator>(.*?)</is_include_investigator>`)
+	hasWebURLRE    = regexp.MustCompile(`(?is)<has_web_url>(.*?)</has_web_url>`)
 )
 
 // stringTag returns the cleaned body of a string field, or "" if absent/empty.
@@ -148,15 +149,19 @@ func parsePreThinkXML(raw string) string {
 	}
 
 	if v := stringTag(confusingTermRE, raw); v != "" {
-		parts = append(parts, "Confusing terminology: "+v+". You must stop and ask the user a clarifying question and wait for their answer before continuing.")
+		parts = append(parts, "Confusing terminology: "+v+". Consider stopping and asking the user a clarifying question and waiting for their answer before continuing.")
 	}
 
 	if v := stringTag(searchRE, raw); v != "" {
-		parts = append(parts, "Search: "+v+".")
+		parts = append(parts, "Search: "+v+". Consider dispatching a search subagent.")
 	}
 
 	if boolTag(investigatorRE, raw) {
 		parts = append(parts, "Investigator: you must call dispatch to fan out an investigator subagent before responding to the user.")
+	}
+
+	if boolTag(hasWebURLRE, raw) {
+		parts = append(parts, "Web URL present: consider using playwright to open it.")
 	}
 
 	if v := stringTag(toneRE, raw); v != "" {

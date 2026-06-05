@@ -38,6 +38,7 @@ The example shows ONLY the fields that apply — every other bool/string field w
 
 - `<is_multi_step>` — the request actually requires multiple sequential steps or sub-tasks to complete correctly, even if phrased as a single line.
 - `<is_include_investigator>` — the user explicitly asks to search or investigate (e.g. "search xxx", "查一下 xxx", "调查一下 xxx").
+- `<has_web_url>` — the message contains a web URL (an http/https link).
 
 ### String fields (include only when non-empty)
 

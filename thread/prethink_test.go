@@ -20,7 +20,7 @@ func TestParsePreThinkXML_FullStructure(t *testing.T) {
 	for _, want := range []string{
 		"Intent: 帮我搭一个端到端的数据流程",
 		"Multi-step task: plan the steps and complete all of them before responding.",
-		"Search: 需要联网核实最新版本",
+		"Search: 需要联网核实最新版本. Consider dispatching a search subagent.",
 		"Tone: concise, technical",
 	} {
 		if !strings.Contains(out, want) {
@@ -67,8 +67,8 @@ func TestParsePreThinkXML_ConfusingTerminologyRequiresClarification(t *testing.T
 	if !strings.Contains(out, `Confusing terminology: "标签"既可能指 risk 也可能指 XML tag.`) {
 		t.Errorf("confusing_terminology content should be included, got: %s", out)
 	}
-	if !strings.Contains(out, "You must stop and ask the user a clarifying question and wait for their answer before continuing.") {
-		t.Errorf("confusing_terminology should require clarification, got: %s", out)
+	if !strings.Contains(out, "Consider stopping and asking the user a clarifying question and waiting for their answer before continuing.") {
+		t.Errorf("confusing_terminology should suggest clarification, got: %s", out)
 	}
 }
 
@@ -80,7 +80,7 @@ func TestParsePreThinkXML_NoConfusingTerminologyNoClarification(t *testing.T) {
 </prethink>`
 
 	out := parsePreThinkXML(raw)
-	if strings.Contains(out, "stop and ask the user a clarifying question") {
+	if strings.Contains(out, "asking the user a clarifying question") {
 		t.Errorf("absent confusing_terminology must NOT trigger clarification, got: %s", out)
 	}
 }
@@ -98,6 +98,19 @@ func TestParsePreThinkXML_InvestigatorForcesDispatch(t *testing.T) {
 	}
 }
 
+func TestParsePreThinkXML_HasWebURL(t *testing.T) {
+	raw := `<prethink>
+  <intent>看下这个页面 https://example.com/post</intent>
+  <has_web_url>true</has_web_url>
+  <tone>concise</tone>
+</prethink>`
+
+	out := parsePreThinkXML(raw)
+	if !strings.Contains(out, "Web URL present: consider using playwright to open it.") {
+		t.Errorf("has_web_url should suggest playwright, got: %s", out)
+	}
+}
+
 func TestParsePreThinkXML_CasualMinimal(t *testing.T) {
 	raw := `<prethink>
   <intent>casual conversation</intent>
@@ -112,7 +125,7 @@ func TestParsePreThinkXML_CasualMinimal(t *testing.T) {
 		t.Errorf("got: %s", out)
 	}
 	// Only intent + tone — no flag phrases.
-	for _, unexpected := range []string{"Multi-step", "Confusing terminology", "Investigator", "Search:"} {
+	for _, unexpected := range []string{"Multi-step", "Confusing terminology", "Investigator", "Search:", "Web URL"} {
 		if strings.Contains(out, unexpected) {
 			t.Errorf("unexpected %q in minimal output: %s", unexpected, out)
 		}
