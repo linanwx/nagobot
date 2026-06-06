@@ -17,7 +17,7 @@ Standard Markdown link:
 ```
 
 - `label` — short description (may be empty: `[](path)`).
-- `path` — either an absolute filesystem path, or a path relative to your workspace root (e.g. `media/report.pdf`).
+- `path` — an absolute filesystem path (e.g. `{{WORKSPACE}}/media/report.pdf`).
 
 The link can appear **anywhere** in your reply, including mid-paragraph. It does not need its own line.
 
