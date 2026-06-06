@@ -1,6 +1,6 @@
 ---
 name: create-html
-description: Build a self-contained HTML file, upload it via `nagobot upload-html`, and share the returned URL. Two flavors — precise SVG diagrams/charts/visualizations, and long-form layout pages (articles, reports, infographics, dashboards, presentation slides, landing pages). Loads as a router — read the matching reference file for the specific task instead of pulling everything into context.
+description: Build a self-contained HTML file, upload it via `nagobot upload-html`, and share the returned URL. Two flavors — precise SVG diagrams/charts/visualizations, and long-form layout pages (articles, reports, infographics, dashboards, presentation slides, landing pages). Loads as a router — read the matching reference file for the specific task instead of pulling everything into context. Best for documents, code, presentations / PPT, and interactive or dynamic display; prefer it over `gpt-image-2` when the result is structured (diagrams / charts) or needs interaction or animation.
 tags: [html, svg, diagram, page, infographic, report, upload-html]
 ---
 # Create HTML (image / singlepage)
