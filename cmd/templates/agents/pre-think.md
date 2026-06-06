@@ -31,7 +31,7 @@ There are two kinds of fields:
   <has_web_url>false</has_web_url>
   <confusing_terminology></confusing_terminology>
   <hallucination>the specific model numbers / names / specs to verify</hallucination>
-  <search>brief reason a web search is needed</search>
+  <search>the specific subject/target to search for</search>
   <tone>concise, technical</tone>
 </prethink>
 ```
@@ -47,7 +47,7 @@ There are two kinds of fields:
 - `<intent>` — always include. One sentence describing what the user wants, based on recent conversation context.
 - `<confusing_terminology>` — the message contains genuinely ambiguous or confusing terminology/wording that could be read more than one way. Body: name the specific term(s) and how they are ambiguous. Omit when the wording is clear.
 - `<hallucination>` — the specific facts in the message that the model is likely to confabulate (model numbers, product/person names, dates, specs, versions, citations). E.g. for "does the XXX model have YYY?", include XXX / YYY. Empty when there is nothing fact-specific to verify.
-- `<search>` — a web search is needed. Body: brief reason.
+- `<search>` — a web search is needed. Body: WHAT to search for — the specific subject/target, not the reason. Include it for: real-time / current information, online reviews or public opinion, spec / metric comparisons, documentation, fast-changing data (prices, stock / availability, version numbers), facts that need verification against an authoritative source, information the model's training is likely outdated on (beyond its knowledge cutoff), and facts the model tends to confuse.
 - `<tone>` — always include. Body: 1-3 adjectives.
 
 ## Rules
