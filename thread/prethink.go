@@ -90,7 +90,6 @@ func preThinkAction(ctx context.Context, t *Thread, userMsg string) string {
 
 // String fields carry text (omitted by the agent when empty).
 var (
-	intentRE        = regexp.MustCompile(`(?is)<intent>(.*?)</intent>`)
 	confusingTermRE = regexp.MustCompile(`(?is)<confusing_terminology>(.*?)</confusing_terminology>`)
 	hallucinationRE = regexp.MustCompile(`(?is)<hallucination>(.*?)</hallucination>`)
 	searchRE        = regexp.MustCompile(`(?is)<search>(.*?)</search>`)
@@ -140,10 +139,6 @@ func parsePreThinkXML(raw string) string {
 	}
 
 	var parts []string
-
-	if v := stringTag(intentRE, raw); v != "" {
-		parts = append(parts, "Intent: "+v+".")
-	}
 
 	if boolTag(multiStepRE, raw) {
 		parts = append(parts, "Multi-step task: plan the steps and complete all of them before responding.")

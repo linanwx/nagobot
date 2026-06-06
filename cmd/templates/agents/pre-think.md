@@ -25,7 +25,6 @@ There are two kinds of fields:
 
 ```xml
 <prethink>
-  <intent>one short sentence describing what the user wants</intent>
   <is_multi_step>true</is_multi_step>
   <is_include_investigator>false</is_include_investigator>
   <has_web_url>false</has_web_url>
@@ -44,7 +43,6 @@ There are two kinds of fields:
 
 ### String fields
 
-- `<intent>` — always include. One sentence describing what the user wants, based on recent conversation context.
 - `<confusing_terminology>` — the message contains genuinely ambiguous or confusing terminology/wording that could be read more than one way. Body: name the specific term(s) and how they are ambiguous. Omit when the wording is clear.
 - `<hallucination>` — the specific facts in the message that the model is likely to confabulate (model numbers, product/person names, dates, specs, versions, citations). E.g. for "does the XXX model have YYY?", include XXX / YYY. Empty when there is nothing fact-specific to verify.
 - `<search>` — a web search is needed. Body: WHAT to search for — the specific subject/target, not the reason. Include it for: real-time / current information, online reviews or public opinion, spec / metric comparisons, documentation, fast-changing data (prices, stock / availability, version numbers), facts that need verification against an authoritative source, information the model's training is likely outdated on (beyond its knowledge cutoff), and facts the model tends to confuse.
@@ -63,7 +61,6 @@ There are two kinds of fields:
 
 ```xml
 <prethink>
-  <intent>casual conversation</intent>
   <is_multi_step>false</is_multi_step>
   <is_include_investigator>false</is_include_investigator>
   <has_web_url>false</has_web_url>

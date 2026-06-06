@@ -7,7 +7,6 @@ import (
 
 func TestParsePreThinkXML_FullStructure(t *testing.T) {
 	raw := `<prethink>
-  <intent>帮我搭一个端到端的数据流程</intent>
   <is_multi_step>true</is_multi_step>
   <search>需要联网核实最新版本</search>
   <tone>concise, technical</tone>
@@ -18,7 +17,6 @@ func TestParsePreThinkXML_FullStructure(t *testing.T) {
 		t.Fatal("expected non-empty output")
 	}
 	for _, want := range []string{
-		"Intent: 帮我搭一个端到端的数据流程",
 		"Multi-step task: plan the steps and complete all of them before responding.",
 		"Search: 需要联网核实最新版本. Consider dispatching a search subagent.",
 		"Tone: concise, technical",
@@ -139,19 +137,15 @@ func TestParsePreThinkXML_HasWebURL(t *testing.T) {
 
 func TestParsePreThinkXML_CasualMinimal(t *testing.T) {
 	raw := `<prethink>
-  <intent>casual conversation</intent>
   <tone>warm, friendly</tone>
 </prethink>`
 
 	out := parsePreThinkXML(raw)
-	if !strings.Contains(out, "Intent: casual conversation") {
-		t.Errorf("got: %s", out)
-	}
 	if !strings.Contains(out, "Tone: warm, friendly") {
 		t.Errorf("got: %s", out)
 	}
-	// Only intent + tone — no flag phrases.
-	for _, unexpected := range []string{"Multi-step", "Confusing terminology", "Investigator", "Search:", "Web URL"} {
+	// Only tone — no flag phrases.
+	for _, unexpected := range []string{"Multi-step", "Confusing terminology", "Investigator", "Search:", "Web URL", "Intent"} {
 		if strings.Contains(out, unexpected) {
 			t.Errorf("unexpected %q in minimal output: %s", unexpected, out)
 		}
