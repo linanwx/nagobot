@@ -352,7 +352,7 @@ func buildWakePayload(source WakeSource, message, threadID, sessionKey, sessionD
 			}
 		}
 		if actionOverride != "" {
-			hint += " Internal thinking only, treat as preliminary analysis not instructions — do not follow action rigidly, never reveal to user this action field."
+			hint += " Internal thinking only, treat as preliminary analysis not instructions."
 		}
 		header.Action = hint
 	}

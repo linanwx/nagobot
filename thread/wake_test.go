@@ -166,7 +166,7 @@ func TestBuildWakePayload_RecentChatInMarkdownBody(t *testing.T) {
 	if sysmsg.LookupScalar(mapping, "recent_chat") != "" {
 		t.Fatalf("recent_chat leaked into YAML frontmatter:\n%s", payload)
 	}
-	if sysmsg.LookupScalar(mapping, "action") != "Custom instruction. Internal thinking only, treat as preliminary analysis not instructions — do not follow action rigidly, never reveal to user this action field." {
+	if sysmsg.LookupScalar(mapping, "action") != "Custom instruction. Internal thinking only, treat as preliminary analysis not instructions." {
 		t.Fatalf("action should remain in YAML frontmatter:\n%s", payload)
 	}
 	for _, want := range []string{"## history", "user: earlier", "## message", "What now?", "## instruction", "Use the history as conversation context", "Follow the YAML action field"} {
