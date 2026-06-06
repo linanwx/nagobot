@@ -50,6 +50,18 @@ func preThinkAction(ctx context.Context, t *Thread, userMsg string) string {
 
 	ch := make(chan string, 1)
 	preThinkKey := t.sessionKey + session.PreThinkSessionSuffix
+
+	// Stateless per turn: clear the pre-think session before each analysis so it
+	// never accumulates across a continuous conversation. The turn writes its
+	// output back afterward and we leave it as-is — a normal session, so the
+	// last analysis stays on disk (handy for inspection) and compression tiers
+	// apply normally (the session only ever holds one turn, so they never bite).
+	if cfg := t.cfg(); cfg.Sessions != nil {
+		if err := cfg.Sessions.Save(&session.Session{Key: preThinkKey}); err != nil {
+			logger.Warn("pre-think: clear session failed", "key", preThinkKey, "err", err)
+		}
+	}
+
 	recentChat := session.ReadRecentChat(t.mgr.SessionDir(t.sessionKey), preThinkChatEntries)
 	t.mgr.Wake(preThinkKey, &WakeMessage{
 		Source:     WakePreThink,
