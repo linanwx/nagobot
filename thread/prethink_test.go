@@ -85,6 +85,32 @@ func TestParsePreThinkXML_NoConfusingTerminologyNoClarification(t *testing.T) {
 	}
 }
 
+func TestParsePreThinkXML_Hallucination(t *testing.T) {
+	raw := `<prethink>
+  <intent>问 XXX 型号有没有 YYY 功能</intent>
+  <hallucination>XXX 型号 / YYY 功能</hallucination>
+  <tone>concise</tone>
+</prethink>`
+
+	out := parsePreThinkXML(raw)
+	if !strings.Contains(out, "Possible hallucination: XXX 型号 / YYY 功能. Consider searching references before continuing.") {
+		t.Errorf("hallucination content + search suggestion should be included, got: %s", out)
+	}
+}
+
+func TestParsePreThinkXML_NoHallucination(t *testing.T) {
+	raw := `<prethink>
+  <intent>简单聊天</intent>
+  <hallucination></hallucination>
+  <tone>warm</tone>
+</prethink>`
+
+	out := parsePreThinkXML(raw)
+	if strings.Contains(out, "Possible hallucination") {
+		t.Errorf("empty hallucination must be omitted, got: %s", out)
+	}
+}
+
 func TestParsePreThinkXML_InvestigatorForcesDispatch(t *testing.T) {
 	raw := `<prethink>
   <intent>调查一下竞品定价</intent>

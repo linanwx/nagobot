@@ -30,6 +30,7 @@ There are two kinds of fields:
   <is_include_investigator>false</is_include_investigator>
   <has_web_url>false</has_web_url>
   <confusing_terminology></confusing_terminology>
+  <hallucination>the specific model numbers / names / specs to verify</hallucination>
   <search>brief reason a web search is needed</search>
   <tone>concise, technical</tone>
 </prethink>
@@ -45,6 +46,7 @@ There are two kinds of fields:
 
 - `<intent>` — always include. One sentence describing what the user wants, based on recent conversation context.
 - `<confusing_terminology>` — the message contains genuinely ambiguous or confusing terminology/wording that could be read more than one way. Body: name the specific term(s) and how they are ambiguous. Omit when the wording is clear.
+- `<hallucination>` — the specific facts in the message that the model is likely to confabulate (model numbers, product/person names, dates, specs, versions, citations). E.g. for "does the XXX model have YYY?", include XXX / YYY. Empty when there is nothing fact-specific to verify.
 - `<search>` — a web search is needed. Body: brief reason.
 - `<tone>` — always include. Body: 1-3 adjectives.
 
@@ -66,6 +68,7 @@ There are two kinds of fields:
   <is_include_investigator>false</is_include_investigator>
   <has_web_url>false</has_web_url>
   <confusing_terminology></confusing_terminology>
+  <hallucination></hallucination>
   <search></search>
   <tone>warm, friendly</tone>
 </prethink>

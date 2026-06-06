@@ -92,6 +92,7 @@ func preThinkAction(ctx context.Context, t *Thread, userMsg string) string {
 var (
 	intentRE        = regexp.MustCompile(`(?is)<intent>(.*?)</intent>`)
 	confusingTermRE = regexp.MustCompile(`(?is)<confusing_terminology>(.*?)</confusing_terminology>`)
+	hallucinationRE = regexp.MustCompile(`(?is)<hallucination>(.*?)</hallucination>`)
 	searchRE        = regexp.MustCompile(`(?is)<search>(.*?)</search>`)
 	toneRE          = regexp.MustCompile(`(?is)<tone>(.*?)</tone>`)
 )
@@ -150,6 +151,10 @@ func parsePreThinkXML(raw string) string {
 
 	if v := stringTag(confusingTermRE, raw); v != "" {
 		parts = append(parts, "Confusing terminology: "+v+". Consider stopping and asking the user a clarifying question and waiting for their answer before continuing.")
+	}
+
+	if v := stringTag(hallucinationRE, raw); v != "" {
+		parts = append(parts, "Possible hallucination: "+v+". Consider searching references before continuing.")
 	}
 
 	if v := stringTag(searchRE, raw); v != "" {
