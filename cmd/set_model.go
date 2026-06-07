@@ -183,28 +183,35 @@ func listModelRouting(cfg *config.Config) error {
 		fmt.Printf("  %-28s %s / %s\n", r.Type+":"+r.Name, r.Provider, r.ModelType)
 	}
 
-	// Agent routing: all agents (one row per specialty), resolved via
-	// agent rule > specialty rule > default.
+	// Agent routing: one row per agent showing the ACTUAL resolved model —
+	// agent rule > first specialty (left-to-right) with a rule > default. A
+	// non-matching specialty falls through to the next, so multi-specialty
+	// agents do not show "default" just because an earlier specialty is unset.
 	fmt.Printf("\nAgent routing:\n")
 	fmt.Printf("  %-20s %-20s %s\n", "Agent", "Specialty", "Provider / Model")
 	fmt.Printf("  %-20s %-20s %s\n", "─────", "─────────", "────────────────")
 
-	allAgents := scanAllAgents()
 	defaultLabel := cfg.GetProvider() + " / " + cfg.GetModelType()
-	for _, a := range allAgents {
-		specialty := a.ModelType
-		if specialty == "" {
-			specialty = "(none)"
+	for _, a := range scanAllAgents() {
+		specialtyLabel := strings.Join(a.Specialties, ", ")
+		if specialtyLabel == "" {
+			specialtyLabel = "(none)"
 		}
 		routingLabel := defaultLabel + " (default)"
-		if r := config.FindModelRule(cfg.Thread.Models, config.ModelRuleAgent, a.AgentName); r != nil {
-			routingLabel = r.Provider + " / " + r.ModelType + " (agent)"
-		} else if a.ModelType != "" {
-			if r := config.FindModelRule(cfg.Thread.Models, config.ModelRuleSpecialty, a.ModelType); r != nil {
-				routingLabel = r.Provider + " / " + r.ModelType
+		if r := config.FindModelRule(cfg.Thread.Models, config.ModelRuleAgent, a.Name); r != nil {
+			routingLabel = r.Provider + " / " + r.ModelType + " (agent rule)"
+		} else {
+			for _, sp := range a.Specialties {
+				if r := config.FindModelRule(cfg.Thread.Models, config.ModelRuleSpecialty, sp); r != nil {
+					routingLabel = r.Provider + " / " + r.ModelType
+					if len(a.Specialties) > 1 {
+						routingLabel += " (via " + sp + ")"
+					}
+					break
+				}
 			}
 		}
-		fmt.Printf("  %-20s %-20s %s\n", a.AgentName, specialty, routingLabel)
+		fmt.Printf("  %-20s %-20s %s\n", a.Name, specialtyLabel, routingLabel)
 	}
 
 	// Available models per provider
@@ -228,14 +235,21 @@ func listModelRouting(cfg *config.Config) error {
 	return nil
 }
 
-// scanAllAgents reads all embedded agent templates, returning every agent
-// with its specialty (empty string if none declared).
-func scanAllAgents() []agentModelSlot {
+// agentSpecialties is an agent paired with its ordered specialty tags.
+type agentSpecialties struct {
+	Name        string
+	Specialties []string
+}
+
+// scanAllAgents reads all embedded agent templates, returning each agent with
+// its specialty list in frontmatter order (order matters for left-to-right
+// model resolution).
+func scanAllAgents() []agentSpecialties {
 	entries, err := templateFS.ReadDir("templates/agents")
 	if err != nil {
 		return nil
 	}
-	var slots []agentModelSlot
+	var out []agentSpecialties
 	for _, e := range entries {
 		if e.IsDir() || !strings.HasSuffix(e.Name(), ".md") {
 			continue
@@ -249,25 +263,10 @@ func scanAllAgents() []agentModelSlot {
 		if name == "" {
 			name = strings.TrimSuffix(e.Name(), ".md")
 		}
-		// One slot per specialty; agents with no specialty get a single empty slot.
-		specs := []string(meta.Specialties)
-		if len(specs) == 0 {
-			specs = []string{""}
-		}
-		for _, sp := range specs {
-			slots = append(slots, agentModelSlot{
-				AgentName: name,
-				ModelType: strings.TrimSpace(sp),
-			})
-		}
+		out = append(out, agentSpecialties{Name: name, Specialties: []string(meta.Specialties)})
 	}
-	sort.Slice(slots, func(i, j int) bool {
-		if slots[i].AgentName != slots[j].AgentName {
-			return slots[i].AgentName < slots[j].AgentName
-		}
-		return slots[i].ModelType < slots[j].ModelType
-	})
-	return slots
+	sort.Slice(out, func(i, j int) bool { return out[i].Name < out[j].Name })
+	return out
 }
 
 func listFallbackStatus(cfg *config.Config) error {
