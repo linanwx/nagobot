@@ -6,6 +6,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/linanwx/nagobot/config"
 	"github.com/linanwx/nagobot/logger"
 	"github.com/linanwx/nagobot/session"
 )
@@ -23,12 +24,11 @@ func isPreThinkSession(key string) bool {
 // fastModelConfigured reports whether the "fast" specialty is mapped to a
 // concrete provider/model in the current config (with hot-reload).
 func fastModelConfigured(cfg *ThreadConfig) bool {
-	models := cfg.Models
+	rules := cfg.Models
 	if cfg.ModelsFn != nil {
-		models = cfg.ModelsFn()
+		rules = cfg.ModelsFn()
 	}
-	mc, ok := models["fast"]
-	return ok && mc != nil
+	return config.FindModelRule(rules, config.ModelRuleSpecialty, "fast") != nil
 }
 
 // preThinkAction runs the pre-think agent synchronously and returns its

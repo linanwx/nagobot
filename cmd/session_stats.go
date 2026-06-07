@@ -48,12 +48,12 @@ type sessionStatsOutput struct {
 }
 
 type modelResolution struct {
-	Note             string           `json:"note"`
-	Steps            []resolutionStep `json:"steps"`
-	ResolvedProvider string           `json:"resolved_provider"`
-	ResolvedModel    string           `json:"resolved_model"`
-	ResolvedCtxWindow int             `json:"resolved_context_window"`
-	IsDefault        bool             `json:"is_default"`
+	Note              string           `json:"note"`
+	Steps             []resolutionStep `json:"steps"`
+	ResolvedProvider  string           `json:"resolved_provider"`
+	ResolvedModel     string           `json:"resolved_model"`
+	ResolvedCtxWindow int              `json:"resolved_context_window"`
+	IsDefault         bool             `json:"is_default"`
 }
 
 type resolutionStep struct {
@@ -256,12 +256,9 @@ func resolveModelChain(cfg *config.Config, registry *agent.AgentRegistry, sessio
 	}
 	result.agentName = agentName
 
-	// Step 2: agent name → specialty
-	var specialty string
+	// Step 2: agent name → specialties (informational)
 	def := registry.Def(agentName)
-	if def != nil && def.Specialty != "" {
-		specialty = def.Specialty
-		// Show which file the agent was loaded from.
+	if def != nil && len(def.Specialties) > 0 {
 		label := def.Path
 		if label != "" {
 			// Shorten to relative-ish form: agents-builtin/coffee.md or agents/coffee.md
@@ -272,14 +269,12 @@ func resolveModelChain(cfg *config.Config, registry *agent.AgentRegistry, sessio
 		steps = append(steps, resolutionStep{
 			Step:   "agent_specialty",
 			Lookup: fmt.Sprintf("%s → specialty", label),
-			Found:  specialty,
+			Found:  strings.Join(def.Specialties, ", "),
 			Status: "hit",
 		})
 	} else {
-		reason := ""
-		if def == nil {
-			reason = "agent not found in registry"
-		} else {
+		reason := "agent not found in registry"
+		if def != nil {
 			reason = "no specialty in frontmatter"
 		}
 		steps = append(steps, resolutionStep{
@@ -291,47 +286,74 @@ func resolveModelChain(cfg *config.Config, registry *agent.AgentRegistry, sessio
 		})
 	}
 
-	// Step 3: specialty → model routing
+	// Step 3: model routing — session > agent > specialty (left-to-right) > default.
+	rules := cfg.Thread.Models
 	resolvedProvider := cfg.GetProvider()
 	resolvedModel := cfg.GetModelName()
 	isDefault := true
 
-	if specialty != "" {
-		models := cfg.Thread.Models
-		if mc, ok := models[specialty]; ok && mc != nil {
-			resolvedProvider = mc.Provider
-			resolvedModel = mc.ModelType
-			isDefault = false
+	switch {
+	case config.FindModelRule(rules, config.ModelRuleSession, sessionKey) != nil:
+		r := config.FindModelRule(rules, config.ModelRuleSession, sessionKey)
+		resolvedProvider, resolvedModel, isDefault = r.Provider, r.ModelType, false
+		steps = append(steps, resolutionStep{
+			Step:   "model_routing",
+			Lookup: fmt.Sprintf("session[%q]", sessionKey),
+			Found:  r.Provider + " / " + r.ModelType,
+			Status: "hit",
+		})
+	case config.FindModelRule(rules, config.ModelRuleAgent, agentName) != nil:
+		r := config.FindModelRule(rules, config.ModelRuleAgent, agentName)
+		resolvedProvider, resolvedModel, isDefault = r.Provider, r.ModelType, false
+		steps = append(steps, resolutionStep{
+			Step:   "model_routing",
+			Lookup: fmt.Sprintf("agent[%q]", agentName),
+			Found:  r.Provider + " / " + r.ModelType,
+			Status: "hit",
+		})
+	default:
+		var matched *config.ModelRule
+		var matchedSpecialty string
+		if def != nil {
+			for _, sp := range def.Specialties {
+				if r := config.FindModelRule(rules, config.ModelRuleSpecialty, sp); r != nil {
+					matched, matchedSpecialty = r, sp
+					break
+				}
+			}
+		}
+		if matched != nil {
+			resolvedProvider, resolvedModel, isDefault = matched.Provider, matched.ModelType, false
 			steps = append(steps, resolutionStep{
 				Step:   "model_routing",
-				Lookup: fmt.Sprintf("models[%q]", specialty),
-				Found:  resolvedProvider + " / " + resolvedModel,
+				Lookup: fmt.Sprintf("specialty[%q]", matchedSpecialty),
+				Found:  matched.Provider + " / " + matched.ModelType,
 				Status: "hit",
 			})
 		} else {
+			lookup := "(no specialty)"
+			if def != nil && len(def.Specialties) > 0 {
+				lookup = fmt.Sprintf("specialty[%s]", strings.Join(def.Specialties, ","))
+			}
 			steps = append(steps, resolutionStep{
 				Step:     "model_routing",
-				Lookup:   fmt.Sprintf("models[%q]", specialty),
+				Lookup:   lookup,
 				Found:    "",
 				Status:   "miss",
 				Fallback: resolvedProvider + " / " + resolvedModel + " (default)",
 			})
 		}
-	} else {
-		steps = append(steps, resolutionStep{
-			Step:     "model_routing",
-			Lookup:   "(no specialty)",
-			Found:    "",
-			Status:   "miss",
-			Fallback: resolvedProvider + " / " + resolvedModel + " (default)",
-		})
 	}
 
 	result.Steps = steps
 	result.ResolvedProvider = resolvedProvider
 	result.ResolvedModel = resolvedModel
 	ctxWindow := provider.EffectiveContextWindow(resolvedProvider, resolvedModel, cfg.GetContextWindowTokens())
-	result.ResolvedCtxWindow = registry.Def(agentName).ClampContextWindow(ctxWindow)
+	if def != nil {
+		result.ResolvedCtxWindow = def.ClampContextWindow(ctxWindow)
+	} else {
+		result.ResolvedCtxWindow = ctxWindow
+	}
 	result.IsDefault = isDefault
 	return result
 }

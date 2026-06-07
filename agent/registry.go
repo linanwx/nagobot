@@ -13,15 +13,15 @@ import (
 
 // AgentDef represents an agent template file under workspace/agents.
 type AgentDef struct {
-	Name             string // Callable name used by dispatch(to=subagent|fork).agent
-	Description      string // Short description shown in system prompt context
-	Specialty        string // Agent specialty declared in frontmatter (e.g. "chat", "toolcall")
-	Provider         string // Provider name declared in frontmatter (optional, used for model-pinned agents)
-	Path             string // Full path to the template file
-	ContextWindowCap int    // Parsed token cap; 0 = no cap
-	TierLossyMode    string // "slide_window" | "stateless" | "" (disabled)
-	TierLossyKeep    int    // slide_window: last N turns to retain (ignored for stateless)
-	DisableTools     bool   // when true, the agent runs with no tools
+	Name             string   // Callable name used by dispatch(to=subagent|fork).agent
+	Description      string   // Short description shown in system prompt context
+	Specialties      []string // Agent specialty tags declared in frontmatter (e.g. ["chat"], ["cron","toolcall"]); model resolution tries them left-to-right
+	Provider         string   // Provider name declared in frontmatter (optional, used for model-pinned agents)
+	Path             string   // Full path to the template file
+	ContextWindowCap int      // Parsed token cap; 0 = no cap
+	TierLossyMode    string   // "slide_window" | "stateless" | "" (disabled)
+	TierLossyKeep    int      // slide_window: last N turns to retain (ignored for stateless)
+	DisableTools     bool     // when true, the agent runs with no tools
 }
 
 const agentsBuiltinDir = "agents-builtin"
@@ -163,7 +163,7 @@ func loadAgentsFromDir(dir string, dest map[string]*AgentDef) {
 		dest[normalizeAgentName(name)] = &AgentDef{
 			Name:             name,
 			Description:      strings.TrimSpace(meta.Description),
-			Specialty:        strings.TrimSpace(meta.Specialty),
+			Specialties:      []string(meta.Specialties),
 			Provider:         strings.TrimSpace(meta.Provider),
 			Path:             path,
 			ContextWindowCap: capTokens,

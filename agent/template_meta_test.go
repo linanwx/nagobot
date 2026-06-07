@@ -71,3 +71,35 @@ func TestParseTemplateDisableTools(t *testing.T) {
 		t.Error("DisableTools should default to false when the field is absent")
 	}
 }
+
+func TestParseTemplate_Specialty(t *testing.T) {
+	cases := []struct {
+		name string
+		fm   string
+		want []string
+	}{
+		{"array", "---\nname: a\nspecialty: [pdf, toolcall]\n---\nbody", []string{"pdf", "toolcall"}},
+		{"single-array", "---\nname: a\nspecialty: [pdf]\n---\nbody", []string{"pdf"}},
+		{"scalar (lenient)", "---\nname: a\nspecialty: pdf\n---\nbody", []string{"pdf"}},
+		{"empty", "---\nname: a\n---\nbody", nil},
+		{"blank scalar", "---\nname: a\nspecialty: \n---\nbody", nil},
+		{"trims whitespace", "---\nname: a\nspecialty: [ cron , toolcall ]\n---\nbody", []string{"cron", "toolcall"}},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			meta, _, _, err := ParseTemplate(c.fm)
+			if err != nil {
+				t.Fatalf("ParseTemplate: %v", err)
+			}
+			got := []string(meta.Specialties)
+			if len(got) != len(c.want) {
+				t.Fatalf("got %v, want %v", got, c.want)
+			}
+			for i := range got {
+				if got[i] != c.want[i] {
+					t.Fatalf("got %v, want %v", got, c.want)
+				}
+			}
+		})
+	}
+}

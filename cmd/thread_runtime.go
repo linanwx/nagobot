@@ -261,7 +261,7 @@ func buildThreadManager(cfg *config.Config, enableSessions bool) (*thread.Manage
 		HealthChannelsFn:    healthChannelsFn,
 		ProviderFactory:     providerFactory,
 		Models:              cfg.Thread.Models,
-		ModelsFn: func() map[string]*config.ModelConfig {
+		ModelsFn: func() []config.ModelRule {
 			c, err := config.Load()
 			if err != nil {
 				return cfg.Thread.Models

@@ -30,11 +30,11 @@ Examples:
 }
 
 var (
-	setAgentSession   string
-	setAgentName      string
-	setAgentProvider  string
-	setAgentModel     string
-	setAgentRephrase  string
+	setAgentSession  string
+	setAgentName     string
+	setAgentProvider string
+	setAgentModel    string
+	setAgentRephrase string
 )
 
 func init() {
@@ -61,13 +61,21 @@ func runSetAgent(_ *cobra.Command, _ []string) error {
 	modelArg := strings.TrimSpace(setAgentModel)
 	providerArg := strings.TrimSpace(setAgentProvider)
 	agentArg := strings.TrimSpace(setAgentName)
+	rephraseArg := strings.TrimSpace(setAgentRephrase)
 
-	if providerArg != "" && modelArg == "" {
+	hasModel := modelArg != ""
+	hasAgent := agentArg != ""
+	hasRephrase := rephraseArg != ""
+	bareClear := !hasModel && !hasAgent && !hasRephrase
+
+	if providerArg != "" && !hasModel {
 		return fmt.Errorf("--provider requires --model")
 	}
 
-	// --provider/--model mode: auto-create agent.
-	if modelArg != "" {
+	configChanged := false
+
+	// --provider/--model mode: pin a model to this session via a session rule.
+	if hasModel {
 		if providerArg == "" {
 			providerArg = provider.ProviderForModel(modelArg)
 			if providerArg == "" {
@@ -84,25 +92,12 @@ func runSetAgent(_ *cobra.Command, _ []string) error {
 		if !hasKey && !hasOAuth {
 			return fmt.Errorf("provider %q has no API key configured.\nFix: nagobot set-provider-key --provider %s --api-key YOUR_KEY", providerArg, providerArg)
 		}
-		agentName, agentPath, err := createFixedAgent(cfg, providerArg, modelArg)
-		if err != nil {
-			return err
-		}
-		agentArg = agentName
-
-		specialty := providerArg + "/" + modelArg
-		fmt.Print(tools.CmdOutput([][2]string{
-			{"command", "set-agent"}, {"status", "ok"}, {"session", session},
-			{"agent", agentName}, {"agent_path", agentPath}, {"specialty", specialty},
-			{"provider", providerArg}, {"model", modelArg},
-		}, "") + "\n")
-		fmt.Printf("Created agent %q at %s\n", agentName, agentPath)
-		fmt.Printf("Specialty %q → %s / %s (implicit routing)\n", specialty, providerArg, modelArg)
+		cfg.Thread.Models = config.UpsertModelRule(cfg.Thread.Models, config.ModelRuleSession, session, providerArg, modelArg)
+		configChanged = true
 	}
 
-	// Validate agent exists before writing config (--agent mode only;
-	// --provider/--model mode already created the file above).
-	if agentArg != "" && modelArg == "" {
+	// --agent mode: validate the agent exists before assigning it.
+	if hasAgent {
 		workspace, wErr := cfg.WorkspacePath()
 		if wErr != nil {
 			return fmt.Errorf("failed to get workspace: %w", wErr)
@@ -116,89 +111,89 @@ func runSetAgent(_ *cobra.Command, _ []string) error {
 			}
 		}
 		if !found {
-			return fmt.Errorf("agent %q not found in agents/ or agents-builtin/.\nTo create a model-pinned agent, use: nagobot set-agent --session %s --provider <name> --model <model>", agentArg, session)
+			return fmt.Errorf("agent %q not found in agents/ or agents-builtin/.\nTo pin a model to this session, use: nagobot set-agent --session %s --provider <name> --model <model>", agentArg, session)
 		}
 	}
 
-	// Persist agent assignment to meta.json (per-session, survives restarts).
-	sessionsDir, err := cfg.SessionsDir()
-	if err != nil {
-		return fmt.Errorf("failed to get sessions dir: %w", err)
+	// Bare clear also removes any session model rule (full revert to default).
+	if bareClear {
+		before := len(cfg.Thread.Models)
+		cfg.Thread.Models = config.RemoveModelRule(cfg.Thread.Models, config.ModelRuleSession, session)
+		if len(cfg.Thread.Models) != before {
+			configChanged = true
+		}
 	}
-	sessionDir := sessionPkg.SessionDir(sessionsDir, session)
-	sessionPkg.UpdateMeta(sessionDir, func(m *sessionPkg.Meta) {
-		if agentArg == "" && modelArg == "" && setAgentRephrase == "" {
-			m.Agent = ""
-		} else if agentArg != "" || modelArg != "" {
-			m.Agent = agentArg
-		}
-		switch strings.ToLower(strings.TrimSpace(setAgentRephrase)) {
-		case "true", "1", "yes":
-			m.Rephrase = true
-		case "false", "0", "no":
-			m.Rephrase = false
-		}
-	})
 
-	if agentArg == "" && modelArg == "" && setAgentRephrase == "" {
+	if configChanged {
+		if err := cfg.Save(); err != nil {
+			return fmt.Errorf("failed to save config: %w", err)
+		}
+	}
+
+	// Persist agent assignment / rephrase to meta.json (per-session). The session
+	// model pin lives in config (above); meta.json only carries session→agent.
+	if hasAgent || hasRephrase || bareClear {
+		sessionsDir, err := cfg.SessionsDir()
+		if err != nil {
+			return fmt.Errorf("failed to get sessions dir: %w", err)
+		}
+		sessionDir := sessionPkg.SessionDir(sessionsDir, session)
+		sessionPkg.UpdateMeta(sessionDir, func(m *sessionPkg.Meta) {
+			if bareClear {
+				m.Agent = ""
+			} else if hasAgent {
+				m.Agent = agentArg
+			}
+			switch strings.ToLower(rephraseArg) {
+			case "true", "1", "yes":
+				m.Rephrase = true
+			case "false", "0", "no":
+				m.Rephrase = false
+			}
+		})
+	}
+
+	// Output.
+	if bareClear {
 		fmt.Print(tools.CmdOutput([][2]string{
-			{"command", "set-agent"}, {"status", "ok"}, {"session", session}, {"agent", "cleared"},
-		}, fmt.Sprintf("Cleared agent for session %q.", session)) + "\n")
-	} else if agentArg == "" && modelArg == "" && setAgentRephrase != "" {
-		rephraseVal := strings.ToLower(strings.TrimSpace(setAgentRephrase))
+			{"command", "set-agent"}, {"status", "ok"}, {"session", session}, {"agent", "cleared"}, {"model", "cleared"},
+		}, fmt.Sprintf("Cleared agent + session model rule for session %q (reverts to default).", session)) + "\n")
+		return nil
+	}
+	if hasModel {
 		fmt.Print(tools.CmdOutput([][2]string{
-			{"command", "set-agent"}, {"status", "ok"}, {"session", session}, {"rephrase", rephraseVal},
-		}, fmt.Sprintf("Set rephrase=%s for session %q.", rephraseVal, session)) + "\n")
-	} else if modelArg == "" {
+			{"command", "set-agent"}, {"status", "ok"}, {"session", session},
+			{"rule", "session"}, {"provider", providerArg}, {"model", modelArg},
+		}, fmt.Sprintf("Pinned session %q → %s / %s (session model rule).", session, providerArg, modelArg)) + "\n")
+	}
+	if hasAgent {
 		fmt.Print(tools.CmdOutput([][2]string{
 			{"command", "set-agent"}, {"status", "ok"}, {"session", session}, {"agent", agentArg},
 		}, fmt.Sprintf("Set agent %q for session %q.", agentArg, session)) + "\n")
 		printAgentModelRouting(cfg, agentArg)
-	} else {
-		fmt.Printf("Set session %q → agent %q\n", session, agentArg)
+	}
+	if hasRephrase && !hasAgent && !hasModel {
+		rephraseVal := strings.ToLower(rephraseArg)
+		fmt.Print(tools.CmdOutput([][2]string{
+			{"command", "set-agent"}, {"status", "ok"}, {"session", session}, {"rephrase", rephraseVal},
+		}, fmt.Sprintf("Set rephrase=%s for session %q.", rephraseVal, session)) + "\n")
 	}
 	return nil
 }
 
-func createFixedAgent(cfg *config.Config, provName, modelType string) (name, path string, err error) {
-	// Specialty = "provider/model" for unambiguous routing.
-	specialty := provName + "/" + modelType
-	slug := strings.ReplaceAll(specialty, "/", "-")
-	name = "fixed-to-" + slug
-
-	workspace, err := cfg.WorkspacePath()
-	if err != nil {
-		return "", "", fmt.Errorf("failed to get workspace: %w", err)
-	}
-	path = filepath.Join(workspace, "agents", name+".md")
-
-	content := fmt.Sprintf(`---
-name: %s
-specialty: %s
-sections:
-  - user_memory_section
-  - heartbeat_prompt_section
----
-You are a member of the nagobot family. You are a helpful assistant.
-`, name, specialty)
-
-	if err := os.MkdirAll(filepath.Dir(path), 0755); err != nil {
-		return "", "", fmt.Errorf("failed to create agents dir: %w", err)
-	}
-	if err := os.WriteFile(path, []byte(content), 0644); err != nil {
-		return "", "", fmt.Errorf("failed to write agent template: %w", err)
-	}
-	return name, path, nil
-}
-
 func printAgentModelRouting(cfg *config.Config, agentName string) {
+	// Agent rule wins; otherwise show the agent's first specialty rule (or default).
+	if r := config.FindModelRule(cfg.Thread.Models, config.ModelRuleAgent, agentName); r != nil {
+		fmt.Printf("Agent rule: %s -> %s / %s\n", agentName, r.Provider, r.ModelType)
+		return
+	}
 	for _, slot := range scanAgentModelSlots() {
-		if !strings.EqualFold(slot.AgentName, agentName) {
+		if !strings.EqualFold(slot.AgentName, agentName) || slot.ModelType == "" {
 			continue
 		}
 		prov, model := cfg.GetProvider(), cfg.GetModelType()
-		if mc, ok := cfg.Thread.Models[slot.ModelType]; ok && mc != nil {
-			prov, model = mc.Provider, mc.ModelType
+		if r := config.FindModelRule(cfg.Thread.Models, config.ModelRuleSpecialty, slot.ModelType); r != nil {
+			prov, model = r.Provider, r.ModelType
 		}
 		fmt.Printf("Specialty: %s -> %s / %s\n", slot.ModelType, prov, model)
 		return

@@ -29,13 +29,14 @@ func (c *Config) migrateLegacyModelNames() bool {
 		}
 	}
 
-	for key, mc := range c.Thread.Models {
-		if mc == nil || mc.Provider != "deepseek" {
+	for i := range c.Thread.Models {
+		r := &c.Thread.Models[i]
+		if r.Provider != "deepseek" {
 			continue
 		}
-		if repl, ok := legacyDeepSeekModelRename[mc.ModelType]; ok {
-			logger.Info("config migration: rename thread.models entry", "specialty", key, "from", mc.ModelType, "to", repl)
-			mc.ModelType = repl
+		if repl, ok := legacyDeepSeekModelRename[r.ModelType]; ok {
+			logger.Info("config migration: rename thread.models rule", "type", r.Type, "name", r.Name, "from", r.ModelType, "to", repl)
+			r.ModelType = repl
 			changed = true
 		}
 	}

@@ -7,18 +7,40 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
+// StringList is a YAML field that accepts either a scalar ("a") or a sequence
+// ("[a, b]"), decoding both to a []string. This keeps agent templates lenient:
+// a hand-written `specialty: pdf` parses the same as `specialty: [pdf]`.
+type StringList []string
+
+// UnmarshalYAML accepts a scalar or a sequence node.
+func (s *StringList) UnmarshalYAML(value *yaml.Node) error {
+	if value.Kind == yaml.ScalarNode {
+		if strings.TrimSpace(value.Value) == "" {
+			*s = nil
+			return nil
+		}
+		*s = StringList{value.Value}
+		return nil
+	}
+	var arr []string
+	if err := value.Decode(&arr); err != nil {
+		return err
+	}
+	*s = StringList(arr)
+	return nil
+}
+
 // TemplateMeta holds the YAML frontmatter fields of an agent template.
 type TemplateMeta struct {
-	Name             string   `yaml:"name"`
-	Description      string   `yaml:"description"`
-	Specialty        string   `yaml:"specialty"`
-	Provider         string   `yaml:"provider"`
-	Model            string   `yaml:"model"`                        // deprecated: use Specialty; kept for backward compatibility
-	Sections         []string `yaml:"sections,omitempty"`           // per-session sections to auto-append (e.g. user_memory_section)
-	ContextWindowCap string   `yaml:"context_window_cap,omitempty"` // human-readable cap (e.g. "64k", "200k", "1M") — clamps effective context window for this agent
-	TierLossyMode    string   `yaml:"tier_lossy_mode,omitempty"`    // lossy compression mode: "slide_window" (phase 1) | "ratio" (future)
-	TierLossyKeep    int      `yaml:"tier_lossy_keep,omitempty"`    // slide_window: last N user-assistant turns to retain
-	DisableTools     bool     `yaml:"disable_tools,omitempty"`      // when true, the agent runs with no tools (the tool list is not constructed)
+	Name             string     `yaml:"name"`
+	Description      string     `yaml:"description"`
+	Specialties      StringList `yaml:"specialty"` // one or more specialty tags; scalar or array
+	Provider         string     `yaml:"provider"`
+	Sections         []string   `yaml:"sections,omitempty"`           // per-session sections to auto-append (e.g. user_memory_section)
+	ContextWindowCap string     `yaml:"context_window_cap,omitempty"` // human-readable cap (e.g. "64k", "200k", "1M") — clamps effective context window for this agent
+	TierLossyMode    string     `yaml:"tier_lossy_mode,omitempty"`    // lossy compression mode: "slide_window" (phase 1) | "ratio" (future)
+	TierLossyKeep    int        `yaml:"tier_lossy_keep,omitempty"`    // slide_window: last N user-assistant turns to retain
+	DisableTools     bool       `yaml:"disable_tools,omitempty"`      // when true, the agent runs with no tools (the tool list is not constructed)
 }
 
 // ParseTokenAmount parses a human-readable token count.
@@ -61,13 +83,16 @@ func ParseTemplate(content string) (meta TemplateMeta, body string, hasHeader bo
 	if err := yaml.Unmarshal([]byte(header), &meta); err != nil {
 		return meta, content, true, err
 	}
-	// Backward compatibility: fall back to deprecated "model" field.
-	if meta.Specialty == "" && meta.Model != "" {
-		meta.Specialty = meta.Model
+	// Normalize specialties: trim each and drop empties.
+	cleaned := meta.Specialties[:0]
+	for _, sp := range meta.Specialties {
+		if sp = strings.TrimSpace(sp); sp != "" {
+			cleaned = append(cleaned, sp)
+		}
 	}
+	meta.Specialties = cleaned
 	return meta, body, true, nil
 }
-
 
 func splitFrontMatter(content string) (header string, body string, ok bool) {
 	normalized := strings.ReplaceAll(content, "\r\n", "\n")

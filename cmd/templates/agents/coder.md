@@ -1,7 +1,7 @@
 ---
 name: coder
 description: Coding agent for writing, debugging, and refactoring code. Bound to a code-specialized model.
-specialty: code
+specialty: [code]
 sections: [user_memory_section]
 ---
 

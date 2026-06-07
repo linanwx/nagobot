@@ -36,15 +36,15 @@ const backSentinel = "__back__"
 
 // providerURLs maps provider names to their API key portal URLs.
 var providerURLs = map[string]string{
-	"openai":          "https://platform.openai.com/api-keys",
-	"deepseek":        "https://platform.deepseek.com",
-	"openrouter":      "https://openrouter.ai/keys",
-	"anthropic":       "https://console.anthropic.com",
-	"anthropic-oauth": "https://claude.com",
-	"moonshot-cn":     "https://platform.moonshot.cn",
-	"moonshot-global": "https://platform.moonshot.ai",
-	"zhipu-cn":        "https://open.bigmodel.cn",
-	"zhipu-global":    "https://z.ai",
+	"openai":             "https://platform.openai.com/api-keys",
+	"deepseek":           "https://platform.deepseek.com",
+	"openrouter":         "https://openrouter.ai/keys",
+	"anthropic":          "https://console.anthropic.com",
+	"anthropic-oauth":    "https://claude.com",
+	"moonshot-cn":        "https://platform.moonshot.cn",
+	"moonshot-global":    "https://platform.moonshot.ai",
+	"zhipu-cn":           "https://open.bigmodel.cn",
+	"zhipu-global":       "https://z.ai",
 	"minimax-cn":         "https://platform.minimaxi.com",
 	"minimax-global":     "https://platform.minimax.io",
 	"siliconflow-cn":     "https://cloud.siliconflow.cn",
@@ -119,7 +119,7 @@ func runOnboard(cmd *cobra.Command, _ []string) error {
 			err = huh.NewForm(
 				huh.NewGroup(
 					huh.NewSelect[string]().
-						Title("Choose default model for "+selectedProvider).
+						Title("Choose default model for " + selectedProvider).
 						Description("Only whitelisted models are supported. The first option is the recommended default.").
 						Options(modelOptions...).
 						Value(&selectedModel),
@@ -143,8 +143,8 @@ func runOnboard(cmd *cobra.Command, _ []string) error {
 
 		// Check existing override from prior onboard.
 		var existingMC *config.ModelConfig
-		if existing.Thread.Models != nil {
-			existingMC = existing.Thread.Models[g.ModelType]
+		if r := config.FindModelRule(existing.Thread.Models, config.ModelRuleSpecialty, g.ModelType); r != nil {
+			existingMC = &config.ModelConfig{Provider: r.Provider, ModelType: r.ModelType}
 		}
 		hasExistingOverride := existingMC != nil &&
 			(existingMC.Provider != selectedProvider || existingMC.ModelType != selectedModel)
@@ -314,12 +314,12 @@ func runOnboard(cmd *cobra.Command, _ []string) error {
 		huh.NewGroup(
 			huh.NewConfirm().
 				Title("Configure Feishu (Lark) bot?").
-				Description("Setup: https://open.feishu.cn/app → Create Enterprise App\n"+
-					"1. Credentials: copy App ID & App Secret\n"+
-					"2. App Capability → enable Bot\n"+
-					"3. Permissions → batch import: im:message, im:message:send_as_bot, im:resource\n"+
-					"4. Events → use LONG CONNECTION → subscribe im.message.receive_v1\n"+
-					"5. Create version & publish (admin approval may be required)\n"+
+				Description("Setup: https://open.feishu.cn/app → Create Enterprise App\n" +
+					"1. Credentials: copy App ID & App Secret\n" +
+					"2. App Capability → enable Bot\n" +
+					"3. Permissions → batch import: im:message, im:message:send_as_bot, im:resource\n" +
+					"4. Events → use LONG CONNECTION → subscribe im.message.receive_v1\n" +
+					"5. Create version & publish (admin approval may be required)\n" +
 					"Note: all 5 steps must be done BEFORE the bot can send/receive messages.").
 				Value(&configureFeishu),
 		),
@@ -367,10 +367,10 @@ func runOnboard(cmd *cobra.Command, _ []string) error {
 		huh.NewGroup(
 			huh.NewConfirm().
 				Title("Configure WeCom (WeChat Work) AI Bot?").
-				Description("Setup: 企业微信管理后台 → 应用管理 → 创建应用\n"+
-					"1. 开启「API 模式机器人」\n"+
-					"2. 选择「长连接」类型\n"+
-					"3. 复制 Bot ID (aib-xxx) 和 Secret\n"+
+				Description("Setup: 企业微信管理后台 → 应用管理 → 创建应用\n" +
+					"1. 开启「API 模式机器人」\n" +
+					"2. 选择「长连接」类型\n" +
+					"3. 复制 Bot ID (aib-xxx) 和 Secret\n" +
 					"4. 无需配置回调 URL（WebSocket 长连接，无需公网 IP）").
 				Value(&configureWeCom),
 		),
@@ -421,9 +421,19 @@ func runOnboard(cmd *cobra.Command, _ []string) error {
 	}
 	cfg.SetProvider(selectedProvider)
 	cfg.SetModelType(selectedModel)
-	// Replace models map entirely — specialties that chose "use default" are
+	// Replace models entirely — specialties that chose "use default" are
 	// intentionally absent, so stale entries from previous onboard runs get cleaned up.
-	cfg.Thread.Models = modelOverrides
+	// Sorted by specialty for deterministic config output.
+	cfg.Thread.Models = nil
+	overrideSpecialties := make([]string, 0, len(modelOverrides))
+	for s := range modelOverrides {
+		overrideSpecialties = append(overrideSpecialties, s)
+	}
+	sort.Strings(overrideSpecialties)
+	for _, s := range overrideSpecialties {
+		mc := modelOverrides[s]
+		cfg.Thread.Models = config.UpsertModelRule(cfg.Thread.Models, config.ModelRuleSpecialty, s, mc.Provider, mc.ModelType)
+	}
 
 	if configureTG {
 		if cfg.Channels.Telegram == nil {
@@ -487,8 +497,8 @@ func runOnboard(cmd *cobra.Command, _ []string) error {
 	fmt.Println("  Default:", selectedProvider+"/"+selectedModel)
 	if len(cfg.Thread.Models) > 0 {
 		fmt.Println("  Models:")
-		for modelType, mc := range cfg.Thread.Models {
-			fmt.Printf("    %s: %s/%s\n", modelType, mc.Provider, mc.ModelType)
+		for _, r := range cfg.Thread.Models {
+			fmt.Printf("    %s:%s: %s/%s\n", r.Type, r.Name, r.Provider, r.ModelType)
 		}
 	}
 	fmt.Println()
@@ -605,10 +615,10 @@ func writeTemplate(workspace, templateName, destName string, overwrite bool) err
 
 func createBootstrapFiles(workspace string) error {
 	const (
-		skillsDir         = "skills"
-		builtinSkillsDir  = "skills-builtin"
-		builtinAgentsDir  = "agents-builtin"
-		sessionsDir       = "sessions"
+		skillsDir        = "skills"
+		builtinSkillsDir = "skills-builtin"
+		builtinAgentsDir = "agents-builtin"
+		sessionsDir      = "sessions"
 	)
 
 	for _, dir := range []string{
@@ -703,19 +713,22 @@ func scanAgentModelSlots() []agentModelSlot {
 			continue
 		}
 		meta, _, _, _ := agent.ParseTemplate(string(raw))
-		if strings.TrimSpace(meta.Specialty) != "" {
-			name := strings.TrimSpace(meta.Name)
-			if name == "" {
-				name = strings.TrimSuffix(e.Name(), ".md")
+		name := strings.TrimSpace(meta.Name)
+		if name == "" {
+			name = strings.TrimSuffix(e.Name(), ".md")
+		}
+		// One slot per specialty (agents with no specialty produce none).
+		for _, sp := range meta.Specialties {
+			if sp = strings.TrimSpace(sp); sp != "" {
+				slots = append(slots, agentModelSlot{AgentName: name, ModelType: sp})
 			}
-			slots = append(slots, agentModelSlot{
-				AgentName: name,
-				ModelType: strings.TrimSpace(meta.Specialty),
-			})
 		}
 	}
 	sort.Slice(slots, func(i, j int) bool {
-		return slots[i].AgentName < slots[j].AgentName
+		if slots[i].AgentName != slots[j].AgentName {
+			return slots[i].AgentName < slots[j].AgentName
+		}
+		return slots[i].ModelType < slots[j].ModelType
 	})
 	return slots
 }
@@ -762,7 +775,7 @@ func authenticateProvider(existing *config.Config, providerName string) error {
 		authChoice := "oauth"
 		err := huh.NewForm(huh.NewGroup(
 			huh.NewSelect[string]().
-				Title("How to authenticate with " + providerName + "?").
+				Title("How to authenticate with "+providerName+"?").
 				Options(
 					huh.NewOption(oauthLabel, "oauth"),
 					huh.NewOption("Enter API key manually", "apikey"),

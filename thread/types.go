@@ -94,13 +94,13 @@ type ThreadConfig struct {
 	DefaultSinkFor      func(sessionKey string) Sink
 	DefaultAgentFor     func(sessionKey string) string // Session key → default agent name
 	HealthChannelsFn    func() *tools.HealthChannelsInfo
-	ProviderFactory     *provider.Factory                     // For per-agent model routing
-	Models              map[string]*config.ModelConfig          // Model type → provider/model mapping (startup snapshot)
-	ModelsFn            func() map[string]*config.ModelConfig   // Hot-reload: returns latest Models from config
+	ProviderFactory     *provider.Factory                       // For per-agent model routing
+	Models              []config.ModelRule                      // Typed model-routing rules (startup snapshot)
+	ModelsFn            func() []config.ModelRule               // Hot-reload: returns latest model rules from config
 	DefaultModelFn      func() (providerName, modelName string) // Hot-reload: returns latest default provider/model from config
 	SessionTimezoneFor  func(sessionKey string) string          // Session key → IANA timezone
-	MetricsStore        *monitor.Store                        // Turn metrics storage (optional)
-	Sections            *agent.SectionRegistry                // Shared section registry for prompt assembly
+	MetricsStore        *monitor.Store                          // Turn metrics storage (optional)
+	Sections            *agent.SectionRegistry                  // Shared section registry for prompt assembly
 }
 
 // Thread is a single execution unit with an agent, wake queue, and optional session.
@@ -119,17 +119,17 @@ type Thread struct {
 	signal chan struct{}     // Shared with Manager for notification.
 
 	mu               sync.Mutex
-	hooks                 []turnHook
-	postHooks             []postTurnHook // Hooks run after each turn; returned messages are appended to session.jsonl.
-	pending               []*WakeMessage // Non-mergeable messages deferred by tryMerge (avoids channel requeue deadlock).
-	defaultSink           Sink           // Fallback sink when WakeMessage.Sink is nil.
-	lastActiveAt          time.Time      // Last time this thread completed work (used by GC).
-	lastUserActiveAt      time.Time      // Last time a real user interacted (used by compression).
-	lastWakeSource        msg.WakeSource // Source of the most recent wake (set at RunOnce start).
-	suppressSink          bool           // When true, RunOnce skips sink delivery (reset after each turn).
-	haltLoop              bool           // When true, Runner stops after current tool calls complete.
-	currentSink           Sink           // Current turn's active sink (set by run(), cleared on turn end). Used by dispatch(to=caller:*).
-	currentCallerKey      string         // Caller session key for the current wake; empty for user/system wakes.
+	hooks            []turnHook
+	postHooks        []postTurnHook // Hooks run after each turn; returned messages are appended to session.jsonl.
+	pending          []*WakeMessage // Non-mergeable messages deferred by tryMerge (avoids channel requeue deadlock).
+	defaultSink      Sink           // Fallback sink when WakeMessage.Sink is nil.
+	lastActiveAt     time.Time      // Last time this thread completed work (used by GC).
+	lastUserActiveAt time.Time      // Last time a real user interacted (used by compression).
+	lastWakeSource   msg.WakeSource // Source of the most recent wake (set at RunOnce start).
+	suppressSink     bool           // When true, RunOnce skips sink delivery (reset after each turn).
+	haltLoop         bool           // When true, Runner stops after current tool calls complete.
+	currentSink      Sink           // Current turn's active sink (set by run(), cleared on turn end). Used by dispatch(to=caller:*).
+	currentCallerKey string         // Caller session key for the current wake; empty for user/system wakes.
 
 	execMetrics           *ExecMetrics // Non-nil only while a turn is executing.
 	lastCompressAttemptAt time.Time    // Last time tier 2 compression was enqueued (prevents duplicate enqueue).

@@ -90,9 +90,7 @@ func runSetModel(_ *cobra.Command, _ []string) error {
 
 	// --clear: remove routing for this model type
 	if setModelClear {
-		if cfg.Thread.Models != nil {
-			delete(cfg.Thread.Models, modelType)
-		}
+		cfg.Thread.Models = config.RemoveModelRule(cfg.Thread.Models, config.ModelRuleSpecialty, modelType)
 		if err := cfg.Save(); err != nil {
 			return fmt.Errorf("failed to save config: %w", err)
 		}
@@ -113,14 +111,8 @@ func runSetModel(_ *cobra.Command, _ []string) error {
 		return err
 	}
 
-	// Set routing
-	if cfg.Thread.Models == nil {
-		cfg.Thread.Models = make(map[string]*config.ModelConfig)
-	}
-	cfg.Thread.Models[modelType] = &config.ModelConfig{
-		Provider:  provName,
-		ModelType: modelName,
-	}
+	// Set routing: upsert a specialty rule.
+	cfg.Thread.Models = config.UpsertModelRule(cfg.Thread.Models, config.ModelRuleSpecialty, modelType, provName, modelName)
 
 	if err := cfg.Save(); err != nil {
 		return fmt.Errorf("failed to save config: %w", err)
@@ -186,12 +178,13 @@ func listModelRouting(cfg *config.Config) error {
 
 	// Model routing table with source file
 	fmt.Printf("\nModel routing (from %s):\n", cfgPath)
-	fmt.Printf("  %-20s %s / %s (default)\n", "(default)", cfg.GetProvider(), cfg.GetModelType())
-	for mt, mc := range cfg.Thread.Models {
-		fmt.Printf("  %-20s %s / %s\n", mt, mc.Provider, mc.ModelType)
+	fmt.Printf("  %-28s %s / %s (default)\n", "(default)", cfg.GetProvider(), cfg.GetModelType())
+	for _, r := range cfg.Thread.Models {
+		fmt.Printf("  %-28s %s / %s\n", r.Type+":"+r.Name, r.Provider, r.ModelType)
 	}
 
-	// Agent routing: all agents, right-joined with routing table
+	// Agent routing: all agents (one row per specialty), resolved via
+	// agent rule > specialty rule > default.
 	fmt.Printf("\nAgent routing:\n")
 	fmt.Printf("  %-20s %-20s %s\n", "Agent", "Specialty", "Provider / Model")
 	fmt.Printf("  %-20s %-20s %s\n", "─────", "─────────", "────────────────")
@@ -204,39 +197,14 @@ func listModelRouting(cfg *config.Config) error {
 			specialty = "(none)"
 		}
 		routingLabel := defaultLabel + " (default)"
-		if a.ModelType != "" {
-			if mc, ok := cfg.Thread.Models[a.ModelType]; ok && mc != nil {
-				routingLabel = mc.Provider + " / " + mc.ModelType
+		if r := config.FindModelRule(cfg.Thread.Models, config.ModelRuleAgent, a.AgentName); r != nil {
+			routingLabel = r.Provider + " / " + r.ModelType + " (agent)"
+		} else if a.ModelType != "" {
+			if r := config.FindModelRule(cfg.Thread.Models, config.ModelRuleSpecialty, a.ModelType); r != nil {
+				routingLabel = r.Provider + " / " + r.ModelType
 			}
 		}
 		fmt.Printf("  %-20s %-20s %s\n", a.AgentName, specialty, routingLabel)
-	}
-
-	// Implicit specialty routing: "provider/model" specialties that auto-route without config.
-	// Only shows providers with configured API keys.
-	fmt.Println("\nImplicit specialty routing (use as agent specialty, no config needed):")
-	for _, prov := range provider.SupportedProviders() {
-		pc := cfg.Providers.GetProviderConfig(prov)
-		hasKey := pc != nil && strings.TrimSpace(pc.APIKey) != ""
-		oauthTok := cfg.GetOAuthToken(prov)
-		hasOAuth := oauthTok != nil && oauthTok.AccessToken != ""
-		if !hasKey && !hasOAuth {
-			continue // skip unconfigured providers
-		}
-		models := provider.SupportedModelsForProvider(prov)
-		for _, m := range models {
-			specialty := prov + "/" + m
-			// Skip if already in explicit routing table
-			if _, ok := cfg.Thread.Models[specialty]; ok {
-				continue
-			}
-			ctx := provider.ContextWindowForModel(prov, m)
-			if ctx > 0 {
-				fmt.Printf("  %-40s → %s / %s (%s)\n", specialty, prov, m, formatContextTokens(ctx))
-			} else {
-				fmt.Printf("  %-40s → %s / %s\n", specialty, prov, m)
-			}
-		}
 	}
 
 	// Available models per provider
@@ -281,13 +249,23 @@ func scanAllAgents() []agentModelSlot {
 		if name == "" {
 			name = strings.TrimSuffix(e.Name(), ".md")
 		}
-		slots = append(slots, agentModelSlot{
-			AgentName: name,
-			ModelType: strings.TrimSpace(meta.Specialty),
-		})
+		// One slot per specialty; agents with no specialty get a single empty slot.
+		specs := []string(meta.Specialties)
+		if len(specs) == 0 {
+			specs = []string{""}
+		}
+		for _, sp := range specs {
+			slots = append(slots, agentModelSlot{
+				AgentName: name,
+				ModelType: strings.TrimSpace(sp),
+			})
+		}
 	}
 	sort.Slice(slots, func(i, j int) bool {
-		return slots[i].AgentName < slots[j].AgentName
+		if slots[i].AgentName != slots[j].AgentName {
+			return slots[i].AgentName < slots[j].AgentName
+		}
+		return slots[i].ModelType < slots[j].ModelType
 	})
 	return slots
 }
@@ -393,7 +371,6 @@ func listFallbackStatus(cfg *config.Config) error {
 
 	return nil
 }
-
 
 func printProviderModels(name string, models []string, bi *monitor.BalanceInfo) {
 	balanceStr := ""

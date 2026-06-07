@@ -595,48 +595,51 @@ func ApplyCompressedMessage(m provider.Message) provider.Message {
 	return m
 }
 
-// resolvedModelConfig returns the model config for the current agent's model type,
-// or nil if the agent uses the default provider.
+// resolvedModelConfig returns the provider/model for the current turn by walking
+// the typed routing rules in fixed precedence: session > agent > specialty.
+// Returns nil when no rule matches (caller falls back to the default model).
 // Uses ModelsFn for hot-reload if available, falling back to the startup snapshot.
 func (t *Thread) resolvedModelConfig() *config.ModelConfig {
 	cfg := t.cfg()
+
+	rules := cfg.Models
+	if cfg.ModelsFn != nil {
+		rules = cfg.ModelsFn()
+	}
+	if len(rules) == 0 {
+		return nil
+	}
+
+	// 1. session: pinned by exact session key (highest priority).
+	if key := strings.TrimSpace(t.sessionKey); key != "" {
+		if r := config.FindModelRule(rules, config.ModelRuleSession, key); r != nil {
+			return &config.ModelConfig{Provider: r.Provider, ModelType: r.ModelType}
+		}
+	}
+
 	if t.Agent == nil || cfg.Agents == nil {
 		return nil
 	}
 	def := cfg.Agents.Def(t.Agent.Name)
-	if def == nil || def.Specialty == "" {
+	if def == nil {
 		return nil
 	}
-	models := cfg.Models
-	if cfg.ModelsFn != nil {
-		models = cfg.ModelsFn()
+
+	// 2. agent: pinned by agent name.
+	if r := config.FindModelRule(rules, config.ModelRuleAgent, def.Name); r != nil {
+		return &config.ModelConfig{Provider: r.Provider, ModelType: r.ModelType}
 	}
-	// Explicit routing table lookup.
-	if len(models) > 0 {
-		if mc, ok := models[def.Specialty]; ok && mc != nil {
-			return mc
+
+	// 3. specialty: agent's specialties left-to-right, first match wins.
+	for _, sp := range def.Specialties {
+		if sp == "" {
+			continue
+		}
+		if r := config.FindModelRule(rules, config.ModelRuleSpecialty, sp); r != nil {
+			return &config.ModelConfig{Provider: r.Provider, ModelType: r.ModelType}
 		}
 	}
-	// Implicit: specialty "provider/model" format → auto-route.
-	if prov, model, ok := strings.Cut(def.Specialty, "/"); ok && provider.IsSupportedModel(model) {
-		return &config.ModelConfig{
-			Provider:  prov,
-			ModelType: model,
-		}
-	}
-	// Implicit: bare model name with provider from frontmatter or registry lookup.
-	if provider.IsSupportedModel(def.Specialty) {
-		prov := def.Provider
-		if prov == "" {
-			prov = provider.ProviderForModel(def.Specialty)
-		}
-		if prov != "" {
-			return &config.ModelConfig{
-				Provider:  prov,
-				ModelType: def.Specialty,
-			}
-		}
-	}
+
 	return nil
 }
 

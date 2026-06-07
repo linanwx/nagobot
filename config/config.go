@@ -26,20 +26,20 @@ func SetConfigDir(dir string) {
 
 // Config is the root configuration structure.
 type Config struct {
-	Thread    ThreadConfig    `json:"thread" yaml:"thread"`
-	Providers ProvidersConfig `json:"providers" yaml:"providers"`
-	Tools     ToolsConfig     `json:"tools,omitempty" yaml:"tools,omitempty"`
-	Channels  *ChannelsConfig `json:"channels" yaml:"channels"`
-	Logging   LoggingConfig   `json:"logging,omitempty" yaml:"logging,omitempty"`
-	Cron      []cronpkg.Job   `json:"cron,omitempty" yaml:"cron,omitempty"`
-	SkillHub SkillHubConfig `json:"skillHub,omitempty" yaml:"skillHub,omitempty"`
-	R2       *R2Config         `json:"r2,omitempty" yaml:"r2,omitempty"` // Cloudflare R2 object storage for upload-html and other public file hosting
-	Env      map[string]string `json:"env,omitempty" yaml:"env,omitempty"` // injected into os.Environ on Load; overrides existing env
+	Thread    ThreadConfig      `json:"thread" yaml:"thread"`
+	Providers ProvidersConfig   `json:"providers" yaml:"providers"`
+	Tools     ToolsConfig       `json:"tools,omitempty" yaml:"tools,omitempty"`
+	Channels  *ChannelsConfig   `json:"channels" yaml:"channels"`
+	Logging   LoggingConfig     `json:"logging,omitempty" yaml:"logging,omitempty"`
+	Cron      []cronpkg.Job     `json:"cron,omitempty" yaml:"cron,omitempty"`
+	SkillHub  SkillHubConfig    `json:"skillHub,omitempty" yaml:"skillHub,omitempty"`
+	R2        *R2Config         `json:"r2,omitempty" yaml:"r2,omitempty"`   // Cloudflare R2 object storage for upload-html and other public file hosting
+	Env       map[string]string `json:"env,omitempty" yaml:"env,omitempty"` // injected into os.Environ on Load; overrides existing env
 
 	// Hot-reload support for sessionTimezones.
 	sessionTimezonesMu       sync.Mutex        `yaml:"-" json:"-"`
-	sessionTimezonesCache    map[string]string  `yaml:"-" json:"-"`
-	sessionTimezonesFileTime time.Time          `yaml:"-" json:"-"`
+	sessionTimezonesCache    map[string]string `yaml:"-" json:"-"`
+	sessionTimezonesFileTime time.Time         `yaml:"-" json:"-"`
 }
 
 // SessionTimezone returns the IANA timezone for the given session key.
@@ -127,15 +127,15 @@ type SkillHubConfig struct {
 
 // ThreadConfig contains thread runtime defaults.
 type ThreadConfig struct {
-	Provider            string                  `json:"provider" yaml:"provider"` // openrouter, anthropic, deepseek, moonshot-cn, moonshot-global, xai
-	ModelType           string                  `json:"modelType" yaml:"modelType"`
-	ModelName           string                  `json:"modelName,omitempty" yaml:"modelName,omitempty"`                     // optional, defaults to modelType
-	Workspace           string                  `json:"workspace,omitempty" yaml:"workspace,omitempty"`                     // defaults to ~/.nagobot/workspace
-	MaxTokens           int                     `json:"maxTokens,omitempty" yaml:"maxTokens,omitempty"`                     // defaults to 8192
-	Temperature         float64                 `json:"temperature,omitempty" yaml:"temperature,omitempty"`                 // defaults to 1.0
-	ContextWindowTokens int                     `json:"contextWindowTokens,omitempty" yaml:"contextWindowTokens,omitempty"` // defaults to 300000
-	Models              map[string]*ModelConfig `json:"models,omitempty" yaml:"models,omitempty"`                           // model type → provider/model mapping
-	Preview             *PreviewConfig          `json:"preview,omitempty" yaml:"preview,omitempty"`                         // override preview provider/model
+	Provider            string         `json:"provider" yaml:"provider"` // openrouter, anthropic, deepseek, moonshot-cn, moonshot-global, xai
+	ModelType           string         `json:"modelType" yaml:"modelType"`
+	ModelName           string         `json:"modelName,omitempty" yaml:"modelName,omitempty"`                     // optional, defaults to modelType
+	Workspace           string         `json:"workspace,omitempty" yaml:"workspace,omitempty"`                     // defaults to ~/.nagobot/workspace
+	MaxTokens           int            `json:"maxTokens,omitempty" yaml:"maxTokens,omitempty"`                     // defaults to 8192
+	Temperature         float64        `json:"temperature,omitempty" yaml:"temperature,omitempty"`                 // defaults to 1.0
+	ContextWindowTokens int            `json:"contextWindowTokens,omitempty" yaml:"contextWindowTokens,omitempty"` // defaults to 300000
+	Models              []ModelRule    `json:"models,omitempty" yaml:"models,omitempty"`                           // typed model-routing rules (session/agent/specialty → provider/model)
+	Preview             *PreviewConfig `json:"preview,omitempty" yaml:"preview,omitempty"`                         // override preview provider/model
 }
 
 // PreviewConfig overrides the default preview priority chain.
@@ -145,41 +145,60 @@ type PreviewConfig struct {
 	Audio string `json:"audio,omitempty" yaml:"audio,omitempty"` // override audio preview
 }
 
-// ModelConfig maps a model type to a concrete provider and model.
+// ModelConfig is a resolved provider+model pair (the value model resolution
+// returns and the provider factory consumes).
 type ModelConfig struct {
 	Provider  string `json:"provider" yaml:"provider"`
 	ModelType string `json:"modelType" yaml:"modelType"`
 }
 
+// ModelRule is one entry in the typed model-routing list. Type selects how Name
+// is matched during resolution; the highest-priority matching rule's
+// provider/model wins. Resolution precedence is by type: session > agent >
+// specialty (see config/models.go and thread.resolvedModelConfig).
+type ModelRule struct {
+	Type      string `json:"type" yaml:"type"` // "session" | "agent" | "specialty"
+	Name      string `json:"name" yaml:"name"` // session key | agent name | specialty name
+	Provider  string `json:"provider" yaml:"provider"`
+	ModelType string `json:"modelType" yaml:"modelType"`
+}
+
+// Rule type constants for ModelRule.Type.
+const (
+	ModelRuleSession   = "session"
+	ModelRuleAgent     = "agent"
+	ModelRuleSpecialty = "specialty"
+)
+
 // ProvidersConfig contains provider API configurations.
 type ProvidersConfig struct {
-	OpenRouter     *ProviderConfig   `json:"openrouter,omitempty" yaml:"openrouter,omitempty"`
-	Anthropic      *ProviderConfig   `json:"anthropic,omitempty" yaml:"anthropic,omitempty"`
-	DeepSeek       *ProviderConfig   `json:"deepseek,omitempty" yaml:"deepseek,omitempty"`
-	MoonshotCN     *ProviderConfig   `json:"moonshotCN,omitempty" yaml:"moonshotCN,omitempty"`
-	MoonshotGlobal *ProviderConfig   `json:"moonshotGlobal,omitempty" yaml:"moonshotGlobal,omitempty"`
-	ZhipuCN        *ProviderConfig   `json:"zhipuCN,omitempty" yaml:"zhipuCN,omitempty"`
-	ZhipuGlobal    *ProviderConfig   `json:"zhipuGlobal,omitempty" yaml:"zhipuGlobal,omitempty"`
+	OpenRouter        *ProviderConfig   `json:"openrouter,omitempty" yaml:"openrouter,omitempty"`
+	Anthropic         *ProviderConfig   `json:"anthropic,omitempty" yaml:"anthropic,omitempty"`
+	DeepSeek          *ProviderConfig   `json:"deepseek,omitempty" yaml:"deepseek,omitempty"`
+	MoonshotCN        *ProviderConfig   `json:"moonshotCN,omitempty" yaml:"moonshotCN,omitempty"`
+	MoonshotGlobal    *ProviderConfig   `json:"moonshotGlobal,omitempty" yaml:"moonshotGlobal,omitempty"`
+	ZhipuCN           *ProviderConfig   `json:"zhipuCN,omitempty" yaml:"zhipuCN,omitempty"`
+	ZhipuGlobal       *ProviderConfig   `json:"zhipuGlobal,omitempty" yaml:"zhipuGlobal,omitempty"`
 	MinimaxCN         *ProviderConfig   `json:"minimaxCN,omitempty" yaml:"minimaxCN,omitempty"`
 	MinimaxGlobal     *ProviderConfig   `json:"minimaxGlobal,omitempty" yaml:"minimaxGlobal,omitempty"`
 	SiliconflowCN     *ProviderConfig   `json:"siliconflowCN,omitempty" yaml:"siliconflowCN,omitempty"`
 	SiliconflowGlobal *ProviderConfig   `json:"siliconflowGlobal,omitempty" yaml:"siliconflowGlobal,omitempty"`
 	OpenAI            *ProviderConfig   `json:"openai,omitempty" yaml:"openai,omitempty"`
-	OpenAIOAuth     *OAuthTokenConfig `json:"openaiOAuth,omitempty" yaml:"openaiOAuth,omitempty"`
+	OpenAIOAuth       *OAuthTokenConfig `json:"openaiOAuth,omitempty" yaml:"openaiOAuth,omitempty"`
 	WhatAI            *ProviderConfig   `json:"whatai,omitempty" yaml:"whatai,omitempty"` // api.whatai.cc relay; OpenAI-shape chat, DALL-E-3-style image protocol
-	AnthropicOAuth  *OAuthTokenConfig `json:"anthropicOAuth,omitempty" yaml:"anthropicOAuth,omitempty"`
-	Gemini         *ProviderConfig   `json:"gemini,omitempty" yaml:"gemini,omitempty"`
-	XAI            *ProviderConfig   `json:"xai,omitempty" yaml:"xai,omitempty"`
-	MiMo           *ProviderConfig   `json:"mimo,omitempty" yaml:"mimo,omitempty"`
+	AnthropicOAuth    *OAuthTokenConfig `json:"anthropicOAuth,omitempty" yaml:"anthropicOAuth,omitempty"`
+	Gemini            *ProviderConfig   `json:"gemini,omitempty" yaml:"gemini,omitempty"`
+	XAI               *ProviderConfig   `json:"xai,omitempty" yaml:"xai,omitempty"`
+	MiMo              *ProviderConfig   `json:"mimo,omitempty" yaml:"mimo,omitempty"`
 }
 
 // OAuthTokenConfig stores an OAuth token with optional refresh capability.
 type OAuthTokenConfig struct {
 	AccessToken  string `json:"accessToken" yaml:"accessToken"`
 	RefreshToken string `json:"refreshToken,omitempty" yaml:"refreshToken,omitempty"`
-	ExpiresAt    int64  `json:"expiresAt,omitempty" yaml:"expiresAt,omitempty"`   // unix timestamp, 0 = no expiry
-	TokenType    string `json:"tokenType,omitempty" yaml:"tokenType,omitempty"`   // "bearer"
-	AccountID    string `json:"accountId,omitempty" yaml:"accountId,omitempty"`   // e.g. ChatGPT account ID from id_token
+	ExpiresAt    int64  `json:"expiresAt,omitempty" yaml:"expiresAt,omitempty"` // unix timestamp, 0 = no expiry
+	TokenType    string `json:"tokenType,omitempty" yaml:"tokenType,omitempty"` // "bearer"
+	AccountID    string `json:"accountId,omitempty" yaml:"accountId,omitempty"` // e.g. ChatGPT account ID from id_token
 }
 
 // ProviderConfig contains API credentials for a provider.
@@ -265,7 +284,7 @@ type FetchConfig struct {
 
 // SearchConfig contains web search configuration.
 type SearchConfig struct {
-	Keys       map[string]string `json:"keys,omitempty" yaml:"keys,omitempty"`             // provider_name -> API key
+	Keys       map[string]string `json:"keys,omitempty" yaml:"keys,omitempty"` // provider_name -> API key
 	MaxResults int               `json:"maxResults,omitempty" yaml:"maxResults,omitempty"`
 }
 
@@ -277,12 +296,12 @@ type ExecToolsConfig struct {
 
 // ChannelsConfig contains channel configurations.
 type ChannelsConfig struct {
-	SessionTimezones map[string]string `json:"sessionTimezones,omitempty" yaml:"sessionTimezones,omitempty"` // sessionKey → IANA timezone (e.g. "Asia/Shanghai")
-	Telegram    *TelegramChannelConfig `json:"telegram" yaml:"telegram"`
-	Feishu      *FeishuChannelConfig   `json:"feishu,omitempty" yaml:"feishu,omitempty"`
-	Discord     *DiscordChannelConfig  `json:"discord,omitempty" yaml:"discord,omitempty"`
-	Web         *WebChannelConfig      `json:"web,omitempty" yaml:"web,omitempty"`
-	WeCom       *WeComChannelConfig    `json:"wecom,omitempty" yaml:"wecom,omitempty"`
+	SessionTimezones map[string]string      `json:"sessionTimezones,omitempty" yaml:"sessionTimezones,omitempty"` // sessionKey → IANA timezone (e.g. "Asia/Shanghai")
+	Telegram         *TelegramChannelConfig `json:"telegram" yaml:"telegram"`
+	Feishu           *FeishuChannelConfig   `json:"feishu,omitempty" yaml:"feishu,omitempty"`
+	Discord          *DiscordChannelConfig  `json:"discord,omitempty" yaml:"discord,omitempty"`
+	Web              *WebChannelConfig      `json:"web,omitempty" yaml:"web,omitempty"`
+	WeCom            *WeComChannelConfig    `json:"wecom,omitempty" yaml:"wecom,omitempty"`
 }
 
 // TelegramChannelConfig contains Telegram bot configuration.

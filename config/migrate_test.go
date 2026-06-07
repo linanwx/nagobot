@@ -32,11 +32,11 @@ func TestMigrateLegacyModelNames_PerSpecialtyRouting(t *testing.T) {
 		Thread: ThreadConfig{
 			Provider:  "openrouter",
 			ModelType: "moonshotai/kimi-k2.5",
-			Models: map[string]*ModelConfig{
-				"chat":     {Provider: "deepseek", ModelType: "deepseek-chat"},
-				"reason":   {Provider: "deepseek", ModelType: "deepseek-reasoner"},
-				"untouch":  {Provider: "openrouter", ModelType: "deepseek-chat"}, // not under deepseek provider: leave alone
-				"current":  {Provider: "deepseek", ModelType: "deepseek-v4-pro"}, // already V4: leave alone
+			Models: []ModelRule{
+				{Type: ModelRuleSpecialty, Name: "chat", Provider: "deepseek", ModelType: "deepseek-chat"},
+				{Type: ModelRuleSpecialty, Name: "reason", Provider: "deepseek", ModelType: "deepseek-reasoner"},
+				{Type: ModelRuleSpecialty, Name: "untouch", Provider: "openrouter", ModelType: "deepseek-chat"}, // not under deepseek provider: leave alone
+				{Type: ModelRuleSpecialty, Name: "current", Provider: "deepseek", ModelType: "deepseek-v4-pro"}, // already V4: leave alone
 			},
 		},
 	}
@@ -45,16 +45,16 @@ func TestMigrateLegacyModelNames_PerSpecialtyRouting(t *testing.T) {
 		t.Fatalf("expected migration to report changes")
 	}
 
-	if got := cfg.Thread.Models["chat"].ModelType; got != "deepseek-v4-flash" {
+	if got := FindModelRule(cfg.Thread.Models, ModelRuleSpecialty, "chat").ModelType; got != "deepseek-v4-flash" {
 		t.Errorf("chat specialty not migrated: got %q", got)
 	}
-	if got := cfg.Thread.Models["reason"].ModelType; got != "deepseek-v4-flash" {
+	if got := FindModelRule(cfg.Thread.Models, ModelRuleSpecialty, "reason").ModelType; got != "deepseek-v4-flash" {
 		t.Errorf("reason specialty not migrated: got %q", got)
 	}
-	if got := cfg.Thread.Models["untouch"].ModelType; got != "deepseek-chat" {
+	if got := FindModelRule(cfg.Thread.Models, ModelRuleSpecialty, "untouch").ModelType; got != "deepseek-chat" {
 		t.Errorf("non-deepseek provider route should be preserved, got %q", got)
 	}
-	if got := cfg.Thread.Models["current"].ModelType; got != "deepseek-v4-pro" {
+	if got := FindModelRule(cfg.Thread.Models, ModelRuleSpecialty, "current").ModelType; got != "deepseek-v4-pro" {
 		t.Errorf("V4 name should be preserved, got %q", got)
 	}
 
