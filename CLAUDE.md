@@ -50,6 +50,23 @@ Agents are markdown templates in `{workspace}/agents/{name}.md` with `{{PLACEHOL
 
 **Important**: `{{WORKSPACE}}` is resolved in both `agent.Build()` and `use_skill` (`tools/skills.go`). Skills should use `{{WORKSPACE}}/bin/nagobot` for CLI calls.
 
+### Model Resolution (`config/models.go`, `thread/run.go:resolvedModelConfig`)
+
+Each turn resolves its provider+model from `thread.models` in config.yaml — a typed **list** of `ModelRule{Type, Name, Provider, ModelType}` where `Type` is `session | agent | specialty`. Precedence is by type, highest first:
+
+1. **session** — rule whose `Name` == the turn's session key
+2. **agent** — rule whose `Name` == the active agent name
+3. **specialty** — the agent's `specialty` array, tried left-to-right; first specialty with a matching rule wins
+4. **default** — top-level `thread.provider`/`thread.modelType`
+
+`config.FindModelRule(rules, type, name)` does the lookups (linear scan; the list is small). Returns nil → caller falls back to the default model via `DefaultModelFn`.
+
+Agent `specialty` is an **array** (`specialty: [cron, toolcall]`); parsing is lenient (`agent.StringList` accepts a scalar `specialty: pdf` as `[pdf]`, so hand-edited agent files don't silently mis-route). The cron-runner agents (session-summary/memory-summary/tidyup) carry a leading `cron` specialty so a `type:specialty name:cron` rule can route them.
+
+CLI writers: `set-model --type X --provider P --model M` upserts a `specialty` rule; `set-agent --session S --provider P --model M` upserts a `session` rule (and `--agent A` independently writes meta.json — session→model and session→agent are separate). Bare `set-agent --session S` clears both. `cmd/session_stats.go:resolveModelChain` mirrors this resolution for `nagobot session-stats`.
+
+**Removed (hard switch, v1.5.63)**: the old `thread.models` *map* (specialty→model), the `fixed-to-*` generated agents, and the implicit `provider/model` / bare-model specialty routes. Per-session pins are now `type:session` rules, not `fixed-to-*` agents. Config is NOT auto-migrated — the old map format fails to load (fail-fast); converting config.yaml is a manual deploy step.
+
 ### Provider Layer (`provider/`)
 
 Each provider implements `Provider.Chat(ctx, *Request) (ChatResult, error)`. `ChatResult` has a basic variant (`Wait()` only) and a streaming variant (`StreamChatResult` with `Recv()`, `Wait()`, `Cancel()`). Streaming providers emit `StreamDelta` values (text, tool-call-start) through a channel; the Runner pulls deltas via `Recv()` loop and independently decides whether to forward to sink or fire events. This decouples provider streaming from sink delivery — e.g. Gemini streams at the provider level but content is filtered before user delivery (thinking leak protection). Events (emoji reactions) work for all providers regardless of streaming mode.
@@ -70,7 +87,7 @@ Audio recognition follows the same pattern as vision: `AudioModels` registered p
 - **Tool layer**: `DetectFileType` recognizes `FileTypeAudio` via extension + magic bytes. `handleAudio()` returns media marker if `SupportsAudio`, otherwise guides LLM to delegate to `audioreader`.
 - **Provider layer**: OpenRouter sends audio markers as `input_audio` content parts. Gemini uses generic `inlineData`. Non-audio providers skip audio markers.
 - **Token estimation**: `EstimateAudioTokens()` uses file size + bitrate heuristic, ~32 tokens/sec.
-- **audioreader agent**: `specialty: audio`, configured during `onboard` (same flow as imagereader specialty routing).
+- **audioreader agent**: `specialty: [audio]`, configured during `onboard` (same flow as imagereader specialty routing).
 
 ### Sessions (`session/`)
 
