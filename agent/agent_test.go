@@ -149,3 +149,39 @@ func TestAllAgentsBuild_NoUnresolvedPlaceholders(t *testing.T) {
 		})
 	}
 }
+
+// TestSearchAgent_HasMemorySections verifies the search sub-agent opts into
+// user_memory_section + memory_index_section, so a delegated search turn carries
+// the user's memory and memory index in its system prompt (same as pre-think).
+// Guards against the sections being dropped from search.md frontmatter.
+func TestSearchAgent_HasMemorySections(t *testing.T) {
+	ws := setupWorkspace(t)
+	reg := NewRegistry(ws)
+
+	secReg := NewSectionRegistry(filepath.Join(ws, "system", "sections"))
+	if err := secReg.Load(); err != nil {
+		t.Fatalf("load sections: %v", err)
+	}
+
+	a, err := reg.New("search")
+	if err != nil {
+		t.Fatalf("New(search): %v", err)
+	}
+	a.SetSections(secReg)
+	a.SetLocation(time.Now().Location())
+	a.Set("TOOLS", "tool_a")
+	a.Set("SKILLS", "skill_x: does X")
+
+	const userMark = "USER_MEMORY_MARKER_7f3a"
+	const memMark = "MEMORY_INDEX_MARKER_b91c"
+	a.Set(SectionUserMemory, userMark)
+	a.Set(SectionMemoryIndex, memMark)
+
+	prompt := a.Build()
+	if !strings.Contains(prompt, userMark) {
+		t.Errorf("search agent prompt missing user_memory_section content (%q)", userMark)
+	}
+	if !strings.Contains(prompt, memMark) {
+		t.Errorf("search agent prompt missing memory_index_section content (%q)", memMark)
+	}
+}
