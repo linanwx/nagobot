@@ -45,13 +45,15 @@ exec: {{WORKSPACE}}/bin/nagobot set-provider-key --provider <name> --clear
 exec: {{WORKSPACE}}/bin/nagobot set-model --default --provider <name> --model <model>
 ```
 
-### Set Per-Type Routing
+### Set Per-Specialty Routing
 
-Agent templates declare a `specialty` in their frontmatter (e.g. `specialty: chat`, `specialty: toolcall`). Per-type routing maps specialties to a specific provider and model.
+Agent templates declare a `specialty` **array** in their frontmatter (e.g. `specialty: [chat]`, `specialty: [cron, toolcall]`). `set-model --type` writes a **specialty rule** into the typed routing list (`config.yaml > thread.models`), applying to every agent that carries that tag.
 
 ```
-exec: {{WORKSPACE}}/bin/nagobot set-model --type <model_type> --provider <name> --model <model>
+exec: {{WORKSPACE}}/bin/nagobot set-model --type <specialty> --provider <name> --model <model>
 ```
+
+Resolution precedence is **session > agent > specialty > default** (an agent's specialties are tried left-to-right). To pin a model to a specific **session** (not a specialty), use `set-agent --session ... --provider ... --model ...` — see the session-ops skill.
 
 ### List Current Routing and Available Models
 

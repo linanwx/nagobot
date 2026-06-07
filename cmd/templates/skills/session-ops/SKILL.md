@@ -161,22 +161,21 @@ Set or clear the agent for a session.
 exec: {{WORKSPACE}}/bin/nagobot set-agent --session <session_key> --agent <agent_name>
 ```
 
-Set a specific provider/model for a session (auto-creates a fixed agent):
+Pin a specific provider/model to a session (writes a `type:session` rule into `thread.models`):
 ```
 exec: {{WORKSPACE}}/bin/nagobot set-agent --session <session_key> --provider <provider> --model <model>
 ```
 
-Clear the agent override (revert to default):
+Clear the override — both the agent assignment AND the session model rule (revert to default):
 ```
 exec: {{WORKSPACE}}/bin/nagobot set-agent --session <session_key>
 ```
 
 - `--session`: session key (required). Examples: `discord:123456`, `telegram:78910`, `cli`.
-- `--agent`: agent template name from `agents/*.md`. Omit or empty to clear the override.
-- `--provider`: provider name. Used with `--model` to auto-create a model-pinned agent.
-- `--model`: model type. Used with `--provider`. Auto-creates `agents/fixed-to-<model-slug>.md` with implicit specialty routing.
+- `--agent`: agent template name from `agents/*.md`. Omit or empty to clear the assignment. Writes the session→agent mapping to `meta.json`.
+- `--provider` / `--model`: pin a model to this session. Writes a `type:session` rule to `config.yaml > thread.models` — this **overrides** the agent's specialty routing for this session. No agent file is created.
 
-Output includes: agent name, agent file path, specialty name, and specialty→model mapping.
+`--agent` and `--provider/--model` are independent and can be combined (session→agent in meta.json + session→model in the rule list). A session model rule has the highest resolution precedence (session > agent > specialty > default).
 
 ## set-timezone
 
@@ -202,4 +201,4 @@ When a user asks to use a specific model for a session:
 
 **Case 1: User wants to switch to an existing agent** — use `set-agent --session <key> --agent <name>`.
 
-**Case 2: User wants a specific provider/model** — use `set-agent --session <key> --provider <provider> --model <model>`. This auto-creates a fixed agent and sets up implicit routing in one step. No manual agent creation or routing config needed.
+**Case 2: User wants a specific provider/model** — use `set-agent --session <key> --provider <provider> --model <model>`. This writes a `type:session` rule that pins the model for that session only, overriding specialty routing. No agent file is created, no other config touched.

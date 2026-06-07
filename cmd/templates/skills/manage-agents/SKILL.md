@@ -32,7 +32,7 @@ Write a markdown file at `{{WORKSPACE}}/agents/<name>.md`:
 ---
 name: researcher
 description: Deep research tasks requiring multi-step web search and structured synthesis.
-specialty: toolcall
+specialty: [toolcall]
 sections:
   - user_memory_section
   - heartbeat_prompt_section
@@ -57,20 +57,20 @@ The runtime injects sections, tools, skills, and user memory automatically — *
 |---|---|---|
 | `name` | yes | must match filename without `.md` |
 | `description` | yes | routing signal — phrase as "when to pick this agent" |
-| `specialty` | recommended | model-routing key (see below) |
+| `specialty` | recommended | model-routing tags, **array** (see below) |
 | `sections` | optional | per-session injections (see below) |
 | `context_window_cap` | optional | clamp window for this agent, e.g. `64k`, `200k`, `1M` |
 | `tier_lossy_mode` / `tier_lossy_keep` | optional | compression tuning for high-traffic agents |
 
 ### `specialty` — model routing
 
-Specialty is a key into `config.yaml > thread.models`. To see the keys currently configured (and which provider/model each maps to):
+`specialty` is an **array** of tags (`specialty: [toolcall]`, or multiple like `specialty: [cron, toolcall]`). Each tag is matched against `type: specialty` rules in `config.yaml > thread.models`; resolution walks the array **left-to-right** and the first tag with a configured rule wins. A scalar `specialty: toolcall` is still accepted (treated as `[toolcall]`). To see configured rules and what each agent actually resolves to:
 
 ```
 exec: {{WORKSPACE}}/bin/nagobot set-model --list
 ```
 
-Common values: `chat`, `art`, `audio`, `image`, `pdf`, `writing`, `toolcall`, `roleplay`. Unknown specialty falls back to the default thread model.
+Common tags: `chat`, `art`, `audio`, `image`, `pdf`, `writing`, `toolcall`, `roleplay`, `cron`. A tag with no rule falls through to the next; if none match, the default thread model is used.
 
 ### `sections` — only these three are valid
 
