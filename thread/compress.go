@@ -20,7 +20,7 @@ const (
 	compressedHintFmt  = "[compressed — use search-memory --context %s --full to see content if needed, use skill session-ops to see more]"
 	compressedHintNoID = "[compressed — use search-memory with session key and timeframe to find original content, or use skill session-ops to see more]"
 
-	compressExpireAge      = 2 * time.Hour // unified age threshold for tier-1 compression
+	compressExpireAge = 2 * time.Hour // unified age threshold for tier-1 compression
 )
 
 // runeHead returns the first n runes of s. If s has fewer than n runes, returns s unchanged.
@@ -45,7 +45,6 @@ func runeTail(s string, n int) string {
 func runeLen(s string) int {
 	return len([]rune(s))
 }
-
 
 // runCompressionScan scans idle threads and applies the appropriate compression tier:
 //   - Tier 1 (idle 5-30min): mechanical compression of tools and large assistant-only user messages
@@ -87,8 +86,9 @@ func (m *Manager) runCompressionScan() {
 	for _, c := range candidates {
 		// Tier 1 always runs first (mechanical, idempotent, cheap).
 		m.tryTier1Compress(c.key)
-		// Tier-lossy runs next for agents that opt in — hard-deletes old history
-		// via slide_window / stateless to keep simple writing models off Tier 2/3.
+		// Tier-lossy runs next for agents that opt into slide_window — hard-deletes
+		// old history to keep simple writing models off Tier 2/3. (stateless is
+		// handled at turn-start, not here.)
 		m.tryTierLossyCompress(c.key)
 		// Tier 2 runs additionally when idle long enough and tokens exceed threshold.
 		if c.idle >= tier2IdleMin {
@@ -528,9 +528,10 @@ func extractSkillName(content string) string {
 }
 
 // tryTierLossyCompress hard-trims session history for agents that opted into
-// a tier_lossy mode. Runs after Tier 1 in the compression scan. Unlike Tier 0
-// (ephemeral) or Tier 1 (sets Compressed field without deletion), this
-// physically deletes old messages from disk.
+// tier_lossy_mode: slide_window. Runs after Tier 1 in the compression scan.
+// Unlike Tier 0 (ephemeral) or Tier 1 (sets Compressed field without deletion),
+// this physically deletes old messages from disk. The stateless mode is NOT
+// handled here — it clears at turn-start (see clearIfStateless in run.go).
 func (m *Manager) tryTierLossyCompress(sessionKey string) {
 	cfg := m.cfg
 	if cfg.Agents == nil {
@@ -557,7 +558,9 @@ func (m *Manager) tryTierLossyCompress(sessionKey string) {
 		return
 	}
 
-	if def.TierLossyMode != "slide_window" && def.TierLossyMode != "stateless" {
+	// stateless is handled at turn-start (clearIfStateless in run.go); the idle
+	// scan only applies slide_window trimming.
+	if def.TierLossyMode != "slide_window" {
 		return
 	}
 
@@ -566,13 +569,7 @@ func (m *Manager) tryTierLossyCompress(sessionKey string) {
 		return
 	}
 
-	var trimmed []provider.Message
-	switch def.TierLossyMode {
-	case "slide_window":
-		trimmed = applySlideWindow(sess.Messages, def.TierLossyKeep)
-	case "stateless":
-		trimmed = nil
-	}
+	trimmed := applySlideWindow(sess.Messages, def.TierLossyKeep)
 	if len(trimmed) == len(sess.Messages) {
 		return
 	}

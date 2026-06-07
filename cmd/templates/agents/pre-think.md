@@ -2,6 +2,7 @@
 name: pre-think
 description: Analyzes user requests to generate tailored response guidance for the main model.
 specialty: fast
+tier_lossy_mode: stateless
 disable_tools: true
 sections:
   - user_memory_section

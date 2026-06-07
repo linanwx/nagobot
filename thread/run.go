@@ -28,6 +28,13 @@ func (t *Thread) run(ctx context.Context, userMessage string, sink Sink, callerK
 
 	cfg := t.cfg()
 	systemPrompt := t.buildSystemPrompt()
+
+	// Stateless agents (tier_lossy_mode: stateless) begin every turn with a
+	// blank session: clear it before loading so the turn sees no prior history
+	// and nothing accumulates across a continuous conversation. The turn's own
+	// write-ahead + persistence then leave exactly this one turn on disk.
+	t.clearIfStateless(cfg)
+
 	sess := t.loadSession()
 	messages, turnUserMessages := t.buildMessageHistory(ctx, systemPrompt, userMessage, sess)
 
@@ -112,6 +119,30 @@ func (t *Thread) run(ctx context.Context, userMessage string, sink Sink, callerK
 	t.mu.Unlock()
 	t.recordTurn(metrics, providerName, modelName, agentName, usage, false)
 	return response, nil
+}
+
+// clearIfStateless wipes the thread's session to empty when the active agent is
+// configured with tier_lossy_mode: stateless, so the agent begins each turn with
+// no history. No-op for every other agent. Called at the start of each turn,
+// before the session is loaded — this is what makes a stateless agent truly
+// per-turn stateless (the idle-driven slide_window path can't do that).
+func (t *Thread) clearIfStateless(cfg *ThreadConfig) {
+	if cfg == nil || cfg.Agents == nil || cfg.Sessions == nil {
+		return
+	}
+	t.mu.Lock()
+	a := t.Agent
+	t.mu.Unlock()
+	if a == nil {
+		return
+	}
+	def := cfg.Agents.Def(a.Name)
+	if def == nil || def.TierLossyMode != "stateless" {
+		return
+	}
+	if err := cfg.Sessions.Save(&session.Session{Key: t.sessionKey}); err != nil {
+		logger.Warn("stateless agent: clear session failed", "key", t.sessionKey, "agent", a.Name, "err", err)
+	}
 }
 
 // buildSystemPrompt assembles the system prompt from the active agent.
