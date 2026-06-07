@@ -24,11 +24,15 @@ const PreThinkSessionSuffix = ":prethink"
 // ForkSessionInfix is the infix used in fork session keys: {parent}:fork:{purpose}.
 const ForkSessionInfix = ":fork:"
 
+// ThreadsSessionInfix is the infix used in subagent child session keys:
+// {parent}:threads:{taskID}.
+const ThreadsSessionInfix = ":threads:"
+
 // Meta holds per-session metadata persisted to {sessionDir}/meta.json.
 type Meta struct {
-	Agent     string          `json:"agent,omitempty"`      // Explicitly assigned agent name.
-	Rephrase  bool            `json:"rephrase,omitempty"`   // Enable rephrase agent for this session.
-	DiscordDM *DiscordDMMeta  `json:"discord_dm,omitempty"` // Discord DM routing.
+	Agent     string         `json:"agent,omitempty"`      // Explicitly assigned agent name.
+	Rephrase  bool           `json:"rephrase,omitempty"`   // Enable rephrase agent for this session.
+	DiscordDM *DiscordDMMeta `json:"discord_dm,omitempty"` // Discord DM routing.
 
 	// TokenEstimateRatios records the last MaxTokenRatioSamples observations of
 	// (real total tokens) / (estimated total tokens) per "provider/model" key.

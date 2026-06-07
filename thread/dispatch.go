@@ -100,7 +100,7 @@ func (t *Thread) CreateOrWakeSubagent(_ context.Context, agentName, taskID, body
 	if parent == "" {
 		parent = "cli"
 	}
-	key := parent + ":threads:" + taskID
+	key := parent + session.ThreadsSessionInfix + taskID
 
 	note, err := t.createOrWake(key, agentName, body, false, "")
 	if err != nil {
@@ -232,7 +232,7 @@ func (t *Thread) IsUserFacing() bool {
 	if key == "" {
 		return false
 	}
-	if strings.Contains(key, ":threads:") || strings.Contains(key, ":fork:") {
+	if strings.Contains(key, session.ThreadsSessionInfix) || strings.Contains(key, session.ForkSessionInfix) {
 		return false
 	}
 	if strings.HasPrefix(key, "cron:") || strings.HasPrefix(key, "heartbeat") {

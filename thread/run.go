@@ -366,6 +366,13 @@ func parentSessionKey(key string) string {
 	if idx := strings.Index(key, session.ForkSessionInfix); idx > 0 {
 		return key[:idx]
 	}
+	// Subagent children ({parent}:threads:{taskID}, e.g. the delegated search
+	// agent) inherit the root session's USER.md / memory/ — strip to the part
+	// before the first :threads: so their memory sections resolve to the main
+	// session, the same way :prethink does.
+	if idx := strings.Index(key, session.ThreadsSessionInfix); idx > 0 {
+		return key[:idx]
+	}
 	return key
 }
 
