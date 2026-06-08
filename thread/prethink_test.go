@@ -135,6 +135,29 @@ func TestParsePreThinkXML_HasWebURL(t *testing.T) {
 	}
 }
 
+func TestParsePreThinkXML_Skill(t *testing.T) {
+	raw := `<prethink>
+  <skill>playwright-cli</skill>
+  <tone>concise</tone>
+</prethink>`
+
+	out := parsePreThinkXML(raw)
+	if !strings.Contains(out, `Related skill: playwright-cli. Consider use_skill("playwright-cli") to load its instructions before proceeding.`) {
+		t.Errorf("skill should suggest use_skill, got: %s", out)
+	}
+}
+
+func TestParsePreThinkXML_NoSkill(t *testing.T) {
+	raw := `<prethink>
+  <skill></skill>
+  <tone>warm</tone>
+</prethink>`
+
+	if out := parsePreThinkXML(raw); strings.Contains(out, "Related skill") {
+		t.Errorf("empty skill must be omitted, got: %s", out)
+	}
+}
+
 func TestParsePreThinkXML_CasualMinimal(t *testing.T) {
 	raw := `<prethink>
   <tone>warm, friendly</tone>
@@ -145,7 +168,7 @@ func TestParsePreThinkXML_CasualMinimal(t *testing.T) {
 		t.Errorf("got: %s", out)
 	}
 	// Only tone — no flag phrases.
-	for _, unexpected := range []string{"Multi-step", "Confusing terminology", "Investigator", "Search:", "Web URL", "Intent"} {
+	for _, unexpected := range []string{"Multi-step", "Confusing terminology", "Investigator", "Search:", "Web URL", "Related skill", "Intent"} {
 		if strings.Contains(out, unexpected) {
 			t.Errorf("unexpected %q in minimal output: %s", unexpected, out)
 		}

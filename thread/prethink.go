@@ -97,6 +97,7 @@ var (
 	confusingTermRE = regexp.MustCompile(`(?is)<confusing_terminology>(.*?)</confusing_terminology>`)
 	hallucinationRE = regexp.MustCompile(`(?is)<hallucination>(.*?)</hallucination>`)
 	searchRE        = regexp.MustCompile(`(?is)<search>(.*?)</search>`)
+	skillRE         = regexp.MustCompile(`(?is)<skill>(.*?)</skill>`)
 	toneRE          = regexp.MustCompile(`(?is)<tone>(.*?)</tone>`)
 )
 
@@ -166,6 +167,10 @@ func parsePreThinkXML(raw string) string {
 
 	if boolTag(hasWebURLRE, raw) {
 		parts = append(parts, "Web URL present: consider using playwright to open it.")
+	}
+
+	if v := stringTag(skillRE, raw); v != "" {
+		parts = append(parts, "Related skill: "+v+". Consider use_skill(\""+v+"\") to load its instructions before proceeding.")
 	}
 
 	if v := stringTag(toneRE, raw); v != "" {
