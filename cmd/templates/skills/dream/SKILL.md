@@ -23,11 +23,13 @@ This is a BACKGROUND task. You will NOT message the user.
    - Write in the language the user predominantly uses in conversation.
    - Keep it focused — one coherent reflection, not a transcript. Aim for something that will genuinely help future-you understand and serve this user.
 
-4. **End silently.** Call `dispatch({})` with empty sends. Produce NO user-facing output.
+4. **Tidy the workspace.** After the dream, run the file-track skill — `use_skill("file-track")` — and follow it to archive stale files and refresh `file-track.md`. Same nightly-maintenance spirit as the dream: keep this session's work files organized and catalogued. Do this even on a quiet night (it's about files on disk, not the conversation).
+
+5. **End silently.** Call `dispatch({})` with empty sends. Produce NO user-facing output.
 
 ## Rules
 
 - BACKGROUND task — NEVER send messages to the user.
 - ALWAYS overwrite `dream.md` completely; never append to the previous dream.
-- If the past 24 hours hold nothing meaningful (e.g. no real conversation), skip the write and go straight to `dispatch({})`.
+- If the past 24 hours hold nothing meaningful (e.g. no real conversation), skip the dream write — but STILL run the file-track skill (step 4) — then `dispatch({})`.
 - MUST terminate with `dispatch({})` — silent termination.
