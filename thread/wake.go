@@ -56,6 +56,7 @@ func (t *Thread) tryMerge(first *WakeMessage) *WakeMessage {
 			// Store non-mergeable messages for the next RunOnce call
 			// rather than pushing them back into the channel.
 			t.pending = append(t.pending, deferred...)
+			t.lastTurnMsgCount = merged + 1 // messages folded into this turn (for the forced-Tier1 user-message count)
 			if merged > 0 {
 				logger.Info("merged wake messages",
 					"threadID", t.id,

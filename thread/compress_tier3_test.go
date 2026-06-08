@@ -46,6 +46,23 @@ func TestTryTier3Compress_EnqueuesWhenOverThreshold(t *testing.T) {
 	}
 }
 
+// A Tier 1 run resets the forced-Tier1 user-message counter (records the new
+// position), even when nothing actually gets compressed — "this run counts".
+func TestTryTier1Compress_ResetsUserMsgCounter(t *testing.T) {
+	key := "test:tier1-reset"
+	mgr, th, store := newTier3TestManager(t, key, 200000)
+	if err := store.Append(key, provider.UserMessage("some session content")); err != nil {
+		t.Fatalf("append: %v", err)
+	}
+	th.userMsgsSinceTier1 = forcedTier1UserMsgs // simulate 5 accumulated user messages
+
+	mgr.tryTier1Compress(key)
+
+	if th.userMsgsSinceTier1 != 0 {
+		t.Errorf("Tier 1 should reset the user-message counter to 0, got %d", th.userMsgsSinceTier1)
+	}
+}
+
 func TestTryTier3Compress_SkipsWhenUnderThreshold(t *testing.T) {
 	key := "test:tier3-under"
 	// Large window → Tier 3 threshold ~160000 tokens; a tiny session stays well under.

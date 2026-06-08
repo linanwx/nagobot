@@ -110,6 +110,14 @@ func (m *Manager) tryTier1Compress(sessionKey string) {
 		return
 	}
 
+	// Tier 1 is executing for this session — reset the forced-Tier1 user-message
+	// counter (records the new "position"). Counts even when nothing changes.
+	m.mu.Lock()
+	if t, ok := m.threads[sessionKey]; ok {
+		t.userMsgsSinceTier1 = 0
+	}
+	m.mu.Unlock()
+
 	modified, newMessages := compressTier1(sess.Messages, compressKeepAssistants)
 	if !modified {
 		return
