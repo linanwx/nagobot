@@ -742,6 +742,17 @@ func TestDispatch_RejectsAssistantContent(t *testing.T) {
 	if !strings.Contains(res, "I will go check that for you now.") {
 		t.Errorf("expected offending content echoed in error, got: %s", res)
 	}
+	// The fix is singular: always move text into a send body. The old
+	// "just don't call dispatch / end with the assistant message" escape hatch
+	// must NOT be offered.
+	if !strings.Contains(res, "move ALL user-facing text into the appropriate send body") {
+		t.Errorf("error should mandate moving text into send body, got: %s", res)
+	}
+	for _, gone := range []string{"do NOT call dispatch at all", "Fix by ONE of", "end the turn with the assistant message"} {
+		if strings.Contains(res, gone) {
+			t.Errorf("error should no longer offer %q, got: %s", gone, res)
+		}
+	}
 }
 
 // Whitespace-only assistant content is treated as empty — dispatch proceeds.

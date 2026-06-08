@@ -208,10 +208,8 @@ func (t *DispatchTool) run(ctx context.Context, args json.RawMessage) string {
 		}, "Validation failed — no sends were executed. Fix and re-call dispatch; the turn continues.\n\n"+
 			"Reason: this turn produced non-empty assistant content alongside the dispatch call. dispatch only delivers each send's `body` field — content emitted in the assistant message itself has no defined recipient and will not be delivered as you might expect.\n\n"+
 			"Offending content (preview): \""+preview+"\"\n\n"+
-			"Fix by ONE of:\n"+
-			"  1. Move all user-facing text into the appropriate send body (e.g. dispatch(sends=[{to: \"caller:user\", body: \"<your text>\"}])).\n"+
-			"  2. If you wanted the default delivery (content auto-routed to your caller — user or peer session), do NOT call dispatch at all this turn; just end the turn with the assistant message.\n"+
-			"Re-issue the turn with one of these patterns.")
+			"Fix: move ALL user-facing text into the appropriate send body (e.g. dispatch(sends=[{to: \"caller:user\", body: \"<your text>\"}])). When you call dispatch, the assistant message must carry no user-facing text — every word you want delivered goes in a send's `body`.\n"+
+			"Re-issue the turn with the text moved into the send body.")
 	}
 
 	// HIGHEST PRIORITY: dispatch({}) is ALWAYS a valid silent termination,
