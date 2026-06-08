@@ -18,6 +18,7 @@ const (
 	SectionHeartbeatPrompt = "heartbeat_prompt_section"
 	SectionMemoryIndex     = "memory_index_section"
 	SectionDream           = "dream_section"
+	SectionFileTrack       = "file_track_section"
 )
 
 // headingLevel returns the ATX heading level (1-6) of a markdown line, or 0 if not a heading.
@@ -166,12 +167,12 @@ type Section struct {
 
 // SectionRegistry discovers, caches, and assembles sections from a directory.
 type SectionRegistry struct {
-	dir            string
-	sections       map[string]*Section
-	snapshot       dirSnapshot // reuse from agent/registry.go (same package)
-	assembleCache  string     // cached Assemble() result
-	assembleDirty  bool       // true when sections changed, cleared after Assemble()
-	mu             sync.RWMutex
+	dir           string
+	sections      map[string]*Section
+	snapshot      dirSnapshot // reuse from agent/registry.go (same package)
+	assembleCache string      // cached Assemble() result
+	assembleDirty bool        // true when sections changed, cleared after Assemble()
+	mu            sync.RWMutex
 }
 
 // NewSectionRegistry creates a registry for the given sections directory.

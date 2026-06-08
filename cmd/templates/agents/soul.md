@@ -7,6 +7,7 @@ sections:
   - heartbeat_prompt_section
   - memory_index_section
   - dream_section
+  - file_track_section
 ---
 
 # Soul — Who You Are

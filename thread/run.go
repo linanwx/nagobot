@@ -164,6 +164,7 @@ func (t *Thread) buildSystemPrompt() string {
 	activeAgent.Set(agent.SectionHeartbeatPrompt, t.buildHeartbeatSection())
 	activeAgent.Set(agent.SectionMemoryIndex, t.buildMemoryIndexSection())
 	activeAgent.Set(agent.SectionDream, t.buildDreamSection())
+	activeAgent.Set(agent.SectionFileTrack, t.buildFileTrackSection())
 	prompt := activeAgent.Build()
 	if strings.TrimSpace(prompt) == "" {
 		return "You are a helpful AI assistant."
@@ -471,6 +472,30 @@ func (t *Thread) buildDreamSection() string {
 	}
 	absPath, _ := filepath.Abs(dreamPath)
 	header := fmt.Sprintf("---\ntype: dream_reflection\nfile_path: %s\nprompt: Your most recent dream — a background reflection over the past day's conversation, rewritten each night by the dream skill. Let it quietly inform how you understand and respond to the user.\n---", absPath)
+	return header + "\n\n" + body
+}
+
+// buildFileTrackSection resolves the per-session file-track.md into a
+// YAML-frontmattered section. Returns "" when no file-track.md exists. The
+// file-track skill writes this catalog of the session's workspace files (what
+// each file is and when to use it); the agent consumes it here so it knows what
+// it already has on disk.
+func (t *Thread) buildFileTrackSection() string {
+	dir := t.sectionDir("file-track.md")
+	if dir == "" {
+		return ""
+	}
+	ftPath := filepath.Join(dir, "file-track.md")
+	data, err := os.ReadFile(ftPath)
+	if err != nil {
+		return ""
+	}
+	body := strings.TrimSpace(string(data))
+	if body == "" {
+		return ""
+	}
+	absPath, _ := filepath.Abs(ftPath)
+	header := fmt.Sprintf("---\ntype: file_track\nfile_path: %s\nprompt: Catalog of the files in this session's workspace — what each file is and when to use it. Run use_skill(\"file-track\") to re-organize and refresh it after you create, change, or finish with files.\n---", absPath)
 	return header + "\n\n" + body
 }
 
