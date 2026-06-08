@@ -43,12 +43,12 @@ When the user hasn't expressed their needs clearly, you can ask a question to cl
 Example:
 
 ```
-dispatch(sends=[{to: "user", body: "导出用哪种格式?
-1. PDF — 排版固定,适合打印/存档;不便二次编辑。
-2. Markdown — 纯文本,便于版本管理和再编辑;无精确排版。
-3. 两者都要 — 覆盖打印和编辑;实现工作量约翻倍。
+dispatch(sends=[{to: "user", body: "Which export format do you want?
+1. PDF — fixed layout, good for printing/archiving; not easy to re-edit.
+2. Markdown — plain text, easy to version and re-edit; no precise layout.
+3. Both — covers print and edit; roughly double the work.
 
-覆盖范围?
-1. 仅当前会话 — 快、数据量小;会漏掉历史。
-2. 全部历史 — 完整;可能很大、较慢。"}])
+How much should it cover?
+1. Current session only — fast, small; misses history.
+2. All history — complete; may be large and slow."}])
 ```
