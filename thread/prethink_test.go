@@ -65,8 +65,8 @@ func TestParsePreThinkXML_ConfusingTerminologyRequiresClarification(t *testing.T
 	if !strings.Contains(out, `Confusing terminology: "标签"既可能指 risk 也可能指 XML tag.`) {
 		t.Errorf("confusing_terminology content should be included, got: %s", out)
 	}
-	if !strings.Contains(out, "Consider stopping and asking the user a clarifying question and waiting for their answer before continuing.") {
-		t.Errorf("confusing_terminology should suggest clarification, got: %s", out)
+	if !strings.Contains(out, "ask the user to clarify via dispatch(to=user)") {
+		t.Errorf("confusing_terminology should suggest clarifying via dispatch(to=user), got: %s", out)
 	}
 }
 
@@ -78,7 +78,7 @@ func TestParsePreThinkXML_NoConfusingTerminologyNoClarification(t *testing.T) {
 </prethink>`
 
 	out := parsePreThinkXML(raw)
-	if strings.Contains(out, "asking the user a clarifying question") {
+	if strings.Contains(out, "Confusing terminology") {
 		t.Errorf("absent confusing_terminology must NOT trigger clarification, got: %s", out)
 	}
 }

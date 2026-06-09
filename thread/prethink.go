@@ -150,7 +150,7 @@ func parsePreThinkXML(raw string) string {
 	}
 
 	if v := stringTag(confusingTermRE, raw); v != "" {
-		parts = append(parts, "Confusing terminology: "+v+". Consider stopping and asking the user a clarifying question and waiting for their answer before continuing.")
+		parts = append(parts, "Confusing terminology: "+v+". Before continuing, ask the user to clarify via dispatch(to=user) — a structured question with concrete options and their consequences — then wait for their answer.")
 	}
 
 	if v := stringTag(hallucinationRE, raw); v != "" {
