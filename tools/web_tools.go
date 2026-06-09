@@ -86,7 +86,9 @@ func (t *WebSearchTool) Run(ctx context.Context, args json.RawMessage) string {
 
 	source := a.Source
 	if source == "" {
-		return t.sourceError("source is required")
+		// Empty source is "show me the guide", not an error — return the source
+		// list as a normal (status: ok) result so it isn't logged as a tool error.
+		return t.sourceGuide()
 	}
 
 	p, ok := t.providers[source]
@@ -134,6 +136,20 @@ func (t *WebSearchTool) Run(ctx context.Context, args json.RawMessage) string {
 
 func (t *WebSearchTool) sourceError(msg string) string {
 	return buildSourceError(msg, t.healthChecker, webSearchGuideSkill)
+}
+
+// sourceGuide returns the available-source list as a non-error (status: ok)
+// result, used when no source was specified. Calling web_search with an empty
+// source is a legitimate "show me the options" request, not a failure, so it is
+// not flagged as a tool error or logged as one.
+func (t *WebSearchTool) sourceGuide() string {
+	var sb strings.Builder
+	sb.WriteString("No source specified — pick one of the sources below and retry.\n\n")
+	if t.healthChecker != nil {
+		sb.WriteString(t.healthChecker.DetailedStatus())
+	}
+	appendGuideSkillHint(&sb, webSearchGuideSkill)
+	return toolResult("web_search", nil, sb.String())
 }
 
 func (t *WebSearchTool) searchError(source, query string, err error) string {
@@ -236,7 +252,8 @@ func (t *WebFetchTool) Run(ctx context.Context, args json.RawMessage) string {
 
 	source := a.Source
 	if source == "" {
-		return t.fetchSourceError("source is required")
+		// Empty source is "show me the guide", not an error (see WebSearchTool).
+		return t.fetchSourceGuide()
 	}
 
 	p, ok := t.providers[source]
@@ -321,6 +338,18 @@ func (t *WebFetchTool) Run(ctx context.Context, args json.RawMessage) string {
 
 func (t *WebFetchTool) fetchSourceError(msg string) string {
 	return buildSourceError(msg, t.healthChecker, webFetchGuideSkill)
+}
+
+// fetchSourceGuide returns the available-source list as a non-error result when
+// no source was specified — not a failure, so not flagged/logged as a tool error.
+func (t *WebFetchTool) fetchSourceGuide() string {
+	var sb strings.Builder
+	sb.WriteString("No source specified — pick one of the sources below and retry.\n\n")
+	if t.healthChecker != nil {
+		sb.WriteString(t.healthChecker.DetailedStatus())
+	}
+	appendGuideSkillHint(&sb, webFetchGuideSkill)
+	return toolResult("web_fetch", nil, sb.String())
 }
 
 func (t *WebFetchTool) fetchError(source, fetchURL string, err error) string {

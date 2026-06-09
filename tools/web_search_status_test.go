@@ -13,8 +13,8 @@ type stubResultsProvider struct {
 	results []SearchResult
 }
 
-func (s *stubResultsProvider) Name() string   { return "brave" }
-func (s *stubResultsProvider) Tags() []string { return []string{"paid"} }
+func (s *stubResultsProvider) Name() string    { return "brave" }
+func (s *stubResultsProvider) Tags() []string  { return []string{"paid"} }
 func (s *stubResultsProvider) Available() bool { return true }
 func (s *stubResultsProvider) Search(_ context.Context, _ string, _ int) ([]SearchResult, error) {
 	return s.results, nil
@@ -46,5 +46,27 @@ func TestWebSearchKeepsProviderStatsWhenEmpty(t *testing.T) {
 	out := runWebSearch(nil)
 	if !strings.Contains(out, "Provider stats") {
 		t.Errorf("empty-results path must keep Provider stats (DetailedStatus); got:\n%s", out)
+	}
+}
+
+// TestWebSearchEmptySourceNotError: calling web_search with no source returns
+// the source guide as a normal (non-error) result, so it is not flagged or
+// logged as a tool error. A genuinely bad source stays an error.
+func TestWebSearchEmptySourceNotError(t *testing.T) {
+	provs := map[string]SearchProvider{"brave": &stubResultsProvider{}}
+	tool := &WebSearchTool{providers: provs, healthChecker: NewSearchHealthChecker(provs)}
+
+	noSource, _ := json.Marshal(map[string]any{"query": "q"})
+	out := tool.Run(context.Background(), noSource)
+	if IsToolError(out) {
+		t.Errorf("empty source must NOT be a tool error; got:\n%s", out)
+	}
+	if !strings.Contains(out, "No source specified") {
+		t.Errorf("empty source should return the source guide; got:\n%s", out)
+	}
+
+	badSource, _ := json.Marshal(map[string]any{"source": "nope", "query": "q"})
+	if out := tool.Run(context.Background(), badSource); !IsToolError(out) {
+		t.Errorf("an unknown source must still be a tool error; got:\n%s", out)
 	}
 }
