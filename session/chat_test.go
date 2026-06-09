@@ -30,12 +30,18 @@ func TestReadRecentChat(t *testing.T) {
 
 	got := ReadRecentChat(dir, 5)
 	lines := strings.Split(got, "\n")
-	if len(lines) != 5 {
-		t.Fatalf("want 5 lines, got %d:\n%s", len(lines), got)
+	// 7 entries seeded, 5 requested → earlier ones dropped, so the first line is
+	// the collapse marker followed by the 5 kept entries.
+	if len(lines) != 6 {
+		t.Fatalf("want 6 lines (collapse marker + 5 entries), got %d:\n%s", len(lines), got)
 	}
+	if !strings.Contains(lines[0], "collapsed") {
+		t.Errorf("first line should be the collapse marker, got %q", lines[0])
+	}
+	entries := lines[1:]
 	// Chronological: oldest of the last 5 first.
-	if !strings.HasPrefix(lines[0], "user: third") {
-		t.Errorf("first kept line should be `user: third`, got %q", lines[0])
+	if !strings.HasPrefix(entries[0], "user: third") {
+		t.Errorf("first kept line should be `user: third`, got %q", entries[0])
 	}
 	// Newline-collapse: the truncated entry must use spaces.
 	if strings.Contains(got, "\nwith newline") {
@@ -43,7 +49,7 @@ func TestReadRecentChat(t *testing.T) {
 	}
 	// Head+tail preview: every entry is capped at head + tail + the marker.
 	maxContent := chatPreviewHead + chatPreviewTail + runeLen(" [...] ")
-	for _, line := range lines {
+	for _, line := range entries {
 		role, content, ok := strings.Cut(line, ": ")
 		if !ok {
 			t.Errorf("malformed line: %q", line)
@@ -59,7 +65,7 @@ func TestReadRecentChat(t *testing.T) {
 	// The 500-rune assistant entry must keep BOTH its head and tail with the
 	// middle elided — head-only truncation (the prior behavior) would have
 	// dropped the trailing Z run entirely.
-	long := lines[3]
+	long := entries[3]
 	if !strings.HasPrefix(long, "assistant: "+strings.Repeat("A", chatPreviewHead)+" [...] ") {
 		t.Errorf("elided entry should start with head + marker, got %q", long)
 	}
@@ -69,9 +75,28 @@ func TestReadRecentChat(t *testing.T) {
 	if strings.Contains(long, strings.Repeat("A", chatPreviewHead+1)) {
 		t.Errorf("middle should be elided, found more than %d head runes: %q", chatPreviewHead, long)
 	}
-	// Last line should be the 7th seeded entry, with collapsed spaces.
-	if !strings.HasPrefix(lines[4], "user: seventh with extra spaces") {
-		t.Errorf("last line should be `user: seventh with extra spaces`, got %q", lines[4])
+	// Last entry should be the 7th seeded entry, with collapsed spaces.
+	if !strings.HasPrefix(entries[4], "user: seventh with extra spaces") {
+		t.Errorf("last line should be `user: seventh with extra spaces`, got %q", entries[4])
+	}
+}
+
+// TestReadRecentChat_NoMarkerWhenNotTruncated: when the whole conversation fits
+// within n, no collapse marker is added.
+func TestReadRecentChat_NoMarkerWhenNotTruncated(t *testing.T) {
+	dir := t.TempDir()
+	now := time.Now()
+	for i, body := range []string{"a", "b", "c"} {
+		if err := AppendChat(dir, ChatRoleUser, body, now.Add(time.Duration(i)*time.Second)); err != nil {
+			t.Fatalf("seed %d: %v", i, err)
+		}
+	}
+	got := ReadRecentChat(dir, 5) // 3 entries, 5 requested → nothing dropped
+	if strings.Contains(got, "collapsed") {
+		t.Errorf("no marker expected when not truncated, got:\n%s", got)
+	}
+	if lines := strings.Split(got, "\n"); len(lines) != 3 {
+		t.Errorf("want 3 lines, got %d:\n%s", len(lines), got)
 	}
 }
 

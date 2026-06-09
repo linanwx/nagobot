@@ -112,11 +112,18 @@ func ReadRecentChat(sessionDir string, n int) string {
 	if len(lines) == 0 {
 		return ""
 	}
+	truncated := false
 	if len(lines) > n {
 		lines = lines[len(lines)-n:]
+		truncated = true
 	}
 
 	var b strings.Builder
+	// When older entries were dropped, tell the reader so it doesn't mistake
+	// the preview for the entire conversation.
+	if truncated {
+		b.WriteString("[... earlier conversation history has been collapsed; only the most recent messages are shown below ...]")
+	}
 	for _, line := range lines {
 		var e ChatEntry
 		if err := json.Unmarshal([]byte(line), &e); err != nil {
