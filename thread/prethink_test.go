@@ -136,25 +136,53 @@ func TestParsePreThinkXML_HasWebURL(t *testing.T) {
 }
 
 func TestParsePreThinkXML_Skill(t *testing.T) {
+	// Singular <skill> tag (old format) still parses.
 	raw := `<prethink>
   <skill>playwright-cli</skill>
   <tone>concise</tone>
 </prethink>`
 
 	out := parsePreThinkXML(raw)
-	if !strings.Contains(out, `Related skill: playwright-cli. Consider use_skill("playwright-cli") to load its instructions before proceeding.`) {
+	if !strings.Contains(out, `Related skill: playwright-cli. Consider use_skill("playwright-cli") to load instructions before proceeding.`) {
 		t.Errorf("skill should suggest use_skill, got: %s", out)
+	}
+}
+
+func TestParsePreThinkXML_MultipleSkills(t *testing.T) {
+	raw := `<prethink>
+  <skills>playwright-cli, create-html</skills>
+  <tone>concise</tone>
+</prethink>`
+
+	out := parsePreThinkXML(raw)
+	if !strings.Contains(out, `Related skills: playwright-cli, create-html. Consider use_skill("playwright-cli") / use_skill("create-html") to load instructions before proceeding.`) {
+		t.Errorf("skills should suggest each use_skill, got: %s", out)
+	}
+}
+
+func TestParsePreThinkXML_SkillsCappedAtThree(t *testing.T) {
+	raw := `<prethink>
+  <skills>a, b, c, d, e</skills>
+  <tone>concise</tone>
+</prethink>`
+
+	out := parsePreThinkXML(raw)
+	if !strings.Contains(out, "Related skills: a, b, c.") {
+		t.Errorf("skills should cap at 3, got: %s", out)
+	}
+	if strings.Contains(out, `use_skill("d")`) {
+		t.Errorf("4th skill must be dropped, got: %s", out)
 	}
 }
 
 func TestParsePreThinkXML_NoSkill(t *testing.T) {
 	raw := `<prethink>
-  <skill></skill>
+  <skills></skills>
   <tone>warm</tone>
 </prethink>`
 
 	if out := parsePreThinkXML(raw); strings.Contains(out, "Related skill") {
-		t.Errorf("empty skill must be omitted, got: %s", out)
+		t.Errorf("empty skills must be omitted, got: %s", out)
 	}
 }
 

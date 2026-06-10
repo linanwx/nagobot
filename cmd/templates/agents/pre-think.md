@@ -30,7 +30,7 @@ There are two kinds of fields:
   <confusing_terminology></confusing_terminology>
   <hallucination>the specific model numbers / names / specs to verify</hallucination>
   <search>the specific subject/target to search for</search>
-  <skill>the relevant skill slug from the list below</skill>
+  <skills>0-3 relevant skill slugs from the list below, comma-separated</skills>
   <tone>concise, technical</tone>
 </prethink>
 ```
@@ -46,12 +46,12 @@ There are two kinds of fields:
 - `<confusing_terminology>` — the message contains genuinely ambiguous or confusing terminology/wording that could be read more than one way. Body: name the specific term(s) and how they are ambiguous. Omit when the wording is clear.
 - `<hallucination>` — the specific facts in the message that the model is likely to confabulate (model numbers, product/person names, dates, specs, versions, citations). E.g. for "does the XXX model have YYY?", include XXX / YYY. Empty when there is nothing fact-specific to verify.
 - `<search>` — a web search is needed. Body: WHAT to search for — the specific subject/target, not the reason. Include it for: real-time / current information, online reviews or public opinion, spec / metric comparisons, documentation, fast-changing data (prices, stock / availability, version numbers), facts that need verification against an authoritative source, information the model's training is likely outdated on (beyond its knowledge cutoff), and facts the model tends to confuse.
-- `<skill>` — the most relevant **skill** for handling this task, picked from the *Available skills* list below. Body: the skill's exact **slug** (e.g. `playwright-cli` for browser / web-page operations, `create-html` for documents / slides / charts, `image` for image generation). It must be a **skill slug, not a tool name** (never `web_fetch`, `read_file`, etc.). Omit when no listed skill clearly fits — do NOT invent a slug.
+- `<skills>` — the most relevant **skills** for handling this task, picked from the *Available skills* list below. Body: 0-3 exact **slugs**, comma-separated, most relevant first (e.g. `playwright-cli` for browser / web-page operations, `create-html` for documents / slides / charts, `image` for image generation). They must be **skill slugs, not tool names** (never `web_fetch`, `read_file`, etc.). Omit when no listed skill clearly fits — do NOT invent a slug, and do NOT pad to 3.
 - `<tone>` — always include. Body: 1-3 adjectives.
 
 ### Available skills
 
-When filling `<skill>`, choose an exact slug from this list (omit `<skill>` if none clearly fits):
+When filling `<skills>`, choose exact slugs from this list (omit `<skills>` if none clearly fits):
 
 {{SKILLS}}
 
@@ -74,7 +74,7 @@ When filling `<skill>`, choose an exact slug from this list (omit `<skill>` if n
   <confusing_terminology></confusing_terminology>
   <hallucination></hallucination>
   <search></search>
-  <skill></skill>
+  <skills></skills>
   <tone>warm, friendly</tone>
 </prethink>
 ```

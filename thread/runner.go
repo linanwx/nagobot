@@ -167,6 +167,7 @@ func (r *Runner) RunWithMessages(ctx context.Context, messages []provider.Messag
 		if stream, ok := result.(provider.StreamChatResult); ok {
 			streamID = RandomHex(8)
 			var repDetector repetitionDetector
+		recvLoop:
 			for {
 				delta, recvErr := stream.Recv()
 				if recvErr == io.EOF {
@@ -189,7 +190,7 @@ func (r *Runner) RunWithMessages(ctx context.Context, messages []provider.Messag
 					if repDetector.feed(delta.Text) {
 						logger.Warn("stream repetition detected, cancelling", "iterations", r.iterations)
 						stream.Cancel()
-						break
+						break recvLoop
 					}
 				case provider.DeltaToolCall:
 					if !toolCallSignaled && r.onEvent != nil {

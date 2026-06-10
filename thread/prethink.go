@@ -97,7 +97,7 @@ var (
 	confusingTermRE = regexp.MustCompile(`(?is)<confusing_terminology>(.*?)</confusing_terminology>`)
 	hallucinationRE = regexp.MustCompile(`(?is)<hallucination>(.*?)</hallucination>`)
 	searchRE        = regexp.MustCompile(`(?is)<search>(.*?)</search>`)
-	skillRE         = regexp.MustCompile(`(?is)<skill>(.*?)</skill>`)
+	skillsRE        = regexp.MustCompile(`(?is)<skills?>(.*?)</skills?>`)
 	toneRE          = regexp.MustCompile(`(?is)<tone>(.*?)</tone>`)
 )
 
@@ -169,8 +169,16 @@ func parsePreThinkXML(raw string) string {
 		parts = append(parts, "Web URL present: consider using playwright to open it.")
 	}
 
-	if v := stringTag(skillRE, raw); v != "" {
-		parts = append(parts, "Related skill: "+v+". Consider use_skill(\""+v+"\") to load its instructions before proceeding.")
+	if slugs := splitSkillSlugs(stringTag(skillsRE, raw)); len(slugs) > 0 {
+		calls := make([]string, len(slugs))
+		for i, s := range slugs {
+			calls[i] = "use_skill(\"" + s + "\")"
+		}
+		label := "Related skill: "
+		if len(slugs) > 1 {
+			label = "Related skills: "
+		}
+		parts = append(parts, label+strings.Join(slugs, ", ")+". Consider "+strings.Join(calls, " / ")+" to load instructions before proceeding.")
 	}
 
 	if v := stringTag(toneRE, raw); v != "" {
@@ -181,6 +189,25 @@ func parsePreThinkXML(raw string) string {
 		return ""
 	}
 	return strings.Join(parts, " ")
+}
+
+// splitSkillSlugs splits a comma-separated <skills> body into at most 3 slugs.
+func splitSkillSlugs(body string) []string {
+	if body == "" {
+		return nil
+	}
+	var slugs []string
+	for _, s := range strings.FieldsFunc(body, func(r rune) bool {
+		return r == ',' || r == '，' || r == '、'
+	}) {
+		if s = strings.TrimSpace(s); s != "" {
+			slugs = append(slugs, s)
+		}
+		if len(slugs) == 3 {
+			break
+		}
+	}
+	return slugs
 }
 
 func cleanTagBody(s string) string {
