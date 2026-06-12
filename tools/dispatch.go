@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"regexp"
+	"slices"
 	"strings"
 
 	"github.com/linanwx/nagobot/provider"
@@ -35,7 +36,32 @@ type DispatchSend struct {
 	Body       string         `json:"body"`
 	Agent      string         `json:"agent,omitempty"`       // subagent/fork
 	TaskID     string         `json:"task_id,omitempty"`     // subagent/fork
-	SessionKey string         `json:"session_key,omitempty"` // session
+	SessionKey string         `json:"session_key,omitempty"` // session (key form — must exist)
+	Channel    string         `json:"channel,omitempty"`     // session (endpoint form — created if missing)
+	UserID     string         `json:"user_id,omitempty"`     // session (endpoint form)
+}
+
+// endpointChannels lists the channels addressable via the to=session
+// channel+user_id endpoint form. Sorted — the list feeds the tool schema enum
+// and prompt caching requires deterministic serialization.
+var endpointChannels = []string{"discord", "feishu", "telegram", "wecom"}
+
+func isEndpointChannel(name string) bool {
+	return slices.Contains(endpointChannels, name)
+}
+
+// resolvedSessionKey returns the target session key of a to=session send:
+// the explicit session_key, or channel+":"+user_id for the endpoint form.
+// Empty when neither form is complete.
+func resolvedSessionKey(send DispatchSend) string {
+	if k := strings.TrimSpace(send.SessionKey); k != "" {
+		return k
+	}
+	ch, uid := strings.TrimSpace(send.Channel), strings.TrimSpace(send.UserID)
+	if ch == "" || uid == "" {
+		return ""
+	}
+	return ch + ":" + uid
 }
 
 // DispatchHost abstracts the thread-side operations dispatch needs.
@@ -87,7 +113,7 @@ func (t *DispatchTool) Def() provider.ToolDef {
 				"- user: reply to the channel user via this session's user-channel sink. Only valid for user-facing sessions. Use this when a non-user source (cron/heartbeat/another session) woke you and you want to proactively message YOUR user INSTEAD OF replying to the waker.\n" +
 				"- subagent: spawn a new subagent thread, or wake existing at same task_id. Fields: agent (optional), task_id, body.\n" +
 				"- fork: branch current session as new agent thread, or wake existing at same task_id. Fields: agent (optional), task_id, body.\n" +
-				"- session: wake an existing session. Fields: session_key, body. The target receives the body and its own dispatch(to=caller:session) routes back to YOUR session (ping-pong recurses until one side halts).\n\n" +
+				"- session: wake another session's AI. The body becomes that session's wake message, processed by ITS AI (own agent/persona/history) — it is NOT delivered verbatim to that session's human user; the target AI decides what, if anything, to forward (typically via its own dispatch(to=user)). Two addressing forms: (1) session_key — exact key of an EXISTING session (validation fails if it does not exist); (2) channel + user_id — address a channel endpoint directly, creating the session if missing. Use form 2 to initiate contact with a user who may never have talked to the bot. Either way, the target's dispatch(to=caller:session) routes back to YOUR session (ping-pong recurses until one side halts).\n\n" +
 				"Which caller form to pick: read `caller_session_key` in the wake YAML frontmatter. Present → to=caller:session; absent AND this session is user-facing → to=caller:user; system sources (cron/heartbeat/compression) have no usable caller form, use dispatch({}) or to=user instead. " +
 				"Empty sends — dispatch({}) — is silent turn termination; nothing delivered, history recorded. Only use when you genuinely have nothing to say AND the caller does not need to know you finished. If you received a cross-session wake you believe was mis-routed, dispatch(to=caller:session) with an explanation — do NOT silently drop it via dispatch({}) (the caller never learns). " +
 				"IMPORTANT: when calling dispatch, the assistant message's content field MUST be empty. dispatch only delivers each send's `body`; any text written in content alongside this tool_call has no defined recipient and will be rejected. Either put all user-facing text into a send body, or skip dispatch entirely and let default delivery route your assistant content to the caller. " +
@@ -121,7 +147,16 @@ func (t *DispatchTool) Def() provider.ToolDef {
 								},
 								"session_key": map[string]any{
 									"type":        "string",
-									"description": "Existing session key for to=session.",
+									"description": "Session key for to=session (key form). The session must already exist; to contact someone with no session yet use channel+user_id instead.",
+								},
+								"channel": map[string]any{
+									"type":        "string",
+									"enum":        endpointChannels,
+									"description": "Channel name for to=session (endpoint form). Pair with user_id; mutually exclusive with session_key.",
+								},
+								"user_id": map[string]any{
+									"type":        "string",
+									"description": "Channel-native recipient id for to=session (endpoint form): wecom userid, telegram chat id, discord channel id, feishu openID. Groups use the channel's own convention (e.g. wecom \"group:<chatid>\"). The session is created if it does not exist yet.",
 								},
 							},
 							"required": []string{"to", "body"},
@@ -362,14 +397,37 @@ func (t *DispatchTool) validateOne(send DispatchSend, currentSession string) str
 		if send.Agent != "" || send.TaskID != "" {
 			return "session does not accept agent/task_id"
 		}
-		if strings.TrimSpace(send.SessionKey) == "" {
-			return "session_key is required"
-		}
-		if send.SessionKey == currentSession {
-			return "session_key cannot be the current session (self-reference not allowed)"
-		}
-		if !t.host.SessionExists(send.SessionKey) {
-			return fmt.Sprintf("session %q not found", send.SessionKey)
+		hasKey := strings.TrimSpace(send.SessionKey) != ""
+		hasEndpoint := strings.TrimSpace(send.Channel) != "" || strings.TrimSpace(send.UserID) != ""
+		switch {
+		case hasKey && hasEndpoint:
+			return "session accepts either session_key OR channel+user_id, not both"
+		case hasKey:
+			if send.SessionKey == currentSession {
+				return "session_key cannot be the current session (self-reference not allowed)"
+			}
+			if !t.host.SessionExists(send.SessionKey) {
+				return fmt.Sprintf("session %q not found — the session_key form requires an existing session. To contact a channel user who may have no session yet, use channel+user_id instead", send.SessionKey)
+			}
+		case hasEndpoint:
+			ch, uid := strings.TrimSpace(send.Channel), strings.TrimSpace(send.UserID)
+			if ch == "" || uid == "" {
+				return "channel and user_id must both be set"
+			}
+			if !isEndpointChannel(ch) {
+				return fmt.Sprintf("unknown channel %q (must be one of %s)", ch, strings.Join(endpointChannels, "/"))
+			}
+			if strings.ContainsAny(uid, " \t\r\n") {
+				return "user_id must not contain whitespace"
+			}
+			if strings.Contains(uid, ":threads:") || strings.Contains(uid, ":fork:") {
+				return "user_id cannot address subagent/fork sessions"
+			}
+			if ch+":"+uid == currentSession {
+				return "channel+user_id resolves to the current session (self-reference not allowed)"
+			}
+		default:
+			return "session requires either session_key (existing session) or channel+user_id (created if missing)"
 		}
 	default:
 		return fmt.Sprintf("unknown to: %q (must be one of caller:user/caller:session/user/subagent/fork/session)", send.To)
@@ -389,7 +447,7 @@ func targetKey(send DispatchSend, currentSession string) string {
 	case TargetFork:
 		return currentSession + ":fork:" + send.TaskID
 	case TargetSession:
-		return send.SessionKey
+		return resolvedSessionKey(send)
 	}
 	return ""
 }
@@ -425,10 +483,15 @@ func (t *DispatchTool) execute(ctx context.Context, send DispatchSend) (Executed
 		}
 		return ExecutedItem{To: TargetFork, SessionKey: key, Note: note}, nil
 	case TargetSession:
-		if err := t.host.WakeSession(ctx, send.SessionKey, send.Body); err != nil {
+		key := resolvedSessionKey(send)
+		note := ""
+		if strings.TrimSpace(send.SessionKey) == "" && !t.host.SessionExists(key) {
+			note = "created"
+		}
+		if err := t.host.WakeSession(ctx, key, send.Body); err != nil {
 			return ExecutedItem{}, err
 		}
-		return ExecutedItem{To: TargetSession, SessionKey: send.SessionKey}, nil
+		return ExecutedItem{To: TargetSession, SessionKey: key, Note: note}, nil
 	}
 	return ExecutedItem{}, fmt.Errorf("unknown to: %q", send.To)
 }
@@ -465,6 +528,9 @@ func describeExecuted(ex ExecutedItem) string {
 		}
 		return "Created fork at session " + ex.SessionKey + " (" + note + ") with body " + body + "."
 	case TargetSession:
+		if ex.Note == "created" {
+			return "Created new session " + ex.SessionKey + " and woke it with body " + body + "."
+		}
 		return "Woke session " + ex.SessionKey + " with body " + body + "."
 	}
 	return "Dispatched " + body + " to=" + string(ex.To) + " at session " + ex.SessionKey + "."

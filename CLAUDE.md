@@ -77,7 +77,7 @@ The `ProviderFactory` creates providers on demand, re-reading config each call. 
 
 Tools implement `Def() ToolDef` + `Run(ctx, args) string`. Registered in a `Registry`, cloned per-thread. Search and fetch tools use `SearchProvider`/`FetchProvider` interfaces with runtime `Available()` checks.
 
-`dispatch` is the unified routing tool (6 targets: caller:user / caller:session / user / subagent / fork / session). The caller:* forms assert the actual caller kind — mismatches fail validation so the LLM can't silently misroute. `dispatch({})` with empty sends ends a turn silently. For delayed self-wakes (replacing the old `sleep_thread(duration=...)`), use the `manage-cron` skill to create a one-time `set-at --direct-wake` job into the current session.
+`dispatch` is the unified routing tool (6 targets: caller:user / caller:session / user / subagent / fork / session). The caller:* forms assert the actual caller kind — mismatches fail validation so the LLM can't silently misroute. `to=session` has two mutually exclusive addressing forms: `session_key` (must exist on disk — typo protection) and `channel`+`user_id` (endpoint form; channel is enum-validated against `endpointChannels`, the derived `channel:user_id` session is created if missing — the deliberate first-contact path; body is a wake message for the target session's AI, never verbatim text to the human). `dispatch({})` with empty sends ends a turn silently. For delayed self-wakes (replacing the old `sleep_thread(duration=...)`), use the `manage-cron` skill to create a one-time `set-at --direct-wake` job into the current session.
 
 ### Audio Support
 

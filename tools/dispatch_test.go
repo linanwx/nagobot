@@ -798,3 +798,120 @@ func TestDispatch_RejectsAssistantContent_TruncatesPreview(t *testing.T) {
 		t.Error("expected long content to be truncated with ...")
 	}
 }
+
+func TestDispatch_WakeSessionEndpoint_Existing(t *testing.T) {
+	host := &mockDispatchHost{
+		currentKey: "cron:weekly-thanks",
+		callerKind: "system",
+		sessions:   map[string]bool{"wecom:LiNan": true},
+	}
+	outcome, res := runDispatch(t, host,
+		`{"sends": [{"to": "session", "channel": "wecom", "user_id": "LiNan", "body": "summarize uploads"}]}`)
+	if outcome != "turn-terminated" {
+		t.Fatalf("outcome=%q result=%s", outcome, res)
+	}
+	if len(host.wokeSessions) != 1 || host.wokeSessions[0].SessionKey != "wecom:LiNan" {
+		t.Errorf("expected wecom:LiNan wake, got %+v", host.wokeSessions)
+	}
+	if strings.Contains(res, "Created new session") {
+		t.Errorf("existing session must not be reported as created: %s", res)
+	}
+}
+
+func TestDispatch_WakeSessionEndpoint_CreatesMissing(t *testing.T) {
+	host := &mockDispatchHost{currentKey: "cron:weekly-thanks", callerKind: "system"}
+	outcome, res := runDispatch(t, host,
+		`{"sends": [{"to": "session", "channel": "wecom", "user_id": "ZhaoJing", "body": "thank for uploads"}]}`)
+	if outcome != "turn-terminated" {
+		t.Fatalf("outcome=%q result=%s", outcome, res)
+	}
+	if len(host.wokeSessions) != 1 || host.wokeSessions[0].SessionKey != "wecom:ZhaoJing" {
+		t.Errorf("expected wecom:ZhaoJing wake, got %+v", host.wokeSessions)
+	}
+	if !strings.Contains(res, "Created new session wecom:ZhaoJing") {
+		t.Errorf("expected created note, got: %s", res)
+	}
+}
+
+func TestDispatch_WakeSessionEndpoint_BothFormsRejected(t *testing.T) {
+	host := &mockDispatchHost{
+		currentKey: "cli",
+		callerKind: "user",
+		sessions:   map[string]bool{"wecom:LiNan": true},
+	}
+	_, res := runDispatch(t, host,
+		`{"sends": [{"to": "session", "session_key": "wecom:LiNan", "channel": "wecom", "user_id": "LiNan", "body": "x"}]}`)
+	if !strings.Contains(res, "validation-error") || !strings.Contains(res, "not both") {
+		t.Errorf("expected both-forms rejection, got: %s", res)
+	}
+}
+
+func TestDispatch_WakeSessionEndpoint_ChannelWithoutUserID(t *testing.T) {
+	host := &mockDispatchHost{currentKey: "cli", callerKind: "user"}
+	_, res := runDispatch(t, host,
+		`{"sends": [{"to": "session", "channel": "wecom", "body": "x"}]}`)
+	if !strings.Contains(res, "validation-error") || !strings.Contains(res, "channel and user_id must both be set") {
+		t.Errorf("expected paired-fields error, got: %s", res)
+	}
+}
+
+func TestDispatch_WakeSession_NeitherFormRejected(t *testing.T) {
+	host := &mockDispatchHost{currentKey: "cli", callerKind: "user"}
+	_, res := runDispatch(t, host,
+		`{"sends": [{"to": "session", "body": "x"}]}`)
+	if !strings.Contains(res, "validation-error") || !strings.Contains(res, "session requires either session_key") {
+		t.Errorf("expected missing-form error, got: %s", res)
+	}
+}
+
+func TestDispatch_WakeSessionEndpoint_UnknownChannel(t *testing.T) {
+	host := &mockDispatchHost{currentKey: "cli", callerKind: "user"}
+	_, res := runDispatch(t, host,
+		`{"sends": [{"to": "session", "channel": "wechat", "user_id": "LiNan", "body": "x"}]}`)
+	if !strings.Contains(res, "validation-error") || !strings.Contains(res, `unknown channel "wechat"`) {
+		t.Errorf("expected unknown-channel error, got: %s", res)
+	}
+}
+
+func TestDispatch_WakeSessionEndpoint_SelfReferenceRejected(t *testing.T) {
+	host := &mockDispatchHost{currentKey: "wecom:LiNan", callerKind: "user"}
+	_, res := runDispatch(t, host,
+		`{"sends": [{"to": "session", "channel": "wecom", "user_id": "LiNan", "body": "me"}]}`)
+	if !strings.Contains(res, "self-reference") {
+		t.Errorf("expected self-reference error, got: %s", res)
+	}
+}
+
+func TestDispatch_WakeSessionEndpoint_SubsessionInfixRejected(t *testing.T) {
+	host := &mockDispatchHost{currentKey: "cli", callerKind: "user"}
+	_, res := runDispatch(t, host,
+		`{"sends": [{"to": "session", "channel": "telegram", "user_id": "123:threads:bg", "body": "x"}]}`)
+	if !strings.Contains(res, "validation-error") || !strings.Contains(res, "cannot address subagent/fork sessions") {
+		t.Errorf("expected infix rejection, got: %s", res)
+	}
+}
+
+func TestDispatch_WakeSessionEndpoint_DedupAgainstKeyForm(t *testing.T) {
+	host := &mockDispatchHost{
+		currentKey: "cli",
+		callerKind: "user",
+		sessions:   map[string]bool{"wecom:LiNan": true},
+	}
+	_, res := runDispatch(t, host,
+		`{"sends": [{"to": "session", "session_key": "wecom:LiNan", "body": "a"}, {"to": "session", "channel": "wecom", "user_id": "LiNan", "body": "b"}]}`)
+	if !strings.Contains(res, "validation-error") || !strings.Contains(res, "duplicate target in batch: wecom:LiNan") {
+		t.Errorf("expected cross-form dedup error, got: %s", res)
+	}
+}
+
+func TestDispatch_WakeSessionEndpoint_GroupConvention(t *testing.T) {
+	host := &mockDispatchHost{currentKey: "cron:weekly-thanks", callerKind: "system"}
+	outcome, _ := runDispatch(t, host,
+		`{"sends": [{"to": "session", "channel": "wecom", "user_id": "group:wrNbLgXQAA", "body": "weekly digest"}]}`)
+	if outcome != "turn-terminated" {
+		t.Fatalf("outcome=%q", outcome)
+	}
+	if len(host.wokeSessions) != 1 || host.wokeSessions[0].SessionKey != "wecom:group:wrNbLgXQAA" {
+		t.Errorf("expected wecom:group:wrNbLgXQAA wake, got %+v", host.wokeSessions)
+	}
+}

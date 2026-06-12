@@ -18,7 +18,7 @@ The single turn-terminating routing primitive. Call it at the end of a turn to d
 - **`user`** — reply to your channel user via your session's user-channel sink. Only valid for user-facing sessions (`telegram:*` / `discord:*` / `cli` / `web` / `feishu:*` / `wecom:*`). Distinct from `caller:user`: useful when a non-user source (cron, heartbeat, another session) woke you and you want to proactively message your user instead of replying to the waker. Fields: `body`.
 - **`subagent`** — spawn a new subagent thread, or wake the existing one at the same `task_id`. Fields: `agent` (optional — falls back to session default), `task_id` (required, `[a-z0-9_-]+`), `body`.
 - **`fork`** — branch the current session as a new agent thread with stripped history inherited, or wake the existing one at the same `task_id`. Fields: `agent` (optional), `task_id`, `body`.
-- **`session`** — wake an existing session by key. Fields: `session_key`, `body`. The target receives the body and its own `dispatch(to=caller:session)` routes back to **your** session (not the target's channel user). The exchange recurses until one side halts.
+- **`session`** — wake another session's AI. The body becomes that session's wake message, processed by **its** AI (own agent / persona / history) — it is NOT delivered verbatim to that session's human user; the target AI decides what, if anything, to forward (typically via its own `dispatch(to=user)`). Two addressing forms, mutually exclusive: `session_key` (exact key — the session must already exist) or `channel` + `user_id` (channel endpoint — the session is **created if missing**; use this to initiate contact with a user who may never have talked to the bot, e.g. `channel: "wecom", user_id: "ZhaoJing"`; groups follow the channel's own convention, e.g. `user_id: "group:<chatid>"`). Either way the target's `dispatch(to=caller:session)` routes back to **your** session (not the target's channel user). The exchange recurses until one side halts.
 
 ### Picking between `caller:user` and `caller:session`
 
@@ -52,12 +52,13 @@ tool_call: dispatch(sends=[
 
 Empty `sends` — `dispatch({})` — silently terminates the turn with no delivery (history still recorded).
 
-On successful dispatch the turn ends; on validation error the turn continues so you can re-call. Subagent / fork generated session keys follow `{current}:threads:{task_id}` and `{current}:fork:{task_id}`. Re-using a task_id from a prior turn wakes the existing session (noted `resumed` in the result); dispatching to a missing-agent or unknown session_key is a validation error.
+On successful dispatch the turn ends; on validation error the turn continues so you can re-call. Subagent / fork generated session keys follow `{current}:threads:{task_id}` and `{current}:fork:{task_id}`. Re-using a task_id from a prior turn wakes the existing session (noted `resumed` in the result); dispatching to a missing-agent or unknown session_key is a validation error. The `channel`+`user_id` endpoint form instead creates the missing session (noted `created` in the result) — that is the deliberate path for first contact.
 
 **When to use which `to`:**
 - Parallel subtasks or delegating to a specialized agent (e.g. `imagereader`, `audioreader`, `pdfreader`): **subagent**.
 - When the child must reason about the current conversation itself (scheduling, reflection, summarization): **fork**.
-- Cross-session notifications ("notify user in telegram:12345"): **session**.
+- Cross-session notifications ("notify user in telegram:12345"): **session** with `session_key`.
+- Proactively contacting a channel user who may have no session yet (e.g. a cron job messaging an employee for the first time): **session** with `channel` + `user_id`.
 - Replying to the current user / parent: **caller:user** (channel-user wake) or **caller:session** (cross-session wake).
 
 ### check_session

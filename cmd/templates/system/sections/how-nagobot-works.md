@@ -44,6 +44,7 @@ When the most recent user message in history came from `sender: user`, the real 
 - `dispatch({sends: [{to: "caller:user", body: "OK"}]})` — plain ack to the channel user who woke you.
 - `dispatch({sends: [{to: "caller:session", body: "> Re: \"...\"\nDone."}]})` — reply to a cross-session waker.
 - `dispatch({sends: [{to: "session", session_key: "telegram:12345", body: "report is ready"}, {to: "user", body: "sent the notice, done"}]})` — cross-session notify plus user progress report.
+- `dispatch({sends: [{to: "session", channel: "wecom", user_id: "ZhaoJing", body: "ZhaoJing uploaded files this week — summarize and thank them via dispatch(to=user)"}]})` — endpoint form: address a channel user directly; the session is created if it doesn't exist yet. The body is a wake message for that session's AI, not text delivered to the human.
 - `dispatch({})` — silent termination: no delivery, history recorded, and no further wake. Use this when a heartbeat/cron turn produced nothing worth saying, or when the task prompt explicitly asks for silent completion.
 
 Each thread has a message queue. Wake messages are pushed into the queue, and the thread manager selects queued threads from all threads to run reasoning.
