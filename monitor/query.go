@@ -35,7 +35,7 @@ type MetricsSummary struct {
 	TotalTurns int                       `json:"totalTurns" yaml:"totalTurns"`
 	AvgDurMs   int64                     `json:"avgDurationMs" yaml:"avgDurationMs"`
 	AvgTokens  int                       `json:"avgTokens" yaml:"avgTokens"`
-	ErrorRate  float64                   `json:"errorRate" yaml:"errorRate"`
+	ErrorRate  string                    `json:"errorRate" yaml:"errorRate"` // formatted percentage, e.g. "0.9%"
 	ByProvider map[string]*ProviderStats `json:"byProvider,omitempty" yaml:"byProvider,omitempty"`
 	ByAgent    map[string]*GroupStats    `json:"byAgent,omitempty" yaml:"byAgent,omitempty"`
 	BySession  map[string]*GroupStats    `json:"bySession,omitempty" yaml:"bySession,omitempty"`
@@ -104,8 +104,12 @@ func Query(store *Store, window Window) *MetricsSummary {
 		ps.Turns++
 		ps.AvgDurMs += r.DurationMs
 		ps.PromptTokens += r.AccPromptTokens
-		ps.CachedTokens += r.AccCachedTokens
+		// Cache numerator and denominator must come from the same turn set:
+		// only count cached + eligible tokens for cache-reliable providers.
+		// Otherwise an unreliable provider's cached tokens (counted) without
+		// its eligible tokens (skipped) push the ratio past 100%.
 		if cacheReliable {
+			ps.CachedTokens += r.AccCachedTokens
 			ps.CacheEligiblePromptTokens += r.AccPromptTokens
 		}
 		ms, ok := ps.Models[r.Model]
@@ -116,8 +120,8 @@ func Query(store *Store, window Window) *MetricsSummary {
 		ms.Turns++
 		ms.AvgDurMs += r.DurationMs
 		ms.PromptTokens += r.AccPromptTokens
-		ms.CachedTokens += r.AccCachedTokens
 		if cacheReliable {
+			ms.CachedTokens += r.AccCachedTokens
 			ms.CacheEligiblePromptTokens += r.AccPromptTokens
 		}
 
@@ -131,8 +135,8 @@ func Query(store *Store, window Window) *MetricsSummary {
 			as.Turns++
 			as.AvgDurMs += r.DurationMs
 			as.PromptTokens += r.AccPromptTokens
-			as.CachedTokens += r.AccCachedTokens
 			if cacheReliable {
+				as.CachedTokens += r.AccCachedTokens
 				as.CacheEligiblePromptTokens += r.AccPromptTokens
 			}
 		}
@@ -147,8 +151,8 @@ func Query(store *Store, window Window) *MetricsSummary {
 			ss.Turns++
 			ss.AvgDurMs += r.DurationMs
 			ss.PromptTokens += r.AccPromptTokens
-			ss.CachedTokens += r.AccCachedTokens
 			if cacheReliable {
+				ss.CachedTokens += r.AccCachedTokens
 				ss.CacheEligiblePromptTokens += r.AccPromptTokens
 			}
 		}
@@ -160,7 +164,9 @@ func Query(store *Store, window Window) *MetricsSummary {
 		summary.AvgTokens = totalTokens / int(n)
 	}
 	if len(records) > 0 {
-		summary.ErrorRate = float64(errorCount) / float64(len(records)) * 100
+		summary.ErrorRate = fmt.Sprintf("%.1f%%", float64(errorCount)/float64(len(records))*100)
+	} else {
+		summary.ErrorRate = "0.0%"
 	}
 
 	// Convert accumulated durations to averages and compute cache hit rates.

@@ -87,8 +87,43 @@ func TestQuery(t *testing.T) {
 	if summary.ByProvider["deepseek"].Turns != 1 {
 		t.Errorf("expected 1 deepseek turn, got %d", summary.ByProvider["deepseek"].Turns)
 	}
-	if summary.ErrorRate == 0 {
-		t.Error("expected non-zero error rate")
+	if summary.ErrorRate == "" || summary.ErrorRate == "0.0%" {
+		t.Errorf("expected non-zero error rate, got %q", summary.ErrorRate)
+	}
+}
+
+// TestCacheRateNeverExceeds100MixedProviders is a regression test for the
+// >100% cacheHitRate bug: a session mixing a cache-reliable provider with a
+// cache-unreliable one (openai-oauth) must not let the unreliable provider's
+// cached tokens inflate the ratio past 100%. Numerator (cached) and
+// denominator (eligible) must both exclude unreliable providers.
+func TestCacheRateNeverExceeds100MixedProviders(t *testing.T) {
+	dir := t.TempDir()
+	store := NewStore(dir)
+	now := time.Now()
+
+	// Reliable provider: modest cache.
+	store.Record(TurnRecord{
+		Timestamp: now, Provider: "deepseek", Model: "deepseek-v4-pro",
+		SessionKey: "discord:mix", AccPromptTokens: 1000, AccCachedTokens: 800,
+	})
+	// Unreliable provider in the SAME session: large cached, no eligible.
+	store.Record(TurnRecord{
+		Timestamp: now, Provider: "openai-oauth", Model: "gpt-5.5",
+		SessionKey: "discord:mix", AccPromptTokens: 10000, AccCachedTokens: 9000,
+	})
+
+	summary := Query(store, Window1H)
+	ss := summary.BySession["discord:mix"]
+	if ss == nil {
+		t.Fatal("session discord:mix missing from summary")
+	}
+	// Only the reliable turn contributes to cache stats: 800 / 1000 = 80.0%.
+	if ss.CacheHitRate != "80.0%" {
+		t.Errorf("cacheHitRate = %q, want 80.0%% (reliable-only); unreliable cached must not inflate it", ss.CacheHitRate)
+	}
+	if ss.CachedTokens != 800 {
+		t.Errorf("CachedTokens = %d, want 800 (reliable-only)", ss.CachedTokens)
 	}
 }
 
