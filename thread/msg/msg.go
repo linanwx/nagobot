@@ -147,6 +147,7 @@ const (
 	WakeRephrase   WakeSource = "rephrase"
 	WakePreThink   WakeSource = "prethink"
 	WakeAudioPreview WakeSource = "audiopreview"
+	WakeImagePreview WakeSource = "imagepreview"
 )
 
 // IsUserVisibleSource reports whether the given source represents a real

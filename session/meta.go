@@ -25,6 +25,10 @@ const PreThinkSessionSuffix = ":prethink"
 // sessions (upfront transcription of incoming voice messages).
 const AudioPreviewSessionSuffix = ":audiopreview"
 
+// ImagePreviewSessionSuffix is the session key suffix for image-preview sibling
+// sessions (upfront description of incoming images).
+const ImagePreviewSessionSuffix = ":imagepreview"
+
 // ForkSessionInfix is the infix used in fork session keys: {parent}:fork:{purpose}.
 const ForkSessionInfix = ":fork:"
 

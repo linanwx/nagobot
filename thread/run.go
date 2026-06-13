@@ -370,6 +370,9 @@ func parentSessionKey(key string) string {
 	if strings.HasSuffix(key, session.AudioPreviewSessionSuffix) {
 		return strings.TrimSuffix(key, session.AudioPreviewSessionSuffix)
 	}
+	if strings.HasSuffix(key, session.ImagePreviewSessionSuffix) {
+		return strings.TrimSuffix(key, session.ImagePreviewSessionSuffix)
+	}
 	if idx := strings.Index(key, session.ForkSessionInfix); idx > 0 {
 		return key[:idx]
 	}

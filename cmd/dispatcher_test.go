@@ -1,13 +1,10 @@
 package cmd
 
 import (
-	"context"
-	"fmt"
 	"strings"
 	"testing"
 
 	"github.com/linanwx/nagobot/channel"
-	"github.com/linanwx/nagobot/media"
 )
 
 func TestThreadHeader_None(t *testing.T) {
@@ -215,122 +212,42 @@ func TestTruncate_NoTruncationNeeded(t *testing.T) {
 	}
 }
 
-// testPreviewer implements media.Previewer for testing.
-type testPreviewer struct {
-	results map[string]string // filePath -> description
-	errs    map[string]error  // filePath -> error
-}
+// Media previews (image + audio) are produced by the stateless preview agents
+// via the thread manager. With d.threads == nil, the AudioPreview/ImagePreview
+// nil-receiver guard makes the call safe and returns "" → the tag is skipped.
+// Real description/transcription is verified end-to-end (TestImagePreviewLive /
+// TestAudioPreviewLive), not in these unit tests.
 
-func (p *testPreviewer) Preview(_ context.Context, filePath string, _ media.MediaType) (string, error) {
-	if err, ok := p.errs[filePath]; ok {
-		return "", err
-	}
-	if desc, ok := p.results[filePath]; ok {
-		return desc, nil
-	}
-	return "", fmt.Errorf("unexpected file: %s", filePath)
-}
-
-func TestGenerateMediaPreviews_ImagePath(t *testing.T) {
-	d := &Dispatcher{
-		previewer: &testPreviewer{
-			results: map[string]string{
-				"/tmp/media/img-20260322-120000-abcd.jpg": "A cat sitting on a keyboard",
-			},
-		},
-	}
+func TestGenerateMediaPreviews_ImageSkippedWhenUnconfigured(t *testing.T) {
+	d := &Dispatcher{} // d.threads == nil
 	summary := "[Media: photo]\nimage_path: /tmp/media/img-20260322-120000-abcd.jpg"
-	got := d.generateMediaPreviews("", summary)
-	if !strings.Contains(got, "media_preview") {
-		t.Errorf("expected media_preview tag, got: %s", got)
-	}
-	if !strings.Contains(got, "A cat sitting on a keyboard") {
-		t.Errorf("expected preview description, got: %s", got)
+	if got := d.generateMediaPreviews("telegram:1", summary); got != "" {
+		t.Errorf("image with no configured image-preview should yield no tag, got: %s", got)
 	}
 }
 
-// TestGenerateMediaPreviews_AudioSkippedWhenUnconfigured verifies audio no
-// longer goes through the image previewer: with no thread manager (the
-// audio-preview agent route is unavailable), audio transcription is skipped
-// gracefully and no tag is emitted. Real transcription is verified end-to-end
-// (voice → agent), not here. AudioPreview's nil-receiver guard makes
-// d.threads == nil safe.
 func TestGenerateMediaPreviews_AudioSkippedWhenUnconfigured(t *testing.T) {
-	d := &Dispatcher{previewer: &testPreviewer{}} // d.threads == nil
+	d := &Dispatcher{} // d.threads == nil
 	summary := "[Media: voice]\naudio_path: /tmp/media/audio-20260322-120000-abcd.ogg\nduration: 5s"
-	got := d.generateMediaPreviews("telegram:1", summary)
-	if got != "" {
+	if got := d.generateMediaPreviews("telegram:1", summary); got != "" {
 		t.Errorf("audio with no configured audio-preview should yield no tag, got: %s", got)
 	}
 }
 
-func TestGenerateMediaPreviews_PreviewError(t *testing.T) {
-	d := &Dispatcher{
-		previewer: &testPreviewer{
-			errs: map[string]error{
-				"/tmp/media/img.jpg": fmt.Errorf("timeout"),
-			},
-		},
-	}
-	summary := "[Media: photo]\nimage_path: /tmp/media/img.jpg"
-	got := d.generateMediaPreviews("", summary)
-	if !strings.Contains(got, "media_preview failed") {
-		t.Errorf("expected error tag, got: %s", got)
-	}
-	if !strings.Contains(got, "timeout") {
-		t.Errorf("expected error message, got: %s", got)
-	}
-}
-
 func TestGenerateMediaPreviews_NoMediaPaths(t *testing.T) {
-	d := &Dispatcher{
-		previewer: &testPreviewer{},
-	}
+	d := &Dispatcher{}
 	// Summary without image_path or audio_path
 	summary := "[Media: sticker]\nemoji: 😀\nsticker_set: MyStickers"
-	got := d.generateMediaPreviews("", summary)
-	if got != "" {
+	if got := d.generateMediaPreviews("", summary); got != "" {
 		t.Errorf("expected empty string for non-media summary, got: %s", got)
 	}
 }
 
-func TestGenerateMediaPreviews_NilPreviewer(t *testing.T) {
-	d := &Dispatcher{previewer: nil}
-	got := d.generateMediaPreviews("", "[Media: photo]\nimage_path: /tmp/photo.jpg")
-	if got != "" {
-		t.Errorf("expected empty string for nil previewer, got: %s", got)
-	}
-}
-
-func TestGenerateMediaPreviews_MultipleMedia(t *testing.T) {
-	d := &Dispatcher{
-		previewer: &testPreviewer{
-			results: map[string]string{
-				"/tmp/media/img1.jpg":   "First image",
-				"/tmp/media/audio1.ogg": "Audio content",
-			},
-		},
-	}
-	summary := "[Media: photo]\nimage_path: /tmp/media/img1.jpg\n\n[Media: voice]\naudio_path: /tmp/media/audio1.ogg"
-	got := d.generateMediaPreviews("", summary)
-	if !strings.Contains(got, "media_preview") {
-		t.Errorf("expected media_preview (image) tag, got: %s", got)
-	}
-	// Audio goes through the audio-preview agent (d.threads == nil here →
-	// skipped), so only the image tag is present in this unit test.
-	if strings.Contains(got, "audio_preview") {
-		t.Errorf("audio should be skipped without a thread manager, got: %s", got)
-	}
-}
-
-func TestPreprocessMessage_WithMediaPreview(t *testing.T) {
-	d := &Dispatcher{
-		previewer: &testPreviewer{
-			results: map[string]string{
-				"/tmp/media/img.jpg": "A code screenshot",
-			},
-		},
-	}
+// TestPreprocessMessage_MediaSummaryOrdering verifies that with no preview
+// generated (manager unconfigured), the media_summary still precedes the user
+// text in the assembled message.
+func TestPreprocessMessage_MediaSummaryOrdering(t *testing.T) {
+	d := &Dispatcher{} // d.threads == nil → no preview tag
 	msg := &channel.Message{
 		Text: "What's this?",
 		Metadata: map[string]string{
@@ -338,17 +255,12 @@ func TestPreprocessMessage_WithMediaPreview(t *testing.T) {
 		},
 	}
 	got := d.preprocessMessage("", msg)
-	// Order: preview, then media_summary, then text
-	previewIdx := strings.Index(got, "media_preview")
 	summaryIdx := strings.Index(got, "[Media: photo]")
 	textIdx := strings.Index(got, "What's this?")
-	if previewIdx < 0 || summaryIdx < 0 || textIdx < 0 {
+	if summaryIdx < 0 || textIdx < 0 {
 		t.Fatalf("missing expected content: %s", got)
 	}
-	if previewIdx >= summaryIdx {
-		t.Errorf("preview should come before media_summary")
-	}
 	if summaryIdx >= textIdx {
-		t.Errorf("media_summary should come before user text")
+		t.Errorf("media_summary should come before user text:\n%s", got)
 	}
 }

@@ -1,26 +1,10 @@
 package media
 
 import (
-	"context"
 	"fmt"
 	"strings"
 	"testing"
-
-	"github.com/linanwx/nagobot/config"
 )
-
-// mockPreviewer implements Previewer for testing.
-type mockPreviewer struct {
-	result string
-	err    error
-}
-
-func (m *mockPreviewer) Preview(ctx context.Context, filePath string, mediaType MediaType) (string, error) {
-	if m.err != nil {
-		return "", m.err
-	}
-	return m.result, nil
-}
 
 func TestFormatPreviewTag_Image(t *testing.T) {
 	tag := FormatPreviewTag("A screenshot of code with Python error", MediaTypeImage)
@@ -76,9 +60,8 @@ func TestDetectImageMime(t *testing.T) {
 		{"photo.unknown", "image/jpeg"}, // default fallback
 	}
 	for _, tt := range tests {
-		got := detectImageMime(tt.path)
-		if got != tt.want {
-			t.Errorf("detectImageMime(%q) = %q, want %q", tt.path, got, tt.want)
+		if got := DetectImageMime(tt.path); got != tt.want {
+			t.Errorf("DetectImageMime(%q) = %q, want %q", tt.path, got, tt.want)
 		}
 	}
 }
@@ -99,52 +82,9 @@ func TestDetectAudioMime(t *testing.T) {
 		{"voice.unknown", "audio/ogg"}, // default fallback
 	}
 	for _, tt := range tests {
-		got := DetectAudioMime(tt.path)
-		if got != tt.want {
+		if got := DetectAudioMime(tt.path); got != tt.want {
 			t.Errorf("DetectAudioMime(%q) = %q, want %q", tt.path, got, tt.want)
 		}
-	}
-}
-
-func TestBuildImagePrompt(t *testing.T) {
-	prompt, mime := buildImagePrompt("photo.png")
-	if !strings.Contains(prompt, "Describe") {
-		t.Errorf("image prompt should contain 'Describe', got: %s", prompt)
-	}
-	if mime != "image/png" {
-		t.Errorf("expected image/png, got: %s", mime)
-	}
-}
-
-// TestPreviewRejectsAudio verifies audio is no longer handled by media.Preview —
-// it is transcribed by the audio-preview agent instead.
-func TestPreviewRejectsAudio(t *testing.T) {
-	p := NewPreviewer(func() *config.Config { return &config.Config{} })
-	_, err := p.Preview(context.Background(), "/tmp/voice.ogg", MediaTypeAudio)
-	if err == nil || !strings.Contains(err.Error(), "audio-preview agent") {
-		t.Errorf("expected audio rejection error, got: %v", err)
-	}
-}
-
-func TestMockPreviewer(t *testing.T) {
-	// Test successful preview
-	p := &mockPreviewer{result: "A cat sitting on a keyboard"}
-	desc, err := p.Preview(context.Background(), "/tmp/photo.jpg", MediaTypeImage)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if desc != "A cat sitting on a keyboard" {
-		t.Errorf("unexpected description: %s", desc)
-	}
-
-	// Test error preview
-	p = &mockPreviewer{err: fmt.Errorf("provider unavailable")}
-	_, err = p.Preview(context.Background(), "/tmp/photo.jpg", MediaTypeImage)
-	if err == nil {
-		t.Fatal("expected error, got nil")
-	}
-	if !strings.Contains(err.Error(), "provider unavailable") {
-		t.Errorf("expected 'provider unavailable' in error, got: %v", err)
 	}
 }
 
@@ -160,59 +100,8 @@ func TestExtOf(t *testing.T) {
 		{"/path/to/file.tar.gz", ".gz"},
 	}
 	for _, tt := range tests {
-		got := extOf(tt.path)
-		if got != tt.want {
+		if got := extOf(tt.path); got != tt.want {
 			t.Errorf("extOf(%q) = %q, want %q", tt.path, got, tt.want)
 		}
-	}
-}
-
-func TestTruncatePreview(t *testing.T) {
-	short := "hello"
-	if got := truncatePreview(short, 10); got != short {
-		t.Errorf("truncatePreview(%q, 10) = %q, want %q", short, got, short)
-	}
-
-	long := "this is a very long description that exceeds the limit"
-	got := truncatePreview(long, 20)
-	if !strings.HasSuffix(got, "...") {
-		t.Errorf("truncated string should end with '...', got: %s", got)
-	}
-	if len(got) != 23 { // 20 + "..."
-		t.Errorf("expected length 23, got %d: %s", len(got), got)
-	}
-}
-
-func TestMediaTypeLabel(t *testing.T) {
-	if got := mediaTypeLabel(MediaTypeImage); got != "image" {
-		t.Errorf("expected 'image', got: %s", got)
-	}
-	if got := mediaTypeLabel(MediaTypeAudio); got != "audio" {
-		t.Errorf("expected 'audio', got: %s", got)
-	}
-}
-
-func TestLLMPreviewer_NilConfig(t *testing.T) {
-	p := NewPreviewer(func() *config.Config { return nil })
-	_, err := p.Preview(context.Background(), "/tmp/photo.jpg", MediaTypeImage)
-	if err == nil {
-		t.Fatal("expected error for nil config")
-	}
-	if !strings.Contains(err.Error(), "config unavailable") {
-		t.Errorf("expected 'config unavailable', got: %v", err)
-	}
-}
-
-func TestLLMPreviewer_NoProviderAvailable(t *testing.T) {
-	// Config with no provider keys configured — should fail gracefully.
-	p := NewPreviewer(func() *config.Config {
-		return &config.Config{}
-	})
-	_, err := p.Preview(context.Background(), "/tmp/photo.jpg", MediaTypeImage)
-	if err == nil {
-		t.Fatal("expected error when no provider is available")
-	}
-	if !strings.Contains(err.Error(), "no preview provider available") {
-		t.Errorf("expected 'no preview provider available', got: %v", err)
 	}
 }
