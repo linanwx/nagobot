@@ -68,7 +68,7 @@ func TestPreprocessMessage_ForumPostHeader(t *testing.T) {
 			"applied_tags": "Bug",
 		},
 	}
-	got := d.preprocessMessage(msg)
+	got := d.preprocessMessage("", msg)
 	// header line first, then sender + text on next line
 	headerIdx := strings.Index(got, "[Forum post")
 	senderIdx := strings.Index(got, "[Nansen]: I'm stuck")
@@ -93,7 +93,7 @@ func TestPreprocessMessage_NoThreadHeader(t *testing.T) {
 		Username: "Alice",
 		Metadata: map[string]string{"chat_type": "group"},
 	}
-	got := d.preprocessMessage(msg)
+	got := d.preprocessMessage("", msg)
 	if strings.Contains(got, "[Forum post") || strings.Contains(got, "[Thread ") {
 		t.Errorf("unexpected thread header: %s", got)
 	}
@@ -107,7 +107,7 @@ func TestPreprocessMessage_ReplyContext(t *testing.T) {
 			"reply_context": "[Reply to Alice]: Original message here",
 		},
 	}
-	got := d.preprocessMessage(msg)
+	got := d.preprocessMessage("", msg)
 	if !strings.Contains(got, "[Reply to Alice]: Original message here") {
 		t.Errorf("reply context not found in output: %s", got)
 	}
@@ -131,7 +131,7 @@ func TestPreprocessMessage_ReplyContextTruncated(t *testing.T) {
 			"reply_context": longContent,
 		},
 	}
-	got := d.preprocessMessage(msg)
+	got := d.preprocessMessage("", msg)
 	if strings.Contains(got, longContent) {
 		t.Errorf("reply context should have been truncated")
 	}
@@ -146,7 +146,7 @@ func TestPreprocessMessage_NoReplyContext(t *testing.T) {
 		Text:     "Hello",
 		Metadata: map[string]string{},
 	}
-	got := d.preprocessMessage(msg)
+	got := d.preprocessMessage("", msg)
 	if got != "Hello" {
 		t.Errorf("expected plain text, got %q", got)
 	}
@@ -162,7 +162,7 @@ func TestPreprocessMessage_ReplyWithGroupSender(t *testing.T) {
 			"chat_type":     "group",
 		},
 	}
-	got := d.preprocessMessage(msg)
+	got := d.preprocessMessage("", msg)
 	if !strings.Contains(got, "[Reply to Alice]: Some point") {
 		t.Errorf("missing reply context: %s", got)
 	}
@@ -240,7 +240,7 @@ func TestGenerateMediaPreviews_ImagePath(t *testing.T) {
 		},
 	}
 	summary := "[Media: photo]\nimage_path: /tmp/media/img-20260322-120000-abcd.jpg"
-	got := d.generateMediaPreviews(summary)
+	got := d.generateMediaPreviews("", summary)
 	if !strings.Contains(got, "media_preview") {
 		t.Errorf("expected media_preview tag, got: %s", got)
 	}
@@ -249,21 +249,18 @@ func TestGenerateMediaPreviews_ImagePath(t *testing.T) {
 	}
 }
 
-func TestGenerateMediaPreviews_AudioPath(t *testing.T) {
-	d := &Dispatcher{
-		previewer: &testPreviewer{
-			results: map[string]string{
-				"/tmp/media/audio-20260322-120000-abcd.ogg": "Hello, can you help me?",
-			},
-		},
-	}
+// TestGenerateMediaPreviews_AudioSkippedWhenUnconfigured verifies audio no
+// longer goes through the image previewer: with no thread manager (the
+// audio-preview agent route is unavailable), audio transcription is skipped
+// gracefully and no tag is emitted. Real transcription is verified end-to-end
+// (voice → agent), not here. AudioPreview's nil-receiver guard makes
+// d.threads == nil safe.
+func TestGenerateMediaPreviews_AudioSkippedWhenUnconfigured(t *testing.T) {
+	d := &Dispatcher{previewer: &testPreviewer{}} // d.threads == nil
 	summary := "[Media: voice]\naudio_path: /tmp/media/audio-20260322-120000-abcd.ogg\nduration: 5s"
-	got := d.generateMediaPreviews(summary)
-	if !strings.Contains(got, "audio_preview") {
-		t.Errorf("expected audio_preview tag, got: %s", got)
-	}
-	if !strings.Contains(got, "Hello, can you help me?") {
-		t.Errorf("expected transcription, got: %s", got)
+	got := d.generateMediaPreviews("telegram:1", summary)
+	if got != "" {
+		t.Errorf("audio with no configured audio-preview should yield no tag, got: %s", got)
 	}
 }
 
@@ -276,7 +273,7 @@ func TestGenerateMediaPreviews_PreviewError(t *testing.T) {
 		},
 	}
 	summary := "[Media: photo]\nimage_path: /tmp/media/img.jpg"
-	got := d.generateMediaPreviews(summary)
+	got := d.generateMediaPreviews("", summary)
 	if !strings.Contains(got, "media_preview failed") {
 		t.Errorf("expected error tag, got: %s", got)
 	}
@@ -291,7 +288,7 @@ func TestGenerateMediaPreviews_NoMediaPaths(t *testing.T) {
 	}
 	// Summary without image_path or audio_path
 	summary := "[Media: sticker]\nemoji: 😀\nsticker_set: MyStickers"
-	got := d.generateMediaPreviews(summary)
+	got := d.generateMediaPreviews("", summary)
 	if got != "" {
 		t.Errorf("expected empty string for non-media summary, got: %s", got)
 	}
@@ -299,7 +296,7 @@ func TestGenerateMediaPreviews_NoMediaPaths(t *testing.T) {
 
 func TestGenerateMediaPreviews_NilPreviewer(t *testing.T) {
 	d := &Dispatcher{previewer: nil}
-	got := d.generateMediaPreviews("[Media: photo]\nimage_path: /tmp/photo.jpg")
+	got := d.generateMediaPreviews("", "[Media: photo]\nimage_path: /tmp/photo.jpg")
 	if got != "" {
 		t.Errorf("expected empty string for nil previewer, got: %s", got)
 	}
@@ -315,12 +312,14 @@ func TestGenerateMediaPreviews_MultipleMedia(t *testing.T) {
 		},
 	}
 	summary := "[Media: photo]\nimage_path: /tmp/media/img1.jpg\n\n[Media: voice]\naudio_path: /tmp/media/audio1.ogg"
-	got := d.generateMediaPreviews(summary)
+	got := d.generateMediaPreviews("", summary)
 	if !strings.Contains(got, "media_preview") {
-		t.Errorf("expected media_preview tag, got: %s", got)
+		t.Errorf("expected media_preview (image) tag, got: %s", got)
 	}
-	if !strings.Contains(got, "audio_preview") {
-		t.Errorf("expected audio_preview tag, got: %s", got)
+	// Audio goes through the audio-preview agent (d.threads == nil here →
+	// skipped), so only the image tag is present in this unit test.
+	if strings.Contains(got, "audio_preview") {
+		t.Errorf("audio should be skipped without a thread manager, got: %s", got)
 	}
 }
 
@@ -338,7 +337,7 @@ func TestPreprocessMessage_WithMediaPreview(t *testing.T) {
 			"media_summary": "[Media: photo]\nimage_path: /tmp/media/img.jpg",
 		},
 	}
-	got := d.preprocessMessage(msg)
+	got := d.preprocessMessage("", msg)
 	// Order: preview, then media_summary, then text
 	previewIdx := strings.Index(got, "media_preview")
 	summaryIdx := strings.Index(got, "[Media: photo]")

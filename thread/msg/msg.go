@@ -146,6 +146,7 @@ const (
 	WakeResume     WakeSource = "resume"
 	WakeRephrase   WakeSource = "rephrase"
 	WakePreThink   WakeSource = "prethink"
+	WakeAudioPreview WakeSource = "audiopreview"
 )
 
 // IsUserVisibleSource reports whether the given source represents a real
@@ -202,6 +203,7 @@ func CallerKindFromSource(source WakeSource) CallerKind {
 type WakeMessage struct {
 	Source            WakeSource        // Wake source.
 	Message           string            // Wake payload text.
+	Media             []string          // Optional media markers (<<media:mime:path>>) attached to the first user message of this wake, delivered natively in user content (no read_file). Dropped with a warning if the resolved model lacks the matching capability.
 	Sink              Sink              // Per-wake sink. Zero value = no per-wake delivery.
 	AgentName         string            // Optional agent name override for this wake.
 	Vars              map[string]string // Optional vars override for this wake.

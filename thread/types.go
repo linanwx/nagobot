@@ -50,8 +50,9 @@ const (
 	WakeCompression = msg.WakeCompression
 	WakeHeartbeat   = msg.WakeHeartbeat
 	WakeResume      = msg.WakeResume
-	WakeRephrase    = msg.WakeRephrase
-	WakePreThink    = msg.WakePreThink
+	WakeRephrase     = msg.WakeRephrase
+	WakePreThink     = msg.WakePreThink
+	WakeAudioPreview = msg.WakeAudioPreview
 )
 
 // threadState represents the runtime state of a thread.

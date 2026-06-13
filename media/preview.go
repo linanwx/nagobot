@@ -1,9 +1,14 @@
 // Package media provides fast multimedia preview using lightweight LLM calls.
 //
-// When a channel downloads an image or audio file, Preview() makes a quick
-// (1-2s) LLM call to get a brief description. The result is injected into the
-// wake payload as a preview before the message body, giving the main LLM
-// immediate context about the media content without needing to call read_file.
+// When a channel downloads an image, Preview() makes a quick LLM call to get a
+// brief description, injected into the wake payload as a preview before the
+// message body so the main LLM has immediate context without calling read_file.
+//
+// Audio is NOT handled here: voice clips are transcribed by the stateless
+// `audio-preview` agent (thread.Manager.AudioPreview), which receives the audio
+// natively in user content and persists each run for inspection. This package
+// keeps the audio MediaType + tag formatters + DetectAudioMime so callers can
+// build the audio marker and format the agent's transcription consistently.
 //
 // This is an addition, NOT a replacement — the existing read_file/imagereader
 // flow stays intact. Previews are marked as "for reference only".
@@ -11,13 +16,8 @@ package media
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
-	"io"
-	"mime/multipart"
-	"net/http"
 	"os"
-	"path/filepath"
 	"strings"
 	"time"
 
@@ -37,19 +37,10 @@ const (
 	MediaTypeAudio
 )
 
-// previewMode determines how the preview call is made.
-type previewMode int
-
-const (
-	modeChat previewMode = iota // LLM Chat (provider.Chat)
-	modeSTT                     // Speech-to-text (OpenAI /v1/audio/transcriptions)
-)
-
-// previewCandidate defines a provider+model pair that can handle a media type.
+// previewCandidate defines a provider+model pair that can handle image preview.
 type previewCandidate struct {
 	ProviderName string
 	ModelType    string
-	Mode         previewMode // default modeChat
 }
 
 // imagePriority is the default priority chain for image preview.
@@ -60,13 +51,6 @@ var imagePriority = []previewCandidate{
 	{ProviderName: "openai", ModelType: "gpt-5.4-nano"},
 	{ProviderName: "anthropic", ModelType: "claude-haiku-4-5"},
 	{ProviderName: "whatai", ModelType: "gpt-5.4-mini"},
-}
-
-// audioPriority is the priority chain for audio preview.
-var audioPriority = []previewCandidate{
-	{ProviderName: "openrouter", ModelType: "google/gemini-3.1-flash-lite"},
-	{ProviderName: "openai", ModelType: "gpt-4o-mini-transcribe", Mode: modeSTT},
-	{ProviderName: "gemini", ModelType: "gemini-3.1-flash-lite"},
 }
 
 // Previewer generates quick media previews using lightweight LLM calls.
@@ -87,23 +71,25 @@ func NewPreviewer(cfgFn func() *config.Config) *LLMPreviewer {
 	return &LLMPreviewer{cfgFn: cfgFn}
 }
 
-// Preview generates a brief text description of the media file at filePath.
+// Preview generates a brief text description of the image at filePath.
 // It selects the first available provider from the priority chain, makes a
-// quick LLM call with a media marker, and returns the description.
-// On failure, returns an error (caller should inject error into prompt).
+// quick LLM call with an image marker, and returns the description.
+//
+// Audio is rejected: it is transcribed by the audio-preview agent, not here.
 func (p *LLMPreviewer) Preview(ctx context.Context, filePath string, mediaType MediaType) (string, error) {
+	if mediaType == MediaTypeAudio {
+		return "", fmt.Errorf("audio preview is handled by the audio-preview agent, not media.Preview")
+	}
+
 	cfg := p.cfgFn()
 	if cfg == nil {
 		return "", fmt.Errorf("config unavailable")
 	}
 
 	candidates := imagePriority
-	if mediaType == MediaTypeAudio {
-		candidates = audioPriority
-	}
 
 	// Override: env var or config can force a specific provider/model.
-	if override := previewOverride(cfg, mediaType); override != nil {
+	if override := previewOverride(cfg); override != nil {
 		candidates = []previewCandidate{*override}
 	}
 
@@ -140,45 +126,28 @@ func (p *LLMPreviewer) Preview(ctx context.Context, filePath string, mediaType M
 	logger.Info("media preview starting",
 		"provider", selectedCandidate.ProviderName,
 		"model", selectedCandidate.ModelType,
-		"mode", previewModeLabel(selectedCandidate.Mode),
-		"mediaType", mediaTypeLabel(mediaType),
 		"file", filePath,
 	)
 
-	var content string
-	var tokens int
-
-	if selectedCandidate.Mode == modeSTT {
-		// Speech-to-text: OpenAI /v1/audio/transcriptions endpoint.
-		text, err := callSTT(ctx, apiKey, apiBase, selectedCandidate.ModelType, filePath)
-		if err != nil {
-			return "", fmt.Errorf("preview STT failed (%s/%s): %w", selectedCandidate.ProviderName, selectedCandidate.ModelType, err)
-		}
-		content = strings.TrimSpace(text)
-	} else {
-		// LLM Chat: send media via provider.Chat().
-		prompt, mimeType := buildPreviewPrompt(filePath, mediaType)
-		req := &provider.Request{
-			Messages: []provider.Message{
-				{
-					Role:    "user",
-					Content: prompt,
-					Media:   []string{fmt.Sprintf("<<media:%s:%s>>", mimeType, filePath)},
-				},
+	prompt, mimeType := buildImagePrompt(filePath)
+	req := &provider.Request{
+		Messages: []provider.Message{
+			{
+				Role:    "user",
+				Content: prompt,
+				Media:   []string{fmt.Sprintf("<<media:%s:%s>>", mimeType, filePath)},
 			},
-		}
-		result, err := prov.Chat(ctx, req)
-		if err != nil {
-			return "", fmt.Errorf("preview LLM call failed (%s/%s): %w", selectedCandidate.ProviderName, selectedCandidate.ModelType, err)
-		}
-		resp, err := result.Wait()
-		if err != nil {
-			return "", fmt.Errorf("preview LLM call failed (%s/%s): %w", selectedCandidate.ProviderName, selectedCandidate.ModelType, err)
-		}
-		content = strings.TrimSpace(resp.Content)
-		tokens = resp.Usage.TotalTokens
+		},
 	}
-
+	result, err := prov.Chat(ctx, req)
+	if err != nil {
+		return "", fmt.Errorf("preview LLM call failed (%s/%s): %w", selectedCandidate.ProviderName, selectedCandidate.ModelType, err)
+	}
+	resp, err := result.Wait()
+	if err != nil {
+		return "", fmt.Errorf("preview LLM call failed (%s/%s): %w", selectedCandidate.ProviderName, selectedCandidate.ModelType, err)
+	}
+	content := strings.TrimSpace(resp.Content)
 	if content == "" {
 		return "", fmt.Errorf("preview returned empty content (%s/%s)", selectedCandidate.ProviderName, selectedCandidate.ModelType)
 	}
@@ -186,32 +155,21 @@ func (p *LLMPreviewer) Preview(ctx context.Context, filePath string, mediaType M
 	logger.Info("media preview completed",
 		"provider", selectedCandidate.ProviderName,
 		"model", selectedCandidate.ModelType,
-		"mode", previewModeLabel(selectedCandidate.Mode),
-		"mediaType", mediaTypeLabel(mediaType),
 		"durationMs", time.Since(start).Milliseconds(),
 		"preview", truncatePreview(content, 100),
-		"tokens", tokens,
+		"tokens", resp.Usage.TotalTokens,
 	)
 
 	return content, nil
 }
 
-// buildPreviewPrompt returns the prompt text and MIME type for the preview call.
-func buildPreviewPrompt(filePath string, mediaType MediaType) (string, string) {
-	switch mediaType {
-	case MediaTypeAudio:
-		mimeType := detectAudioMime(filePath)
-		if mimeType == "" {
-			mimeType = "audio/ogg"
-		}
-		return "Transcribe this audio in one paragraph. Output ONLY the transcription, nothing else.", mimeType
-	default: // image
-		mimeType := detectImageMime(filePath)
-		if mimeType == "" {
-			mimeType = "image/jpeg"
-		}
-		return "Describe this image. ALWAYS start by stating what the image is and its context (e.g., \"a screenshot of an iOS music app showing...\", \"a photo of a street sign\", \"a chat screenshot from WeChat\"). Then describe key visual elements (layout, UI regions, objects, people, scene). When transcribing text, ALWAYS annotate each piece of text with its position or role in parentheses — e.g., \"00:03 (top-left status bar time)\", \"74 (track number)\", \"SCHUMANN (artist name)\", \"-0:21 (time remaining)\", \"Lossless (audio quality badge)\". Never output raw text without describing where it is or what it means. Output ONLY the description, nothing else.", mimeType
+// buildImagePrompt returns the prompt text and MIME type for an image preview.
+func buildImagePrompt(filePath string) (string, string) {
+	mimeType := detectImageMime(filePath)
+	if mimeType == "" {
+		mimeType = "image/jpeg"
 	}
+	return "Describe this image. ALWAYS start by stating what the image is and its context (e.g., \"a screenshot of an iOS music app showing...\", \"a photo of a street sign\", \"a chat screenshot from WeChat\"). Then describe key visual elements (layout, UI regions, objects, people, scene). When transcribing text, ALWAYS annotate each piece of text with its position or role in parentheses — e.g., \"00:03 (top-left status bar time)\", \"74 (track number)\", \"SCHUMANN (artist name)\", \"-0:21 (time remaining)\", \"Lossless (audio quality badge)\". Never output raw text without describing where it is or what it means. Output ONLY the description, nothing else.", mimeType
 }
 
 // detectImageMime returns the MIME type for an image file based on extension.
@@ -228,8 +186,10 @@ func detectImageMime(path string) string {
 	return "image/jpeg"
 }
 
-// detectAudioMime returns the MIME type for an audio file based on extension.
-func detectAudioMime(path string) string {
+// DetectAudioMime returns the MIME type for an audio file based on extension.
+// Exported so the dispatcher can build the "<<media:mime:path>>" marker passed
+// to the audio-preview agent.
+func DetectAudioMime(path string) string {
 	ext := strings.ToLower(extOf(path))
 	mimes := map[string]string{
 		".ogg": "audio/ogg", ".oga": "audio/ogg", ".opus": "audio/ogg",
@@ -291,33 +251,16 @@ func truncatePreview(s string, maxLen int) string {
 	return s[:maxLen] + "..."
 }
 
-func previewModeLabel(m previewMode) string {
-	if m == modeSTT {
-		return "stt"
-	}
-	return "chat"
-}
-
-// previewOverride checks env vars and config for a preview provider/model override.
-// Env: NAGOBOT_PREVIEW_IMAGE="provider/model" or NAGOBOT_PREVIEW_AUDIO="provider/model"
-// Config: thread.preview.image or thread.preview.audio (same format)
-// Env takes precedence over config.
-func previewOverride(cfg *config.Config, mediaType MediaType) *previewCandidate {
-	var envKey, cfgVal string
-	switch mediaType {
-	case MediaTypeAudio:
-		envKey = "NAGOBOT_PREVIEW_AUDIO"
-		if cfg.Thread.Preview != nil {
-			cfgVal = cfg.Thread.Preview.Audio
-		}
-	default:
-		envKey = "NAGOBOT_PREVIEW_IMAGE"
-		if cfg.Thread.Preview != nil {
-			cfgVal = cfg.Thread.Preview.Image
-		}
+// previewOverride checks env var and config for an image preview provider/model
+// override. Env: NAGOBOT_PREVIEW_IMAGE="provider/model". Config:
+// thread.preview.image (same format). Env takes precedence over config.
+func previewOverride(cfg *config.Config) *previewCandidate {
+	var cfgVal string
+	if cfg.Thread.Preview != nil {
+		cfgVal = cfg.Thread.Preview.Image
 	}
 
-	raw := strings.TrimSpace(os.Getenv(envKey))
+	raw := strings.TrimSpace(os.Getenv("NAGOBOT_PREVIEW_IMAGE"))
 	if raw == "" {
 		raw = strings.TrimSpace(cfgVal)
 	}
@@ -330,73 +273,5 @@ func previewOverride(cfg *config.Config, mediaType MediaType) *previewCandidate 
 	if idx <= 0 {
 		return nil
 	}
-	provName := raw[:idx]
-	modelType := raw[idx+1:]
-
-	c := &previewCandidate{ProviderName: provName, ModelType: modelType}
-	// Auto-detect STT mode for known transcription models.
-	if strings.Contains(modelType, "transcribe") {
-		c.Mode = modeSTT
-	}
-	return c
-}
-
-// callSTT calls the OpenAI-compatible /v1/audio/transcriptions endpoint.
-// The file is uploaded as multipart form data. .oga files are renamed to .ogg
-// because OpenAI does not recognize the .oga extension.
-func callSTT(ctx context.Context, apiKey, apiBase, model, filePath string) (string, error) {
-	base := "https://api.openai.com/v1"
-	if apiBase != "" {
-		base = strings.TrimRight(apiBase, "/")
-	}
-
-	pr, pw := io.Pipe()
-	writer := multipart.NewWriter(pw)
-
-	go func() {
-		defer pw.Close()
-		defer writer.Close()
-		_ = writer.WriteField("model", model)
-		// Use .ogg instead of .oga — OpenAI rejects .oga but accepts .ogg (same codec).
-		uploadName := filepath.Base(filePath)
-		if strings.HasSuffix(strings.ToLower(uploadName), ".oga") {
-			uploadName = uploadName[:len(uploadName)-4] + ".ogg"
-		}
-		part, err := writer.CreateFormFile("file", uploadName)
-		if err != nil {
-			return
-		}
-		f, err := os.Open(filePath)
-		if err != nil {
-			return
-		}
-		defer f.Close()
-		_, _ = io.Copy(part, f)
-	}()
-
-	req, err := http.NewRequestWithContext(ctx, "POST", base+"/audio/transcriptions", pr)
-	if err != nil {
-		return "", err
-	}
-	req.Header.Set("Authorization", "Bearer "+apiKey)
-	req.Header.Set("Content-Type", writer.FormDataContentType())
-
-	resp, err := http.DefaultClient.Do(req)
-	if err != nil {
-		return "", fmt.Errorf("request failed: %w", err)
-	}
-	defer resp.Body.Close()
-
-	body, _ := io.ReadAll(resp.Body)
-	if resp.StatusCode != 200 {
-		return "", fmt.Errorf("%d %s", resp.StatusCode, truncatePreview(string(body), 200))
-	}
-
-	var result struct {
-		Text string `json:"text"`
-	}
-	if err := json.Unmarshal(body, &result); err != nil {
-		return "", fmt.Errorf("parse: %w", err)
-	}
-	return result.Text, nil
+	return &previewCandidate{ProviderName: raw[:idx], ModelType: raw[idx+1:]}
 }

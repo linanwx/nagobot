@@ -99,15 +99,15 @@ func TestDetectAudioMime(t *testing.T) {
 		{"voice.unknown", "audio/ogg"}, // default fallback
 	}
 	for _, tt := range tests {
-		got := detectAudioMime(tt.path)
+		got := DetectAudioMime(tt.path)
 		if got != tt.want {
-			t.Errorf("detectAudioMime(%q) = %q, want %q", tt.path, got, tt.want)
+			t.Errorf("DetectAudioMime(%q) = %q, want %q", tt.path, got, tt.want)
 		}
 	}
 }
 
-func TestBuildPreviewPrompt_Image(t *testing.T) {
-	prompt, mime := buildPreviewPrompt("photo.png", MediaTypeImage)
+func TestBuildImagePrompt(t *testing.T) {
+	prompt, mime := buildImagePrompt("photo.png")
 	if !strings.Contains(prompt, "Describe") {
 		t.Errorf("image prompt should contain 'Describe', got: %s", prompt)
 	}
@@ -116,13 +116,13 @@ func TestBuildPreviewPrompt_Image(t *testing.T) {
 	}
 }
 
-func TestBuildPreviewPrompt_Audio(t *testing.T) {
-	prompt, mime := buildPreviewPrompt("voice.ogg", MediaTypeAudio)
-	if !strings.Contains(prompt, "Transcribe") {
-		t.Errorf("audio prompt should contain 'Transcribe', got: %s", prompt)
-	}
-	if mime != "audio/ogg" {
-		t.Errorf("expected audio/ogg, got: %s", mime)
+// TestPreviewRejectsAudio verifies audio is no longer handled by media.Preview —
+// it is transcribed by the audio-preview agent instead.
+func TestPreviewRejectsAudio(t *testing.T) {
+	p := NewPreviewer(func() *config.Config { return &config.Config{} })
+	_, err := p.Preview(context.Background(), "/tmp/voice.ogg", MediaTypeAudio)
+	if err == nil || !strings.Contains(err.Error(), "audio-preview agent") {
+		t.Errorf("expected audio rejection error, got: %v", err)
 	}
 }
 

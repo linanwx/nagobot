@@ -20,7 +20,7 @@ import (
 
 // run executes one thread turn. Called by RunOnce; callers must not invoke
 // this directly.
-func (t *Thread) run(ctx context.Context, userMessage string, sink Sink, callerKey string, injectFn func() []provider.Message, wakeSource string) (string, error) {
+func (t *Thread) run(ctx context.Context, userMessage string, media []string, sink Sink, callerKey string, injectFn func() []provider.Message, wakeSource string) (string, error) {
 	userMessage = strings.TrimSpace(userMessage)
 	if userMessage == "" {
 		return "", nil
@@ -36,7 +36,7 @@ func (t *Thread) run(ctx context.Context, userMessage string, sink Sink, callerK
 	t.clearIfStateless(cfg)
 
 	sess := t.loadSession()
-	messages, turnUserMessages := t.buildMessageHistory(ctx, systemPrompt, userMessage, sess)
+	messages, turnUserMessages := t.buildMessageHistory(ctx, systemPrompt, userMessage, media, sess)
 
 	// Write-ahead: persist user messages before LLM call so they survive a crash.
 	if sess != nil {
@@ -175,7 +175,7 @@ func (t *Thread) buildSystemPrompt() string {
 // buildMessageHistory assembles the full message list for the LLM request,
 // including system prompt, session history, user message, and hook injections.
 // Returns the full messages slice and the turn-specific user messages (for write-ahead).
-func (t *Thread) buildMessageHistory(ctx context.Context, systemPrompt, userMessage string, sess *session.Session) ([]provider.Message, []provider.Message) {
+func (t *Thread) buildMessageHistory(ctx context.Context, systemPrompt, userMessage string, media []string, sess *session.Session) ([]provider.Message, []provider.Message) {
 	messages := make([]provider.Message, 0, 2)
 	messages = append(messages, provider.SystemMessage(systemPrompt))
 
@@ -191,6 +191,9 @@ func (t *Thread) buildMessageHistory(ctx context.Context, systemPrompt, userMess
 
 	turnUserMessages := make([]provider.Message, 0, 4)
 	userMsg := provider.UserMessage(userMessage)
+	if kept := t.keepSupportedMedia(media); len(kept) > 0 {
+		userMsg.Media = kept
+	}
 	messages = append(messages, userMsg)
 	turnUserMessages = append(turnUserMessages, userMsg)
 
@@ -363,6 +366,9 @@ func parentSessionKey(key string) string {
 	}
 	if strings.HasSuffix(key, session.PreThinkSessionSuffix) {
 		return strings.TrimSuffix(key, session.PreThinkSessionSuffix)
+	}
+	if strings.HasSuffix(key, session.AudioPreviewSessionSuffix) {
+		return strings.TrimSuffix(key, session.AudioPreviewSessionSuffix)
 	}
 	if idx := strings.Index(key, session.ForkSessionInfix); idx > 0 {
 		return key[:idx]
@@ -759,6 +765,45 @@ func (t *Thread) currentModelSupportsPDF() bool {
 	}
 	cfg := t.cfg()
 	return provider.SupportsPDF(cfg.ProviderName, cfg.ModelName)
+}
+
+// keepSupportedMedia filters wake-attached media markers down to those the
+// resolved model can actually consume in user content. A marker whose type the
+// model does not support would be silently dropped by the provider layer (the
+// `!capable` continue in toOpenAIChatMessages / toGeminiContents); we surface
+// that with a Warn instead so a mis-routed media wake (e.g. an audio marker
+// sent to a non-audio model) is visible, not lost without a trace.
+func (t *Thread) keepSupportedMedia(markers []string) []string {
+	if len(markers) == 0 {
+		return nil
+	}
+	kept := make([]string, 0, len(markers))
+	for _, raw := range markers {
+		_, parsed := provider.ParseMediaMarkers(raw)
+		if len(parsed) == 0 {
+			logger.Warn("wake media marker malformed, dropping", "sessionKey", t.sessionKey, "marker", raw)
+			continue
+		}
+		m := parsed[0]
+		supported := true
+		switch {
+		case strings.HasPrefix(m.MimeType, "image/"):
+			supported = t.currentModelSupportsVision()
+		case strings.HasPrefix(m.MimeType, "audio/"):
+			supported = t.currentModelSupportsAudio()
+		case m.MimeType == "application/pdf":
+			supported = t.currentModelSupportsPDF()
+		default:
+			supported = false
+		}
+		if !supported {
+			logger.Warn("wake media dropped: resolved model lacks capability for this media type",
+				"sessionKey", t.sessionKey, "mime", m.MimeType, "file", m.FilePath)
+			continue
+		}
+		kept = append(kept, raw)
+	}
+	return kept
 }
 
 // resolveProvider returns the provider for the current agent's model type,

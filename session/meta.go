@@ -21,6 +21,10 @@ const RephraseSessionSuffix = ":rephrase"
 // PreThinkSessionSuffix is the session key suffix for pre-think sibling sessions.
 const PreThinkSessionSuffix = ":prethink"
 
+// AudioPreviewSessionSuffix is the session key suffix for audio-preview sibling
+// sessions (upfront transcription of incoming voice messages).
+const AudioPreviewSessionSuffix = ":audiopreview"
+
 // ForkSessionInfix is the infix used in fork session keys: {parent}:fork:{purpose}.
 const ForkSessionInfix = ":fork:"
 

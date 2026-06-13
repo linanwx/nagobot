@@ -98,7 +98,7 @@ func (d *Dispatcher) dispatch(ctx context.Context, ch channel.Channel, msg *chan
 	}
 	sink := d.buildSink(ch, msg, sessionKey)
 	agentName, vars := d.resolveAgentName(sessionKey, msg)
-	userMessage := d.preprocessMessage(msg)
+	userMessage := d.preprocessMessage(sessionKey, msg)
 	source := d.wakeSource(ch)
 
 	if sysmsg.IsUserVisibleSource(source) {
@@ -376,13 +376,13 @@ func (d *Dispatcher) resolveAgentName(sessionKey string, msg *channel.Message) (
 }
 
 // preprocessMessage prepends media summary, previews, and sender name to the user message.
-func (d *Dispatcher) preprocessMessage(msg *channel.Message) string {
+func (d *Dispatcher) preprocessMessage(sessionKey string, msg *channel.Message) string {
 	text := msg.Text
 
 	mediaSummary := msg.Metadata["media_summary"]
 	if mediaSummary != "" {
 		// Generate fast media previews for downloaded media files.
-		previews := d.generateMediaPreviews(mediaSummary)
+		previews := d.generateMediaPreviews(sessionKey, mediaSummary)
 		if previews != "" {
 			text = previews + "\n\n" + mediaSummary + "\n\n" + text
 		} else {
@@ -453,14 +453,12 @@ func threadHeader(meta map[string]string) string {
 // mediaPathRe matches "image_path: /path" or "audio_path: /path" lines in media summaries.
 var mediaPathRe = regexp.MustCompile(`(?m)^(image_path|audio_path):\s*(.+)$`)
 
-// generateMediaPreviews extracts media file paths from a media summary string,
-// calls the previewer for each, and returns formatted preview tags.
-// Returns empty string if no previews were generated or previewer is nil.
-func (d *Dispatcher) generateMediaPreviews(mediaSummary string) string {
-	if d.previewer == nil {
-		return ""
-	}
-
+// generateMediaPreviews extracts media file paths from a media summary string
+// and returns formatted preview tags. Images go through the lightweight LLM
+// previewer; audio is transcribed by the stateless audio-preview agent (woken
+// on the session's :audiopreview sibling with the clip attached natively).
+// Returns empty string if no previews were generated.
+func (d *Dispatcher) generateMediaPreviews(sessionKey, mediaSummary string) string {
 	matches := mediaPathRe.FindAllStringSubmatch(mediaSummary, -1)
 	if len(matches) == 0 {
 		return ""
@@ -474,22 +472,29 @@ func (d *Dispatcher) generateMediaPreviews(mediaSummary string) string {
 			continue
 		}
 
-		mediaType := media.MediaTypeImage
 		if pathType == "audio_path" {
-			mediaType = media.MediaTypeAudio
-		}
-
-		description, err := d.previewer.Preview(d.ctx, filePath, mediaType)
-		if err != nil {
-			logger.Error("media preview failed",
-				"file", filePath,
-				"mediaType", pathType,
-				"err", err,
-			)
-			previews = append(previews, media.FormatPreviewError(err, mediaType))
+			// Audio: wake the audio-preview agent with the clip attached
+			// natively. Empty result = audio not configured or the turn
+			// failed (logged inside AudioPreview); skip the tag and let the
+			// main turn fall back to read_file/audioreader.
+			marker := fmt.Sprintf("<<media:%s:%s>>", media.DetectAudioMime(filePath), filePath)
+			if transcription := d.threads.AudioPreview(d.ctx, sessionKey, marker); transcription != "" {
+				previews = append(previews, media.FormatPreviewTag(transcription, media.MediaTypeAudio))
+			}
 			continue
 		}
-		previews = append(previews, media.FormatPreviewTag(description, mediaType))
+
+		// Image.
+		if d.previewer == nil {
+			continue
+		}
+		description, err := d.previewer.Preview(d.ctx, filePath, media.MediaTypeImage)
+		if err != nil {
+			logger.Error("media preview failed", "file", filePath, "mediaType", pathType, "err", err)
+			previews = append(previews, media.FormatPreviewError(err, media.MediaTypeImage))
+			continue
+		}
+		previews = append(previews, media.FormatPreviewTag(description, media.MediaTypeImage))
 	}
 
 	if len(previews) == 0 {
