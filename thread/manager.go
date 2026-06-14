@@ -2,6 +2,7 @@ package thread
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"path/filepath"
 	"runtime/debug"
@@ -196,6 +197,7 @@ func (m *Manager) NewThread(sessionKey, agentName string) (*Thread, error) {
 		sessionKey:       strings.TrimSpace(sessionKey),
 		state:            threadIdle,
 		inbox:            make(chan *WakeMessage, defaultInboxSize),
+		injectInbox:      make(chan string, defaultInjectInboxSize),
 		signal:           m.signal,
 		lastActiveAt:     time.Now(),
 		lastUserActiveAt: time.Now(),
@@ -238,6 +240,48 @@ func (m *Manager) RegisterTool(t tools.Tool) {
 	if m.cfg.Tools != nil {
 		m.cfg.Tools.Register(t)
 	}
+}
+
+// stopSessionBody is the control message injected by StopSession. It is a soft
+// stop: the running turn's LLM sees it at the next iteration boundary and is
+// asked to terminate the turn itself. There is no hard cancellation — an
+// in-flight tool/LLM call runs to completion before the boundary is reached.
+const stopSessionBody = "OPERATOR STOP: an operator has requested that this session stop immediately. " +
+	"Do NOT start any new tool calls or begin any new work. End this turn right now by calling " +
+	"dispatch({}) (empty sends — silent termination). Abandon anything still in progress."
+
+// InjectMessage pushes body onto the target thread's dedicated injection queue,
+// bypassing the normal merge gate (canMerge). The message surfaces at the
+// running turn's next iteration boundary. This is a general, internal primitive;
+// it is intentionally NOT exposed as a general CLI command (only StopSession is)
+// to avoid abuse. Returns a human-readable note, or an error if no thread is
+// currently loaded for the key.
+func (m *Manager) InjectMessage(sessionKey, body string) (string, error) {
+	sessionKey = strings.TrimSpace(sessionKey)
+	if sessionKey == "" {
+		return "", fmt.Errorf("session key is empty")
+	}
+	m.mu.Lock()
+	t, ok := m.threads[sessionKey]
+	running := ok && t.state == threadRunning
+	m.mu.Unlock()
+	if !ok {
+		return "", fmt.Errorf("no active thread for session %q (nothing running to inject into)", sessionKey)
+	}
+	if err := t.EnqueueInject(body); err != nil {
+		return "", err
+	}
+	if running {
+		return "injected into running thread; will surface at its next iteration boundary", nil
+	}
+	return "thread loaded but not currently running; injection queued for its next turn", nil
+}
+
+// StopSession soft-stops a session by injecting stopSessionBody. The session's
+// LLM is asked to terminate the current turn via dispatch({}) at the next
+// iteration boundary. Returns an error if no thread is loaded for the key.
+func (m *Manager) StopSession(sessionKey string) (string, error) {
+	return m.InjectMessage(sessionKey, stopSessionBody)
 }
 
 // HasThread reports whether a thread exists for the given session key.

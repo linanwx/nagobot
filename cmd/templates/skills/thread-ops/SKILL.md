@@ -1,6 +1,6 @@
 ---
 name: thread-ops
-description: Use when you need to interact with other threads or manage thread lifecycle. Covers dispatching work to subagents / forks / existing sessions via a single primitive, inspecting session state by key, sleeping to suppress output or schedule delayed follow-ups, and running health diagnostics across all active threads.
+description: Use when you need to interact with other threads or manage thread lifecycle. Covers dispatching work to subagents / forks / existing sessions via a single primitive, inspecting session state by key, scheduling a delayed self-wake (via the manage-cron set-at --direct-wake job), and running health diagnostics across all active threads.
 tags: [thread, internal, orchestration]
 ---
 # Thread Operations
@@ -74,6 +74,25 @@ tool_call: check_session(session_key="cli:threads:find-news")
 ```
 
 Use this after `dispatch(to=subagent|fork)` to follow up on a child session by the resolved `session_key`.
+
+### Stopping a child session (soft stop)
+
+Run via the CLI (not a tool) when a child you spawned is running too long or down a wrong path and you want it to wind down:
+
+```
+bin/nagobot stop-session <child-session-key>
+```
+
+e.g. `bin/nagobot stop-session cli:threads:find-news`.
+
+This is a **soft** stop. It injects a control message into the child's dedicated inject lane; at the child turn's **next iteration boundary** its LLM is asked to end the turn immediately via `dispatch({})`. Notes:
+
+- **Not instantaneous.** An in-flight tool or LLM call runs to completion first; the stop lands at the next boundary. A child blocked in one very long tool call will not stop until that call returns.
+- **No hard cancel.** The child is never killed mid-write; its session history stays valid and will not be wrongly resumed after a restart.
+- **Silent end.** The stopped child terminates with `dispatch({})` — it does NOT send you a `child_completed`. Confirm it stopped with `check_session(session_key=...)` (expect the thread to no longer be `running`).
+- **Errors if not running.** If no thread is loaded for the key (already finished / GC'd / never existed), the command reports that — there is nothing to stop.
+
+To stop a child you spawned, use its resolved key: `<current>:threads:<task_id>` (subagent) or `<current>:fork:<task_id>` (fork).
 
 ### health
 

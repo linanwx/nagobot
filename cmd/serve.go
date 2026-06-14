@@ -132,6 +132,16 @@ func runServe(cmd *cobra.Command, args []string) error {
 			return output, nil
 		case "heartbeat.status":
 			return hbScheduler.Status(), nil
+		case "session.stop":
+			var p sessionStopParams
+			if err := json.Unmarshal(params, &p); err != nil {
+				return nil, fmt.Errorf("parse params: %w", err)
+			}
+			note, err := threadMgr.StopSession(p.SessionKey)
+			if err != nil {
+				return nil, err
+			}
+			return sessionStopResponse{SessionKey: p.SessionKey, Note: note}, nil
 		case "shutdown":
 			go func() {
 				// Small delay so the RPC response is sent before shutdown.

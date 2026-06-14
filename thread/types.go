@@ -40,16 +40,16 @@ type WakeSource = msg.WakeSource
 
 // Wake source constants re-exported from msg package.
 const (
-	WakeTelegram    = msg.WakeTelegram
-	WakeWeb         = msg.WakeWeb
-	WakeDiscord     = msg.WakeDiscord
-	WakeFeishu      = msg.WakeFeishu
-	WakeWeCom       = msg.WakeWeCom
-	WakeSession     = msg.WakeSession
-	WakeCron        = msg.WakeCron
-	WakeCompression = msg.WakeCompression
-	WakeHeartbeat   = msg.WakeHeartbeat
-	WakeResume      = msg.WakeResume
+	WakeTelegram     = msg.WakeTelegram
+	WakeWeb          = msg.WakeWeb
+	WakeDiscord      = msg.WakeDiscord
+	WakeFeishu       = msg.WakeFeishu
+	WakeWeCom        = msg.WakeWeCom
+	WakeSession      = msg.WakeSession
+	WakeCron         = msg.WakeCron
+	WakeCompression  = msg.WakeCompression
+	WakeHeartbeat    = msg.WakeHeartbeat
+	WakeResume       = msg.WakeResume
 	WakeRephrase     = msg.WakeRephrase
 	WakePreThink     = msg.WakePreThink
 	WakeAudioPreview = msg.WakeAudioPreview
@@ -65,11 +65,12 @@ const (
 )
 
 const (
-	defaultMaxConcurrency = 16
-	defaultInboxSize      = 64
-	defaultThreadTTL      = 3 * time.Hour
-	gcInterval            = 5 * time.Minute
-	streamFlushThreshold  = 600 // minimum unsent bytes before attempting a streamer split
+	defaultMaxConcurrency  = 16
+	defaultInboxSize       = 64
+	defaultInjectInboxSize = 16
+	defaultThreadTTL       = 3 * time.Hour
+	gcInterval             = 5 * time.Minute
+	streamFlushThreshold   = 600 // minimum unsent bytes before attempting a streamer split
 
 	// Tier 1: mechanical tool-result compression (idle ≥5 min, no token threshold)
 	tier1IdleMin = 5 * time.Minute
@@ -121,9 +122,10 @@ type Thread struct {
 	tools      *tools.Registry
 
 	// State machine fields.
-	state  threadState
-	inbox  chan *WakeMessage // Buffered wake queue.
-	signal chan struct{}     // Shared with Manager for notification.
+	state       threadState
+	inbox       chan *WakeMessage // Buffered wake queue.
+	injectInbox chan string       // Dedicated control/injection lane (bypasses tryMerge/canMerge).
+	signal      chan struct{}     // Shared with Manager for notification.
 
 	mu               sync.Mutex
 	hooks            []turnHook

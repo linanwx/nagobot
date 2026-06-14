@@ -34,6 +34,30 @@ func (t *Thread) hasMessages() bool {
 	return len(t.pending) > 0 || len(t.inbox) > 0
 }
 
+// EnqueueInject pushes a control/injection message onto the dedicated inject
+// queue. Unlike Enqueue, these bypass tryMerge/canMerge entirely and are drained
+// unconditionally by the running turn's injectFn at each iteration boundary.
+// Non-blocking: returns an error if the inject queue is full rather than
+// blocking the caller (typically an RPC handler).
+func (t *Thread) EnqueueInject(body string) error {
+	body = strings.TrimSpace(body)
+	if body == "" {
+		return fmt.Errorf("inject body is empty")
+	}
+	select {
+	case t.injectInbox <- body:
+		// Notify the manager in case the thread is idle-but-loaded, so the
+		// queue is not left unattended. Harmless for a running thread.
+		select {
+		case t.signal <- struct{}{}:
+		default:
+		}
+		return nil
+	default:
+		return fmt.Errorf("inject queue full for session %q", t.sessionKey)
+	}
+}
+
 // tryMerge drains the inbox for consecutive messages with the same
 // Source + AgentName + Vars, concatenating their Message fields and
 // keeping the last Sink.  Non-mergeable messages are stored in t.pending
@@ -232,6 +256,23 @@ func (t *Thread) RunOnce(ctx context.Context) {
 	// requeue deadlock.
 	injectFn := func() []provider.Message {
 		var injected []provider.Message
+		// Control lane first: drain the dedicated inject queue unconditionally
+		// (no canMerge gate). Wrapped as injected system messages so they are
+		// visible in history but skipped by the resume scanner.
+	controlLane:
+		for {
+			select {
+			case body := <-t.injectInbox:
+				payload := markInjected(sysmsg.BuildSystemMessage("injected_control", nil, body))
+				injected = append(injected, provider.UserMessage(payload))
+				logger.Info("injected control message",
+					"threadID", t.id,
+					"sessionKey", t.sessionKey,
+				)
+			default:
+				break controlLane
+			}
+		}
 		for {
 			select {
 			case next := <-t.inbox:
