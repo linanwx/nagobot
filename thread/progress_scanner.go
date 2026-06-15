@@ -16,7 +16,10 @@ const (
 	progressMinElapsed   = 60               // seconds a child must have run before its first report
 	progressInterval     = 60 * time.Second // minimum gap between reports for one child
 	progressWindow       = 3                // number of recent tool calls included in a report
-	progressMaxBytes     = 400              // hard cap on the report body (rune-safe)
+	// Safety cap on the report body (rune-safe). Each line shows full
+	// ArgsSummary + ResultPreview (≤200 chars each upstream), so 3 lines fit
+	// comfortably; this only guards against pathological input.
+	progressMaxBytes = 2000
 )
 
 // ProgressScanner periodically reports a long-running child session's progress
@@ -131,7 +134,16 @@ func formatProgress(childKey string, info msg.ThreadInfo) string {
 			if rec.Error {
 				marker = "✗"
 			}
-			fmt.Fprintf(&sb, "- %s(%s) %s\n", rec.Name, truncRunes(strings.TrimSpace(rec.ArgsSummary), 40), marker)
+			// ArgsSummary / ResultPreview are already capped at 200 chars upstream
+			// (in RecordToolCall); show them in full, with newlines flattened so
+			// each call stays on one line.
+			args := flattenWS(rec.ArgsSummary)
+			result := flattenWS(rec.ResultPreview)
+			if result != "" {
+				fmt.Fprintf(&sb, "- %s(%s) → %s %s\n", rec.Name, args, result, marker)
+			} else {
+				fmt.Fprintf(&sb, "- %s(%s) %s\n", rec.Name, args, marker)
+			}
 		}
 	}
 	if info.CurrentTool != "" {
@@ -155,13 +167,10 @@ func humanizeDuration(sec int) string {
 	return fmt.Sprintf("%dh%02dm", h, m)
 }
 
-// truncRunes truncates s to at most n runes, appending "…" if cut.
-func truncRunes(s string, n int) string {
-	r := []rune(s)
-	if len(r) <= n {
-		return s
-	}
-	return string(r[:n]) + "…"
+// flattenWS collapses all runs of whitespace (incl. newlines) to single spaces,
+// keeping a multi-line args/result preview on one progress line.
+func flattenWS(s string) string {
+	return strings.Join(strings.Fields(s), " ")
 }
 
 // capBytes hard-caps s to maxBytes without splitting a UTF-8 rune.

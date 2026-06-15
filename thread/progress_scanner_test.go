@@ -69,7 +69,7 @@ func TestFormatProgress(t *testing.T) {
 		CurrentTool:    "grep",
 		ToolTrace: []msg.ToolCallRecord{
 			{Name: "old1"}, {Name: "old2"}, {Name: "old3"}, // should be dropped (window=3)
-			{Name: "web_search", ArgsSummary: `{"q":"x"}`},
+			{Name: "web_search", ArgsSummary: `{"q":"quantum computing latest"}`, ResultPreview: "8 results: IBM unveils new chip\nroadmap to 2030"},
 			{Name: "fetch", ArgsSummary: `{"url":"y"}`, Error: true},
 			{Name: "read_file", ArgsSummary: `{"path":"z"}`},
 		},
@@ -91,6 +91,14 @@ func TestFormatProgress(t *testing.T) {
 	}
 	if !strings.Contains(out, "web_search") || !strings.Contains(out, "fetch") || !strings.Contains(out, "read_file") {
 		t.Errorf("recent tool calls missing: %s", out)
+	}
+	// Full args shown, not truncated.
+	if !strings.Contains(out, `{"q":"quantum computing latest"}`) {
+		t.Errorf("args not shown in full: %s", out)
+	}
+	// Result preview shown, with newlines flattened to a single line.
+	if !strings.Contains(out, "8 results: IBM unveils new chip roadmap to 2030") {
+		t.Errorf("result preview missing or not flattened: %s", out)
 	}
 	if !strings.Contains(out, "✗") {
 		t.Error("error marker missing for failed call")
