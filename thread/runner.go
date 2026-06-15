@@ -331,7 +331,7 @@ func (r *Runner) RunWithMessages(ctx context.Context, messages []provider.Messag
 				r.metrics.RecordToolCall(ToolCallRecord{
 					Name:          tc.Function.Name,
 					ArgsSummary:   truncateStr(tc.Function.Arguments, 200),
-					ResultPreview: truncateStr(result, 200),
+					ResultPreview: resultPreview(result),
 					DurationMs:    time.Since(start).Milliseconds(),
 					Error:         tools.IsToolError(result),
 				})
@@ -539,6 +539,17 @@ func (r *Runner) logEstimationAccuracy(messages []provider.Message, resp *provid
 		)
 	}
 	logger.Info("token_estimate", fields...)
+}
+
+// resultPreview returns a ≤200-char preview of a tool result, skipping any
+// leading YAML frontmatter so the preview shows actual content rather than the
+// metadata header (status/time/source) most tool results lead with.
+func resultPreview(result string) string {
+	src := result
+	if _, body, ok := SplitFrontmatter(result); ok {
+		src = strings.TrimSpace(body)
+	}
+	return truncateStr(src, 200)
 }
 
 // truncateStr returns the first n characters of s, appending "..." if truncated.
