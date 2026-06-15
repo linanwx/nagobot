@@ -228,7 +228,13 @@ func (t *Thread) SendToUser(ctx context.Context, body string) error {
 // heartbeat sessions return false because their defaultSink routes elsewhere
 // (parent thread, wake_session target, or silent).
 func (t *Thread) IsUserFacing() bool {
-	key := strings.TrimSpace(t.sessionKey)
+	return isUserFacingKey(t.sessionKey)
+}
+
+// isUserFacingKey reports whether a session key is a user-facing channel session
+// (telegram / discord / cli / web / feishu / wecom) with no subagent/fork infix.
+func isUserFacingKey(key string) bool {
+	key = strings.TrimSpace(key)
 	if key == "" {
 		return false
 	}
@@ -247,6 +253,33 @@ func (t *Thread) IsUserFacing() bool {
 		}
 	}
 	return false
+}
+
+// userFacingAncestor returns the topmost ancestor of a child session key (one
+// created via subagent ":threads:" or fork ":fork:") by stripping at the
+// earliest child infix, plus whether that ancestor is user-facing. For a
+// non-child key it returns the key unchanged.
+func userFacingAncestor(key string) (string, bool) {
+	key = strings.TrimSpace(key)
+	ancestor := key
+	ti := strings.Index(key, session.ThreadsSessionInfix)
+	fi := strings.Index(key, session.ForkSessionInfix)
+	cut := -1
+	switch {
+	case ti >= 0 && fi >= 0:
+		cut = ti
+		if fi < ti {
+			cut = fi
+		}
+	case ti >= 0:
+		cut = ti
+	case fi >= 0:
+		cut = fi
+	}
+	if cut >= 0 {
+		ancestor = key[:cut]
+	}
+	return ancestor, isUserFacingKey(ancestor)
 }
 
 // SignalHalt marks the current turn for termination after the tool returns.

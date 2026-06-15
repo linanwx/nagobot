@@ -67,9 +67,9 @@ func (r ReactFunc) Do(ctx context.Context, event ReactEvent) {
 type Sink struct {
 	Label     string
 	Send      func(ctx context.Context, response string) error
-	React     ReactFunc                              // Optional: fire-and-forget emoji reaction on the source message.
-	Chunkable bool                                   // True for sinks that accept chunked streaming delivery (telegram, discord, feishu, cli).
-	Flush     func(ctx context.Context) error        // Optional: signals end-of-turn; recorders use this to commit buffered output.
+	React     ReactFunc                       // Optional: fire-and-forget emoji reaction on the source message.
+	Chunkable bool                            // True for sinks that accept chunked streaming delivery (telegram, discord, feishu, cli).
+	Flush     func(ctx context.Context) error // Optional: signals end-of-turn; recorders use this to commit buffered output.
 }
 
 // IsZero reports whether the sink has no delivery function.
@@ -108,9 +108,9 @@ func (s Sink) WithRetry(maxAttempts int) Sink {
 // ToolCallRecord records a single tool invocation during a turn.
 type ToolCallRecord struct {
 	Name          string `json:"name"`
-	ArgsSummary   string `json:"args"`              // first 200 chars of arguments JSON
-	ResultPreview string `json:"result"`            // first 200 chars of tool result
-	DurationMs    int64  `json:"durationMs"`        // execution time in milliseconds
+	ArgsSummary   string `json:"args"`       // first 200 chars of arguments JSON
+	ResultPreview string `json:"result"`     // first 200 chars of tool result
+	DurationMs    int64  `json:"durationMs"` // execution time in milliseconds
 	Error         bool   `json:"error,omitempty"`
 }
 
@@ -118,36 +118,37 @@ type ToolCallRecord struct {
 type ThreadInfo struct {
 	ID         string `json:"id"`
 	SessionKey string `json:"sessionKey"`
-	State      string `json:"state"`   // "running", "pending", "idle"
+	State      string `json:"state"` // "running", "pending", "idle"
 	Pending    int    `json:"pending"`
 	// Runtime metrics (only populated when state=running).
-	Iterations     int              `json:"iterations,omitempty"`
-	TotalToolCalls int              `json:"totalToolCalls,omitempty"`
-	CurrentTool    string           `json:"currentTool,omitempty"`
-	ElapsedSec     int              `json:"elapsedSec,omitempty"`
-	ToolTrace      []ToolCallRecord `json:"toolTrace,omitempty"`
-	LastUserActiveAt time.Time      `json:"lastUserActiveAt,omitempty"`
+	Iterations       int              `json:"iterations,omitempty"`
+	TotalToolCalls   int              `json:"totalToolCalls,omitempty"`
+	CurrentTool      string           `json:"currentTool,omitempty"`
+	ElapsedSec       int              `json:"elapsedSec,omitempty"`
+	ToolTrace        []ToolCallRecord `json:"toolTrace,omitempty"`
+	LastUserActiveAt time.Time        `json:"lastUserActiveAt,omitempty"`
 }
 
 // WakeSource identifies how a thread was woken.
 type WakeSource string
 
 const (
-	WakeTelegram       WakeSource = "telegram"
-	WakeWeb            WakeSource = "web"
-	WakeDiscord        WakeSource = "discord"
-	WakeFeishu         WakeSource = "feishu"
-	WakeWeCom          WakeSource = "wecom"
-	WakeSocket         WakeSource = "socket"
-	WakeSession        WakeSource = "session" // another session woke us; caller in WakeMessage.CallerSessionKey
-	WakeCron           WakeSource = "cron"
-	WakeCompression    WakeSource = "compression"
-	WakeHeartbeat  WakeSource = "heartbeat"
-	WakeResume     WakeSource = "resume"
-	WakeRephrase   WakeSource = "rephrase"
-	WakePreThink   WakeSource = "prethink"
+	WakeTelegram     WakeSource = "telegram"
+	WakeWeb          WakeSource = "web"
+	WakeDiscord      WakeSource = "discord"
+	WakeFeishu       WakeSource = "feishu"
+	WakeWeCom        WakeSource = "wecom"
+	WakeSocket       WakeSource = "socket"
+	WakeSession      WakeSource = "session" // another session woke us; caller in WakeMessage.CallerSessionKey
+	WakeCron         WakeSource = "cron"
+	WakeCompression  WakeSource = "compression"
+	WakeHeartbeat    WakeSource = "heartbeat"
+	WakeResume       WakeSource = "resume"
+	WakeRephrase     WakeSource = "rephrase"
+	WakePreThink     WakeSource = "prethink"
 	WakeAudioPreview WakeSource = "audiopreview"
 	WakeImagePreview WakeSource = "imagepreview"
+	WakeProgress     WakeSource = "progress" // external scanner reporting a long-running child's progress to its parent
 )
 
 // IsUserVisibleSource reports whether the given source represents a real
@@ -202,15 +203,15 @@ func CallerKindFromSource(source WakeSource) CallerKind {
 
 // WakeMessage is an item in a thread's wake queue.
 type WakeMessage struct {
-	Source            WakeSource        // Wake source.
-	Message           string            // Wake payload text.
-	Media             []string          // Optional media markers (<<media:mime:path>>) attached to the first user message of this wake, delivered natively in user content (no read_file). Dropped with a warning if the resolved model lacks the matching capability.
-	Sink              Sink              // Per-wake sink. Zero value = no per-wake delivery.
-	AgentName         string            // Optional agent name override for this wake.
-	Vars              map[string]string // Optional vars override for this wake.
-	Sender            string            // Optional sender override (e.g. rephrase inherits original sender).
-	CallerSessionKey  string            // For Source=WakeSession: the session that woke us. Empty otherwise.
-	RecentChat        string            // Optional recent chat history (rendered into the wake payload markdown body).
-	OnComplete        func(response string) // Called after the turn completes with the full response text.
-	EnqueuedAt        time.Time         // Set by Thread.Enqueue if zero. Used as the wake `time` field so the LLM sees enqueue time, not processing time.
+	Source           WakeSource            // Wake source.
+	Message          string                // Wake payload text.
+	Media            []string              // Optional media markers (<<media:mime:path>>) attached to the first user message of this wake, delivered natively in user content (no read_file). Dropped with a warning if the resolved model lacks the matching capability.
+	Sink             Sink                  // Per-wake sink. Zero value = no per-wake delivery.
+	AgentName        string                // Optional agent name override for this wake.
+	Vars             map[string]string     // Optional vars override for this wake.
+	Sender           string                // Optional sender override (e.g. rephrase inherits original sender).
+	CallerSessionKey string                // For Source=WakeSession: the session that woke us. Empty otherwise.
+	RecentChat       string                // Optional recent chat history (rendered into the wake payload markdown body).
+	OnComplete       func(response string) // Called after the turn completes with the full response text.
+	EnqueuedAt       time.Time             // Set by Thread.Enqueue if zero. Used as the wake `time` field so the LLM sees enqueue time, not processing time.
 }

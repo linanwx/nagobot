@@ -260,6 +260,10 @@ func runServe(cmd *cobra.Command, args []string) error {
 	// Start heartbeat scheduler (created above near RPC handler).
 	go hbScheduler.run(ctx)
 
+	// Start progress scanner: reports long-running child sessions' progress to
+	// their user-facing ancestor (the main thread) without touching the child.
+	go thread.NewProgressScanner(threadMgr).Run(ctx)
+
 	// Set up search/fetch health persistence (passive recording, no active probing).
 	searchHealthChecker.SetPersistPath(filepath.Join(workspace, "system", "search-health.json"))
 	fetchHealthChecker.SetPersistPath(filepath.Join(workspace, "system", "fetch-health.json"))

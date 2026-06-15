@@ -54,6 +54,7 @@ const (
 	WakePreThink     = msg.WakePreThink
 	WakeAudioPreview = msg.WakeAudioPreview
 	WakeImagePreview = msg.WakeImagePreview
+	WakeProgress     = msg.WakeProgress
 )
 
 // threadState represents the runtime state of a thread.

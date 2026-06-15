@@ -252,8 +252,8 @@ func compressTier1(messages []provider.Message, keepLastAssistants int) (bool, [
 		if m.SkipTrim {
 			continue
 		}
-		// Skip messages already marked by heartbeat trim pass.
-		if m.HeartbeatTrim || (m.Role == "user" && strings.HasPrefix(m.Compressed, "[heartbeat_")) {
+		// Skip messages already marked by the heartbeat/progress trim pass.
+		if m.HeartbeatTrim || (m.Role == "user" && (strings.HasPrefix(m.Compressed, "[heartbeat ") || strings.HasPrefix(m.Compressed, "[progress "))) {
 			continue
 		}
 
@@ -310,8 +310,17 @@ func markHeartbeatTurns(messages []provider.Message) bool {
 			continue
 		}
 
+		// Both heartbeat and progress turns are user-invisible system noise:
+		// when they end silently via dispatch({}) they carry no value and are
+		// trimmed immediately (no protectFrom boundary, no time gate).
 		source := messages[i].Source
-		if !strings.HasPrefix(source, "heartbeat") {
+		trimType := ""
+		switch {
+		case strings.HasPrefix(source, "heartbeat"):
+			trimType = "heartbeat"
+		case strings.HasPrefix(source, "progress"):
+			trimType = "progress"
+		default:
 			i++
 			continue
 		}
@@ -323,7 +332,6 @@ func markHeartbeatTurns(messages []provider.Message) bool {
 		}
 
 		shouldTrim := isHeartbeatSkipTurn(messages[i:turnEnd])
-		trimType := "heartbeat"
 
 		if !shouldTrim {
 			i = turnEnd
@@ -332,7 +340,7 @@ func markHeartbeatTurns(messages []provider.Message) bool {
 
 		// User message: set Compressed to a short marker.
 		ts := messages[i].Timestamp.Format("15:04")
-		marker := fmt.Sprintf("[heartbeat_%s at %s — trimmed]", trimType, ts)
+		marker := fmt.Sprintf("[%s at %s — trimmed]", trimType, ts)
 		if marker != messages[i].Compressed {
 			messages[i].Compressed = marker
 			modified = true

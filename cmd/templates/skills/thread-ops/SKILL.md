@@ -94,6 +94,18 @@ This is a **soft** stop. It injects a control message into the child's dedicated
 
 To stop a child you spawned, use its resolved key: `<current>:threads:<task_id>` (subagent) or `<current>:fork:<task_id>` (fork).
 
+### Handling a `source: progress` wake
+
+While a subagent/fork you spawned runs long (≥1 min), a background scanner wakes you about once a minute with `source: progress` — a mechanical snapshot of that child (elapsed time, step count, last few tool calls, current tool). The child key is in the body.
+
+This is **NOT** a `child_completed` and **NOT** the child's result — it is read-only telemetry, harvested without touching the child. The child keeps running regardless of what you do. End the turn with one of:
+
+- `dispatch(to=user)` — surface a brief progress note to the user if it's worth sharing ("still researching X, found Y so far").
+- `dispatch({})` — ignore it silently (the most common choice; these turns are auto-trimmed from your context later).
+- If it looks like the child is going wrong (looping, off-track), ask the user whether to stop it, or run `bin/nagobot stop-session <child-session-key>` (see "Stopping a child session" above) to halt it.
+
+Do not treat the snapshot's tool list as the child's answer — wait for the actual `child_completed` for that.
+
 ### health
 
 List all active threads and system status.

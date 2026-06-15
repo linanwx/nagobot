@@ -155,7 +155,7 @@ func isUserTurnComplete(messages []provider.Message, userMsgIdx int) bool {
 // would cause the original interrupted message to be found instead,
 // leading to infinite resume loops.
 var nonResumableSources = map[string]bool{
-	"heartbeat": true, "compression": true,
+	"heartbeat": true, "compression": true, "progress": true,
 }
 
 // findLastUserMessage scans backwards for the last role=user message that
@@ -172,4 +172,3 @@ func findLastUserMessage(messages []provider.Message) (provider.Message, int, bo
 	}
 	return provider.Message{}, -1, false
 }
-
