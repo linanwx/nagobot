@@ -82,7 +82,7 @@ func TestFormatProgress(t *testing.T) {
 	if !strings.Contains(out, "6m12s") {
 		t.Errorf("expected humanized duration 6m12s, got: %s", out)
 	}
-	if !strings.Contains(out, "124 步") {
+	if !strings.Contains(out, "124 steps") {
 		t.Error("expected step count")
 	}
 	// Only the last 3 tool calls appear.
@@ -95,7 +95,7 @@ func TestFormatProgress(t *testing.T) {
 	if !strings.Contains(out, "✗") {
 		t.Error("error marker missing for failed call")
 	}
-	if !strings.Contains(out, "正在执行 grep") {
+	if !strings.Contains(out, "current: grep") {
 		t.Error("current tool line missing")
 	}
 }

@@ -117,14 +117,14 @@ func progressEligible(info msg.ThreadInfo) (ancestor string, ok bool) {
 // The child session key is included verbatim so the ancestor can stop it.
 func formatProgress(childKey string, info msg.ThreadInfo) string {
 	var sb strings.Builder
-	fmt.Fprintf(&sb, "🔍 子任务 %s · 运行 %s · %d 步\n", childKey, humanizeDuration(info.ElapsedSec), info.TotalToolCalls)
+	fmt.Fprintf(&sb, "🔍 subagent %s · running %s · %d steps\n", childKey, humanizeDuration(info.ElapsedSec), info.TotalToolCalls)
 
 	trace := info.ToolTrace
 	if n := len(trace); n > progressWindow {
 		trace = trace[n-progressWindow:]
 	}
 	if len(trace) > 0 {
-		sb.WriteString("近期:\n")
+		sb.WriteString("recent:\n")
 		for i := range trace {
 			rec := trace[i]
 			marker := "✓"
@@ -135,7 +135,7 @@ func formatProgress(childKey string, info msg.ThreadInfo) string {
 		}
 	}
 	if info.CurrentTool != "" {
-		fmt.Fprintf(&sb, "当前: 正在执行 %s ⏳\n", info.CurrentTool)
+		fmt.Fprintf(&sb, "current: %s ⏳\n", info.CurrentTool)
 	}
 
 	return capBytes(sb.String(), progressMaxBytes)
