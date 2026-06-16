@@ -91,7 +91,7 @@ func (mgr *Manager) mediaPreview(ctx context.Context, parentKey, marker string, 
 
 	ch := make(chan string, 1)
 	key := parentKey + spec.suffix
-	recentChat := session.ReadRecentChat(mgr.SessionDir(parentKey), mediaPreviewChatEntries)
+	recentChat := session.ReadRecentChat(mgr.SessionDir(parentKey), mediaPreviewChatEntries, mgr.locationFor(parentKey))
 
 	mgr.Wake(key, &WakeMessage{
 		Source:     spec.source,

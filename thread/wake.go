@@ -430,9 +430,10 @@ func buildWakePayload(source WakeSource, message, threadID, sessionKey, sessionD
 }
 
 func buildWakeContextBody(history, message, instruction string) string {
-	bodyInstruction := "Use the history as conversation context for interpreting the message. Follow the YAML action field and your system prompt for the required output."
+	const recencyNote = "Each history line is prefixed with its time (Today/Yesterday/date); weigh recency — older context may be stale or already resolved."
+	bodyInstruction := "Use the history as conversation context for interpreting the message. " + recencyNote + " Follow the YAML action field and your system prompt for the required output."
 	if strings.TrimSpace(instruction) == "" {
-		bodyInstruction = "Use the history as conversation context for interpreting the message. Follow your system prompt for the required output."
+		bodyInstruction = "Use the history as conversation context for interpreting the message. " + recencyNote + " Follow your system prompt for the required output."
 	}
 	sections := []string{
 		"## history",

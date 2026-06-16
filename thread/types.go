@@ -211,9 +211,18 @@ func (t *Thread) cfg() *ThreadConfig {
 // location returns the *time.Location for this thread's session timezone.
 // Falls back to the system local timezone if not configured or invalid.
 func (t *Thread) location() *time.Location {
-	cfg := t.cfg()
-	if cfg.SessionTimezoneFor != nil {
-		if tz := cfg.SessionTimezoneFor(t.sessionKey); tz != "" {
+	if t.mgr != nil {
+		return t.mgr.locationFor(t.sessionKey)
+	}
+	return time.Now().Location()
+}
+
+// locationFor returns the *time.Location for a session key's configured
+// timezone, falling back to the system local timezone. Shared by Thread.location
+// and Manager-level helpers (e.g. media-preview recent-chat rendering).
+func (m *Manager) locationFor(sessionKey string) *time.Location {
+	if m != nil && m.cfg != nil && m.cfg.SessionTimezoneFor != nil {
+		if tz := m.cfg.SessionTimezoneFor(sessionKey); tz != "" {
 			if loc, err := time.LoadLocation(tz); err == nil {
 				return loc
 			}

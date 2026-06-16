@@ -5,6 +5,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/linanwx/nagobot/session"
 )
@@ -37,7 +38,7 @@ func TestSendToUserRecordsChat(t *testing.T) {
 		t.Errorf("delivered = %q, want %q", delivered, "proactive hello")
 	}
 
-	got := session.ReadRecentChat(mgr.SessionDir("cli"), 5)
+	got := session.ReadRecentChat(mgr.SessionDir("cli"), 5, time.Local)
 	if !strings.Contains(got, "assistant: proactive hello") {
 		t.Errorf("chat.jsonl missing assistant entry; got %q", got)
 	}
@@ -64,7 +65,7 @@ func TestSendToUserSkipsChatOnDeliveryFailure(t *testing.T) {
 	if err := th.SendToUser(context.Background(), "undelivered"); err == nil {
 		t.Fatal("SendToUser should propagate the delivery error")
 	}
-	if got := session.ReadRecentChat(mgr.SessionDir("cli"), 5); got != "" {
+	if got := session.ReadRecentChat(mgr.SessionDir("cli"), 5, time.Local); got != "" {
 		t.Errorf("chat.jsonl should be empty after failed delivery; got %q", got)
 	}
 }

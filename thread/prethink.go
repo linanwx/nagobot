@@ -54,7 +54,7 @@ func preThinkAction(ctx context.Context, t *Thread, userMsg string) string {
 	// The pre-think session is stateless: it declares tier_lossy_mode: stateless
 	// in its frontmatter, so the framework clears it at the start of every
 	// pre-think turn (see clearIfStateless). No special-casing needed here.
-	recentChat := session.ReadRecentChat(t.mgr.SessionDir(t.sessionKey), preThinkChatEntries)
+	recentChat := session.ReadRecentChat(t.mgr.SessionDir(t.sessionKey), preThinkChatEntries, t.location())
 	t.mgr.Wake(preThinkKey, &WakeMessage{
 		Source:     WakePreThink,
 		Message:    userMsg,

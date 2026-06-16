@@ -85,15 +85,49 @@ const (
 	chatPreviewTail = 200
 )
 
+// formatChatTime renders an entry timestamp relative to now, in loc, as one of:
+//
+//	"Today 23:29"
+//	"Yesterday 11:30"
+//	"2029-12-21 18:32"   (any other day, including future)
+//
+// Returns "" for a zero timestamp (legacy entries written before ts existed),
+// so the caller can omit the prefix. loc nil falls back to the system local tz.
+func formatChatTime(ts, now time.Time, loc *time.Location) string {
+	if ts.IsZero() {
+		return ""
+	}
+	if loc == nil {
+		loc = time.Local
+	}
+	t := ts.In(loc)
+	n := now.In(loc)
+	startOfDay := func(x time.Time) time.Time {
+		return time.Date(x.Year(), x.Month(), x.Day(), 0, 0, 0, 0, loc)
+	}
+	days := int(startOfDay(n).Sub(startOfDay(t)).Hours() / 24)
+	switch days {
+	case 0:
+		return "Today " + t.Format("15:04")
+	case 1:
+		return "Yesterday " + t.Format("15:04")
+	default:
+		return t.Format("2006-01-02 15:04")
+	}
+}
+
 // ReadRecentChat returns up to n most-recent chat.jsonl entries from sessionDir,
-// each rendered as "role: content" on a single line — newlines collapsed to
-// spaces, content previewed as head + tail (first chatPreviewHead and last
-// chatPreviewTail runes, middle elided with " [...] "). Returns "" if the file
-// is missing or empty. Output is chronological (oldest of the N first).
-func ReadRecentChat(sessionDir string, n int) string {
+// each rendered as "[<time>] role: content" on a single line — newlines collapsed
+// to spaces, content previewed as head + tail (first chatPreviewHead and last
+// chatPreviewTail runes, middle elided with " [...] "). The time prefix is
+// relative ("Today HH:MM" / "Yesterday HH:MM" / "YYYY-MM-DD HH:MM" in loc) so a
+// reader (e.g. pre-think) can weigh recency. Returns "" if the file is missing or
+// empty. Output is chronological (oldest of the N first).
+func ReadRecentChat(sessionDir string, n int, loc *time.Location) string {
 	if sessionDir == "" || n <= 0 {
 		return ""
 	}
+	now := time.Now()
 	path := filepath.Join(sessionDir, chatFileName)
 	f, err := os.Open(path)
 	if err != nil {
@@ -133,6 +167,11 @@ func ReadRecentChat(sessionDir string, n int) string {
 		content = headTailRunes(content, chatPreviewHead, chatPreviewTail)
 		if b.Len() > 0 {
 			b.WriteByte('\n')
+		}
+		if ts := formatChatTime(e.Ts, now, loc); ts != "" {
+			b.WriteByte('[')
+			b.WriteString(ts)
+			b.WriteString("] ")
 		}
 		b.WriteString(e.Role)
 		b.WriteString(": ")
