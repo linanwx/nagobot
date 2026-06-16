@@ -62,11 +62,28 @@ func TestParsePreThinkXML_ConfusingTerminologyRequiresClarification(t *testing.T
 
 	out := parsePreThinkXML(raw)
 	// The string content is carried so the main model knows what to clarify.
-	if !strings.Contains(out, `Confusing terminology: "标签"既可能指 risk 也可能指 XML tag.`) {
+	if !strings.Contains(out, `Needs clarification: "标签"既可能指 risk 也可能指 XML tag.`) {
 		t.Errorf("confusing_terminology content should be included, got: %s", out)
 	}
 	if !strings.Contains(out, "ask the user to clarify via dispatch(to=user)") {
 		t.Errorf("confusing_terminology should suggest clarifying via dispatch(to=user), got: %s", out)
+	}
+}
+
+func TestParsePreThinkXML_InsufficientContextRequiresClarification(t *testing.T) {
+	// Second trigger: not ambiguous wording, but missing context with high
+	// misdirection risk — same field, same mandatory clarification step.
+	raw := `<prethink>
+  <confusing_terminology>用户说"优化一下"但没说优化目标(速度/可读性/体积)，方向风险高</confusing_terminology>
+  <tone>careful</tone>
+</prethink>`
+
+	out := parsePreThinkXML(raw)
+	if !strings.Contains(out, "Needs clarification:") {
+		t.Errorf("insufficient-context content should trigger clarification, got: %s", out)
+	}
+	if !strings.Contains(out, "ask the user to clarify via dispatch(to=user)") {
+		t.Errorf("should suggest clarifying via dispatch(to=user), got: %s", out)
 	}
 }
 
@@ -78,7 +95,7 @@ func TestParsePreThinkXML_NoConfusingTerminologyNoClarification(t *testing.T) {
 </prethink>`
 
 	out := parsePreThinkXML(raw)
-	if strings.Contains(out, "Confusing terminology") {
+	if strings.Contains(out, "Needs clarification") {
 		t.Errorf("absent confusing_terminology must NOT trigger clarification, got: %s", out)
 	}
 }
@@ -196,7 +213,7 @@ func TestParsePreThinkXML_CasualMinimal(t *testing.T) {
 		t.Errorf("got: %s", out)
 	}
 	// Only tone — no flag phrases.
-	for _, unexpected := range []string{"Multi-step", "Confusing terminology", "Investigator", "Search:", "Web URL", "Related skill", "Intent"} {
+	for _, unexpected := range []string{"Multi-step", "Needs clarification", "Investigator", "Search:", "Web URL", "Related skill", "Intent"} {
 		if strings.Contains(out, unexpected) {
 			t.Errorf("unexpected %q in minimal output: %s", unexpected, out)
 		}

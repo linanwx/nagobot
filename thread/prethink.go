@@ -135,7 +135,8 @@ func boolTag(re *regexp.Regexp, raw string) bool {
 
 // parsePreThinkXML extracts the bool/string fields from pre-think output and
 // composes a clean action hint. A non-empty <confusing_terminology> tag adds a
-// mandatory clarification step; an <is_include_investigator> flag forces an
+// mandatory clarification step (fires for ambiguous wording OR insufficient
+// context with high misdirection risk); an <is_include_investigator> flag forces an
 // explicit dispatch. Returns "" when no recognizable tags are found (caller
 // falls back to raw).
 func parsePreThinkXML(raw string) string {
@@ -150,7 +151,7 @@ func parsePreThinkXML(raw string) string {
 	}
 
 	if v := stringTag(confusingTermRE, raw); v != "" {
-		parts = append(parts, "Confusing terminology: "+v+". Before continuing, ask the user to clarify via dispatch(to=user) — a structured question with concrete options and their consequences — then wait for their answer.")
+		parts = append(parts, "Needs clarification: "+v+". Before continuing, ask the user to clarify via dispatch(to=user) — a structured question with concrete options and their consequences — then wait for their answer.")
 	}
 
 	if v := stringTag(hallucinationRE, raw); v != "" {
