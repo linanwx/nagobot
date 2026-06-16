@@ -77,6 +77,7 @@ func (t *Thread) run(ctx context.Context, userMessage string, media []string, si
 	t.mu.Lock()
 	t.currentSink = sink
 	t.currentCallerKey = callerKey
+	t.progressDispatchNudges = 0
 	t.mu.Unlock()
 	defer func() {
 		t.mu.Lock()
@@ -332,6 +333,29 @@ func (t *Thread) executeRunner(ctx, runCtx context.Context, p provider.Provider,
 		src := t.lastWakeSource
 		peerKey := t.currentCallerKey
 		t.mu.Unlock()
+
+		// WakeProgress: a progress turn must terminate via dispatch — dispatch(to=user)
+		// to surface a note, or dispatch({}) to end silently. Plain text is dropped by
+		// the progress monitor's sink (delivers nothing), so reject it: suppress the
+		// (dropped) delivery and re-iterate with a corrective reminder, capped at
+		// progressMaxDispatchNudges so a non-complying model can't burn the whole
+		// maxIterations budget on a low-value progress turn.
+		if src == WakeProgress {
+			t.SetSuppressSink()
+			t.mu.Lock()
+			n := t.progressDispatchNudges
+			t.progressDispatchNudges++
+			t.mu.Unlock()
+			if n >= progressMaxDispatchNudges {
+				return nil // give up: end the turn silently (text was dropped anyway)
+			}
+			return []provider.Message{{
+				Role:    "user",
+				Content: buildProgressDispatchRequiredPayload(time.Now().In(t.location())),
+				Source:  sourceProgressDispatchRequired,
+			}}
+		}
+
 		if !src.RequiresExplicitDispatch() {
 			return nil
 		}

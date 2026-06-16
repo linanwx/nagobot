@@ -20,6 +20,11 @@ const (
 	// ArgsSummary + ResultPreview (≤200 chars each upstream), so 3 lines fit
 	// comfortably; this only guards against pathological input.
 	progressMaxBytes = 2000
+	// progressMaxDispatchNudges caps how many times a single progress turn is
+	// re-prompted to use dispatch before the runner gives up and ends it silently
+	// (the plain text is dropped regardless). Keeps a non-complying model from
+	// burning the whole maxIterations budget on a low-value progress turn.
+	progressMaxDispatchNudges = 2
 )
 
 // ProgressScanner periodically reports a long-running child session's progress

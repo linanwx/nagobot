@@ -68,6 +68,37 @@ func TestBuildCrossThreadDispatchRequiredPayload_Structure(t *testing.T) {
 	}
 }
 
+// TestBuildProgressDispatchRequiredPayload_Structure verifies the payload the
+// runner injects when it rejects a plain-text (no-tool-call) reply on a
+// WakeProgress turn: it must carry the progress source tag and offer exactly the
+// two valid terminals (dispatch(to=user) / dispatch({})).
+func TestBuildProgressDispatchRequiredPayload_Structure(t *testing.T) {
+	payload := buildProgressDispatchRequiredPayload(testPostTime)
+
+	mustContain := []string{
+		"source: progress-dispatch-required",
+		"sender: system",
+		"injected: true",
+		"time: 2026-04-22T10:30:00+08:00",
+		"PROGRESS turn",
+		"dropped and reached no one",
+		"dispatch(sends=[{to: \"user\", body: \"...\"}])",
+		"dispatch({}) — end silently",
+		"Do not reply with plain text again.",
+	}
+	for _, needle := range mustContain {
+		if !strings.Contains(payload, needle) {
+			t.Errorf("payload missing %q; got:\n%s", needle, payload)
+		}
+	}
+	// Same rationale as the cross-thread payload: never offer caller:* targets.
+	for _, banned := range []string{"caller:session", "caller:user"} {
+		if strings.Contains(payload, banned) {
+			t.Errorf("payload must not suggest %q; got:\n%s", banned, payload)
+		}
+	}
+}
+
 // TestRequiresExplicitDispatch_Coverage verifies which WakeSources require
 // explicit dispatch on no-tool-calls. Only WakeSession does today (covers
 // peer-asked and child-completed both); other sources allow naive text.
