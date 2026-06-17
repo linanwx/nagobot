@@ -26,6 +26,7 @@ Examples:
   nagobot monitor --metrics                # show last 24h metrics (default)
   nagobot monitor --metrics --window 1h    # show last hour
   nagobot monitor --metrics --window 7d    # show last 7 days
+  nagobot monitor --metrics --window 30d   # show last 30 days (d=days, w=weeks, h/m also work)
   nagobot monitor --compression            # show compression stats`,
 	RunE: runMonitor,
 }
@@ -44,7 +45,7 @@ func init() {
 	monitorCmd.Flags().BoolVar(&monitorMetrics, "metrics", false, "Show performance metrics")
 	monitorCmd.Flags().BoolVar(&monitorCompression, "compression", false, "Show compression stats")
 	monitorCmd.Flags().BoolVar(&monitorRefresh, "refresh", false, "Force live query instead of reading from cache (use with --balance)")
-	monitorCmd.Flags().StringVar(&monitorWindow, "window", "1d", "Time window for metrics: 1h, 1d, 7d")
+	monitorCmd.Flags().StringVar(&monitorWindow, "window", "1d", "Time window for metrics, e.g. 90m, 12h, 1d, 7d, 30d, 2w")
 	monitorCmd.Flags().StringVar(&monitorProvider, "provider", "", "Filter by provider name")
 	rootCmd.AddCommand(monitorCmd)
 }
@@ -200,6 +201,9 @@ func showMetrics(cfg *config.Config) error {
 
 	store := monitor.NewStore(filepath.Join(workspace, "metrics"))
 	window := monitor.Window(strings.TrimSpace(monitorWindow))
+	if _, err := window.Duration(); err != nil {
+		return err
+	}
 
 	summary := monitor.Query(store, window)
 
@@ -225,6 +229,9 @@ func showCompression(cfg *config.Config) error {
 
 	store := monitor.NewStore(filepath.Join(workspace, "metrics"))
 	window := monitor.Window(strings.TrimSpace(monitorWindow))
+	if _, err := window.Duration(); err != nil {
+		return err
+	}
 	records := store.LoadCompressions(window.Cutoff())
 
 	fmt.Println(monitor.FormatCompressionStats(records))

@@ -3,6 +3,7 @@ package monitor
 import (
 	"fmt"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -16,22 +17,58 @@ const (
 	Window7D Window = "7d"
 )
 
+// Cutoff returns the start time for this window. Invalid windows fall back to
+// 24h; callers that want to reject bad input should validate via Duration first
+// (the CLI does, so a typo surfaces an error instead of silently using 1d).
 func (w Window) Cutoff() time.Time {
-	switch w {
-	case Window1H:
-		return time.Now().Add(-time.Hour)
-	case Window1D:
-		return time.Now().Add(-24 * time.Hour)
-	case Window7D:
-		return time.Now().Add(-7 * 24 * time.Hour)
-	default:
+	d, err := w.Duration()
+	if err != nil {
 		return time.Now().Add(-24 * time.Hour)
 	}
+	return time.Now().Add(-d)
+}
+
+// Duration parses the window into a time.Duration. It accepts Go duration syntax
+// (e.g. "90m", "12h", "1h30m") plus single-unit day ("7d") and week ("2w") forms
+// that time.ParseDuration does not support. Returns an error for unparseable or
+// non-positive windows so callers never silently fall back to a wrong span.
+func (w Window) Duration() (time.Duration, error) {
+	s := strings.TrimSpace(strings.ToLower(string(w)))
+	if s == "" {
+		return 0, fmt.Errorf("empty window")
+	}
+	var mult time.Duration
+	switch {
+	case strings.HasSuffix(s, "d"):
+		mult = 24 * time.Hour
+	case strings.HasSuffix(s, "w"):
+		mult = 7 * 24 * time.Hour
+	}
+	if mult > 0 {
+		n, err := strconv.ParseFloat(s[:len(s)-1], 64)
+		if err != nil {
+			return 0, fmt.Errorf("invalid window %q (use forms like 90m, 12h, 7d, 2w)", string(w))
+		}
+		d := time.Duration(n * float64(mult))
+		if d <= 0 {
+			return 0, fmt.Errorf("window must be positive: %q", string(w))
+		}
+		return d, nil
+	}
+	d, err := time.ParseDuration(s)
+	if err != nil {
+		return 0, fmt.Errorf("invalid window %q (use forms like 90m, 12h, 7d, 2w)", string(w))
+	}
+	if d <= 0 {
+		return 0, fmt.Errorf("window must be positive: %q", string(w))
+	}
+	return d, nil
 }
 
 // MetricsSummary is the top-level aggregation result.
 type MetricsSummary struct {
 	Window     string                    `json:"window" yaml:"window"`
+	DataRange  string                    `json:"dataRange,omitempty" yaml:"dataRange,omitempty"` // actual span of records included (may be narrower than Window if data starts later)
 	TotalTurns int                       `json:"totalTurns" yaml:"totalTurns"`
 	AvgDurMs   int64                     `json:"avgDurationMs" yaml:"avgDurationMs"`
 	AvgTokens  int                       `json:"avgTokens" yaml:"avgTokens"`
@@ -85,12 +122,21 @@ func Query(store *Store, window Window) *MetricsSummary {
 	var totalDur int64
 	var totalTokens int
 	var errorCount int
+	var earliest, latest time.Time
 
 	for _, r := range records {
 		totalDur += r.DurationMs
 		totalTokens += r.AccTotalTokens
 		if r.Error {
 			errorCount++
+		}
+		if !r.Timestamp.IsZero() {
+			if earliest.IsZero() || r.Timestamp.Before(earliest) {
+				earliest = r.Timestamp
+			}
+			if r.Timestamp.After(latest) {
+				latest = r.Timestamp
+			}
 		}
 
 		cacheReliable := !isCacheUnreliable(r.Provider)
@@ -162,6 +208,10 @@ func Query(store *Store, window Window) *MetricsSummary {
 	summary.AvgDurMs = totalDur / n
 	if n > 0 {
 		summary.AvgTokens = totalTokens / int(n)
+	}
+	if !earliest.IsZero() {
+		const layout = "2006-01-02 15:04"
+		summary.DataRange = earliest.Local().Format(layout) + " → " + latest.Local().Format(layout)
 	}
 	if len(records) > 0 {
 		summary.ErrorRate = fmt.Sprintf("%.1f%%", float64(errorCount)/float64(len(records))*100)
