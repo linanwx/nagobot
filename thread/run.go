@@ -105,7 +105,7 @@ func (t *Thread) run(ctx context.Context, userMessage string, media []string, si
 
 	response, _, usage, _, providerLabel, modelLabel, err := t.executeRunner(ctx, runCtx, p, metrics, messages, sink, injectFn, persistMsg)
 	if err != nil {
-		t.recordTurn(metrics, "", "", "", usage, true)
+		t.recordTurn(metrics, "", "", "", wakeSource, usage, true)
 		return "", err
 	}
 	providerName, modelName := providerLabel, modelLabel
@@ -118,7 +118,7 @@ func (t *Thread) run(ctx context.Context, userMessage string, media []string, si
 		agentName = t.Agent.Name
 	}
 	t.mu.Unlock()
-	t.recordTurn(metrics, providerName, modelName, agentName, usage, false)
+	t.recordTurn(metrics, providerName, modelName, agentName, wakeSource, usage, false)
 	return response, nil
 }
 
@@ -727,7 +727,7 @@ func (t *Thread) resolvedProviderModel() (string, string) {
 }
 
 // recordTurn writes a TurnRecord to the metrics store if available.
-func (t *Thread) recordTurn(metrics *ExecMetrics, providerName, modelName, agentName string, usage provider.Usage, isError bool) {
+func (t *Thread) recordTurn(metrics *ExecMetrics, providerName, modelName, agentName, source string, usage provider.Usage, isError bool) {
 	cfg := t.cfg()
 	if cfg.MetricsStore == nil || metrics == nil {
 		return
@@ -739,6 +739,7 @@ func (t *Thread) recordTurn(metrics *ExecMetrics, providerName, modelName, agent
 		Model:      modelName,
 		Agent:      agentName,
 		SessionKey: t.sessionKey,
+		Source:     source,
 		Iterations: metrics.Iterations,
 		ToolCalls:  metrics.TotalToolCalls,
 		Error:      isError,

@@ -25,6 +25,7 @@ type TurnRecord struct {
 	Model      string    `json:"model"`
 	Agent      string    `json:"agent"`
 	SessionKey string    `json:"sessionKey"`
+	Source     string    `json:"source,omitempty"` // wake source (heartbeat/cron/telegram/session/progress/…)
 	Iterations int       `json:"iterations"`
 	ToolCalls  int       `json:"toolCalls"`
 	Error      bool      `json:"error,omitempty"`

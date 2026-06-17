@@ -76,6 +76,7 @@ type MetricsSummary struct {
 	ByProvider map[string]*ProviderStats `json:"byProvider,omitempty" yaml:"byProvider,omitempty"`
 	ByAgent    map[string]*GroupStats    `json:"byAgent,omitempty" yaml:"byAgent,omitempty"`
 	BySession  map[string]*GroupStats    `json:"bySession,omitempty" yaml:"bySession,omitempty"`
+	BySource   map[string]*GroupStats    `json:"bySource,omitempty" yaml:"bySource,omitempty"`
 }
 
 // ProviderStats groups metrics by provider with model breakdown.
@@ -99,6 +100,7 @@ type GroupStats struct {
 	Turns                    int    `json:"turns" yaml:"turns"`
 	AvgDurMs                 int64  `json:"avgDurationMs" yaml:"avgDurationMs"`
 	PromptTokens             int    `json:"promptTokens" yaml:"promptTokens"`
+	CompletionTokens         int    `json:"completionTokens,omitempty" yaml:"completionTokens,omitempty"`
 	CachedTokens             int    `json:"cachedTokens" yaml:"cachedTokens"`
 	CacheEligiblePromptTokens int   `json:"cacheEligiblePromptTokens,omitempty" yaml:"cacheEligiblePromptTokens,omitempty"`
 	CacheHitRate             string `json:"cacheHitRate" yaml:"cacheHitRate"`
@@ -117,6 +119,7 @@ func Query(store *Store, window Window) *MetricsSummary {
 		ByProvider: make(map[string]*ProviderStats),
 		ByAgent:    make(map[string]*GroupStats),
 		BySession:  make(map[string]*GroupStats),
+		BySource:   make(map[string]*GroupStats),
 	}
 
 	var totalDur int64
@@ -166,6 +169,7 @@ func Query(store *Store, window Window) *MetricsSummary {
 		ms.Turns++
 		ms.AvgDurMs += r.DurationMs
 		ms.PromptTokens += r.AccPromptTokens
+		ms.CompletionTokens += r.AccCompletionTokens
 		if cacheReliable {
 			ms.CachedTokens += r.AccCachedTokens
 			ms.CacheEligiblePromptTokens += r.AccPromptTokens
@@ -181,6 +185,7 @@ func Query(store *Store, window Window) *MetricsSummary {
 			as.Turns++
 			as.AvgDurMs += r.DurationMs
 			as.PromptTokens += r.AccPromptTokens
+			as.CompletionTokens += r.AccCompletionTokens
 			if cacheReliable {
 				as.CachedTokens += r.AccCachedTokens
 				as.CacheEligiblePromptTokens += r.AccPromptTokens
@@ -197,9 +202,27 @@ func Query(store *Store, window Window) *MetricsSummary {
 			ss.Turns++
 			ss.AvgDurMs += r.DurationMs
 			ss.PromptTokens += r.AccPromptTokens
+			ss.CompletionTokens += r.AccCompletionTokens
 			if cacheReliable {
 				ss.CachedTokens += r.AccCachedTokens
 				ss.CacheEligiblePromptTokens += r.AccPromptTokens
+			}
+		}
+
+		// By wake source
+		if r.Source != "" {
+			src, ok := summary.BySource[r.Source]
+			if !ok {
+				src = &GroupStats{}
+				summary.BySource[r.Source] = src
+			}
+			src.Turns++
+			src.AvgDurMs += r.DurationMs
+			src.PromptTokens += r.AccPromptTokens
+			src.CompletionTokens += r.AccCompletionTokens
+			if cacheReliable {
+				src.CachedTokens += r.AccCachedTokens
+				src.CacheEligiblePromptTokens += r.AccPromptTokens
 			}
 		}
 	}
@@ -249,6 +272,9 @@ func Query(store *Store, window Window) *MetricsSummary {
 	for _, ss := range summary.BySession {
 		finalizeGroup(ss)
 	}
+	for _, src := range summary.BySource {
+		finalizeGroup(src)
+	}
 
 	// Remove empty maps
 	if len(summary.ByAgent) == 0 {
@@ -256,6 +282,9 @@ func Query(store *Store, window Window) *MetricsSummary {
 	}
 	if len(summary.BySession) == 0 {
 		summary.BySession = nil
+	}
+	if len(summary.BySource) == 0 {
+		summary.BySource = nil
 	}
 
 	return summary
