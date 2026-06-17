@@ -180,8 +180,8 @@ func collectSessions(cfg *config.Config, opts listSessionsOpts) (*listSessionsOu
 		key := deriveSessionKey(sessionsDir, path)
 		total++
 
-		// Early exit for cron/threads — before any file I/O.
-		if opts.UserOnly && (strings.HasPrefix(key, "cron:") || strings.Contains(key, ":threads:")) {
+		// Early exit for cron/threads/internal siblings — before any file I/O.
+		if opts.UserOnly && (strings.HasPrefix(key, "cron:") || strings.Contains(key, ":threads:") || session.IsInternalSiblingSession(key)) {
 			return nil
 		}
 
@@ -320,6 +320,12 @@ func applyNeedSummaryFilter(output *listSessionsOutput, now time.Time) {
 			continue
 		}
 
+		// Rule 5: internal sibling sessions (rephrase/prethink/media-preview) —
+		// always skip; they run auxiliary agents and carry no standalone chat.
+		if session.IsInternalSiblingSession(s.Key) {
+			continue
+		}
+
 		filtered = append(filtered, s)
 	}
 	output.Sessions = filtered
@@ -328,7 +334,8 @@ func applyNeedSummaryFilter(output *listSessionsOutput, now time.Time) {
 
 // isExcludedByUserOnly returns true if the session should be excluded by --user-only.
 func isExcludedByUserOnly(key string, lastUserActiveAt *string) bool {
-	return strings.HasPrefix(key, "cron:") || strings.Contains(key, ":threads:") || lastUserActiveAt == nil
+	return strings.HasPrefix(key, "cron:") || strings.Contains(key, ":threads:") ||
+		session.IsInternalSiblingSession(key) || lastUserActiveAt == nil
 }
 
 // enrichWithThreads fills IsRunning from live thread state.

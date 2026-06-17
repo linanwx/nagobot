@@ -29,6 +29,17 @@ const AudioPreviewSessionSuffix = ":audiopreview"
 // sessions (upfront description of incoming images).
 const ImagePreviewSessionSuffix = ":imagepreview"
 
+// IsInternalSiblingSession reports whether the key is an internal helper sibling
+// session (rephrase / pre-think / media-preview). These run auxiliary agents on
+// behalf of a parent session and carry no standalone conversation, so they must
+// be excluded from session-summary and other "real session" enumerations.
+func IsInternalSiblingSession(key string) bool {
+	return strings.HasSuffix(key, RephraseSessionSuffix) ||
+		strings.HasSuffix(key, PreThinkSessionSuffix) ||
+		strings.HasSuffix(key, AudioPreviewSessionSuffix) ||
+		strings.HasSuffix(key, ImagePreviewSessionSuffix)
+}
+
 // ForkSessionInfix is the infix used in fork session keys: {parent}:fork:{purpose}.
 const ForkSessionInfix = ":fork:"
 
