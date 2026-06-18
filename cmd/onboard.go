@@ -155,7 +155,11 @@ func runOnboard(cmd *cobra.Command, _ []string) error {
 			if err != nil {
 				return err
 			}
-			modelOverrides[g.ModelType] = mc
+			// nil = optional specialty left disabled: write no rule so the
+			// feature stays off (it never falls back to the default model).
+			if mc != nil {
+				modelOverrides[g.ModelType] = mc
+			}
 			continue
 		}
 		hasExistingOverride := existingMC != nil &&
@@ -616,7 +620,34 @@ func selectRestrictedSpecialtyModel(specialty, agentsLabel string, existingMC *c
 		return nil, fmt.Errorf("specialty %q is restricted but no provider offers an allowed model; check provider registries", specialty)
 	}
 
-	if len(pairs) == 1 {
+	// Optional specialties are on/off features: declining leaves the feature
+	// disabled (no rule written; it never falls back to the default model).
+	if provider.SpecialtyOptional(specialty) {
+		modelLabel := "a whitelisted model"
+		if len(pairs) == 1 {
+			modelLabel = pairs[0].Provider + "/" + pairs[0].ModelType
+		}
+		// Default to the current state: enabled only if a valid rule exists
+		// (so a fresh onboard defaults to disabled — opt-in).
+		enable := existingMC != nil && specialtyAllowsModel(specialty, existingMC.Provider, existingMC.ModelType)
+		if err := huh.NewForm(huh.NewGroup(
+			huh.NewConfirm().
+				Title(fmt.Sprintf("Enable '%s' (used by: %s)?", specialty, agentsLabel)).
+				Description(fmt.Sprintf("Runs %s. Declining leaves it disabled — it will NOT fall back to the default model.", modelLabel)).
+				Value(&enable),
+		)).Run(); err != nil {
+			return nil, err
+		}
+		if !enable {
+			return nil, nil // disabled: caller writes no rule
+		}
+		if len(pairs) == 1 {
+			mc := pairs[0]
+			return &mc, nil
+		}
+		// Enabled with multiple choices: fall through to keep/pick below.
+	} else if len(pairs) == 1 {
+		// Non-optional single allowed pair: assign automatically.
 		mc := pairs[0]
 		fmt.Printf("  Model '%s' (used by: %s): restricted to %s/%s — assigned automatically.\n",
 			specialty, agentsLabel, mc.Provider, mc.ModelType)

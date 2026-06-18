@@ -34,6 +34,22 @@ func specialtyCapability(specialty string) func(providerName, model string) bool
 	return nil
 }
 
+// optionalSpecialties are on/off feature toggles: when the specialty has no
+// model rule the associated feature is DISABLED — it never falls back to the
+// default model. onboard offers enable/skip for these instead of forcing a
+// model. The runtime already enforces this (e.g. thread.fastModelConfigured
+// gates pre-think); this set keeps onboard's UX in sync with that semantic.
+var optionalSpecialties = map[string]bool{
+	"fast": true, // pre-think — runs only when fast is configured.
+}
+
+// SpecialtyOptional reports whether a specialty is an on/off feature toggle
+// (absent rule = disabled, never defaulted) rather than a model that must be
+// chosen.
+func SpecialtyOptional(specialty string) bool {
+	return optionalSpecialties[specialty]
+}
+
 // SpecialtyRestricted reports whether a specialty carries a model whitelist.
 func SpecialtyRestricted(specialty string) bool {
 	if _, ok := explicitSpecialtyModels[specialty]; ok {

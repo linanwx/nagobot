@@ -23,6 +23,17 @@ func TestSpecialtyRestricted(t *testing.T) {
 	}
 }
 
+func TestSpecialtyOptional(t *testing.T) {
+	if !SpecialtyOptional("fast") {
+		t.Error("fast should be optional (on/off feature, never defaults)")
+	}
+	for _, s := range []string{"image", "audio", "pdf", "chat", "toolcall", ""} {
+		if SpecialtyOptional(s) {
+			t.Errorf("%q should not be optional", s)
+		}
+	}
+}
+
 func TestAllowedModelsForSpecialty_FastExplicit(t *testing.T) {
 	// fast is locked to the DeepSeek official-direct instant alias only.
 	models, restricted := AllowedModelsForSpecialty("fast", "deepseek")
