@@ -20,9 +20,10 @@ const (
 
 func init() {
 	RegisterProvider("siliconflow-cn", ProviderRegistration{
-		Models: []string{"Pro/zai-org/GLM-5.1"},
+		Models: []string{"Pro/zai-org/GLM-5.1", "Pro/zai-org/GLM-5.2"},
 		ContextWindows: map[string]int{
 			"Pro/zai-org/GLM-5.1": 202752,
+			"Pro/zai-org/GLM-5.2": 1000000,
 		},
 		EnvKey:  "SILICONFLOW_API_KEY",
 		EnvBase: "SILICONFLOW_API_BASE",
@@ -32,9 +33,10 @@ func init() {
 	})
 
 	RegisterProvider("siliconflow-global", ProviderRegistration{
-		Models: []string{"zai-org/GLM-5.1"},
+		Models: []string{"zai-org/GLM-5.1", "zai-org/GLM-5.2"},
 		ContextWindows: map[string]int{
 			"zai-org/GLM-5.1": 202752,
+			"zai-org/GLM-5.2": 1000000,
 		},
 		EnvKey:  "SILICONFLOW_GLOBAL_API_KEY",
 		EnvBase: "SILICONFLOW_GLOBAL_API_BASE",
@@ -58,7 +60,19 @@ type SiliconflowProvider struct {
 
 func siliconflowThinkingEnabled(modelType string) bool {
 	m := strings.TrimSpace(modelType)
-	return m == "Pro/zai-org/GLM-5.1" || m == "zai-org/GLM-5.1"
+	return m == "Pro/zai-org/GLM-5.1" || m == "zai-org/GLM-5.1" ||
+		m == "Pro/zai-org/GLM-5.2" || m == "zai-org/GLM-5.2"
+}
+
+// siliconflowReasoningEffort returns the reasoning_effort value for models that
+// support GLM-5.2's High/Max effort dial. Returns "" for GLM-5.1, which has
+// reasoning enabled by default and does not accept the field.
+func siliconflowReasoningEffort(modelType string) string {
+	m := strings.TrimSpace(modelType)
+	if m == "Pro/zai-org/GLM-5.2" || m == "zai-org/GLM-5.2" {
+		return "high"
+	}
+	return ""
 }
 
 func siliconflowRequestTemperature(modelType string, configured float64) (float64, bool) {
@@ -136,6 +150,13 @@ func (p *SiliconflowProvider) Chat(ctx context.Context, req *Request) (ChatResul
 		)
 	}
 
+	requestOpts := []oaioption.RequestOption{}
+	if effort := siliconflowReasoningEffort(p.modelType); effort != "" {
+		requestOpts = append(requestOpts,
+			oaioption.WithJSONSet("extra_body.reasoning_effort", effort),
+		)
+	}
+
 	sessionKey := SessionKeyFromContext(ctx)
 	toolsH, toolCount := hashChatToolParams(chatReq.Tools)
 	prefixes := hashChatMessagePrefixes(chatReq.Messages)
@@ -156,7 +177,7 @@ func (p *SiliconflowProvider) Chat(ctx context.Context, req *Request) (ChatResul
 	go func() {
 		defer adapter.Finish()
 
-		chatResp, streamReasoning, _, _, err := openAIStreamChat(ctx, p.client, chatReq, adapter)
+		chatResp, streamReasoning, _, _, err := openAIStreamChat(ctx, p.client, chatReq, adapter, requestOpts...)
 		if err != nil {
 			logger.Error("siliconflow request send error", "provider", p.providerName, "err", err)
 			adapter.SetError(fmt.Errorf("request failed: %w", err))

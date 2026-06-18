@@ -20,10 +20,11 @@ const (
 
 func init() {
 	RegisterProvider("zhipu-cn", ProviderRegistration{
-		Models: []string{"glm-5", "glm-5.1", "glm-5-turbo"},
+		Models: []string{"glm-5", "glm-5.1", "glm-5.2", "glm-5-turbo"},
 		ContextWindows: map[string]int{
 			"glm-5":       200000,
 			"glm-5.1":     200000,
+			"glm-5.2":     1000000,
 			"glm-5-turbo": 202752,
 		},
 		EnvKey:  "ZHIPU_API_KEY",
@@ -34,10 +35,11 @@ func init() {
 	})
 
 	RegisterProvider("zhipu-global", ProviderRegistration{
-		Models: []string{"glm-5", "glm-5.1", "glm-5-turbo"},
+		Models: []string{"glm-5", "glm-5.1", "glm-5.2", "glm-5-turbo"},
 		ContextWindows: map[string]int{
 			"glm-5":       200000,
 			"glm-5.1":     200000,
+			"glm-5.2":     1000000,
 			"glm-5-turbo": 202752,
 		},
 		EnvKey:  "ZHIPU_GLOBAL_API_KEY",
@@ -62,7 +64,18 @@ type ZhipuProvider struct {
 
 func zhipuThinkingEnabled(modelType string) bool {
 	m := strings.TrimSpace(modelType)
-	return m == "glm-5" || m == "glm-5.1"
+	return m == "glm-5" || m == "glm-5.1" || m == "glm-5.2"
+}
+
+// zhipuReasoningEffort returns the reasoning_effort value to send for models
+// that support GLM-5.2's High/Max effort dial. Returns "" for models that do
+// not accept the field (glm-5/glm-5.1/glm-5-turbo) so older models keep their
+// existing request shape.
+func zhipuReasoningEffort(modelType string) string {
+	if strings.TrimSpace(modelType) == "glm-5.2" {
+		return "high"
+	}
+	return ""
 }
 
 func zhipuRequestTemperature(modelType string, configured float64) (float64, bool) {
@@ -144,6 +157,11 @@ func (p *ZhipuProvider) Chat(ctx context.Context, req *Request) (ChatResult, err
 	if thinkingEnabled {
 		requestOpts = append(requestOpts,
 			oaioption.WithJSONSet("extra_body.thinking.type", "enabled"),
+		)
+	}
+	if effort := zhipuReasoningEffort(p.modelType); effort != "" {
+		requestOpts = append(requestOpts,
+			oaioption.WithJSONSet("extra_body.reasoning_effort", effort),
 		)
 	}
 

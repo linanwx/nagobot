@@ -86,4 +86,19 @@ providers:
     # apiBase: https://api.siliconflow.com/v1 # optional
 ```
 
-**Note:** SiliconFlow CN and Global are fully separate accounts with separate API keys and different model IDs for the same underlying model — CN uses `Pro/zai-org/GLM-5.1` (paid-tier prefix), Global uses `zai-org/GLM-5.1`. SiliconFlow hosts GLM-5.1 on its own infrastructure as an alternative to zai's overloaded endpoints. Reasoning (`reasoning_content`) is enabled by default on both endpoints and requires no extra configuration. Only GLM-5.1 is whitelisted — other SiliconFlow-hosted models can be added later on demand.
+**Note:** SiliconFlow CN and Global are fully separate accounts with separate API keys and different model IDs for the same underlying model — CN uses `Pro/zai-org/GLM-5.1` / `Pro/zai-org/GLM-5.2` (paid-tier prefix), Global uses `zai-org/GLM-5.1` / `zai-org/GLM-5.2`. SiliconFlow hosts these models on its own infrastructure as an alternative to zai's overloaded endpoints. Reasoning (`reasoning_content`) is enabled by default on both endpoints and requires no extra configuration; for GLM-5.2 the bot additionally sends `reasoning_effort: high` to engage the High effort tier. GLM-5.1 and GLM-5.2 are whitelisted — other SiliconFlow-hosted models can be added later on demand.
+
+Zhipu / Z.ai native config example (GLM-5.2):
+
+```yaml
+thread:
+  provider: zhipu-cn # or zhipu-global
+  modelType: glm-5.2
+
+providers:
+  zhipuCN:
+    apiKey: xxx
+    # apiBase: https://open.bigmodel.cn/api/paas/v4 # optional (zhipu-global defaults to https://api.z.ai/api/paas/v4)
+```
+
+**Note:** GLM-5.2 is a 1M-context (1,000,000 tokens), 128K-max-output reasoning model. Thinking is enabled automatically (`thinking.type: enabled`) and the bot sends `reasoning_effort: high` for the speed/quality-balanced High tier. Because thinking is on, the request temperature is forced to `1`. The same `glm-5.2` model id is used on both `zhipu-cn` (open.bigmodel.cn) and `zhipu-global` (api.z.ai). GLM-5.2 is also routable via OpenRouter as `z-ai/glm-5.2` (routed window 262,144).
