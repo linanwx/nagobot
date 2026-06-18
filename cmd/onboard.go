@@ -113,7 +113,7 @@ func runOnboard(cmd *cobra.Command, _ []string) error {
 			if selectedProvider != defaults.provider {
 				selectedModel = ""
 			}
-			modelOptions := buildModelOptions(selectedProvider)
+			modelOptions := buildModelOptions(selectedProvider, "")
 			modelOptions = append(modelOptions, huh.NewOption("← Back", backSentinel))
 			selectedModel = ""
 			err = huh.NewForm(
@@ -145,6 +145,18 @@ func runOnboard(cmd *cobra.Command, _ []string) error {
 		var existingMC *config.ModelConfig
 		if r := config.FindModelRule(existing.Thread.Models, config.ModelRuleSpecialty, g.ModelType); r != nil {
 			existingMC = &config.ModelConfig{Provider: r.Provider, ModelType: r.ModelType}
+		}
+
+		// Restricted specialty: the global default may not satisfy the
+		// constraint, so never fall through to it — always write an explicit
+		// rule chosen from the whitelist.
+		if provider.SpecialtyRestricted(g.ModelType) {
+			mc, err := selectRestrictedSpecialtyModel(g.ModelType, agentsLabel, existingMC)
+			if err != nil {
+				return err
+			}
+			modelOverrides[g.ModelType] = mc
+			continue
 		}
 		hasExistingOverride := existingMC != nil &&
 			(existingMC.Provider != selectedProvider || existingMC.ModelType != selectedModel)
@@ -204,7 +216,7 @@ func runOnboard(cmd *cobra.Command, _ []string) error {
 			if err != nil {
 				return err
 			}
-			modelOpts := buildModelOptions(overrideProvider)
+			modelOpts := buildModelOptions(overrideProvider, g.ModelType)
 			modelOpts = append(modelOpts, huh.NewOption("← Back", backSentinel))
 			overrideModel = ""
 			err = huh.NewForm(huh.NewGroup(
@@ -544,6 +556,118 @@ func formatAllowedIDs(ids []int64) string {
 	return strings.Join(parts, ", ")
 }
 
+// allowedSpecialtyPairs returns every allowed (provider, model) pair for a
+// restricted specialty, ordered by provider then registry order.
+func allowedSpecialtyPairs(specialty string) []config.ModelConfig {
+	providers, restricted := provider.ProvidersForSpecialty(specialty)
+	if !restricted {
+		return nil
+	}
+	var pairs []config.ModelConfig
+	for _, p := range providers {
+		models, _ := provider.AllowedModelsForSpecialty(specialty, p)
+		for _, m := range models {
+			pairs = append(pairs, config.ModelConfig{Provider: p, ModelType: m})
+		}
+	}
+	return pairs
+}
+
+// specialtyAllowsModel reports whether (provider, model) is in the specialty's
+// whitelist. Unrestricted specialties allow everything.
+func specialtyAllowsModel(specialty, providerName, model string) bool {
+	allowed, restricted := provider.AllowedModelsForSpecialty(specialty, providerName)
+	if !restricted {
+		return true
+	}
+	for _, m := range allowed {
+		if m == model {
+			return true
+		}
+	}
+	return false
+}
+
+// buildProviderOptionsForSpecialty lists only providers that offer an allowed
+// model for the (restricted) specialty.
+func buildProviderOptionsForSpecialty(specialty string) []huh.Option[string] {
+	providers, restricted := provider.ProvidersForSpecialty(specialty)
+	if !restricted {
+		return buildProviderOptions()
+	}
+	options := make([]huh.Option[string], 0, len(providers))
+	for _, name := range providers {
+		models, _ := provider.AllowedModelsForSpecialty(specialty, name)
+		label := name + " (" + strings.Join(models, ", ") + ")"
+		options = append(options, huh.NewOption(label, name))
+	}
+	return options
+}
+
+// selectRestrictedSpecialtyModel resolves a model for a restricted specialty.
+// With a single allowed pair it auto-assigns (no prompt); otherwise it offers a
+// "keep current" shortcut when the existing override is still allowed, then a
+// whitelist-constrained provider→model picker.
+func selectRestrictedSpecialtyModel(specialty, agentsLabel string, existingMC *config.ModelConfig) (*config.ModelConfig, error) {
+	pairs := allowedSpecialtyPairs(specialty)
+	if len(pairs) == 0 {
+		// Whitelist references models no configured provider offers — surface
+		// it rather than silently falling back to an unrestricted choice.
+		return nil, fmt.Errorf("specialty %q is restricted but no provider offers an allowed model; check provider registries", specialty)
+	}
+
+	if len(pairs) == 1 {
+		mc := pairs[0]
+		fmt.Printf("  Model '%s' (used by: %s): restricted to %s/%s — assigned automatically.\n",
+			specialty, agentsLabel, mc.Provider, mc.ModelType)
+		return &mc, nil
+	}
+
+	if existingMC != nil && specialtyAllowsModel(specialty, existingMC.Provider, existingMC.ModelType) {
+		choice := "keep"
+		if err := huh.NewForm(huh.NewGroup(
+			huh.NewSelect[string]().
+				Title(fmt.Sprintf("Model '%s' (used by: %s) — restricted to whitelisted models:", specialty, agentsLabel)).
+				Options(
+					huh.NewOption("Keep current ("+existingMC.Provider+" / "+existingMC.ModelType+")", "keep"),
+					huh.NewOption("Choose different", "new"),
+				).
+				Value(&choice),
+		)).Run(); err != nil {
+			return nil, err
+		}
+		if choice == "keep" {
+			return existingMC, nil
+		}
+	}
+
+	var op, om string
+	for {
+		if err := huh.NewForm(huh.NewGroup(
+			huh.NewSelect[string]().
+				Title(fmt.Sprintf("Choose provider for '%s' (restricted; used by: %s)", specialty, agentsLabel)).
+				Options(buildProviderOptionsForSpecialty(specialty)...).
+				Value(&op),
+		)).Run(); err != nil {
+			return nil, err
+		}
+		modelOpts := append(buildModelOptions(op, specialty), huh.NewOption("← Back", backSentinel))
+		om = ""
+		if err := huh.NewForm(huh.NewGroup(
+			huh.NewSelect[string]().
+				Title(fmt.Sprintf("Choose model for '%s' (restricted; used by: %s)", specialty, agentsLabel)).
+				Options(modelOpts...).
+				Value(&om),
+		)).Run(); err != nil {
+			return nil, err
+		}
+		if om != backSentinel {
+			break
+		}
+	}
+	return &config.ModelConfig{Provider: op, ModelType: om}, nil
+}
+
 func buildProviderOptions() []huh.Option[string] {
 	names := provider.SupportedProviders()
 	// Put deepseek first.
@@ -564,8 +688,17 @@ func buildProviderOptions() []huh.Option[string] {
 	return options
 }
 
-func buildModelOptions(providerName string) []huh.Option[string] {
+// buildModelOptions lists a provider's selectable models. When specialty is a
+// restricted specialty, the list is narrowed to that specialty's whitelist
+// (capability-derived for image/audio/pdf, explicit for the rest); an empty
+// specialty means no restriction.
+func buildModelOptions(providerName, specialty string) []huh.Option[string] {
 	models := provider.SupportedModelsForProvider(providerName)
+	if specialty != "" {
+		if allowed, restricted := provider.AllowedModelsForSpecialty(specialty, providerName); restricted {
+			models = allowed
+		}
+	}
 	options := make([]huh.Option[string], 0, len(models))
 	for _, m := range models {
 		label := m
