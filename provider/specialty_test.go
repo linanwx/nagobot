@@ -35,13 +35,13 @@ func TestSpecialtyOptional(t *testing.T) {
 }
 
 func TestAllowedModelsForSpecialty_FastExplicit(t *testing.T) {
-	// fast is locked to the DeepSeek official-direct instant alias only.
+	// fast is locked to the DeepSeek official-direct instant aliases.
 	models, restricted := AllowedModelsForSpecialty("fast", "deepseek")
 	if !restricted {
 		t.Fatal("fast should be restricted")
 	}
-	if len(models) != 1 || models[0] != "deepseek-v4-flash-instant" {
-		t.Fatalf("fast@deepseek = %v, want [deepseek-v4-flash-instant]", models)
+	if !slices.Equal(models, []string{"deepseek-v4-flash-instant", "deepseek-v4-pro-instant"}) {
+		t.Fatalf("fast@deepseek = %v, want [deepseek-v4-flash-instant deepseek-v4-pro-instant]", models)
 	}
 
 	// No other provider satisfies fast.
@@ -49,7 +49,7 @@ func TestAllowedModelsForSpecialty_FastExplicit(t *testing.T) {
 		t.Errorf("fast@openrouter = %v, want empty", models)
 	}
 
-	// Only deepseek appears in the provider list, single allowed pair.
+	// Only deepseek appears in the provider list.
 	providers, restricted := ProvidersForSpecialty("fast")
 	if !restricted || !slices.Equal(providers, []string{"deepseek"}) {
 		t.Errorf("ProvidersForSpecialty(fast) = %v (restricted=%v), want [deepseek]", providers, restricted)

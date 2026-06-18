@@ -13,9 +13,10 @@ import (
 //
 //	fast — the pre-think agent must use a non-reasoning, high-throughput,
 //	officially-direct model for latency and stability. Only DeepSeek's
-//	v4-flash "-instant" alias (thinking disabled) qualifies today.
+//	"-instant" aliases (thinking disabled) qualify: v4-flash (cheapest) or
+//	v4-pro (stronger).
 var explicitSpecialtyModels = map[string][]string{
-	"fast": {"deepseek/deepseek-v4-flash-instant"},
+	"fast": {"deepseek/deepseek-v4-flash-instant", "deepseek/deepseek-v4-pro-instant"},
 }
 
 // specialtyCapability maps a capability specialty to its per-(provider, model)
