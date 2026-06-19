@@ -104,3 +104,86 @@ func TestResolvedModelConfig_Precedence(t *testing.T) {
 		}
 	})
 }
+
+func TestResolvedModelConfig_SourceSpecialty(t *testing.T) {
+	ws := t.TempDir()
+	dir := filepath.Join(ws, "agents")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	// soul = basic [chat]; heartbeat source → [lowcost].
+	fm := "---\nname: soul\nspecialty: [chat]\nsource_specialty:\n  heartbeat: [lowcost]\n---\nbody\n"
+	if err := os.WriteFile(filepath.Join(dir, "soul.md"), []byte(fm), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	reg := agent.NewRegistry(ws)
+
+	newThread := func(sessionKey string, src WakeSource, rules []config.ModelRule) *Thread {
+		return &Thread{
+			Agent:          &agent.Agent{Name: "soul"},
+			sessionKey:     sessionKey,
+			lastWakeSource: src,
+			mgr:            NewManager(&ThreadConfig{Agents: reg, Models: rules}),
+		}
+	}
+	rule := func(typ, name, prov, model string) config.ModelRule {
+		return config.ModelRule{Type: typ, Name: name, Provider: prov, ModelType: model}
+	}
+
+	t.Run("heartbeat source: lowcost wins over agent rule", func(t *testing.T) {
+		rules := []config.ModelRule{
+			rule(config.ModelRuleSpecialty, "lowcost", "p-low", "m-low"),
+			rule(config.ModelRuleAgent, "soul", "p-agent", "m-agent"),
+		}
+		mc := newThread("sess-1", WakeHeartbeat, rules).resolvedModelConfig()
+		if mc == nil || mc.ModelType != "m-low" {
+			t.Fatalf("lowcost should win for heartbeat source, got %+v", mc)
+		}
+	})
+
+	t.Run("cascade: lowcost unset → falls to agent rule", func(t *testing.T) {
+		rules := []config.ModelRule{rule(config.ModelRuleAgent, "soul", "p-agent", "m-agent")}
+		mc := newThread("sess-1", WakeHeartbeat, rules).resolvedModelConfig()
+		if mc == nil || mc.ModelType != "m-agent" {
+			t.Fatalf("should cascade to agent rule, got %+v", mc)
+		}
+	})
+
+	t.Run("cascade: lowcost+agent unset → falls to basic specialty", func(t *testing.T) {
+		rules := []config.ModelRule{rule(config.ModelRuleSpecialty, "chat", "p-chat", "m-chat")}
+		mc := newThread("sess-1", WakeHeartbeat, rules).resolvedModelConfig()
+		if mc == nil || mc.ModelType != "m-chat" {
+			t.Fatalf("should cascade to basic specialty, got %+v", mc)
+		}
+	})
+
+	t.Run("cascade: nothing set → nil (default)", func(t *testing.T) {
+		if mc := newThread("sess-1", WakeHeartbeat, nil).resolvedModelConfig(); mc != nil {
+			t.Fatalf("expected nil (default), got %+v", mc)
+		}
+	})
+
+	t.Run("non-heartbeat source ignores source_specialty", func(t *testing.T) {
+		// lowcost rule exists, but a telegram wake has no source_specialty entry,
+		// so the normal chain applies → chat specialty.
+		rules := []config.ModelRule{
+			rule(config.ModelRuleSpecialty, "lowcost", "p-low", "m-low"),
+			rule(config.ModelRuleSpecialty, "chat", "p-chat", "m-chat"),
+		}
+		mc := newThread("sess-1", WakeTelegram, rules).resolvedModelConfig()
+		if mc == nil || mc.ModelType != "m-chat" {
+			t.Fatalf("telegram should use chat, not lowcost, got %+v", mc)
+		}
+	})
+
+	t.Run("session pin beats source_specialty", func(t *testing.T) {
+		rules := []config.ModelRule{
+			rule(config.ModelRuleSpecialty, "lowcost", "p-low", "m-low"),
+			rule(config.ModelRuleSession, "sess-1", "p-sess", "m-sess"),
+		}
+		mc := newThread("sess-1", WakeHeartbeat, rules).resolvedModelConfig()
+		if mc == nil || mc.ModelType != "m-sess" {
+			t.Fatalf("session pin should win over source_specialty, got %+v", mc)
+		}
+	})
+}

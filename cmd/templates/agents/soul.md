@@ -2,6 +2,8 @@
 name: soul
 description: Default orchestrator agent for user-facing conversations.
 specialty: [chat]
+source_specialty:
+  heartbeat: [lowcost]
 sections:
   - user_memory_section
   - heartbeat_prompt_section

@@ -651,7 +651,11 @@ func ApplyCompressedMessage(m provider.Message) provider.Message {
 }
 
 // resolvedModelConfig returns the provider/model for the current turn by walking
-// the typed routing rules in fixed precedence: session > agent > specialty.
+// the typed routing rules in fixed precedence:
+// session > source-specialty > agent > specialty.
+// Source-specialty applies only when the turn's wake source matches a key in the
+// agent's source_specialty frontmatter; it cascades (an unconfigured entry falls
+// through to the agent rule, then the basic specialties, then the default).
 // Returns nil when no rule matches (caller falls back to the default model).
 // Uses ModelsFn for hot-reload if available, falling back to the startup snapshot.
 func (t *Thread) resolvedModelConfig() *config.ModelConfig {
@@ -680,12 +684,27 @@ func (t *Thread) resolvedModelConfig() *config.ModelConfig {
 		return nil
 	}
 
-	// 2. agent: pinned by agent name.
+	// 2. source specialty: if this turn's wake source has a specialty list
+	// declared in the agent frontmatter (source_specialty), try those
+	// left-to-right before the agent rule. Cascades: a declared-but-unconfigured
+	// specialty simply falls through to the next step.
+	if src := string(t.lastWakeSource); src != "" && len(def.SourceSpecialties) > 0 {
+		for _, sp := range def.SourceSpecialties[src] {
+			if sp == "" {
+				continue
+			}
+			if r := config.FindModelRule(rules, config.ModelRuleSpecialty, sp); r != nil {
+				return &config.ModelConfig{Provider: r.Provider, ModelType: r.ModelType}
+			}
+		}
+	}
+
+	// 3. agent: pinned by agent name.
 	if r := config.FindModelRule(rules, config.ModelRuleAgent, def.Name); r != nil {
 		return &config.ModelConfig{Provider: r.Provider, ModelType: r.ModelType}
 	}
 
-	// 3. specialty: agent's specialties left-to-right, first match wins.
+	// 4. specialty: agent's specialties left-to-right, first match wins.
 	for _, sp := range def.Specialties {
 		if sp == "" {
 			continue

@@ -16,7 +16,11 @@ type AgentDef struct {
 	Name             string   // Callable name used by dispatch(to=subagent|fork).agent
 	Description      string   // Short description shown in system prompt context
 	Specialties      []string // Agent specialty tags declared in frontmatter (e.g. ["chat"], ["cron","toolcall"]); model resolution tries them left-to-right
-	Provider         string   // Provider name declared in frontmatter (optional, used for model-pinned agents)
+	// SourceSpecialties maps a wake source (e.g. "heartbeat") to specialty tags;
+	// when the turn's wake source matches, these are tried before the agent rule
+	// and the basic Specialties. nil when none declared.
+	SourceSpecialties map[string][]string
+	Provider          string // Provider name declared in frontmatter (optional, used for model-pinned agents)
 	Path             string   // Full path to the template file
 	ContextWindowCap int      // Parsed token cap; 0 = no cap
 	TierLossyMode    string   // "slide_window" | "stateless" | "" (disabled)
@@ -160,16 +164,25 @@ func loadAgentsFromDir(dir string, dest map[string]*AgentDef) {
 			}
 		}
 
+		var sourceSpecialties map[string][]string
+		if len(meta.SourceSpecialties) > 0 {
+			sourceSpecialties = make(map[string][]string, len(meta.SourceSpecialties))
+			for src, list := range meta.SourceSpecialties {
+				sourceSpecialties[src] = []string(list)
+			}
+		}
+
 		dest[normalizeAgentName(name)] = &AgentDef{
-			Name:             name,
-			Description:      strings.TrimSpace(meta.Description),
-			Specialties:      []string(meta.Specialties),
-			Provider:         strings.TrimSpace(meta.Provider),
-			Path:             path,
-			ContextWindowCap: capTokens,
-			TierLossyMode:    tierLossyMode,
-			TierLossyKeep:    tierLossyKeep,
-			DisableTools:     meta.DisableTools,
+			Name:              name,
+			Description:       strings.TrimSpace(meta.Description),
+			Specialties:       []string(meta.Specialties),
+			SourceSpecialties: sourceSpecialties,
+			Provider:          strings.TrimSpace(meta.Provider),
+			Path:              path,
+			ContextWindowCap:  capTokens,
+			TierLossyMode:     tierLossyMode,
+			TierLossyKeep:     tierLossyKeep,
+			DisableTools:      meta.DisableTools,
 		}
 	}
 }

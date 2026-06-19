@@ -55,13 +55,18 @@ Agents are markdown templates in `{workspace}/agents/{name}.md` with `{{PLACEHOL
 Each turn resolves its provider+model from `thread.models` in config.yaml — a typed **list** of `ModelRule{Type, Name, Provider, ModelType}` where `Type` is `session | agent | specialty`. Precedence is by type, highest first:
 
 1. **session** — rule whose `Name` == the turn's session key
-2. **agent** — rule whose `Name` == the active agent name
-3. **specialty** — the agent's `specialty` array, tried left-to-right; first specialty with a matching rule wins
-4. **default** — top-level `thread.provider`/`thread.modelType`
+2. **source-specialty** — if the turn's wake source matches a key in the agent's `source_specialty` frontmatter map, its specialty list is tried left-to-right (against the same `type:specialty` rule pool); applies only when `t.lastWakeSource` matches
+3. **agent** — rule whose `Name` == the active agent name
+4. **specialty** — the agent's `specialty` array, tried left-to-right; first specialty with a matching rule wins
+5. **default** — top-level `thread.provider`/`thread.modelType`
+
+Every step **cascades**: a declared-but-unconfigured entry (e.g. `source_specialty: {heartbeat: [lowcost]}` with no `type:specialty name:lowcost` rule) falls through to the next step, not to the default. So removing the `lowcost` rule drops heartbeat to the agent rule, then basic specialties, then default — graceful degradation, not an error.
 
 `config.FindModelRule(rules, type, name)` does the lookups (linear scan; the list is small). Returns nil → caller falls back to the default model via `DefaultModelFn`.
 
 Agent `specialty` is an **array** (`specialty: [cron, toolcall]`); parsing is lenient (`agent.StringList` accepts a scalar `specialty: pdf` as `[pdf]`, so hand-edited agent files don't silently mis-route). The cron-runner agents (session-summary/memory-summary/tidyup) carry a leading `cron` specialty so a `type:specialty name:cron` rule can route them.
+
+Agent `source_specialty` is a **map** of wake source → specialty list (`source_specialty: {heartbeat: [lowcost]}`); parsed in `agent.AgentDef.SourceSpecialties`, applied in `resolvedModelConfig` via `t.lastWakeSource`. `soul` ships with `heartbeat: [lowcost]` so heartbeat turns (dream / session-reflect) can route to a value model (e.g. `lowcost` → openai-oauth/gpt-5.5, which is free) without changing the user-facing model. Note: `session-stats`'s `resolveModelChain` has no live wake source, so it shows the **non-source** chain only — source-specialty routing is not reflected there.
 
 CLI writers: `set-model --type X --provider P --model M` upserts a `specialty` rule; `set-agent --session S --provider P --model M` upserts a `session` rule (and `--agent A` independently writes meta.json — session→model and session→agent are separate). Bare `set-agent --session S` clears both. `cmd/session_stats.go:resolveModelChain` mirrors this resolution for `nagobot session-stats`.
 
@@ -103,14 +108,19 @@ Conversation history persisted as `{sessionsDir}/{sessionKey}/session.jsonl`. Au
 
 ## Heartbeat System (`cmd/heartbeat_scheduler.go`)
 
-The heartbeat makes the bot proactive — monitoring conversations and acting on items between user interactions.
+The heartbeat runs background maintenance between user interactions. It does NOT message the user proactively — current behavior is limited to two background writes (USER.md via session-reflect, dream.md via dream) plus silent no-op pulses.
 
 ### Architecture
 
 A Go goroutine (`heartbeatScheduler`) scans every 30s and fires heartbeat pulses into user sessions. NOT a cron job — the old cron-based dispatcher was removed.
 
-A single skill handles everything:
-- **heartbeat-wake**: the pulse payload includes a `heartbeat_modified` field and tells the LLM to `use_skill("heartbeat-wake")`. The skill lists priority-ordered actions (follow up on pending work, greet, update USER.md, pick up items from `heartbeat.md`, update `heartbeat.md`, trim `heartbeat.md`, skip) — the LLM picks one per pulse. If no user-facing message was sent, the skill instructs `dispatch({})` to end silently.
+Every pulse runs `use_skill("heartbeat-wake")`, which is a **3-way router** (`cmd/templates/skills/heartbeat-wake/SKILL.md`), not a do-everything skill. The pulse payload carries `pulse_index`, `elapsed_since_user`, `next_pulse`, and (only on dream pulses) `should_dream: true`. Routing, checked in order:
+
+- **`should_dream: true`** → `use_skill("dream")` — review the past 24h, overwrite `dream.md`, then run file-track. The scheduler sets this only at session-local night (02:00–06:00), user quiet long, and ≥4h since the last dream (`shouldDream`, dedup via `dream_log.jsonl`).
+- **`pulse_index == 2`** (and not a dream) → `use_skill("session-reflect")` — extract user preferences/corrections/patterns into `USER.md`.
+- **anything else** → `dispatch({})`, silent no-op (just the cheap router turn).
+
+All three paths end silently — heartbeat never produces user-facing output. The two context-heavy paths (dream reads 24h, session-reflect reads history) are the source's main cost drivers; dream's input is fresh nightly content, so prompt caching cannot help it.
 
 ### Timing
 

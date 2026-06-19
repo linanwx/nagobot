@@ -35,7 +35,11 @@ type TemplateMeta struct {
 	Name             string     `yaml:"name"`
 	Description      string     `yaml:"description"`
 	Specialties      StringList `yaml:"specialty"` // one or more specialty tags; scalar or array
-	Provider         string     `yaml:"provider"`
+	// SourceSpecialties maps a wake source (e.g. "heartbeat") to a specialty
+	// list. When the turn's wake source matches a key, model resolution tries
+	// that list (left-to-right) before the agent rule and the basic Specialties.
+	SourceSpecialties map[string]StringList `yaml:"source_specialty,omitempty"`
+	Provider          string                `yaml:"provider"`
 	Sections         []string   `yaml:"sections,omitempty"`           // per-session sections to auto-append (e.g. user_memory_section)
 	ContextWindowCap string     `yaml:"context_window_cap,omitempty"` // human-readable cap (e.g. "64k", "200k", "1M") — clamps effective context window for this agent
 	TierLossyMode    string     `yaml:"tier_lossy_mode,omitempty"`    // lossy compression mode: "slide_window" (phase 1) | "ratio" (future)
