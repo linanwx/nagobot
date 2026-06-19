@@ -320,7 +320,7 @@ func applyNeedSummaryFilter(output *listSessionsOutput, now time.Time) {
 			continue
 		}
 
-		// Rule 5: internal sibling sessions (rephrase/prethink/media-preview) —
+		// Rule 5: internal sibling sessions (prethink/media-preview) —
 		// always skip; they run auxiliary agents and carry no standalone chat.
 		if session.IsInternalSiblingSession(s.Key) {
 			continue

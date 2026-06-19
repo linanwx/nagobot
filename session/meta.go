@@ -15,9 +15,6 @@ const MaxTokenRatioSamples = 10
 
 const metaFileName = "meta.json"
 
-// RephraseSessionSuffix is the session key suffix for rephrase sibling sessions.
-const RephraseSessionSuffix = ":rephrase"
-
 // PreThinkSessionSuffix is the session key suffix for pre-think sibling sessions.
 const PreThinkSessionSuffix = ":prethink"
 
@@ -30,12 +27,11 @@ const AudioPreviewSessionSuffix = ":audiopreview"
 const ImagePreviewSessionSuffix = ":imagepreview"
 
 // IsInternalSiblingSession reports whether the key is an internal helper sibling
-// session (rephrase / pre-think / media-preview). These run auxiliary agents on
-// behalf of a parent session and carry no standalone conversation, so they must
-// be excluded from session-summary and other "real session" enumerations.
+// session (pre-think / media-preview). These run auxiliary agents on behalf of a
+// parent session and carry no standalone conversation, so they must be excluded
+// from session-summary and other "real session" enumerations.
 func IsInternalSiblingSession(key string) bool {
-	return strings.HasSuffix(key, RephraseSessionSuffix) ||
-		strings.HasSuffix(key, PreThinkSessionSuffix) ||
+	return strings.HasSuffix(key, PreThinkSessionSuffix) ||
 		strings.HasSuffix(key, AudioPreviewSessionSuffix) ||
 		strings.HasSuffix(key, ImagePreviewSessionSuffix)
 }
@@ -50,7 +46,6 @@ const ThreadsSessionInfix = ":threads:"
 // Meta holds per-session metadata persisted to {sessionDir}/meta.json.
 type Meta struct {
 	Agent     string         `json:"agent,omitempty"`      // Explicitly assigned agent name.
-	Rephrase  bool           `json:"rephrase,omitempty"`   // Enable rephrase agent for this session.
 	DiscordDM *DiscordDMMeta `json:"discord_dm,omitempty"` // Discord DM routing.
 
 	// TokenEstimateRatios records the last MaxTokenRatioSamples observations of

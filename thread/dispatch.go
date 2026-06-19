@@ -22,7 +22,7 @@ func (t *Thread) CurrentSessionKey() string {
 //   - kind: "user" when the wake originated from a channel user (telegram /
 //     discord / cli / web / feishu / wecom), "session" when another session
 //     woke us (WakeSession), "system" for cron / heartbeat / compression /
-//     resume / rephrase (drop-sink semantics — any reply to caller is
+//     resume (drop-sink semantics — any reply to caller is
 //     discarded). Empty string means no wake source is active (should not
 //     happen mid-turn).
 //   - callerKey: the upstream session key when kind=="session", empty

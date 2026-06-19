@@ -25,7 +25,7 @@ Possible `source` values you may see in the wake YAML:
 | `cron` | scheduled cron job fired (may be `--direct-wake` self-wake) | system (drop sink) |
 | `heartbeat` (also `heartbeat_wake` / `heartbeat_reflect` in older sessions) | heartbeat scheduler pulse | system (drop sink) |
 | `compression` | context compression wake | system (drop sink) |
-| `resume` / `rephrase` | internal re-processing | system (drop sink) |
+| `resume` | internal re-processing | system (drop sink) |
 
 Then:
 

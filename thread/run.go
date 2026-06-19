@@ -385,9 +385,6 @@ func (t *Thread) executeRunner(ctx, runCtx context.Context, p provider.Provider,
 // parentSessionKey strips known sibling/fork markers from a session key.
 // Returns the input unchanged if no marker matches.
 func parentSessionKey(key string) string {
-	if strings.HasSuffix(key, session.RephraseSessionSuffix) {
-		return strings.TrimSuffix(key, session.RephraseSessionSuffix)
-	}
 	if strings.HasSuffix(key, session.PreThinkSessionSuffix) {
 		return strings.TrimSuffix(key, session.PreThinkSessionSuffix)
 	}
@@ -862,7 +859,7 @@ func (t *Thread) resolveProvider() provider.Provider {
 
 // toolsForTurn returns the thread's tool registry, or an empty registry when the
 // active agent declares disable_tools in its frontmatter (e.g. pre-think,
-// rephrase). An empty registry means no tools are sent to the provider, the
+// media-preview). An empty registry means no tools are sent to the provider, the
 // {{TOOLS}} placeholder is empty, and tool-def tokens are zero for this turn.
 func (t *Thread) toolsForTurn() *tools.Registry {
 	cfg := t.cfg()

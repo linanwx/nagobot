@@ -41,7 +41,7 @@ func preThinkAction(ctx context.Context, t *Thread, userMsg string) string {
 	if strings.TrimSpace(userMsg) == "" {
 		return ""
 	}
-	if isPreThinkSession(t.sessionKey) || isRephraseSession(t.sessionKey) {
+	if isPreThinkSession(t.sessionKey) {
 		return ""
 	}
 	if !fastModelConfigured(t.cfg()) {

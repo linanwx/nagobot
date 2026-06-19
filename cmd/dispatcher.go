@@ -225,7 +225,7 @@ func (d *Dispatcher) buildSink(ch channel.Channel, msg *channel.Message, session
 	// at end-of-turn writes one assistant entry. The buffer is reset on flush
 	// so the same sink can serve sequential turns. Mutex guards against the
 	// (theoretical) case of overlapping callers — Threads are single-RunOnce
-	// at a time, but the sink may be reused by rephrase siblings.
+	// at a time, but the sink may be reused across sequential turns.
 	sessionDir := d.threads.SessionDir(sessionKey)
 	var bufMu sync.Mutex
 	var buf strings.Builder

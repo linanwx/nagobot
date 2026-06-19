@@ -106,7 +106,7 @@ func TestRequiresExplicitDispatch_Coverage(t *testing.T) {
 	requires := []WakeSource{WakeSession}
 	allowsNaive := []WakeSource{
 		WakeTelegram, WakeDiscord, WakeWeb, WakeFeishu, WakeWeCom,
-		WakeCron, WakeHeartbeat, WakeCompression, WakeResume, WakeRephrase,
+		WakeCron, WakeHeartbeat, WakeCompression, WakeResume,
 	}
 	for _, src := range requires {
 		if !src.RequiresExplicitDispatch() {

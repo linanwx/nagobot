@@ -144,7 +144,6 @@ const (
 	WakeCompression  WakeSource = "compression"
 	WakeHeartbeat    WakeSource = "heartbeat"
 	WakeResume       WakeSource = "resume"
-	WakeRephrase     WakeSource = "rephrase"
 	WakePreThink     WakeSource = "prethink"
 	WakeAudioPreview WakeSource = "audiopreview"
 	WakeImagePreview WakeSource = "imagepreview"
@@ -187,7 +186,7 @@ const (
 	CallerKindNone    CallerKind = ""        // no active caller (edge case — no wake source set)
 	CallerKindUser    CallerKind = "user"    // caller is the channel user (user-channel wake)
 	CallerKindSession CallerKind = "session" // caller is another session (WakeSession)
-	CallerKindSystem  CallerKind = "system"  // caller is system automation (cron/heartbeat/compression/resume/rephrase)
+	CallerKindSystem  CallerKind = "system"  // caller is system automation (cron/heartbeat/compression/resume)
 )
 
 // CallerKindFromSource maps a wake source to the caller kind.
@@ -209,7 +208,7 @@ type WakeMessage struct {
 	Sink             Sink                  // Per-wake sink. Zero value = no per-wake delivery.
 	AgentName        string                // Optional agent name override for this wake.
 	Vars             map[string]string     // Optional vars override for this wake.
-	Sender           string                // Optional sender override (e.g. rephrase inherits original sender).
+	Sender           string                // Optional sender override.
 	CallerSessionKey string                // For Source=WakeSession: the session that woke us. Empty otherwise.
 	RecentChat       string                // Optional recent chat history (rendered into the wake payload markdown body).
 	OnComplete       func(response string) // Called after the turn completes with the full response text.

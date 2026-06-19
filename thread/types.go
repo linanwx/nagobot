@@ -50,7 +50,6 @@ const (
 	WakeCompression  = msg.WakeCompression
 	WakeHeartbeat    = msg.WakeHeartbeat
 	WakeResume       = msg.WakeResume
-	WakeRephrase     = msg.WakeRephrase
 	WakePreThink     = msg.WakePreThink
 	WakeAudioPreview = msg.WakeAudioPreview
 	WakeImagePreview = msg.WakeImagePreview

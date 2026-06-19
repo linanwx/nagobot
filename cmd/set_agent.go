@@ -34,7 +34,6 @@ var (
 	setAgentName     string
 	setAgentProvider string
 	setAgentModel    string
-	setAgentRephrase string
 )
 
 func init() {
@@ -42,7 +41,6 @@ func init() {
 	setAgentCmd.Flags().StringVar(&setAgentName, "agent", "", "Agent name (empty to clear)")
 	setAgentCmd.Flags().StringVar(&setAgentProvider, "provider", "", "Provider for model-pinned agent (used with --model)")
 	setAgentCmd.Flags().StringVar(&setAgentModel, "model", "", "Model type — auto-creates a fixed agent (used with --provider)")
-	setAgentCmd.Flags().StringVar(&setAgentRephrase, "rephrase", "", "Enable/disable rephrase agent (true/false)")
 	_ = setAgentCmd.MarkFlagRequired("session")
 	rootCmd.AddCommand(setAgentCmd)
 }
@@ -61,12 +59,10 @@ func runSetAgent(_ *cobra.Command, _ []string) error {
 	modelArg := strings.TrimSpace(setAgentModel)
 	providerArg := strings.TrimSpace(setAgentProvider)
 	agentArg := strings.TrimSpace(setAgentName)
-	rephraseArg := strings.TrimSpace(setAgentRephrase)
 
 	hasModel := modelArg != ""
 	hasAgent := agentArg != ""
-	hasRephrase := rephraseArg != ""
-	bareClear := !hasModel && !hasAgent && !hasRephrase
+	bareClear := !hasModel && !hasAgent
 
 	if providerArg != "" && !hasModel {
 		return fmt.Errorf("--provider requires --model")
@@ -130,9 +126,9 @@ func runSetAgent(_ *cobra.Command, _ []string) error {
 		}
 	}
 
-	// Persist agent assignment / rephrase to meta.json (per-session). The session
-	// model pin lives in config (above); meta.json only carries session→agent.
-	if hasAgent || hasRephrase || bareClear {
+	// Persist agent assignment to meta.json (per-session). The session model pin
+	// lives in config (above); meta.json only carries session→agent.
+	if hasAgent || bareClear {
 		sessionsDir, err := cfg.SessionsDir()
 		if err != nil {
 			return fmt.Errorf("failed to get sessions dir: %w", err)
@@ -143,12 +139,6 @@ func runSetAgent(_ *cobra.Command, _ []string) error {
 				m.Agent = ""
 			} else if hasAgent {
 				m.Agent = agentArg
-			}
-			switch strings.ToLower(rephraseArg) {
-			case "true", "1", "yes":
-				m.Rephrase = true
-			case "false", "0", "no":
-				m.Rephrase = false
 			}
 		})
 	}
@@ -171,12 +161,6 @@ func runSetAgent(_ *cobra.Command, _ []string) error {
 			{"command", "set-agent"}, {"status", "ok"}, {"session", session}, {"agent", agentArg},
 		}, fmt.Sprintf("Set agent %q for session %q.", agentArg, session)) + "\n")
 		printAgentModelRouting(cfg, agentArg)
-	}
-	if hasRephrase && !hasAgent && !hasModel {
-		rephraseVal := strings.ToLower(rephraseArg)
-		fmt.Print(tools.CmdOutput([][2]string{
-			{"command", "set-agent"}, {"status", "ok"}, {"session", session}, {"rephrase", rephraseVal},
-		}, fmt.Sprintf("Set rephrase=%s for session %q.", rephraseVal, session)) + "\n")
 	}
 	return nil
 }

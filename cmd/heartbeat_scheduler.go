@@ -254,7 +254,7 @@ func (s *heartbeatScheduler) scan(ctx context.Context) {
 			return
 		}
 
-		if strings.HasSuffix(se.Key, session.RephraseSessionSuffix) {
+		if session.IsInternalSiblingSession(se.Key) {
 			continue
 		}
 		if strings.Contains(se.Key, session.ForkSessionInfix) {

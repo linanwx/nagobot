@@ -70,7 +70,7 @@ type DispatchHost interface {
 	// CallerInfo returns an atomic snapshot of the current wake's caller:
 	// kind — "user" when the caller is the channel user; "session" when the
 	//        caller is another session (cross-session wake); "system" when
-	//        the caller is cron/heartbeat/compression/resume/rephrase (drop
+	//        the caller is cron/heartbeat/compression/resume (drop
 	//        sinks — any reply to caller is discarded). Empty string means
 	//        no active caller (edge case).
 	// callerKey — upstream session key when kind=="session", empty otherwise.
@@ -273,7 +273,7 @@ func (t *DispatchTool) run(ctx context.Context, args json.RawMessage) string {
 	// to=caller:user). Otherwise the user gets no progress update from this
 	// turn even though real work happened (subagents spawned, peers
 	// notified, etc.). System wakes (cron / heartbeat / compression /
-	// resume / rephrase) are exempt — silent skip is part of their design.
+	// resume) are exempt — silent skip is part of their design.
 	//
 	// Escape valve: the model can still skip dispatch entirely and let
 	// naive assistant text auto-route to the user via the default sink, OR

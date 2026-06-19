@@ -53,7 +53,7 @@ func runeLen(s string) int {
 // Idle is measured from lastActiveAt — the thread's own last turn (user OR
 // system) — not lastUserActiveAt. So the scan only fires once a session has
 // genuinely been quiet for a while, and system-only sessions (pre-think/
-// rephrase) get a real "quiet for N min" clock instead of one frozen at thread
+// media-preview) get a real "quiet for N min" clock instead of one frozen at thread
 // creation (which used to wipe them on the next tick). Sessions that stay busy
 // with system turns never go idle here; their token pressure is handled at
 // turn-end by Tier 3 instead.

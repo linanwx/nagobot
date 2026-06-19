@@ -12,7 +12,7 @@ You keep working files in this session's workspace (`{{SESSIONDIR}}`). Over time
 
 **NEVER move, archive, rename, or delete these system files/dirs** (the runtime owns them):
 - Files: `USER.md`, `session.jsonl`, `chat.jsonl`, `meta.json`, `dream.md`, `heartbeat.md`, `heartbeat_log.md`, `heartbeat_skip_log.md`, `file-track.md`
-- Dirs: `memory/`, `threads/`, `fork/`, `prethink/`, `rephrase/`, `history/`, `archive/`
+- Dirs: `memory/`, `threads/`, `fork/`, `prethink/`, `history/`, `archive/`
 
 ## Workflow
 

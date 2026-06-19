@@ -34,7 +34,7 @@ func TestParseTokenAmount(t *testing.T) {
 
 func TestParseTemplateContextWindowCap(t *testing.T) {
 	tpl := `---
-name: rephrase
+name: sample
 context_window_cap: 64k
 ---
 body`

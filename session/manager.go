@@ -202,62 +202,6 @@ func (m *Manager) Append(key string, msgs ...provider.Message) error {
 	return nil
 }
 
-// RephraseLastAssistant finds the assistant message matching original by its
-// first 10 runes, moves its Content to OriginalContent, and sets Content to
-// the rephrased text. Matching by content prefix prevents replacing the wrong
-// message when multiple rephrase requests are in flight concurrently.
-// Holds the session lock across load→modify→save to prevent concurrent Append
-// from losing data between Reload and Save.
-func (m *Manager) RephraseLastAssistant(key, original, rephrased string) error {
-	key = normalizeSessionKey(key)
-
-	m.mu.Lock()
-	defer m.mu.Unlock()
-
-	// Load from disk under lock to get the latest state.
-	sess, err := m.loadFromDisk(key)
-	if err != nil {
-		return fmt.Errorf("rephrase: load session %s: %w", key, err)
-	}
-
-	prefix := runePrefix(original, 10)
-
-	// Find last assistant message whose content starts with the same prefix.
-	found := false
-	for i := len(sess.Messages) - 1; i >= 0; i-- {
-		msg := &sess.Messages[i]
-		if msg.Role == "assistant" && msg.OriginalContent == "" && msg.Content != "" && runePrefix(msg.Content, 10) == prefix {
-			msg.OriginalContent = msg.Content
-			msg.Content = rephrased
-			found = true
-			break
-		}
-	}
-	if !found {
-		return nil
-	}
-
-	// Write atomically and update cache under the same lock.
-	path := m.sessionPath(key)
-	if err := WriteFile(path, sess); err != nil {
-		return fmt.Errorf("rephrase: save session %s: %w", key, err)
-	}
-	m.cache[key] = sess
-	return nil
-}
-
-// runePrefix returns the first n runes of s, or all of s if shorter.
-func runePrefix(s string, n int) string {
-	i := 0
-	for j := range s {
-		if i == n {
-			return s[:j]
-		}
-		i++
-	}
-	return s
-}
-
 // CreateFork generates a stripped fork session from the parent session.
 // It reads the parent's messages, applies ForkMessages to produce a stripped
 // snapshot, deletes any existing fork session at the same key, and writes the
