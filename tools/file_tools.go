@@ -134,8 +134,11 @@ func (t *ReadFileTool) handleImage(ctx context.Context, absPath, mimeType string
 		}
 		return toolResult("read_file", fields,
 			"This is an image file. You cannot view images directly. "+
-				"Use dispatch with to=subagent, agent='imagereader', and pass the original user message as the body. "+
-				"Pick a descriptive task_id (e.g. 'read-image-<short-name>').")
+				"Delegate to the imagereader subagent: call dispatch with to=subagent, agent='imagereader', "+
+				"a descriptive task_id (e.g. 'read-image-<short-name>'), and a body that includes this image's "+
+				"file path followed by the user's question/context.\n"+
+				"path: "+absPath+"\n"+
+				"imagereader reads the image from that path itself; the body MUST contain the path or it cannot proceed.")
 	}
 	return toolResult("read_file", fields, fmt.Sprintf("<<media:%s:%s>>", mimeType, absPath))
 }
