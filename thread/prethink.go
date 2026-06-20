@@ -94,19 +94,19 @@ func preThinkAction(ctx context.Context, t *Thread, userMsg string) string {
 
 // String fields carry text (omitted by the agent when empty).
 var (
-	confusingTermRE = regexp.MustCompile(`(?is)<confusing_terminology>(.*?)</confusing_terminology>`)
-	hallucinationRE = regexp.MustCompile(`(?is)<hallucination>(.*?)</hallucination>`)
-	searchRE        = regexp.MustCompile(`(?is)<search>(.*?)</search>`)
-	skillsRE        = regexp.MustCompile(`(?is)<skills?>(.*?)</skills?>`)
-	toneRE          = regexp.MustCompile(`(?is)<tone>(.*?)</tone>`)
+	skillsRE = regexp.MustCompile(`(?is)<skills?>(.*?)</skills?>`)
+	toneRE   = regexp.MustCompile(`(?is)<tone>(.*?)</tone>`)
 )
 
 // Bool fields are presence-based true/false flags (omitted by the agent when
 // false).
 var (
-	multiStepRE    = regexp.MustCompile(`(?is)<is_multi_step>(.*?)</is_multi_step>`)
-	investigatorRE = regexp.MustCompile(`(?is)<is_include_investigator>(.*?)</is_include_investigator>`)
-	hasWebURLRE    = regexp.MustCompile(`(?is)<has_web_url>(.*?)</has_web_url>`)
+	multiStepRE     = regexp.MustCompile(`(?is)<is_multi_step>(.*?)</is_multi_step>`)
+	confusingTermRE = regexp.MustCompile(`(?is)<confusing_terminology>(.*?)</confusing_terminology>`)
+	hallucinationRE = regexp.MustCompile(`(?is)<hallucination>(.*?)</hallucination>`)
+	searchRE        = regexp.MustCompile(`(?is)<search>(.*?)</search>`)
+	investigatorRE  = regexp.MustCompile(`(?is)<is_include_investigator>(.*?)</is_include_investigator>`)
+	hasWebURLRE     = regexp.MustCompile(`(?is)<has_web_url>(.*?)</has_web_url>`)
 )
 
 // stringTag returns the cleaned body of a string field, or "" if absent/empty.
@@ -134,7 +134,7 @@ func boolTag(re *regexp.Regexp, raw string) bool {
 }
 
 // parsePreThinkXML extracts the bool/string fields from pre-think output and
-// composes a clean action hint. A non-empty <confusing_terminology> tag adds a
+// composes a clean action hint. A true <confusing_terminology> flag adds a
 // mandatory clarification step (fires for ambiguous wording OR insufficient
 // context with high misdirection risk); an <is_include_investigator> flag forces an
 // explicit dispatch. Returns "" when no recognizable tags are found (caller
@@ -150,16 +150,16 @@ func parsePreThinkXML(raw string) string {
 		parts = append(parts, "Multi-step task: plan the steps and complete all of them before responding.")
 	}
 
-	if v := stringTag(confusingTermRE, raw); v != "" {
-		parts = append(parts, "Needs clarification: "+v+". Before continuing, ask the user to clarify via dispatch(to=user) — a structured question with concrete options and their consequences — then wait for their answer.")
+	if boolTag(confusingTermRE, raw) {
+		parts = append(parts, "Needs clarification: the request is ambiguous or lacks enough context to answer on-target. Before continuing, ask the user to clarify via dispatch(to=user) — a structured question with concrete options and their consequences — then wait for their answer.")
 	}
 
-	if v := stringTag(hallucinationRE, raw); v != "" {
-		parts = append(parts, "Possible hallucination: "+v+". Consider searching references before continuing.")
+	if boolTag(hallucinationRE, raw) {
+		parts = append(parts, "Possible hallucination: the request contains fact-specific details the model may confabulate. Consider searching references before continuing.")
 	}
 
-	if v := stringTag(searchRE, raw); v != "" {
-		parts = append(parts, "Search: "+v+". Consider dispatching a search subagent.")
+	if boolTag(searchRE, raw) {
+		parts = append(parts, "Search: this request would benefit from a web search. Consider dispatching a search subagent.")
 	}
 
 	if boolTag(investigatorRE, raw) {

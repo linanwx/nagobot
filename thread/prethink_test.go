@@ -8,7 +8,7 @@ import (
 func TestParsePreThinkXML_FullStructure(t *testing.T) {
 	raw := `<prethink>
   <is_multi_step>true</is_multi_step>
-  <search>需要联网核实最新版本</search>
+  <search>true</search>
   <tone>concise, technical</tone>
 </prethink>`
 
@@ -18,7 +18,7 @@ func TestParsePreThinkXML_FullStructure(t *testing.T) {
 	}
 	for _, want := range []string{
 		"Multi-step task: plan the steps and complete all of them before responding.",
-		"Search: 需要联网核实最新版本. Consider dispatching a search subagent.",
+		"Search: this request would benefit from a web search. Consider dispatching a search subagent.",
 		"Tone: concise, technical",
 	} {
 		if !strings.Contains(out, want) {
@@ -54,36 +54,20 @@ func TestParsePreThinkXML_FalseBoolTreatedAsAbsent(t *testing.T) {
 }
 
 func TestParsePreThinkXML_ConfusingTerminologyRequiresClarification(t *testing.T) {
+	// confusing_terminology is a presence-based bool: true fires the mandatory
+	// clarification step (covers both ambiguous wording and insufficient context).
 	raw := `<prethink>
   <intent>用户想修改模板，但措辞可能有歧义</intent>
-  <confusing_terminology>"标签"既可能指 risk 也可能指 XML tag</confusing_terminology>
-  <tone>careful</tone>
-</prethink>`
-
-	out := parsePreThinkXML(raw)
-	// The string content is carried so the main model knows what to clarify.
-	if !strings.Contains(out, `Needs clarification: "标签"既可能指 risk 也可能指 XML tag.`) {
-		t.Errorf("confusing_terminology content should be included, got: %s", out)
-	}
-	if !strings.Contains(out, "ask the user to clarify via dispatch(to=user)") {
-		t.Errorf("confusing_terminology should suggest clarifying via dispatch(to=user), got: %s", out)
-	}
-}
-
-func TestParsePreThinkXML_InsufficientContextRequiresClarification(t *testing.T) {
-	// Second trigger: not ambiguous wording, but missing context with high
-	// misdirection risk — same field, same mandatory clarification step.
-	raw := `<prethink>
-  <confusing_terminology>用户说"优化一下"但没说优化目标(速度/可读性/体积)，方向风险高</confusing_terminology>
+  <confusing_terminology>true</confusing_terminology>
   <tone>careful</tone>
 </prethink>`
 
 	out := parsePreThinkXML(raw)
 	if !strings.Contains(out, "Needs clarification:") {
-		t.Errorf("insufficient-context content should trigger clarification, got: %s", out)
+		t.Errorf("confusing_terminology=true should trigger clarification, got: %s", out)
 	}
 	if !strings.Contains(out, "ask the user to clarify via dispatch(to=user)") {
-		t.Errorf("should suggest clarifying via dispatch(to=user), got: %s", out)
+		t.Errorf("confusing_terminology should suggest clarifying via dispatch(to=user), got: %s", out)
 	}
 }
 
@@ -103,13 +87,13 @@ func TestParsePreThinkXML_NoConfusingTerminologyNoClarification(t *testing.T) {
 func TestParsePreThinkXML_Hallucination(t *testing.T) {
 	raw := `<prethink>
   <intent>问 XXX 型号有没有 YYY 功能</intent>
-  <hallucination>XXX 型号 / YYY 功能</hallucination>
+  <hallucination>true</hallucination>
   <tone>concise</tone>
 </prethink>`
 
 	out := parsePreThinkXML(raw)
-	if !strings.Contains(out, "Possible hallucination: XXX 型号 / YYY 功能. Consider searching references before continuing.") {
-		t.Errorf("hallucination content + search suggestion should be included, got: %s", out)
+	if !strings.Contains(out, "Possible hallucination: the request contains fact-specific details the model may confabulate. Consider searching references before continuing.") {
+		t.Errorf("hallucination=true should add the hallucination hint, got: %s", out)
 	}
 }
 

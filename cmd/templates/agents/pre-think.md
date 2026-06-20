@@ -27,9 +27,9 @@ There are two kinds of fields:
   <is_multi_step>true</is_multi_step>
   <is_include_investigator>false</is_include_investigator>
   <has_web_url>false</has_web_url>
-  <confusing_terminology></confusing_terminology>
-  <hallucination>the specific model numbers / names / specs to verify</hallucination>
-  <search>the specific subject/target to search for</search>
+  <confusing_terminology>false</confusing_terminology>
+  <hallucination>true</hallucination>
+  <search>true</search>
   <skills>0-3 relevant skill slugs from the list below, comma-separated</skills>
   <tone>concise, technical</tone>
 </prethink>
@@ -40,12 +40,12 @@ There are two kinds of fields:
 - `<is_multi_step>` — the request actually requires multiple sequential steps or sub-tasks to complete correctly, even if phrased as a single line.
 - `<is_include_investigator>` — the user explicitly asks to search or investigate (e.g. "search xxx", "查一下 xxx", "调查一下 xxx").
 - `<has_web_url>` — the message contains a web URL (an http/https link).
+- `<confusing_terminology>` — set `true` when the request needs clarification *before* a good answer is possible. Two triggers: (1) the message contains genuinely ambiguous or confusing terminology/wording that could be read more than one way; (2) the user has NOT provided enough context/background and there is a HIGH risk the answer goes off in the wrong direction. `false` when the request is clear AND has enough context to answer on-target.
+- `<hallucination>` — set `true` when the message contains fact-specific details the model is likely to confabulate (model numbers, product/person names, dates, specs, versions, citations). E.g. "does the XXX model have YYY?". `false` when there is nothing fact-specific to verify.
+- `<search>` — set `true` when a web search is needed: real-time / current information, online reviews or public opinion, spec / metric comparisons, documentation, fast-changing data (prices, stock / availability, version numbers), facts that need verification against an authoritative source, information the model's training is likely outdated on (beyond its knowledge cutoff), and facts the model tends to confuse. `false` otherwise.
 
 ### String fields
 
-- `<confusing_terminology>` — use this field whenever the request needs clarification *before* a good answer is possible. Two triggers: (1) the message contains genuinely ambiguous or confusing terminology/wording that could be read more than one way — name the specific term(s) and how they are ambiguous; (2) the user has NOT provided enough context/background and there is a HIGH risk the answer goes off in the wrong direction — name the key missing context that must be pinned down first. Body: describe the ambiguity, or the missing context and why it risks a misdirected answer. Omit only when the request is clear AND has enough context to answer on-target.
-- `<hallucination>` — the specific facts in the message that the model is likely to confabulate (model numbers, product/person names, dates, specs, versions, citations). E.g. for "does the XXX model have YYY?", include XXX / YYY. Empty when there is nothing fact-specific to verify.
-- `<search>` — a web search is needed. Body: WHAT to search for — the specific subject/target, not the reason. Include it for: real-time / current information, online reviews or public opinion, spec / metric comparisons, documentation, fast-changing data (prices, stock / availability, version numbers), facts that need verification against an authoritative source, information the model's training is likely outdated on (beyond its knowledge cutoff), and facts the model tends to confuse.
 - `<skills>` — the most relevant **skills** for handling this task, picked from the *Available skills* list below. Body: 0-3 exact **slugs**, comma-separated, most relevant first (e.g. `playwright-cli` for browser / web-page operations, `create-html` for documents / slides / charts, `image` for image generation). They must be **skill slugs, not tool names** (never `web_fetch`, `read_file`, etc.). Omit when no listed skill clearly fits — do NOT invent a slug, and do NOT pad to 3.
 - `<tone>` — always include. Body: 1-3 adjectives.
 
@@ -71,9 +71,9 @@ When filling `<skills>`, choose exact slugs from this list (omit `<skills>` if n
   <is_multi_step>false</is_multi_step>
   <is_include_investigator>false</is_include_investigator>
   <has_web_url>false</has_web_url>
-  <confusing_terminology></confusing_terminology>
-  <hallucination></hallucination>
-  <search></search>
+  <confusing_terminology>false</confusing_terminology>
+  <hallucination>false</hallucination>
+  <search>false</search>
   <skills></skills>
   <tone>warm, friendly</tone>
 </prethink>
