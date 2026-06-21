@@ -4,13 +4,13 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"github.com/linanwx/nagobot/logger"
+	"github.com/linanwx/nagobot/provider"
 	"io/fs"
 	"os"
 	"path/filepath"
 	"sort"
 	"strings"
-	"github.com/linanwx/nagobot/logger"
-	"github.com/linanwx/nagobot/provider"
 )
 
 // GlobTool finds files matching a glob pattern.
@@ -24,7 +24,7 @@ func (t *GlobTool) Def() provider.ToolDef {
 		Type: "function",
 		Function: provider.FunctionDef{
 			Name:        "glob",
-			Description: "Find files matching a glob pattern. Supports ** for recursive directory matching (e.g. \"**/*.go\", \"cmd/**/*.md\"). Results are sorted by modification time (most recent first), limited to 200 entries.",
+			Description: "Find files by NAME/path matching a glob pattern. Supports ** for recursive directory matching (e.g. \"**/*.go\", \"cmd/**/*.md\"). Results are sorted by modification time (most recent first), limited to 200 entries. This does NOT look inside files — to find files CONTAINING certain text, use grep instead.",
 			Parameters: map[string]any{
 				"type": "object",
 				"properties": map[string]any{
@@ -52,13 +52,13 @@ const globMaxResults = 200
 
 // skipDirs are directories to skip during traversal.
 var skipDirs = map[string]bool{
-	".git":         true,
-	"node_modules": true,
-	"__pycache__":  true,
-	".venv":        true,
-	"vendor":       true,
-	".tox":         true,
-	".mypy_cache":  true,
+	".git":          true,
+	"node_modules":  true,
+	"__pycache__":   true,
+	".venv":         true,
+	"vendor":        true,
+	".tox":          true,
+	".mypy_cache":   true,
 	".pytest_cache": true,
 }
 

@@ -54,6 +54,8 @@ Apply a strict filter: **only include events that will greatly impact the next 5
 
 Search specifically for: "X is no longer", "X has been replaced by", "X discontinued", "X deprecated 2026", paradigm shifts in major tech stacks.
 
+**Verify before writing a correction.** Each "Corrections to Model Assumptions" item is high-impact and high-risk — a wrong one actively teaches the model a falsehood. Before including any correction, run one confirming search that tries to *disprove* it. Keep it only if a credible primary or secondary source directly states it; drop it if support is weak, indirect, undated, or merely marketing. Default to dropping when uncertain.
+
 ### 4. Write the summary
 
 Compose a markdown summary and write it to the system file:

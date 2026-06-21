@@ -28,8 +28,10 @@ There are two kinds of fields:
   <is_include_investigator>false</is_include_investigator>
   <has_web_url>false</has_web_url>
   <confusing_terminology>false</confusing_terminology>
+  <destructive>false</destructive>
   <hallucination>true</hallucination>
   <search>true</search>
+  <needs_verification>false</needs_verification>
   <skills>0-3 relevant skill slugs from the list below, comma-separated</skills>
   <tone>concise, technical</tone>
 </prethink>
@@ -40,9 +42,11 @@ There are two kinds of fields:
 - `<is_multi_step>` — the request actually requires multiple sequential steps or sub-tasks to complete correctly, even if phrased as a single line.
 - `<is_include_investigator>` — the user explicitly asks to search or investigate (e.g. "search xxx", "查一下 xxx", "调查一下 xxx").
 - `<has_web_url>` — the message contains a web URL (an http/https link).
-- `<confusing_terminology>` — set `true` when the request needs clarification *before* a good answer is possible. Two triggers: (1) the message contains genuinely ambiguous or confusing terminology/wording that could be read more than one way; (2) the user has NOT provided enough context/background and there is a HIGH risk the answer goes off in the wrong direction. `false` when the request is clear AND has enough context to answer on-target.
-- `<hallucination>` — set `true` when the message contains fact-specific details the model is likely to confabulate (model numbers, product/person names, dates, specs, versions, citations). E.g. "does the XXX model have YYY?". `false` when there is nothing fact-specific to verify.
-- `<search>` — set `true` when a web search is needed: real-time / current information, online reviews or public opinion, spec / metric comparisons, documentation, fast-changing data (prices, stock / availability, version numbers), facts that need verification against an authoritative source, information the model's training is likely outdated on (beyond its knowledge cutoff), and facts the model tends to confuse. `false` otherwise.
+- `<confusing_terminology>` — set `true` when the request needs clarification *before* a good answer is possible. Two triggers: (1) the message contains genuinely ambiguous or confusing terminology/wording that could be read more than one way; (2) the user has NOT provided enough context/background and there is a HIGH risk the answer goes off in the wrong direction. The main model will try to resolve it by investigation (memory/history/search) first and ask the user only for what investigation cannot settle. `false` when the request is clear AND has enough context to answer on-target.
+- `<destructive>` — set `true` when fulfilling the request would delete data, send/publish to others, write outside the workspace, or trigger irreversible side effects (e.g. creating a cron job, mass dispatch, overwriting files). `false` for read-only or easily reversible work.
+- `<hallucination>` — set `true` when there is a meaningful chance (roughly >10%) the model would misremember a fact in the request (model numbers, product/person names, dates, specs, versions, prices, who-holds-a-role, citations). `false` when there is nothing fact-specific, or the fact is stable and well-known.
+- `<search>` — set `true` when there is a meaningful chance (roughly >10%) a relevant fact has changed since the model's training cutoff, or the answer needs an authoritative/current source: real-time data, prices, availability, version numbers, reviews/opinion, spec comparisons, documentation. `false` for casual chat, rewriting/translation/summarization of user-provided text, and pure reasoning tasks — even when named entities appear.
+- `<needs_verification>` — set `true` when the task produces a change whose correctness should be confirmed by running or observing it (code edits, config changes, deployments), not by reasoning alone. `false` for pure-answer or conversational tasks.
 
 ### String fields
 
@@ -72,8 +76,10 @@ When filling `<skills>`, choose exact slugs from this list (omit `<skills>` if n
   <is_include_investigator>false</is_include_investigator>
   <has_web_url>false</has_web_url>
   <confusing_terminology>false</confusing_terminology>
+  <destructive>false</destructive>
   <hallucination>false</hallucination>
   <search>false</search>
+  <needs_verification>false</needs_verification>
   <skills></skills>
   <tone>warm, friendly</tone>
 </prethink>

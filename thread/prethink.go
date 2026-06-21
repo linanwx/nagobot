@@ -101,12 +101,14 @@ var (
 // Bool fields are presence-based true/false flags (omitted by the agent when
 // false).
 var (
-	multiStepRE     = regexp.MustCompile(`(?is)<is_multi_step>(.*?)</is_multi_step>`)
-	confusingTermRE = regexp.MustCompile(`(?is)<confusing_terminology>(.*?)</confusing_terminology>`)
-	hallucinationRE = regexp.MustCompile(`(?is)<hallucination>(.*?)</hallucination>`)
-	searchRE        = regexp.MustCompile(`(?is)<search>(.*?)</search>`)
-	investigatorRE  = regexp.MustCompile(`(?is)<is_include_investigator>(.*?)</is_include_investigator>`)
-	hasWebURLRE     = regexp.MustCompile(`(?is)<has_web_url>(.*?)</has_web_url>`)
+	multiStepRE         = regexp.MustCompile(`(?is)<is_multi_step>(.*?)</is_multi_step>`)
+	confusingTermRE     = regexp.MustCompile(`(?is)<confusing_terminology>(.*?)</confusing_terminology>`)
+	hallucinationRE     = regexp.MustCompile(`(?is)<hallucination>(.*?)</hallucination>`)
+	searchRE            = regexp.MustCompile(`(?is)<search>(.*?)</search>`)
+	investigatorRE      = regexp.MustCompile(`(?is)<is_include_investigator>(.*?)</is_include_investigator>`)
+	hasWebURLRE         = regexp.MustCompile(`(?is)<has_web_url>(.*?)</has_web_url>`)
+	destructiveRE       = regexp.MustCompile(`(?is)<destructive>(.*?)</destructive>`)
+	needsVerificationRE = regexp.MustCompile(`(?is)<needs_verification>(.*?)</needs_verification>`)
 )
 
 // stringTag returns the cleaned body of a string field, or "" if absent/empty.
@@ -134,11 +136,11 @@ func boolTag(re *regexp.Regexp, raw string) bool {
 }
 
 // parsePreThinkXML extracts the bool/string fields from pre-think output and
-// composes a clean action hint. A true <confusing_terminology> flag adds a
-// mandatory clarification step (fires for ambiguous wording OR insufficient
-// context with high misdirection risk); an <is_include_investigator> flag forces an
-// explicit dispatch. Returns "" when no recognizable tags are found (caller
-// falls back to raw).
+// composes a clean action hint. A true <confusing_terminology> flag adds an
+// investigate-then-ask clarification step; <destructive> warns before
+// irreversible actions; <needs_verification> primes a post-action check; an
+// <is_include_investigator> flag forces an explicit dispatch. Returns "" when no
+// recognizable tags are found (caller falls back to raw).
 func parsePreThinkXML(raw string) string {
 	if raw == "" {
 		return ""
@@ -151,15 +153,19 @@ func parsePreThinkXML(raw string) string {
 	}
 
 	if boolTag(confusingTermRE, raw) {
-		parts = append(parts, "Needs clarification: the request is ambiguous or lacks enough context to answer on-target. Before continuing, ask the user to clarify via dispatch(to=user) — a structured question with concrete options and their consequences — then wait for their answer.")
+		parts = append(parts, "Needs clarification: the request is ambiguous or lacks enough context to answer on-target. First try to resolve it from memory, session history, or a search; only ask the user via dispatch(to=user) — a structured question with concrete options and their consequences — for genuine preferences or trade-offs that investigation cannot settle.")
+	}
+
+	if boolTag(destructiveRE, raw) {
+		parts = append(parts, "Destructive action: fulfilling this may delete data, send/publish to others, write outside the workspace, or trigger irreversible side effects. Confirm with the user via dispatch(to=user) before executing, and prefer a dry-run or reversible path.")
 	}
 
 	if boolTag(hallucinationRE, raw) {
-		parts = append(parts, "Possible hallucination: the request contains fact-specific details the model may confabulate. Consider searching references before continuing.")
+		parts = append(parts, "Possible hallucination: there is a meaningful chance (>10%) the model would misremember a fact here (versions, specs, prices, dates, people-in-roles). Verify against a source before stating it.")
 	}
 
 	if boolTag(searchRE, raw) {
-		parts = append(parts, "Search: this request would benefit from a web search. Consider dispatching a search subagent.")
+		parts = append(parts, "Search: there is a meaningful chance (>10%) a relevant fact has changed since the model's training cutoff or needs an authoritative source. Consider dispatching a search subagent.")
 	}
 
 	if boolTag(investigatorRE, raw) {
@@ -168,6 +174,10 @@ func parsePreThinkXML(raw string) string {
 
 	if boolTag(hasWebURLRE, raw) {
 		parts = append(parts, "Web URL present: consider using playwright to open it.")
+	}
+
+	if boolTag(needsVerificationRE, raw) {
+		parts = append(parts, "Needs verification: this task produces a change whose correctness should be confirmed by running or observing it (code, config, deployment), not by reasoning alone. Verify by observing actual behavior after acting.")
 	}
 
 	if slugs := splitSkillSlugs(stringTag(skillsRE, raw)); len(slugs) > 0 {

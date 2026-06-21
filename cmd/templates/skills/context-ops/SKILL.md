@@ -26,21 +26,24 @@ Compress the current session to free up token budget while preserving continuity
 
 Write a summary whose purpose is to provide continuity so you can continue making progress in a future context, where the raw conversation history will be replaced with this summary.
 
-Write in the same language as the original conversation. Use plain text, not JSON.
+Write in the same language as the original conversation. Use plain text, not JSON. Do only the write + compress-session steps for this skill — do not explore other files or start unrelated work.
 
-Include:
-- Current state of work: what has been completed, what is in progress.
-- Next steps and pending actions.
-- Key decisions, preferences, and constraints the user expressed.
-- Important learnings: mistakes that were fixed, insights discovered.
-- Critical references: IDs, file paths, commands, configuration values.
+Use this fixed structure, in order. Keep a section even if brief; never drop one:
 
-Discard:
-- Verbose tool call arguments and raw tool outputs — keep only outcomes.
+1. **Primary intent** — what the user is ultimately trying to achieve this session.
+2. **Decisions & constraints** — choices already made and rules to keep following. Copy any security, credential-handling, or "never do X" instructions **word-for-word** — these must survive verbatim so they keep applying after compaction.
+3. **Files & paths** — each file/path/ID/command/config value touched, with a one-line note on why it matters. Paths must survive the summary.
+4. **Errors & fixes** — mistakes made and how they were resolved, so they are not repeated.
+5. **All user messages** — list every user message (not tool results), verbatim or near-verbatim. These capture intent and changing direction and cannot be reconstructed; do not paraphrase them away.
+6. **Current work** — what is completed and what is in progress right now.
+7. **Next step** — the immediate next action, **quoting the user's most recent instruction verbatim** to avoid drift. Do not invent tangential next steps the user did not ask for.
+
+Discard (these never go in the summary):
+- Verbose tool-call arguments and raw tool outputs — keep only outcomes.
 - Intermediate debugging steps that were already resolved.
 - Repetitive or redundant exchanges that don't affect future work.
 
-The longer and more detailed, the better. If the current conversation is long, aim for at least 1,000 words. If the conversation is relatively short, you may target roughly 10% of the current conversation length.
+Scale to the conversation: if it is long, aim for at least 1,000 words across the sections; if short, roughly 10% of the current conversation length — but always keep sections 2, 5, and 7 complete regardless of length.
 
 ---
 

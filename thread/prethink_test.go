@@ -18,7 +18,7 @@ func TestParsePreThinkXML_FullStructure(t *testing.T) {
 	}
 	for _, want := range []string{
 		"Multi-step task: plan the steps and complete all of them before responding.",
-		"Search: this request would benefit from a web search. Consider dispatching a search subagent.",
+		"Consider dispatching a search subagent.",
 		"Tone: concise, technical",
 	} {
 		if !strings.Contains(out, want) {
@@ -66,7 +66,7 @@ func TestParsePreThinkXML_ConfusingTerminologyRequiresClarification(t *testing.T
 	if !strings.Contains(out, "Needs clarification:") {
 		t.Errorf("confusing_terminology=true should trigger clarification, got: %s", out)
 	}
-	if !strings.Contains(out, "ask the user to clarify via dispatch(to=user)") {
+	if !strings.Contains(out, "ask the user via dispatch(to=user)") {
 		t.Errorf("confusing_terminology should suggest clarifying via dispatch(to=user), got: %s", out)
 	}
 }
@@ -92,7 +92,7 @@ func TestParsePreThinkXML_Hallucination(t *testing.T) {
 </prethink>`
 
 	out := parsePreThinkXML(raw)
-	if !strings.Contains(out, "Possible hallucination: the request contains fact-specific details the model may confabulate. Consider searching references before continuing.") {
+	if !strings.Contains(out, "Possible hallucination:") || !strings.Contains(out, "Verify against a source") {
 		t.Errorf("hallucination=true should add the hallucination hint, got: %s", out)
 	}
 }
@@ -107,6 +107,38 @@ func TestParsePreThinkXML_NoHallucination(t *testing.T) {
 	out := parsePreThinkXML(raw)
 	if strings.Contains(out, "Possible hallucination") {
 		t.Errorf("empty hallucination must be omitted, got: %s", out)
+	}
+}
+
+func TestParsePreThinkXML_Destructive(t *testing.T) {
+	raw := `<prethink>
+  <destructive>true</destructive>
+  <tone>careful</tone>
+</prethink>`
+	out := parsePreThinkXML(raw)
+	if !strings.Contains(out, "Destructive action:") || !strings.Contains(out, "Confirm with the user via dispatch(to=user)") {
+		t.Errorf("destructive=true should add a confirm-before-acting hint, got: %s", out)
+	}
+}
+
+func TestParsePreThinkXML_NoDestructive(t *testing.T) {
+	raw := `<prethink>
+  <destructive>false</destructive>
+  <tone>warm</tone>
+</prethink>`
+	if out := parsePreThinkXML(raw); strings.Contains(out, "Destructive action") {
+		t.Errorf("destructive=false must be omitted, got: %s", out)
+	}
+}
+
+func TestParsePreThinkXML_NeedsVerification(t *testing.T) {
+	raw := `<prethink>
+  <needs_verification>true</needs_verification>
+  <tone>thorough</tone>
+</prethink>`
+	out := parsePreThinkXML(raw)
+	if !strings.Contains(out, "Needs verification:") || !strings.Contains(out, "observing actual behavior after acting") {
+		t.Errorf("needs_verification=true should add a verify-by-observation hint, got: %s", out)
 	}
 }
 

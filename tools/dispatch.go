@@ -117,8 +117,9 @@ func (t *DispatchTool) Def() provider.ToolDef {
 				"Which caller form to pick: read `caller_session_key` in the wake YAML frontmatter. Present → to=caller:session; absent AND this session is user-facing → to=caller:user; system sources (cron/heartbeat/compression) have no usable caller form, use dispatch({}) or to=user instead. " +
 				"Empty sends — dispatch({}) — is silent turn termination; nothing delivered, history recorded. Only use when you genuinely have nothing to say AND the caller does not need to know you finished. If you received a cross-session wake you believe was mis-routed, dispatch(to=caller:session) with an explanation — do NOT silently drop it via dispatch({}) (the caller never learns). " +
 				"IMPORTANT: when calling dispatch, the assistant message's content field MUST be empty. dispatch only delivers each send's `body`; any text written in content alongside this tool_call has no defined recipient and will be rejected. Either put all user-facing text into a send body, or skip dispatch entirely and let default delivery route your assistant content to the caller. " +
+				"Common mistakes to avoid: (a) do NOT use to=session to reply to whoever woke you — that is to=caller:session; to=session wakes a DIFFERENT session. (b) Do NOT use to=user to answer a cross-session caller — that messages your own human, not the caller; use to=caller:session. (c) On a user-facing session, a dispatch with none of to=user / to=caller:user means the human sees NOTHING this turn, even if subagents ran. " +
 				"On success the turn ends. On validation error the turn continues — fix and re-call. " +
-				"Scheduling is not supported here; use cron for future wakes.",
+				"dispatch fires NOW — it has no delay/schedule parameter. For any future or delayed wake (including a delayed self-wake), use the manage-cron skill, not dispatch.",
 			Parameters: map[string]any{
 				"type": "object",
 				"properties": map[string]any{
@@ -135,11 +136,11 @@ func (t *DispatchTool) Def() provider.ToolDef {
 								},
 								"body": map[string]any{
 									"type":        "string",
-									"description": "Message body delivered to the target (or injected as wake message).",
+									"description": "Message body delivered to the target. For to=session it is a wake instruction processed by the target's AI — write it as a directive to that AI, NOT as verbatim text for that session's human.",
 								},
 								"agent": map[string]any{
 									"type":        "string",
-									"description": "Agent template name for subagent/fork. Optional — empty falls back to session default.",
+									"description": "Agent template name for subagent/fork. Optional — omit entirely to use the session default; do not pass an empty string, \"default\", or \"none\".",
 								},
 								"task_id": map[string]any{
 									"type":        "string",

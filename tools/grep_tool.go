@@ -4,10 +4,10 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"os/exec"
-	"strings"
 	"github.com/linanwx/nagobot/logger"
 	"github.com/linanwx/nagobot/provider"
+	"os/exec"
+	"strings"
 )
 
 // GrepTool searches file contents using regex patterns.
@@ -21,7 +21,7 @@ func (t *GrepTool) Def() provider.ToolDef {
 		Type: "function",
 		Function: provider.FunctionDef{
 			Name:        "grep",
-			Description: "Search file contents using a regular expression pattern. Uses ripgrep (rg) if available, otherwise falls back to grep -rn. Returns matching lines with file paths and line numbers.",
+			Description: "Search file CONTENTS using a regular expression pattern. Uses ripgrep (rg) if available, otherwise falls back to grep -rn. Returns matching lines with file paths and line numbers. To find files by NAME/path (not contents), use glob instead.",
 			Parameters: map[string]any{
 				"type": "object",
 				"properties": map[string]any{
