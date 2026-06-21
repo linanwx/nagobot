@@ -95,6 +95,53 @@ func TestReadRecentChat(t *testing.T) {
 
 // TestReadRecentChat_NoMarkerWhenNotTruncated: when the whole conversation fits
 // within n, no collapse marker is added.
+func TestReadRecentChatSince(t *testing.T) {
+	dir := t.TempDir()
+	now := time.Now()
+
+	// Seed entries at varying ages: old (48h), recent (2h, 1h), plus one with no ts.
+	if err := AppendChat(dir, ChatRoleUser, "old message", now.Add(-48*time.Hour)); err != nil {
+		t.Fatal(err)
+	}
+	if err := AppendChat(dir, ChatRoleAssistant, "recent\nreply", now.Add(-2*time.Hour)); err != nil {
+		t.Fatal(err)
+	}
+	if err := AppendChat(dir, ChatRoleUser, strings.Repeat("X", 500), now.Add(-1*time.Hour)); err != nil {
+		t.Fatal(err)
+	}
+	// Entry with zero ts (legacy) — must be skipped by the time filter.
+	if err := AppendChat(dir, ChatRoleUser, "no timestamp", time.Time{}); err != nil {
+		t.Fatal(err)
+	}
+
+	got := ReadRecentChatSince(dir, 200, 24*time.Hour, 100, time.Local)
+
+	if strings.Contains(got, "old message") {
+		t.Errorf("entry older than 24h should be excluded:\n%s", got)
+	}
+	if strings.Contains(got, "no timestamp") {
+		t.Errorf("entry without a timestamp should be excluded:\n%s", got)
+	}
+	if !strings.Contains(got, "recent reply") {
+		t.Errorf("recent entry missing, and newline should be collapsed:\n%s", got)
+	}
+	// maxRunes=100 caps the 500-char entry.
+	for line := range strings.SplitSeq(got, "\n") {
+		if strings.Contains(line, "XXXX") && len([]rune(line)) > 130 {
+			t.Errorf("entry not capped to maxRunes: len=%d line=%q", len([]rune(line)), line)
+		}
+	}
+	// Absolute timestamp prefix.
+	if !strings.Contains(got, "] assistant: recent reply") {
+		t.Errorf("expected '[ts] role: content' rendering, got:\n%s", got)
+	}
+
+	// Empty when nothing is recent enough.
+	if out := ReadRecentChatSince(dir, 200, time.Minute, 100, time.Local); out != "" {
+		t.Errorf("expected empty output when no entry is within window, got %q", out)
+	}
+}
+
 func TestReadRecentChat_NoMarkerWhenNotTruncated(t *testing.T) {
 	dir := t.TempDir()
 	now := time.Now()

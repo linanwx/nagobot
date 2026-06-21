@@ -39,6 +39,12 @@ func defaultCronSeeds() []cronpkg.Job {
 			Task:  `You must call use_skill("world-knowledge-updater") and follow its instructions. use_skill function can not skip.`,
 			Agent: "world-knowledge",
 		},
+		{
+			ID:    "people-knowledge",
+			Expr:  "0 2 * * *",
+			Task:  `You must call use_skill("people-knowledge-updater") and follow its instructions. use_skill function can not skip.`,
+			Agent: "people-knowledge",
+		},
 	}
 }
 

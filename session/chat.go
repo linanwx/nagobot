@@ -214,3 +214,70 @@ func headTailRunes(s string, head, tail int) string {
 	}
 	return string(runes[:head]) + " [...] " + string(runes[len(runes)-tail:])
 }
+
+// ReadRecentChatSince returns chat.jsonl entries from sessionDir whose timestamp
+// is within `since` of now, capped to the last `n` such entries, each rendered as
+// "[YYYY-MM-DD HH:MM] role: content" on a single line — newlines collapsed to
+// spaces, content truncated to maxRunes runes (maxRunes <= 0 means no cap).
+// Entries with no timestamp are skipped (recency cannot be confirmed). Returns ""
+// if the file is missing or nothing is recent enough. loc nil falls back to the
+// system local tz. Output is chronological (oldest first).
+func ReadRecentChatSince(sessionDir string, n int, since time.Duration, maxRunes int, loc *time.Location) string {
+	if sessionDir == "" || since <= 0 {
+		return ""
+	}
+	if loc == nil {
+		loc = time.Local
+	}
+	cutoff := time.Now().Add(-since)
+	path := filepath.Join(sessionDir, chatFileName)
+	f, err := os.Open(path)
+	if err != nil {
+		return ""
+	}
+	defer f.Close()
+
+	var entries []ChatEntry
+	scanner := bufio.NewScanner(f)
+	scanner.Buffer(make([]byte, 64*1024), 1024*1024)
+	for scanner.Scan() {
+		line := strings.TrimSpace(scanner.Text())
+		if line == "" {
+			continue
+		}
+		var e ChatEntry
+		if err := json.Unmarshal([]byte(line), &e); err != nil {
+			continue
+		}
+		if e.Ts.IsZero() || e.Ts.Before(cutoff) {
+			continue
+		}
+		entries = append(entries, e)
+	}
+	if len(entries) == 0 {
+		return ""
+	}
+	if n > 0 && len(entries) > n {
+		entries = entries[len(entries)-n:]
+	}
+
+	var b strings.Builder
+	for _, e := range entries {
+		content := collapseSpaces(e.Content)
+		if maxRunes > 0 {
+			if r := []rune(content); len(r) > maxRunes {
+				content = string(r[:maxRunes])
+			}
+		}
+		if b.Len() > 0 {
+			b.WriteByte('\n')
+		}
+		b.WriteByte('[')
+		b.WriteString(e.Ts.In(loc).Format("2006-01-02 15:04"))
+		b.WriteString("] ")
+		b.WriteString(e.Role)
+		b.WriteString(": ")
+		b.WriteString(content)
+	}
+	return b.String()
+}

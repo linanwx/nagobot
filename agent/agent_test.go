@@ -150,6 +150,42 @@ func TestAllAgentsBuild_NoUnresolvedPlaceholders(t *testing.T) {
 	}
 }
 
+// TestPeopleKnowledge_SoulOnly verifies that system/people_knowledge.md is
+// injected into the soul agent's prompt but NOT into other agents (search),
+// and that nothing is injected when the file is absent.
+func TestPeopleKnowledge_SoulOnly(t *testing.T) {
+	ws := setupWorkspace(t)
+	reg := NewRegistry(ws)
+
+	build := func(name string) string {
+		a, err := reg.New(name)
+		if err != nil {
+			t.Fatalf("New(%s): %v", name, err)
+		}
+		a.SetLocation(time.Now().Location())
+		return a.Build()
+	}
+
+	const marker = "PEOPLE_KNOWLEDGE_MARKER_q2x9"
+
+	// Absent file: soul prompt must not carry an empty people_knowledge block.
+	if strings.Contains(build("soul"), "type: people_knowledge") {
+		t.Fatalf("people_knowledge block injected while file absent")
+	}
+
+	// Write the file, then it must appear for soul only.
+	pkPath := filepath.Join(ws, "system", "people_knowledge.md")
+	if err := os.WriteFile(pkPath, []byte("# People Knowledge\n\n"+marker), 0644); err != nil {
+		t.Fatal(err)
+	}
+	if soul := build("soul"); !strings.Contains(soul, marker) || !strings.Contains(soul, "type: people_knowledge") {
+		t.Errorf("soul prompt missing people_knowledge block (%q)", marker)
+	}
+	if search := build("search"); strings.Contains(search, marker) {
+		t.Errorf("people_knowledge leaked into search agent prompt")
+	}
+}
+
 // TestSearchAgent_HasMemorySections verifies the search sub-agent opts into
 // user_memory_section + memory_index_section, so a delegated search turn carries
 // the user's memory and memory index in its system prompt (same as pre-think).

@@ -20,10 +20,10 @@ const dateLayout = "2006-01-02 (Monday)"
 type Agent struct {
 	Name      string
 	workspace string
-	loc       *time.Location    // session timezone; nil = local
-	vars      map[string]any    // lazy placeholder overrides, applied at Build time
-	meta      TemplateMeta      // parsed frontmatter (includes Sections)
-	sections  *SectionRegistry  // shared core section registry
+	loc       *time.Location   // session timezone; nil = local
+	vars      map[string]any   // lazy placeholder overrides, applied at Build time
+	meta      TemplateMeta     // parsed frontmatter (includes Sections)
+	sections  *SectionRegistry // shared core section registry
 }
 
 // SetSections sets the shared SectionRegistry for core section assembly.
@@ -86,6 +86,19 @@ func (a *Agent) Build() string {
 			globalPath, _ := filepath.Abs(filepath.Join(a.workspace, "system", "GLOBAL.md"))
 			globalHeader := fmt.Sprintf("---\ntype: global_instruction\nfile_path: %s\nprompt: follow the instruction\n---", globalPath)
 			prompt += "\n\n" + globalHeader + "\n\n" + globalContent
+		}
+
+		// People Knowledge — cross-session, time-sensitive knowledge about people
+		// (recent activity, upcoming plans, with confidence), written nightly by
+		// the people-knowledge cron. Injected for soul only — the user-facing
+		// agent that needs social context; search/cron/etc. do not.
+		if strings.EqualFold(a.Name, "soul") {
+			pkContent := buildPeopleKnowledge(a.workspace)
+			if pkContent != "" {
+				pkPath, _ := filepath.Abs(filepath.Join(a.workspace, "system", "people_knowledge.md"))
+				pkHeader := fmt.Sprintf("---\ntype: people_knowledge\nfile_path: %s\nprompt: Cross-session knowledge about people — recent activity and upcoming plans with confidence. Items are dated; weigh recency and do not treat as certain.\n---", pkPath)
+				prompt += "\n\n" + pkHeader + "\n\n" + pkContent
+			}
 		}
 	}
 
@@ -266,6 +279,20 @@ func buildWorldKnowledge(workspace string) string {
 		return "(no world knowledge available)"
 	}
 	return content
+}
+
+// buildPeopleKnowledge reads system/people_knowledge.md and returns its content
+// for prompt injection. Returns "" when absent/empty so no block is injected
+// until the nightly people-knowledge cron has written the file at least once.
+func buildPeopleKnowledge(workspace string) string {
+	if strings.TrimSpace(workspace) == "" {
+		return ""
+	}
+	data, err := os.ReadFile(filepath.Join(workspace, "system", "people_knowledge.md"))
+	if err != nil {
+		return ""
+	}
+	return strings.TrimSpace(string(data))
 }
 
 // buildGlobal reads system/GLOBAL.md and returns its content for prompt injection.
