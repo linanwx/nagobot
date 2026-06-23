@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -90,9 +91,12 @@ func (a *Agent) Build() string {
 
 		// People Knowledge — cross-session, time-sensitive knowledge about people
 		// (recent activity, upcoming plans, with confidence), written nightly by
-		// the people-knowledge cron. Injected for soul only — the user-facing
-		// agent that needs social context; search/cron/etc. do not.
-		if strings.EqualFold(a.Name, "soul") {
+		// the people-knowledge cron. Injected for any agent that grounds on the
+		// user's world (declares user_memory_section): the agents that read
+		// USER.md to disambiguate and personalize — soul, search, the media
+		// previewers, pre-think — benefit from knowing who the people are too.
+		// Tool/cron agents without user memory are left clean.
+		if a.declaresSection(SectionUserMemory) {
 			pkContent := buildPeopleKnowledge(a.workspace)
 			if pkContent != "" {
 				pkPath, _ := filepath.Abs(filepath.Join(a.workspace, "system", "people_knowledge.md"))
@@ -155,6 +159,13 @@ func formatVar(value any) string {
 	default:
 		return fmt.Sprintf("%v", v)
 	}
+}
+
+// declaresSection reports whether the agent's frontmatter opts into the named
+// section (its `sections:` list). a.meta is populated by readTemplate during
+// Stage 1 of Build, so this is valid from Stage 3 onward.
+func (a *Agent) declaresSection(name string) bool {
+	return slices.Contains(a.meta.Sections, name)
 }
 
 // newAgent creates an agent. Template path: workspace/agents/<name>.md.

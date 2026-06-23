@@ -150,10 +150,12 @@ func TestAllAgentsBuild_NoUnresolvedPlaceholders(t *testing.T) {
 	}
 }
 
-// TestPeopleKnowledge_SoulOnly verifies that system/people_knowledge.md is
-// injected into the soul agent's prompt but NOT into other agents (search),
-// and that nothing is injected when the file is absent.
-func TestPeopleKnowledge_SoulOnly(t *testing.T) {
+// TestPeopleKnowledge_UserMemoryAgents verifies that system/people_knowledge.md
+// is injected into every agent that grounds on the user (declares
+// user_memory_section) — soul and the search sub-agent — but NOT into agents
+// without user memory (the world-knowledge cron runner), and that nothing is
+// injected when the file is absent.
+func TestPeopleKnowledge_UserMemoryAgents(t *testing.T) {
 	ws := setupWorkspace(t)
 	reg := NewRegistry(ws)
 
@@ -168,21 +170,24 @@ func TestPeopleKnowledge_SoulOnly(t *testing.T) {
 
 	const marker = "PEOPLE_KNOWLEDGE_MARKER_q2x9"
 
-	// Absent file: soul prompt must not carry an empty people_knowledge block.
+	// Absent file: no empty people_knowledge block, even for a user-memory agent.
 	if strings.Contains(build("soul"), "type: people_knowledge") {
 		t.Fatalf("people_knowledge block injected while file absent")
 	}
 
-	// Write the file, then it must appear for soul only.
+	// Write the file. It must appear for agents that declare user_memory_section.
 	pkPath := filepath.Join(ws, "system", "people_knowledge.md")
 	if err := os.WriteFile(pkPath, []byte("# People Knowledge\n\n"+marker), 0644); err != nil {
 		t.Fatal(err)
 	}
-	if soul := build("soul"); !strings.Contains(soul, marker) || !strings.Contains(soul, "type: people_knowledge") {
-		t.Errorf("soul prompt missing people_knowledge block (%q)", marker)
+	for _, name := range []string{"soul", "search"} {
+		if out := build(name); !strings.Contains(out, marker) || !strings.Contains(out, "type: people_knowledge") {
+			t.Errorf("%s prompt missing people_knowledge block (%q)", name, marker)
+		}
 	}
-	if search := build("search"); strings.Contains(search, marker) {
-		t.Errorf("people_knowledge leaked into search agent prompt")
+	// An agent without user_memory_section (cron runner) must stay clean.
+	if out := build("world-knowledge"); strings.Contains(out, marker) {
+		t.Errorf("people_knowledge leaked into world-knowledge agent prompt")
 	}
 }
 
