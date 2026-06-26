@@ -224,8 +224,6 @@ func (c *Config) GetOAuthToken(providerName string) *OAuthTokenConfig {
 	switch providerName {
 	case "openai", "openai-oauth":
 		return c.Providers.OpenAIOAuth
-	case "anthropic", "anthropic-oauth":
-		return c.Providers.AnthropicOAuth
 	}
 	return nil
 }
@@ -235,8 +233,6 @@ func (c *Config) SetOAuthToken(providerName string, token *OAuthTokenConfig) {
 	switch providerName {
 	case "openai", "openai-oauth":
 		c.Providers.OpenAIOAuth = token
-	case "anthropic", "anthropic-oauth":
-		c.Providers.AnthropicOAuth = token
 	}
 }
 
@@ -254,7 +250,7 @@ func (c *Config) EnsureProviderConfigFor(providerName string) *ProviderConfig {
 		return pc
 	}
 	// Provider not found or field is nil — allocate and set it.
-	// OAuth-only providers (e.g. "anthropic-oauth") have no ProviderConfig.
+	// OAuth-only providers (e.g. "openai-oauth") have no ProviderConfig.
 	pc := &ProviderConfig{}
 	switch providerName {
 	case "openai", "openai-oauth":
