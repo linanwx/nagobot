@@ -490,7 +490,7 @@ func (b *AnthropicBalance) Check(ctx context.Context) (*BalanceInfo, error) {
 
 	// Minimal /v1/messages call (max_tokens=1) to get rate-limit headers and credit check.
 	client := &http.Client{Timeout: 15 * time.Second}
-	reqBody := `{"model":"claude-sonnet-4-20250514","max_tokens":1,"messages":[{"role":"user","content":"hi"}]}`
+	reqBody := `{"model":"claude-sonnet-4-6","max_tokens":1,"messages":[{"role":"user","content":"hi"}]}`
 	req, err := http.NewRequestWithContext(ctx, "POST", "https://api.anthropic.com/v1/messages", strings.NewReader(reqBody))
 	if err != nil {
 		return nil, err
