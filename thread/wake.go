@@ -98,6 +98,11 @@ func canMerge(a, b *WakeMessage) bool {
 	if a.Source != b.Source || a.AgentName != b.AgentName {
 		return false
 	}
+	// Don't merge wakes with different model overrides — the merged body would
+	// otherwise run under the first wake's model, silently mis-routing the second.
+	if a.OverrideProvider != b.OverrideProvider || a.OverrideModel != b.OverrideModel {
+		return false
+	}
 	// Don't merge messages with different Sinks to prevent cross-delivery
 	// (e.g. cron results leaking to a user's channel sink).
 	if a.Sink.Label != b.Sink.Label {
@@ -138,6 +143,10 @@ func (t *Thread) RunOnce(ctx context.Context) {
 	}
 	msg = t.tryMerge(msg)
 	t.lastWakeSource = msg.Source
+	// Per-wake model override (from dispatch subagent/fork). Reset every wake —
+	// an empty wake clears any prior override so it never leaks across turns.
+	t.modelOverrideProvider = msg.OverrideProvider
+	t.modelOverrideModel = msg.OverrideModel
 	if name := strings.TrimSpace(msg.AgentName); name != "" {
 		a, err := t.cfg().Agents.New(name)
 		if err != nil {

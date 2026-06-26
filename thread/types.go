@@ -135,6 +135,8 @@ type Thread struct {
 	lastActiveAt     time.Time      // Last time this thread completed work (used by GC).
 	lastUserActiveAt time.Time      // Last time a real user interacted (used by compression).
 	lastWakeSource   msg.WakeSource // Source of the most recent wake (set at RunOnce start).
+	modelOverrideProvider string    // Per-wake model override provider (from dispatch subagent/fork); set at RunOnce start, empty when none. Highest routing precedence.
+	modelOverrideModel    string    // Per-wake model override model type; paired with modelOverrideProvider.
 	suppressSink     bool           // When true, RunOnce skips sink delivery (reset after each turn).
 	haltLoop         bool           // When true, Runner stops after current tool calls complete.
 	currentSink      Sink           // Current turn's active sink (set by run(), cleared on turn end). Used by dispatch(to=caller:*).

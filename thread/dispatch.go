@@ -4,10 +4,13 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"slices"
 	"strings"
 	"time"
 
+	"github.com/linanwx/nagobot/config"
 	"github.com/linanwx/nagobot/logger"
+	"github.com/linanwx/nagobot/provider"
 	"github.com/linanwx/nagobot/session"
 	"github.com/linanwx/nagobot/thread/msg"
 )
@@ -88,7 +91,7 @@ func (t *Thread) SendToCaller(ctx context.Context, body string) error {
 // CreateOrWakeSubagent creates (or wakes existing) a subagent thread at
 // {current}:threads:{taskID}. The optional agent name overrides any previously
 // persisted agent on the session meta.
-func (t *Thread) CreateOrWakeSubagent(_ context.Context, agentName, taskID, body string) (string, string, error) {
+func (t *Thread) CreateOrWakeSubagent(_ context.Context, agentName, taskID, body, overrideProvider, overrideModel string) (string, string, error) {
 	taskID = strings.TrimSpace(taskID)
 	if taskID == "" {
 		return "", "", fmt.Errorf("task_id is required")
@@ -102,7 +105,7 @@ func (t *Thread) CreateOrWakeSubagent(_ context.Context, agentName, taskID, body
 	}
 	key := parent + session.ThreadsSessionInfix + taskID
 
-	note, err := t.createOrWake(key, agentName, body, false, "")
+	note, err := t.createOrWake(key, agentName, body, false, "", overrideProvider, overrideModel)
 	if err != nil {
 		return "", "", err
 	}
@@ -112,7 +115,7 @@ func (t *Thread) CreateOrWakeSubagent(_ context.Context, agentName, taskID, body
 // CreateOrWakeFork creates (or wakes existing) a fork session at
 // {current}:fork:{taskID}. On new creation, the current session's history is
 // copied (stripped) via session.CreateFork. Agent name overrides meta.
-func (t *Thread) CreateOrWakeFork(_ context.Context, agentName, taskID, body string) (string, string, error) {
+func (t *Thread) CreateOrWakeFork(_ context.Context, agentName, taskID, body, overrideProvider, overrideModel string) (string, string, error) {
 	taskID = strings.TrimSpace(taskID)
 	if taskID == "" {
 		return "", "", fmt.Errorf("task_id is required")
@@ -130,7 +133,7 @@ func (t *Thread) CreateOrWakeFork(_ context.Context, agentName, taskID, body str
 	}
 	key := parent + ":fork:" + taskID
 
-	note, err := t.createOrWake(key, agentName, body, true, t.sessionKey)
+	note, err := t.createOrWake(key, agentName, body, true, t.sessionKey, overrideProvider, overrideModel)
 	if err != nil {
 		return "", "", err
 	}
@@ -291,7 +294,7 @@ func (t *Thread) SignalHalt() {
 //   - session exists → optionally update meta agent, enqueue wake, return "resumed"
 //   - session missing → if forkFrom != "", create fork from that source; else fresh spawn.
 //     Then enqueue wake. Returns "created" or "forked-from:<src>".
-func (t *Thread) createOrWake(key, agentName, body string, isFork bool, forkFrom string) (string, error) {
+func (t *Thread) createOrWake(key, agentName, body string, isFork bool, forkFrom, overrideProvider, overrideModel string) (string, error) {
 	cfg := t.cfg()
 	note := ""
 	exists := false
@@ -338,8 +341,33 @@ func (t *Thread) createOrWake(key, agentName, body string, isFork bool, forkFrom
 		Source:           WakeSession,
 		Message:          body,
 		AgentName:        agentName,
+		OverrideProvider: overrideProvider,
+		OverrideModel:    overrideModel,
 		Sink:             t.buildSinkToCaller(key),
 		CallerSessionKey: t.sessionKey,
 	})
 	return note, nil
+}
+
+// ValidateModelOverride reports whether (providerName, model) is a usable model
+// override for a subagent/fork wake: the provider must have a configured API key
+// and the model must be in that provider's whitelist. Config is re-read each call
+// (hot-reload) so a key added at runtime is honored. Returns a descriptive error
+// — never silent — so the LLM gets actionable feedback at dispatch validation.
+func (t *Thread) ValidateModelOverride(providerName, model string) error {
+	cfg, err := config.Load()
+	if err != nil {
+		return fmt.Errorf("model override: cannot load config: %w", err)
+	}
+	if !provider.ProviderKeyAvailable(cfg, providerName) {
+		return fmt.Errorf("model override: provider %q has no configured API key — run set-model --list-fallback to see usable providers", providerName)
+	}
+	models := provider.SupportedModelsForProvider(providerName)
+	if len(models) == 0 {
+		return fmt.Errorf("model override: provider %q exposes no models", providerName)
+	}
+	if slices.Contains(models, model) {
+		return nil
+	}
+	return fmt.Errorf("model override: model %q is not in provider %q's whitelist (%s)", model, providerName, strings.Join(models, ", "))
 }

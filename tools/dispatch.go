@@ -36,6 +36,8 @@ type DispatchSend struct {
 	Body       string         `json:"body"`
 	Agent      string         `json:"agent,omitempty"`       // subagent/fork
 	TaskID     string         `json:"task_id,omitempty"`     // subagent/fork
+	Provider   string         `json:"provider,omitempty"`    // subagent/fork — optional model override; set together with Model
+	Model      string         `json:"model,omitempty"`       // subagent/fork — optional model override; set together with Provider
 	SessionKey string         `json:"session_key,omitempty"` // session (key form — must exist)
 	Channel    string         `json:"channel,omitempty"`     // session (endpoint form — created if missing)
 	UserID     string         `json:"user_id,omitempty"`     // session (endpoint form)
@@ -84,8 +86,13 @@ type DispatchHost interface {
 	SessionExists(key string) bool
 	SendToCaller(ctx context.Context, body string) error
 	SendToUser(ctx context.Context, body string) error
-	CreateOrWakeSubagent(ctx context.Context, agent, taskID, body string) (sessionKey, note string, err error)
-	CreateOrWakeFork(ctx context.Context, agent, taskID, body string) (sessionKey, note string, err error)
+	CreateOrWakeSubagent(ctx context.Context, agent, taskID, body, overrideProvider, overrideModel string) (sessionKey, note string, err error)
+	CreateOrWakeFork(ctx context.Context, agent, taskID, body, overrideProvider, overrideModel string) (sessionKey, note string, err error)
+	// ValidateModelOverride reports whether (provider, model) is a usable model
+	// override for a subagent/fork wake: the provider must have a configured API
+	// key and the model must be in that provider's whitelist. Returns a
+	// descriptive error otherwise (never silent). Both args are non-empty.
+	ValidateModelOverride(provider, model string) error
 	WakeSession(ctx context.Context, sessionKey, body string) error
 	SignalHalt()
 }
@@ -111,8 +118,8 @@ func (t *DispatchTool) Def() provider.ToolDef {
 				"- caller:user — reply to whoever woke THIS turn AND assert the caller is the channel user (user-channel wake: telegram/discord/cli/web/feishu/wecom). Fails validation if the actual caller is another session or a system source.\n" +
 				"- caller:session — reply to the caller AND assert the caller is another session (cross-session wake; `caller_session_key` is present in wake YAML). Fails validation if the actual caller is the channel user or system.\n" +
 				"- user: reply to the channel user via this session's user-channel sink. Only valid for user-facing sessions. Use this when a non-user source (cron/heartbeat/another session) woke you and you want to proactively message YOUR user INSTEAD OF replying to the waker.\n" +
-				"- subagent: spawn a new subagent thread, or wake existing at same task_id. Fields: agent (optional), task_id, body.\n" +
-				"- fork: branch current session as new agent thread, or wake existing at same task_id. Fields: agent (optional), task_id, body.\n" +
+				"- subagent: spawn a new subagent thread, or wake existing at same task_id. Fields: agent (optional), task_id, body, provider+model (optional model override).\n" +
+				"- fork: branch current session as new agent thread, or wake existing at same task_id. Fields: agent (optional), task_id, body, provider+model (optional model override).\n" +
 				"- session: wake another session's AI. The body becomes that session's wake message, processed by ITS AI (own agent/persona/history) — it is NOT delivered verbatim to that session's human user; the target AI decides what, if anything, to forward (typically via its own dispatch(to=user)). Two addressing forms: (1) session_key — exact key of an EXISTING session (validation fails if it does not exist); (2) channel + user_id — address a channel endpoint directly, creating the session if missing. Use form 2 to initiate contact with a user who may never have talked to the bot. Either way, the target's dispatch(to=caller:session) routes back to YOUR session (ping-pong recurses until one side halts).\n\n" +
 				"Which caller form to pick: read `caller_session_key` in the wake YAML frontmatter. Present → to=caller:session; absent AND this session is user-facing → to=caller:user; system sources (cron/heartbeat/compression) have no usable caller form, use dispatch({}) or to=user instead. " +
 				"Empty sends — dispatch({}) — is silent turn termination; nothing delivered, history recorded. Only use when you genuinely have nothing to say AND the caller does not need to know you finished. If you received a cross-session wake you believe was mis-routed, dispatch(to=caller:session) with an explanation — do NOT silently drop it via dispatch({}) (the caller never learns). " +
@@ -145,6 +152,14 @@ func (t *DispatchTool) Def() provider.ToolDef {
 								"task_id": map[string]any{
 									"type":        "string",
 									"description": "Task id for subagent/fork. Must match [a-z0-9_-]+. Reusing the same task_id targets the existing session.",
+								},
+								"provider": map[string]any{
+									"type":        "string",
+									"description": "Optional model override for subagent/fork: provider name. Pins the spawned thread to a specific model for this wake, overriding all normal session/agent/specialty routing. Must be paired with `model`. Use only when you deliberately need a particular model by identity (e.g. a cross-model ensemble) — list valid provider/model pairs first via `set-model --list-fallback`. Omit for both fields to use normal routing; not accepted by other targets.",
+								},
+								"model": map[string]any{
+									"type":        "string",
+									"description": "Optional model override for subagent/fork: model name (must be in the provider's whitelist). Paired with `provider`. Validation fails if the provider has no configured key or the model is not supported by it.",
 								},
 								"session_key": map[string]any{
 									"type":        "string",
@@ -343,6 +358,11 @@ func (t *DispatchTool) validateOne(send DispatchSend, currentSession string) str
 	if strings.TrimSpace(send.Body) == "" {
 		return "body is required"
 	}
+	// Model override (provider/model) applies to subagent/fork only.
+	if (strings.TrimSpace(send.Provider) != "" || strings.TrimSpace(send.Model) != "") &&
+		send.To != TargetSubagent && send.To != TargetFork {
+		return fmt.Sprintf("%s does not accept provider/model (model override applies to subagent/fork only)", send.To)
+	}
 	switch send.To {
 	case TargetCallerUser:
 		if send.Agent != "" || send.TaskID != "" || send.SessionKey != "" {
@@ -393,6 +413,14 @@ func (t *DispatchTool) validateOne(send DispatchSend, currentSession string) str
 		}
 		if send.Agent != "" && !t.host.AgentExists(send.Agent) {
 			return fmt.Sprintf("agent %q not found", send.Agent)
+		}
+		if p, m := strings.TrimSpace(send.Provider), strings.TrimSpace(send.Model); p != "" || m != "" {
+			if p == "" || m == "" {
+				return "provider and model must be set together for a model override"
+			}
+			if err := t.host.ValidateModelOverride(p, m); err != nil {
+				return err.Error()
+			}
 		}
 	case TargetSession:
 		if send.Agent != "" || send.TaskID != "" {
@@ -472,13 +500,13 @@ func (t *DispatchTool) execute(ctx context.Context, send DispatchSend) (Executed
 		}
 		return ExecutedItem{To: TargetUser, SessionKey: t.host.CurrentSessionKey()}, nil
 	case TargetSubagent:
-		key, note, err := t.host.CreateOrWakeSubagent(ctx, send.Agent, send.TaskID, send.Body)
+		key, note, err := t.host.CreateOrWakeSubagent(ctx, send.Agent, send.TaskID, send.Body, send.Provider, send.Model)
 		if err != nil {
 			return ExecutedItem{}, err
 		}
 		return ExecutedItem{To: TargetSubagent, SessionKey: key, Note: note}, nil
 	case TargetFork:
-		key, note, err := t.host.CreateOrWakeFork(ctx, send.Agent, send.TaskID, send.Body)
+		key, note, err := t.host.CreateOrWakeFork(ctx, send.Agent, send.TaskID, send.Body, send.Provider, send.Model)
 		if err != nil {
 			return ExecutedItem{}, err
 		}

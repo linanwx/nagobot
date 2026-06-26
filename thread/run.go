@@ -661,6 +661,14 @@ func ApplyCompressedMessage(m provider.Message) provider.Message {
 func (t *Thread) resolvedModelConfig() *config.ModelConfig {
 	cfg := t.cfg()
 
+	// 0. Per-wake model override (dispatch subagent/fork). Highest precedence —
+	// a deliberate, scoped pin for this wake only (validated at dispatch time
+	// against provider key + whitelist). Bypasses all normal session/agent/
+	// specialty routing. Both fields are set together; guard on both.
+	if p, m := strings.TrimSpace(t.modelOverrideProvider), strings.TrimSpace(t.modelOverrideModel); p != "" && m != "" {
+		return &config.ModelConfig{Provider: p, ModelType: m}
+	}
+
 	rules := cfg.Models
 	if cfg.ModelsFn != nil {
 		rules = cfg.ModelsFn()

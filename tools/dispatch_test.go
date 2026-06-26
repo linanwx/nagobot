@@ -25,11 +25,13 @@ type mockDispatchHost struct {
 	subagentCalls []subagentCall
 	forkCalls     []subagentCall
 	wokeSessions  []wakeCall
-	failAgent     string // when non-empty, create/wake of this agent returns error
+	failAgent     string          // when non-empty, create/wake of this agent returns error
+	validModels   map[string]bool // "provider:model" pairs accepted by ValidateModelOverride; nil → all accepted
 }
 
 type subagentCall struct {
 	Agent, TaskID, Body string
+	Provider, Model     string
 }
 
 type wakeCall struct {
@@ -55,11 +57,11 @@ func (m *mockDispatchHost) SendToUser(_ context.Context, body string) error {
 	m.sentToUser = body
 	return nil
 }
-func (m *mockDispatchHost) CreateOrWakeSubagent(_ context.Context, agent, taskID, body string) (string, string, error) {
+func (m *mockDispatchHost) CreateOrWakeSubagent(_ context.Context, agent, taskID, body, overrideProvider, overrideModel string) (string, string, error) {
 	if m.failAgent != "" && agent == m.failAgent {
 		return "", "", fmt.Errorf("simulated failure")
 	}
-	m.subagentCalls = append(m.subagentCalls, subagentCall{agent, taskID, body})
+	m.subagentCalls = append(m.subagentCalls, subagentCall{agent, taskID, body, overrideProvider, overrideModel})
 	key := m.currentKey + ":threads:" + taskID
 	note := "created"
 	if m.sessions[key] {
@@ -67,17 +69,26 @@ func (m *mockDispatchHost) CreateOrWakeSubagent(_ context.Context, agent, taskID
 	}
 	return key, note, nil
 }
-func (m *mockDispatchHost) CreateOrWakeFork(_ context.Context, agent, taskID, body string) (string, string, error) {
+func (m *mockDispatchHost) CreateOrWakeFork(_ context.Context, agent, taskID, body, overrideProvider, overrideModel string) (string, string, error) {
 	if m.failAgent != "" && agent == m.failAgent {
 		return "", "", fmt.Errorf("simulated failure")
 	}
-	m.forkCalls = append(m.forkCalls, subagentCall{agent, taskID, body})
+	m.forkCalls = append(m.forkCalls, subagentCall{agent, taskID, body, overrideProvider, overrideModel})
 	key := m.currentKey + ":fork:" + taskID
 	note := "forked-from:" + m.currentKey
 	if m.sessions[key] {
 		note = "resumed"
 	}
 	return key, note, nil
+}
+func (m *mockDispatchHost) ValidateModelOverride(provider, model string) error {
+	if m.validModels == nil {
+		return nil // permissive default
+	}
+	if m.validModels[provider+":"+model] {
+		return nil
+	}
+	return fmt.Errorf("model override: %s/%s not available", provider, model)
 }
 func (m *mockDispatchHost) WakeSession(_ context.Context, sessionKey, body string) error {
 	m.wokeSessions = append(m.wokeSessions, wakeCall{sessionKey, body})
@@ -518,6 +529,66 @@ func TestDispatch_Fork(t *testing.T) {
 	}
 	if !strings.Contains(res, "telegram:1:fork:hypo-a") {
 		t.Errorf("expected fork key in result, got: %s", res)
+	}
+}
+
+// A subagent dispatch carrying a valid provider/model override passes
+// validation and the override is plumbed through to the host call.
+func TestDispatch_SubagentModelOverride_OK(t *testing.T) {
+	host := &mockDispatchHost{
+		currentKey:  "cli",
+		callerKind:  "user",
+		agents:      map[string]bool{"s": true},
+		validModels: map[string]bool{"openrouter:anthropic/claude-opus-4.6": true},
+	}
+	outcome, res := runDispatch(t, host,
+		`{"sends": [{"to": "subagent", "agent": "s", "task_id": "hard-q", "body": "go", "provider": "openrouter", "model": "anthropic/claude-opus-4.6"}]}`)
+	if outcome != "turn-terminated" {
+		t.Fatalf("outcome=%q; %s", outcome, res)
+	}
+	if len(host.subagentCalls) != 1 {
+		t.Fatalf("expected 1 subagent call, got %d", len(host.subagentCalls))
+	}
+	if got := host.subagentCalls[0]; got.Provider != "openrouter" || got.Model != "anthropic/claude-opus-4.6" {
+		t.Errorf("override not plumbed: provider=%q model=%q", got.Provider, got.Model)
+	}
+}
+
+// An unavailable provider/model override fails validation (loud, no call made).
+func TestDispatch_SubagentModelOverride_Unavailable(t *testing.T) {
+	host := &mockDispatchHost{
+		currentKey:  "cli",
+		callerKind:  "user",
+		agents:      map[string]bool{"s": true},
+		validModels: map[string]bool{}, // nothing valid
+	}
+	_, res := runDispatch(t, host,
+		`{"sends": [{"to": "subagent", "agent": "s", "task_id": "hard-q", "body": "go", "provider": "openrouter", "model": "nope/model"}]}`)
+	if !strings.Contains(res, "validation-error") || !strings.Contains(res, "not available") {
+		t.Errorf("expected unavailable-override validation error, got: %s", res)
+	}
+	if len(host.subagentCalls) != 0 {
+		t.Errorf("no host call should be made on validation failure, got %d", len(host.subagentCalls))
+	}
+}
+
+// provider without model (and vice versa) is rejected — they must be paired.
+func TestDispatch_SubagentModelOverride_RequiresBoth(t *testing.T) {
+	host := &mockDispatchHost{currentKey: "cli", callerKind: "user", agents: map[string]bool{"s": true}}
+	_, res := runDispatch(t, host,
+		`{"sends": [{"to": "subagent", "agent": "s", "task_id": "q", "body": "go", "provider": "openrouter"}]}`)
+	if !strings.Contains(res, "validation-error") || !strings.Contains(res, "set together") {
+		t.Errorf("expected paired-fields validation error, got: %s", res)
+	}
+}
+
+// Model override on a non-subagent/fork target is rejected.
+func TestDispatch_ModelOverride_WrongTarget(t *testing.T) {
+	host := &mockDispatchHost{currentKey: "cli", callerKind: "user", userFacing: true}
+	_, res := runDispatch(t, host,
+		`{"sends": [{"to": "user", "body": "hi", "provider": "openrouter", "model": "anthropic/claude-opus-4.6"}]}`)
+	if !strings.Contains(res, "validation-error") || !strings.Contains(res, "model override applies to subagent/fork only") {
+		t.Errorf("expected wrong-target validation error, got: %s", res)
 	}
 }
 

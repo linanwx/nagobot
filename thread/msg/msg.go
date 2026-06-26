@@ -207,6 +207,8 @@ type WakeMessage struct {
 	Media            []string              // Optional media markers (<<media:mime:path>>) attached to the first user message of this wake, delivered natively in user content (no read_file). Dropped with a warning if the resolved model lacks the matching capability.
 	Sink             Sink                  // Per-wake sink. Zero value = no per-wake delivery.
 	AgentName        string                // Optional agent name override for this wake.
+	OverrideProvider string                // Optional model override (subagent/fork dispatch only): provider name. Set together with OverrideModel; applied per-wake at highest routing precedence.
+	OverrideModel    string                // Optional model override (subagent/fork dispatch only): model type. Set together with OverrideProvider.
 	Vars             map[string]string     // Optional vars override for this wake.
 	Sender           string                // Optional sender override.
 	CallerSessionKey string                // For Source=WakeSession: the session that woke us. Empty otherwise.
