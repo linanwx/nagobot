@@ -95,10 +95,6 @@ func init() {
 	apiKeyReg.EnvKey = "ANTHROPIC_API_KEY"
 	apiKeyReg.EnvBase = "ANTHROPIC_API_BASE"
 	RegisterProvider("anthropic", apiKeyReg)
-
-	// "anthropic-oauth" — OAuth token auth (no env var, no API base override).
-	oauthReg := shared
-	RegisterProvider("anthropic-oauth", oauthReg)
 }
 
 // AnthropicProvider implements the Provider interface for Anthropic.
@@ -148,11 +144,6 @@ func anthropicThinkingBudget(maxTokens int) (int64, bool) {
 	return int64(budget), true
 }
 
-// isAnthropicOAuthToken returns true if the key is an Anthropic OAuth token.
-func isAnthropicOAuthToken(key string) bool {
-	return strings.HasPrefix(key, "sk-ant-oat")
-}
-
 // newAnthropicProvider creates a new Anthropic provider.
 func newAnthropicProvider(apiKey, apiBase, modelType, modelName string, maxTokens int, temperature float64) *AnthropicProvider {
 	if modelName == "" {
@@ -166,18 +157,7 @@ func newAnthropicProvider(apiKey, apiBase, modelType, modelName string, maxToken
 		aoption.WithMaxRetries(sdkMaxRetries),
 		aoption.WithMiddleware(anthropicRateLimitMiddleware),
 	}
-	if isAnthropicOAuthToken(apiKey) {
-		// OAuth token: use Bearer auth + required beta/identity headers.
-		// Must match Claude Code's request signature for Anthropic to accept.
-		opts = append(opts,
-			aoption.WithAuthToken(apiKey),
-			aoption.WithHeader("anthropic-beta", "claude-code-20250219,oauth-2025-04-20"),
-			aoption.WithHeader("user-agent", "claude-cli/2.1.92"),
-			aoption.WithHeader("x-app", "cli"),
-		)
-	} else {
-		opts = append(opts, aoption.WithAPIKey(apiKey))
-	}
+	opts = append(opts, aoption.WithAPIKey(apiKey))
 
 	client := anthropic.NewClient(opts...)
 
@@ -530,19 +510,7 @@ func (p *AnthropicProvider) Chat(ctx context.Context, req *Request) (ChatResult,
 		Messages:  messages,
 		Tools:     tools,
 	}
-	if isAnthropicOAuthToken(p.apiKey) {
-		// OAuth requires Claude Code identity in the system prompt.
-		blocks := []anthropic.TextBlockParam{{
-			Text: "You are Claude Code, Anthropic's official CLI for Claude.",
-		}}
-		if systemPrompt != "" {
-			blocks = append(blocks, anthropic.TextBlockParam{
-				Text:         systemPrompt,
-				CacheControl: anthropic.NewCacheControlEphemeralParam(),
-			})
-		}
-		params.System = blocks
-	} else if systemPrompt != "" {
+	if systemPrompt != "" {
 		params.System = []anthropic.TextBlockParam{{
 			Text:         systemPrompt,
 			CacheControl: anthropic.NewCacheControlEphemeralParam(),
@@ -574,11 +542,7 @@ func (p *AnthropicProvider) Chat(ctx context.Context, req *Request) (ChatResult,
 		)
 	}
 
-	providerLabel := "anthropic"
-	if isAnthropicOAuthToken(p.apiKey) {
-		providerLabel = "anthropic-oauth"
-	}
-	resp := &Response{ProviderLabel: providerLabel, ModelLabel: p.modelName}
+	resp := &Response{ProviderLabel: "anthropic", ModelLabel: p.modelName}
 	adapter := newStreamAdapter(ctx, resp)
 
 	go func() {

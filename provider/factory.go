@@ -165,7 +165,7 @@ func providerAPIKey(cfg *config.Config, providerName string) string {
 	}
 
 	// OAuth-only providers — only OAuth token, no env var / static key fallback.
-	if providerName == "openai-oauth" || providerName == "anthropic-oauth" {
+	if providerName == "openai-oauth" {
 		return oauthAccessToken(cfg, providerName)
 	}
 

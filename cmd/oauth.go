@@ -1,7 +1,6 @@
 package cmd
 
 import (
-	"bufio"
 	"context"
 	"crypto/rand"
 	"crypto/sha256"
@@ -13,7 +12,6 @@ import (
 	"net"
 	"net/http"
 	"net/url"
-	"os"
 	"os/exec"
 	"runtime"
 	"sort"
@@ -58,11 +56,6 @@ var authProviders = map[string]*oauthConfig{
 	"openai-oauth": openaiOAuthConfig,
 }
 
-// pasteTokenProviders lists providers that use paste-token auth (no PKCE).
-var pasteTokenProviders = map[string]bool{
-	"anthropic-oauth": true,
-}
-
 var authCmd = &cobra.Command{
 	Use:     "auth",
 	Aliases: []string{"oauth"},
@@ -96,19 +89,10 @@ var authOpenAICmd = &cobra.Command{
 	},
 }
 
-var authAnthropicCmd = &cobra.Command{
-	Use:   "anthropic",
-	Short: "Login with Anthropic/Claude account via setup-token",
-	RunE: func(cmd *cobra.Command, args []string) error {
-		return runPasteTokenLogin("anthropic-oauth")
-	},
-}
-
 func init() {
 	authCmd.AddCommand(authStatusCmd)
 	authCmd.AddCommand(authLogoutCmd)
 	authCmd.AddCommand(authOpenAICmd)
-	authCmd.AddCommand(authAnthropicCmd)
 	rootCmd.AddCommand(authCmd)
 
 	// Wire OAuth token refresh into the provider factory.
@@ -246,53 +230,10 @@ func runOAuthLogin(providerName string) error {
 	return nil
 }
 
-// runPasteTokenLogin handles paste-token authentication for providers like Anthropic.
-// The user runs `claude setup-token` separately, then pastes the resulting token here.
-func runPasteTokenLogin(providerName string) error {
-	if !pasteTokenProviders[providerName] {
-		return fmt.Errorf("unsupported paste-token provider: %s", providerName)
-	}
-
-	cfg, err := config.Load()
-	if err != nil {
-		return fmt.Errorf("failed to load config: %w", err)
-	}
-
-	fmt.Println("To get a setup-token, run in a separate terminal:")
-	fmt.Println()
-	fmt.Println("  claude setup-token")
-	fmt.Println()
-
-	fmt.Print("Paste your setup-token (sk-ant-oat01-...): ")
-	scanner := bufio.NewScanner(os.Stdin)
-	if !scanner.Scan() {
-		return fmt.Errorf("failed to read token: %w", scanner.Err())
-	}
-	token := strings.TrimSpace(scanner.Text())
-
-	if !strings.HasPrefix(token, "sk-ant-oat") {
-		return fmt.Errorf("invalid token: must start with sk-ant-oat")
-	}
-
-	cfg.SetOAuthToken(providerName, &config.OAuthTokenConfig{
-		AccessToken: token,
-		TokenType:   "bearer",
-	})
-	if err := cfg.Save(); err != nil {
-		return fmt.Errorf("failed to save config: %w", err)
-	}
-
-	fmt.Printf("\nSuccessfully authenticated with %s!\n", providerName)
-	return nil
-}
-
-// allAuthProviderNames returns a sorted list of all provider names that support any form of OAuth/token auth.
+// allAuthProviderNames returns a sorted list of all provider names that support OAuth login.
 func allAuthProviderNames() []string {
-	names := make([]string, 0, len(authProviders)+len(pasteTokenProviders))
+	names := make([]string, 0, len(authProviders))
 	for name := range authProviders {
-		names = append(names, name)
-	}
-	for name := range pasteTokenProviders {
 		names = append(names, name)
 	}
 	sort.Strings(names)
@@ -344,9 +285,7 @@ func runAuthStatus(_ *cobra.Command, _ []string) error {
 
 func runAuthLogout(_ *cobra.Command, args []string) error {
 	providerName := strings.TrimSpace(args[0])
-	_, inOAuth := authProviders[providerName]
-	_, inPaste := pasteTokenProviders[providerName]
-	if !inOAuth && !inPaste {
+	if _, ok := authProviders[providerName]; !ok {
 		return fmt.Errorf("unsupported provider: %s (supported: %s)", providerName, strings.Join(allAuthProviderNames(), ", "))
 	}
 
