@@ -7,6 +7,139 @@ import (
 	"github.com/bwmarrin/discordgo"
 )
 
+func TestRenderTableAsList_EmptyHeaders_NoColumnPrefix(t *testing.T) {
+	// When ALL headers are empty, non-label columns should render as plain bullets
+	// (no "Column 2" / "Column 3" technical noise).
+	md := "| | |\n|---|---|\n| 🇪🇸 西班牙 | ~+2.4% |"
+	got := convertTablesToLists(md)
+	if strings.Contains(got, "Column 2") {
+		t.Errorf("empty header should not produce 'Column 2' label:\n%s", got)
+	}
+	if !strings.Contains(got, "~+2.4%") {
+		t.Errorf("value should still appear:\n%s", got)
+	}
+	t.Logf("Output:\n%s", got)
+}
+
+func TestIsSeparatorRow_EmptyHeader(t *testing.T) {
+	// | | | is a header row with empty cells, NOT a separator row.
+	// Only rows containing --- (dashes) are separators.
+	tests := []struct {
+		cells    []string
+		expected bool
+	}{
+		{[]string{" ", " "}, false},                 // empty header row
+		{[]string{"", ""}, false},                   // empty header row (no space)
+		{[]string{"---", "---"}, true},              // standard separator
+		{[]string{":---", "---:"}, true},            // alignment separator
+		{[]string{":--:", "-----"}, true},           // alignment separator
+		{[]string{"Data", "Value"}, false},          // data row
+		{[]string{"", "同比增速"}, false},            // first-cell-empty header
+	}
+	for _, tt := range tests {
+		got := isSeparatorRow(tt.cells)
+		if got != tt.expected {
+			t.Errorf("isSeparatorRow(%v) = %v, want %v", tt.cells, got, tt.expected)
+		}
+	}
+}
+
+func TestConvertTablesToLists_AlignmentSeparator(t *testing.T) {
+	// Alignment colons in separator row should be ignored (treated like |---|).
+	md := "| Left | Center | Right |\n|:-----|:------:|------:|\n| a | b | c |"
+	got := convertTablesToLists(md)
+	if !strings.Contains(got, "• **Left**: a") {
+		t.Errorf("missing left column:\n%s", got)
+	}
+	if !strings.Contains(got, "• **Center**: b") {
+		t.Errorf("missing center column:\n%s", got)
+	}
+	if !strings.Contains(got, "• **Right**: c") {
+		t.Errorf("missing right column:\n%s", got)
+	}
+	t.Logf("Output:\n%s", got)
+}
+
+func TestConvertTablesToLists_MismatchedColumns(t *testing.T) {
+	// Row with fewer cells than header pads implicitly, extra col gets normalized.
+	md := "| A | B | C |\n|---|---|---|\n| 1 | 2 |\n| 3 | 4 | 5 | 6 |"
+	got := convertTablesToLists(md)
+	if !strings.Contains(got, "• **A**: 1") {
+		t.Errorf("missing col A:\n%s", got)
+	}
+	if !strings.Contains(got, "• **B**: 2") {
+		t.Errorf("missing col B:\n%s", got)
+	}
+	// Row 2 has extra cell beyond numCols — should still render existing cols.
+	if !strings.Contains(got, "• **A**: 3") {
+		t.Errorf("missing col A row 2:\n%s", got)
+	}
+	t.Logf("Output:\n%s", got)
+}
+
+func TestConvertTablesToLists_MissingHeaderRow(t *testing.T) {
+	// Degenerate: separator line first, no content header before it.
+	// The separator is skipped (has dashes), the first data row becomes header.
+	// Since there's only one row after separator, output is empty (no data rows).
+	// This is a format error by the LLM — not worth special-casing.
+	md := "|---|---|\n| a | b |"
+	got := convertTablesToLists(md)
+	// Don't crash; output empty because the only row became headers.
+	if strings.Contains(got, "|") {
+		t.Errorf("raw table pipes leaked:\n%s", got)
+	}
+	t.Logf("Output (empty expected for degenerate table):\n%s", got)
+}
+
+func TestConvertTablesToLists_EmptyCells(t *testing.T) {
+	// Empty cell in data row should render as empty value.
+	md := "| Country | Growth | Note |\n|---------|--------|------|\n| 🇫🇷 法国 | -0.1% | |"
+	got := convertTablesToLists(md)
+	if !strings.Contains(got, "• **Growth**: -0.1%") {
+		t.Errorf("missing growth value:\n%s", got)
+	}
+	// Empty cell should still appear as a bullet (just empty value).
+	t.Logf("Output:\n%s", got)
+}
+
+func TestConvertTablesToLists_RowLabelWithEmptyFirstCell(t *testing.T) {
+	// When row label mode is on (headers[0]=="") but some rows have empty first cell,
+	// they should render with plain numbers, not picking up previous labels.
+	md := "| | Value |\n|---|---|\n| Labeled | 10 |\n| | 20 |"
+	got := convertTablesToLists(md)
+	if !strings.Contains(got, "**1. Labeled**") {
+		t.Errorf("first row should use label:\n%s", got)
+	}
+	if !strings.Contains(got, "**2.**") {
+		t.Errorf("second row should fall back to plain number:\n%s", got)
+	}
+	if !strings.Contains(got, "**2.**") {
+		t.Errorf("second row should use plain number when label cell empty:\n%s", got)
+	}
+	if !strings.Contains(got, "**Value**: 20") {
+		t.Errorf("second row value should appear with header:\n%s", got)
+	}
+	t.Logf("Output:\n%s", got)
+}
+
+func TestConvertTablesToLists_EmptyHeaders(t *testing.T) {
+	// Tables where all headers are empty — common in LLM-generated markdown.
+	// | | | header with all-empty cells should render correctly.
+	md := "| | |\n|---|---|\n| 🇪🇸 西班牙 | ~+2.4% |\n| 🇨🇾 塞浦路斯 | ~+2.5% |"
+	got := convertTablesToLists(md)
+	// Each row should be numbered, with its first cell as the bold label.
+	if !strings.Contains(got, "**1. 🇪🇸 西班牙**") {
+		t.Errorf("missing row label for Spain:\n%s", got)
+	}
+	if !strings.Contains(got, "**2. 🇨🇾 塞浦路斯**") {
+		t.Errorf("missing row label for Cyprus:\n%s", got)
+	}
+	if !strings.Contains(got, "~+2.4%") {
+		t.Errorf("missing value for Spain:\n%s", got)
+	}
+	t.Logf("Output:\n%s", got)
+}
+
 func TestConvertTablesToLists_Basic(t *testing.T) {
 	md := "| Name | Age |\n|------|-----|\n| Alice | 30 |\n| Bob | 25 |"
 	got := convertTablesToLists(md)
@@ -206,4 +339,44 @@ func TestBuildThreadContext_ForumParentMissing(t *testing.T) {
 	if got["thread_name"] != "post" {
 		t.Errorf("thread_name lost: %q", got["thread_name"])
 	}
+}
+
+func TestConvertTablesToLists_EuropeEconomy(t *testing.T) {
+	// Simulates the European economic tiers tables from the user's message.
+	// Three tiers: 🟢 growing, 🟡 crawling, 🔴 stopped/shrinking.
+	md := `## 🟢 真在跑
+
+| | 同比增速 |
+|---|---|
+| 🇩🇰 丹麦 | **+5.9%** |
+| 🇲🇹 马耳他 | +4.3% |
+| 🇵🇱 波兰 | +3.5% |
+| 🇧🇬 保加利亚 | +3.1% |
+| 🇮🇸 冰岛 | +3.1% |
+| 🇸🇮 斯洛文尼亚 | +3.1% |
+
+丹麦的 +5.9% 是异常值。
+
+## 🟡 在爬（但速度不让人放心）
+
+| | |
+|---|---|
+| 🇪🇸 西班牙 | ~+2.4% |
+| 🇨🇾 塞浦路斯 | ~+2.5% |
+| 🇬🇧 英国 | 环比 +0.6% |
+| 🇮🇹 意大利 | +0.8% |
+| 🇳🇱 荷兰 | ~+1.2% |
+
+## 🔴 停着或缩着
+
+| | | |
+|---|---|---|
+| 🇩🇪 德国 | +0.3% | 连续两年衰退后，实质上停了 |
+| 🇫🇷 法国 | Q1 环比 **-0.1%** | |
+| 🇦🇹 奥地利 | +0.9% | 刚从最长衰退爬出来 |
+| 🇸🇪 瑞典 | Q1 环比 -0.2% | |
+| 🇷🇴 罗马尼亚 | **-1.1%** | 唯一同比还在缩的 |`
+
+	got := convertTablesToLists(md)
+	t.Logf("Output:\n%s", got)
 }

@@ -298,9 +298,10 @@ func renderTableAsList(tableLines []string) []string {
 		for j := startCol; j < numCols && j < len(row); j++ {
 			h := headers[j]
 			if h == "" {
-				h = fmt.Sprintf("Column %d", j+1)
+				out = append(out, fmt.Sprintf("• %s", row[j]))
+			} else {
+				out = append(out, fmt.Sprintf("• **%s**: %s", h, row[j]))
 			}
-			out = append(out, fmt.Sprintf("• **%s**: %s", h, row[j]))
 		}
 		if i < len(dataRows)-1 {
 			out = append(out, "")
@@ -326,15 +327,19 @@ func parseTableRow(line string) []string {
 	return cells
 }
 
-// isSeparatorRow checks if all cells look like |---|
+// isSeparatorRow checks if all cells look like |---| (must contain at least one dash).
 func isSeparatorRow(cells []string) bool {
+	hasDash := false
 	for _, c := range cells {
 		cleaned := strings.Trim(c, "-: ")
 		if cleaned != "" {
 			return false
 		}
+		if strings.Contains(c, "-") {
+			hasDash = true
+		}
 	}
-	return true
+	return hasDash
 }
 
 func (d *DiscordChannel) Messages() <-chan *Message {
