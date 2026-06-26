@@ -8,7 +8,6 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
-	"strings"
 	"time"
 
 	"github.com/linanwx/nagobot/logger"
@@ -469,91 +468,6 @@ func (b *ZhipuBalance) Check(ctx context.Context) (*BalanceInfo, error) {
 			Detail:   fmt.Sprintf("recharged=%.2f gifted=%.2f spent=%.2f", d.RechargeAmount, d.GiveAmount, d.TotalSpendAmount),
 		}},
 	}, nil
-}
-
-// --- Anthropic (health check via count_tokens + rate-limit headers from actual /v1/messages) ---
-
-// AnthropicBalance checks Anthropic API key validity and credit status.
-// Uses /v1/messages with max_tokens=1 to get both a health check and rate-limit headers.
-type AnthropicBalance struct {
-	KeyFn func() string
-}
-
-func (b *AnthropicBalance) Provider() string { return "anthropic" }
-func (b *AnthropicBalance) Available() bool  { return b.KeyFn != nil && b.KeyFn() != "" }
-
-func (b *AnthropicBalance) Check(ctx context.Context) (*BalanceInfo, error) {
-	key := b.KeyFn()
-	if key == "" {
-		return &BalanceInfo{Provider: "anthropic", Error: "no API key configured"}, nil
-	}
-
-	// Minimal /v1/messages call (max_tokens=1) to get rate-limit headers and credit check.
-	client := &http.Client{Timeout: 15 * time.Second}
-	reqBody := `{"model":"claude-sonnet-4-6","max_tokens":1,"messages":[{"role":"user","content":"hi"}]}`
-	req, err := http.NewRequestWithContext(ctx, "POST", "https://api.anthropic.com/v1/messages", strings.NewReader(reqBody))
-	if err != nil {
-		return nil, err
-	}
-	req.Header.Set("x-api-key", key)
-	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("anthropic-version", "2023-06-01")
-
-	resp, err := client.Do(req)
-	if err != nil {
-		return &BalanceInfo{Provider: "anthropic", Error: fmt.Sprintf("request failed: %v", err)}, nil
-	}
-	defer resp.Body.Close()
-	body, _ := io.ReadAll(resp.Body)
-
-	if strings.Contains(string(body), "credit balance") {
-		return &BalanceInfo{Provider: "anthropic", Available: true, Error: "INSUFFICIENT CREDITS"}, nil
-	}
-	if resp.StatusCode != 200 {
-		return &BalanceInfo{Provider: "anthropic", Error: fmt.Sprintf("HTTP %d: %s", resp.StatusCode, string(body[:min(200, len(body))]))}, nil
-	}
-
-	info := &BalanceInfo{Provider: "anthropic", Available: true}
-
-	// Extract rate-limit headers.
-	parseHeader := func(name string) int {
-		v := resp.Header.Get(name)
-		if v == "" {
-			return 0
-		}
-		n, _ := fmt.Sscanf(v, "%d", new(int))
-		if n == 0 {
-			return 0
-		}
-		var val int
-		fmt.Sscanf(v, "%d", &val)
-		return val
-	}
-
-	reqLimit := parseHeader("anthropic-ratelimit-requests-limit")
-	reqRemaining := parseHeader("anthropic-ratelimit-requests-remaining")
-	tokLimit := parseHeader("anthropic-ratelimit-tokens-limit")
-	tokRemaining := parseHeader("anthropic-ratelimit-tokens-remaining")
-
-	if reqLimit > 0 {
-		info.Balances = append(info.Balances, BalanceEntry{
-			Currency: "req/min",
-			Balance:  float64(reqRemaining),
-			Detail:   fmt.Sprintf("%d/%d remaining", reqRemaining, reqLimit),
-		})
-	}
-	if tokLimit > 0 {
-		info.Balances = append(info.Balances, BalanceEntry{
-			Currency: "tok/min",
-			Balance:  float64(tokRemaining),
-			Detail:   fmt.Sprintf("%d/%d remaining", tokRemaining, tokLimit),
-		})
-	}
-	if len(info.Balances) == 0 {
-		info.Balances = []BalanceEntry{{Currency: "status", Detail: "key valid, credits OK"}}
-	}
-
-	return info, nil
 }
 
 // --- Unsupported providers ---
