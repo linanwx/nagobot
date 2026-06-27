@@ -16,7 +16,7 @@ func TestBuildWakePayload_SupportsVisionAudio(t *testing.T) {
 		WakeTelegram,
 		"Hello with image",
 		"thread-1", "telegram:123", "/tmp/sessions/telegram:123",
-		"telegram delivery", "gemini/gemini-3-flash-preview", "soul",
+		"telegram delivery", "gemini/gemini-3.5-flash", "soul",
 		loc, "user", "", time.Time{}, "", "",
 	)
 
@@ -36,7 +36,7 @@ func TestBuildWakePayload_SystemSource_WithCapabilities(t *testing.T) {
 		WakeHeartbeat,
 		"Heartbeat pulse",
 		"thread-1", "telegram:123", "/tmp/sessions/telegram:123",
-		"", "gemini/gemini-3-flash-preview", "soul",
+		"", "gemini/gemini-3.5-flash", "soul",
 		loc, "system", "", time.Time{}, "", "",
 	)
 
@@ -66,12 +66,12 @@ func TestBuildWakePayload_FalseCapabilities_Omitted(t *testing.T) {
 	// Model without vision/audio → fields should NOT appear (omitted, not false).
 	loc := time.FixedZone("UTC+8", 8*3600)
 
-	// z-ai/glm-5 is not in VisionModels or AudioModels
+	// z-ai/glm-5.2 is not in VisionModels or AudioModels
 	payload := buildWakePayload(
 		WakeTelegram,
 		"Hello",
 		"thread-1", "telegram:123", "/tmp/sessions/telegram:123",
-		"telegram delivery", "openrouter/z-ai/glm-5", "soul",
+		"telegram delivery", "openrouter/z-ai/glm-5.2", "soul",
 		loc, "", "", time.Time{}, "", "",
 	)
 

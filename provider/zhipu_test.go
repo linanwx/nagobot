@@ -4,7 +4,6 @@ import "testing"
 
 func TestZhipuThinkingEnabled(t *testing.T) {
 	cases := map[string]bool{
-		"glm-5":   true,
 		"glm-5.2": true,
 		"unknown": false,
 	}
@@ -18,7 +17,7 @@ func TestZhipuThinkingEnabled(t *testing.T) {
 func TestZhipuReasoningEffort(t *testing.T) {
 	cases := map[string]string{
 		"glm-5.2": "high",
-		"glm-5":   "",
+		"unknown": "",
 	}
 	for model, want := range cases {
 		if got := zhipuReasoningEffort(model); got != want {

@@ -13,10 +13,13 @@ func TestRetiredModelsAreNotRegistered(t *testing.T) {
 		{"openrouter", "xiaomi/mimo-v2-omni"},
 		{"openrouter", "z-ai/glm-5.1"},
 		{"openrouter", "z-ai/glm-5-turbo"},
+		{"openrouter", "z-ai/glm-5"},
 		{"openrouter", "minimax/minimax-m2.5"},
 		{"openrouter", "minimax/minimax-m2.7"},
+		{"zhipu-cn", "glm-5"},
 		{"zhipu-cn", "glm-5.1"},
 		{"zhipu-cn", "glm-5-turbo"},
+		{"zhipu-global", "glm-5"},
 		{"zhipu-global", "glm-5.1"},
 		{"zhipu-global", "glm-5-turbo"},
 		{"siliconflow-cn", "Pro/zai-org/GLM-5.1"},
@@ -39,6 +42,8 @@ func TestRetiredModelsAreNotRegistered(t *testing.T) {
 		{"moonshot-global", "kimi-k2.5"},
 		{"openrouter", "qwen/qwen3.5-35b-a3b"},
 		{"openrouter", "qwen/qwen3.5-flash-02-23"},
+		{"openrouter", "google/gemini-3-flash-preview"},
+		{"gemini", "gemini-3-flash-preview"},
 	}
 
 	for _, tc := range cases {
