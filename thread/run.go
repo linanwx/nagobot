@@ -68,10 +68,8 @@ func (t *Thread) run(ctx context.Context, userMessage string, media []string, si
 		SessionDir:            t.mgr.SessionDir(t.sessionKey),
 		SupportsVision:        t.currentModelSupportsVision(),
 		SupportsAudio:         t.currentModelSupportsAudio(),
-		SupportsPDF:           t.currentModelSupportsPDF(),
 		ImageReaderConfigured: cfg.Agents != nil && cfg.Agents.Def("imagereader") != nil,
 		AudioReaderConfigured: cfg.Agents != nil && cfg.Agents.Def("audioreader") != nil,
-		PDFReaderConfigured:   cfg.Agents != nil && cfg.Agents.Def("pdfreader") != nil,
 	})
 	t.resetHaltLoop()
 	t.mu.Lock()

@@ -185,7 +185,6 @@ type ProvidersConfig struct {
 	SiliconflowGlobal *ProviderConfig   `json:"siliconflowGlobal,omitempty" yaml:"siliconflowGlobal,omitempty"`
 	OpenAI            *ProviderConfig   `json:"openai,omitempty" yaml:"openai,omitempty"`
 	OpenAIOAuth       *OAuthTokenConfig `json:"openaiOAuth,omitempty" yaml:"openaiOAuth,omitempty"`
-	WhatAI            *ProviderConfig   `json:"whatai,omitempty" yaml:"whatai,omitempty"` // api.whatai.cc relay; OpenAI-shape chat, DALL-E-3-style image protocol
 	Gemini            *ProviderConfig   `json:"gemini,omitempty" yaml:"gemini,omitempty"`
 	XAI               *ProviderConfig   `json:"xai,omitempty" yaml:"xai,omitempty"`
 	MiMo              *ProviderConfig   `json:"mimo,omitempty" yaml:"mimo,omitempty"`
@@ -222,8 +221,6 @@ func (p *ProvidersConfig) GetProviderConfig(name string) *ProviderConfig {
 	switch name {
 	case "openai", "openai-oauth":
 		return p.OpenAI
-	case "whatai":
-		return p.WhatAI
 	case "openrouter":
 		return p.OpenRouter
 	case "anthropic":

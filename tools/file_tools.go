@@ -4,11 +4,11 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"github.com/linanwx/nagobot/logger"
+	"github.com/linanwx/nagobot/provider"
 	"os"
 	"path/filepath"
 	"strings"
-	"github.com/linanwx/nagobot/logger"
-	"github.com/linanwx/nagobot/provider"
 )
 
 func absOrOriginal(path string) string {
@@ -162,23 +162,16 @@ func (t *ReadFileTool) handleAudio(ctx context.Context, absPath, mimeType string
 	return toolResult("read_file", fields, fmt.Sprintf("<<media:%s:%s>>", mimeType, absPath))
 }
 
-// handlePDF returns PDF data for PDF-capable models or delegation guidance.
+// handlePDF returns extraction guidance. PDFs are not read natively — the model
+// must extract the document first (render pages to images, or extract text) and
+// read the result, or use an MCP PDF reader.
 func (t *ReadFileTool) handlePDF(ctx context.Context, absPath, mimeType string, size int64) string {
 	fields := map[string]any{"path": absPath, "type": mimeType, "size": size}
-	rt := RuntimeContextFrom(ctx)
-	if !rt.SupportsPDF {
-		if !rt.PDFReaderConfigured {
-			return toolResult("read_file", fields,
-				"This is a PDF document. Your current model does not support PDF input, "+
-					"and the 'pdfreader' agent is not configured. "+
-					"To enable PDF reading, configure a PDF-capable model or set up a pdfreader agent.")
-		}
-		return toolResult("read_file", fields,
-			"This is a PDF document. You cannot read PDFs directly. "+
-				"Use dispatch with to=subagent, agent='pdfreader', and pass the original user message as the body. "+
-				"Pick a descriptive task_id (e.g. 'read-pdf-<short-name>').")
-	}
-	return toolResult("read_file", fields, fmt.Sprintf("<<media:%s:%s>>", mimeType, absPath))
+	return toolResult("read_file", fields,
+		"This is a PDF document. PDFs are not read natively. Extract it first, then read the result: "+
+			"use the exec tool to render pages to images (e.g. pdftoppm / pdftocairo / ImageMagick) and read_file "+
+			"those images (vision is supported), or extract text (e.g. pdftotext). If no such tool is available "+
+			"on this host, say so instead of guessing the contents.")
 }
 
 // handleText reads a text file with line-based pagination.

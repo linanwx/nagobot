@@ -55,7 +55,7 @@ Empty `sends` — `dispatch({})` — silently terminates the turn with no delive
 On successful dispatch the turn ends; on validation error the turn continues so you can re-call. Subagent / fork generated session keys follow `{current}:threads:{task_id}` and `{current}:fork:{task_id}`. Re-using a task_id from a prior turn wakes the existing session (noted `resumed` in the result); dispatching to a missing-agent or unknown session_key is a validation error. The `channel`+`user_id` endpoint form instead creates the missing session (noted `created` in the result) — that is the deliberate path for first contact.
 
 **When to use which `to`:**
-- Parallel subtasks or delegating to a specialized agent (e.g. `imagereader`, `audioreader`, `pdfreader`): **subagent**.
+- Parallel subtasks or delegating to a specialized agent (e.g. `imagereader`, `audioreader`): **subagent**.
 - When the child must reason about the current conversation itself (scheduling, reflection, summarization): **fork**.
 - Cross-session notifications ("notify user in telegram:12345"): **session** with `session_key`.
 - Proactively contacting a channel user who may have no session yet (e.g. a cron job messaging an employee for the first time): **session** with `channel` + `user_id`.

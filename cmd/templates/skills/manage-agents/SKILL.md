@@ -70,7 +70,7 @@ The runtime injects sections, tools, skills, and user memory automatically — *
 exec: {{WORKSPACE}}/bin/nagobot set-model --list
 ```
 
-Common tags: `chat`, `art`, `audio`, `image`, `pdf`, `writing`, `toolcall`, `roleplay`, `cron`. A tag with no rule falls through to the next; if none match, the default thread model is used.
+Common tags: `chat`, `art`, `audio`, `image`, `writing`, `toolcall`, `roleplay`, `cron`. A tag with no rule falls through to the next; if none match, the default thread model is used.
 
 ### `sections` — only these are valid
 

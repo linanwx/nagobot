@@ -216,31 +216,30 @@ func init() {
 		Models:       []string{"moonshotai/kimi-k2.5", "anthropic/claude-sonnet-4.6", "anthropic/claude-opus-4.6", "anthropic/claude-haiku-4.5", "z-ai/glm-5", "z-ai/glm-5.1", "z-ai/glm-5.2", "z-ai/glm-5-turbo", "minimax/minimax-m2.5", "minimax/minimax-m2.7", "minimax/minimax-m3", "qwen/qwen3.5-35b-a3b", "qwen/qwen3.5-flash-02-23", "qwen/qwen3.6-plus:free", "google/gemini-3-flash-preview", "google/gemini-3.5-flash", "google/gemini-3.1-flash-lite", "x-ai/grok-4.1-fast", "openai/gpt-5.4-mini", "xiaomi/mimo-v2.5-pro", "xiaomi/mimo-v2.5", "xiaomi/mimo-v2-pro", "xiaomi/mimo-v2-omni"},
 		VisionModels: []string{"moonshotai/kimi-k2.5", "anthropic/claude-sonnet-4.6", "anthropic/claude-opus-4.6", "anthropic/claude-haiku-4.5", "minimax/minimax-m3", "qwen/qwen3.5-35b-a3b", "qwen/qwen3.5-flash-02-23", "qwen/qwen3.6-plus:free", "google/gemini-3-flash-preview", "google/gemini-3.5-flash", "google/gemini-3.1-flash-lite", "x-ai/grok-4.1-fast", "openai/gpt-5.4-mini", "xiaomi/mimo-v2.5", "xiaomi/mimo-v2-omni"},
 		AudioModels:  []string{"google/gemini-3-flash-preview", "google/gemini-3.5-flash", "google/gemini-3.1-flash-lite", "xiaomi/mimo-v2.5", "xiaomi/mimo-v2-omni"},
-		PDFModels:    []string{"anthropic/claude-sonnet-4.6", "anthropic/claude-opus-4.6", "anthropic/claude-haiku-4.5", "google/gemini-3-flash-preview", "google/gemini-3.5-flash", "google/gemini-3.1-flash-lite"},
 		ContextWindows: map[string]int{
 			"moonshotai/kimi-k2.5":          262144,
 			"anthropic/claude-sonnet-4.6":   1048576,
 			"anthropic/claude-opus-4.6":     1048576,
-			"z-ai/glm-5":                   200000,
-			"z-ai/glm-5.1":                 200000,
-			"z-ai/glm-5.2":                 262144,
-			"z-ai/glm-5-turbo":             202752,
+			"z-ai/glm-5":                    200000,
+			"z-ai/glm-5.1":                  200000,
+			"z-ai/glm-5.2":                  262144,
+			"z-ai/glm-5-turbo":              202752,
 			"minimax/minimax-m2.5":          196608,
 			"minimax/minimax-m2.7":          204800,
 			"minimax/minimax-m3":            524288,
-			"qwen/qwen3.5-35b-a3b":         262144,
-			"qwen/qwen3.5-flash-02-23":     1000000,
-			"qwen/qwen3.6-plus:free":       1000000,
-			"google/gemini-3-flash-preview":      1048576,
-			"google/gemini-3.5-flash":            1048576,
-			"google/gemini-3.1-flash-lite":       1048576,
-			"x-ai/grok-4.1-fast":                  2000000,
-			"openai/gpt-5.4-mini":                 400000,
-			"anthropic/claude-haiku-4.5":           200000,
-			"xiaomi/mimo-v2.5-pro":                1048576,
-			"xiaomi/mimo-v2.5":                    1048576,
-			"xiaomi/mimo-v2-pro":                  1048576,
-			"xiaomi/mimo-v2-omni":                 262144,
+			"qwen/qwen3.5-35b-a3b":          262144,
+			"qwen/qwen3.5-flash-02-23":      1000000,
+			"qwen/qwen3.6-plus:free":        1000000,
+			"google/gemini-3-flash-preview": 1048576,
+			"google/gemini-3.5-flash":       1048576,
+			"google/gemini-3.1-flash-lite":  1048576,
+			"x-ai/grok-4.1-fast":            2000000,
+			"openai/gpt-5.4-mini":           400000,
+			"anthropic/claude-haiku-4.5":    200000,
+			"xiaomi/mimo-v2.5-pro":          1048576,
+			"xiaomi/mimo-v2.5":              1048576,
+			"xiaomi/mimo-v2-pro":            1048576,
+			"xiaomi/mimo-v2-omni":           262144,
 		},
 		EnvKey:  "OPENROUTER_API_KEY",
 		EnvBase: "OPENROUTER_API_BASE",
@@ -286,9 +285,6 @@ func newOpenRouterProvider(apiKey, apiBase, modelType, modelName string, maxToke
 		client:      client,
 	}
 }
-
-
-
 
 func toOpenAIChatMessages(messages []Message, visionCapable, audioCapable, pdfCapable bool) ([]openai.ChatCompletionMessageParamUnion, error) {
 	result := make([]openai.ChatCompletionMessageParamUnion, 0, len(messages))

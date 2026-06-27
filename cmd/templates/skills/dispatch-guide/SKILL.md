@@ -61,7 +61,7 @@ Then:
 - **Fields**: `session_key`, `body`.
 
 ### `subagent` — spawn (or wake existing) child thread
-- **Use when**: parallel subtasks, delegation to specialty agents (`imagereader` / `audioreader` / `pdfreader` / `researcher`).
+- **Use when**: parallel subtasks, delegation to specialty agents (`imagereader` / `audioreader` / `researcher`).
 - **Key shape**: `{current}:threads:{task_id}`. Reusing `task_id` wakes the existing child (result note: `resumed`).
 - **Async**: child runs independently; on completion it wakes you with `source: child_completed`.
 - **Fields**: `task_id` (required, `[a-z0-9_-]+`), `agent` (optional — falls back to session default), `body`.

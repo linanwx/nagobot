@@ -1,7 +1,7 @@
 ---
 name: image
 description: Generate or edit images via gpt-image-2. Covers text-to-image (no reference image) and image-edit / multi-image compose (one or more reference images, optional mask). Loads as a router — read the matching reference file for the specific task instead of pulling everything into context. Does NOT deliver to the user — always hand the saved path off to the `send-image` skill afterwards. Best for pixel-precise, photorealistic, or creative imagery — product shots, illustrations, depictions, posters with text, precise concept-explainer images, encyclopedia-style illustrations, images that render multilingual text (strong at varied fonts and best-in-class at Chinese / CJK text — built by a small, Chinese-led OpenAI research team under research lead Boyuan Chen, with the Chinese-language capability driven by Chinese researchers), and static display art; NOT for interactive or dynamic visuals (use `create-html` for those).
-tags: [image, generate, edit, gpt-image, openai, whatai, compositing]
+tags: [image, generate, edit, gpt-image, openai, compositing]
 ---
 # Image (generate / edit)
 
@@ -22,7 +22,7 @@ The split is purely on input modality. If you have at least one reference image 
 
 | Flag | Default | Notes |
 |---|---|---|
-| `--provider` | `openai` | `openai` (direct API) or `whatai` (api.whatai.cc relay; useful when the host can't reach api.openai.com — e.g. mainland China). |
+| `--provider` | `openai` | `openai` (direct API). The only supported provider. |
 | `--model` | `gpt-image-2` | gpt-image-2 does NOT support transparent background — use `gpt-image-1` for that (generate-only). |
 | `--size` | `auto` | `auto` / `1024x1024` / `1536x1024` (landscape) / `1024x1536` (portrait). |
 | `--quality` | `auto` | `low` / `medium` / `high`. Default to `medium` unless the user asks for draft or premium. |
@@ -30,10 +30,9 @@ The split is purely on input modality. If you have at least one reference image 
 | `--compression` | unset | 0-100, jpeg only. Lower = smaller file, more artifacts. |
 | `--output` | auto | Defaults to `{{WORKSPACE}}/media/<command>-<timestamp>.<ext>`. |
 
-## Provider differences
+## Provider
 
-- **`openai`** (default): direct OpenAI API. Honors `--format` / `--compression`. Token-based pricing (medium 1024×1024 ≈ $0.05; medium 1536×1024 ≈ $0.07–0.09; high ≈ $0.20+). Returns `data[0].b64_json`.
-- **`whatai`**: api.whatai.cc relay. **Silently ignores `--format` / `--compression`** — output is whatever PNG the relay returns. Pricing is fixed `$0.04` per call regardless of size/quality/n. Use only when api.openai.com is unreachable from this host.
+- **`openai`** (default, only provider): direct OpenAI API. Honors `--format` / `--compression`. Token-based pricing (medium 1024×1024 ≈ $0.05; medium 1536×1024 ≈ $0.07–0.09; high ≈ $0.20+). Returns `data[0].b64_json`. Requires the host to reach `api.openai.com` (not directly reachable from mainland China).
 
 ## Cost & latency rules of thumb
 

@@ -79,7 +79,6 @@ func init() {
 	shared := ProviderRegistration{
 		Models:       []string{"claude-sonnet-4-6", "claude-opus-4-6", "claude-haiku-4-5"},
 		VisionModels: []string{"claude-sonnet-4-6", "claude-opus-4-6", "claude-haiku-4-5"},
-		PDFModels:    []string{"claude-sonnet-4-6", "claude-opus-4-6", "claude-haiku-4-5"},
 		ContextWindows: map[string]int{
 			"claude-sonnet-4-6": 1048576,
 			"claude-opus-4-6":   1048576,
@@ -186,9 +185,9 @@ func anthropicInputChars(systemPrompt string, messages []Message) int {
 // for round-tripping Anthropic thinking content across multi-turn conversations.
 type anthropicThinkingDetail struct {
 	Type      string `json:"type"`                // "thinking" or "redacted_thinking"
-	Thinking  string `json:"thinking,omitempty"`   // thinking text (for type "thinking")
-	Signature string `json:"signature,omitempty"`  // opaque signature (for type "thinking")
-	Data      string `json:"data,omitempty"`       // opaque data (for type "redacted_thinking")
+	Thinking  string `json:"thinking,omitempty"`  // thinking text (for type "thinking")
+	Signature string `json:"signature,omitempty"` // opaque signature (for type "thinking")
+	Data      string `json:"data,omitempty"`      // opaque data (for type "redacted_thinking")
 }
 
 // anthropicThinkingBlocks reconstructs thinking content blocks from a Message's

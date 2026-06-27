@@ -21,7 +21,6 @@ func init() {
 		Models:       []string{"gemini-3-flash-preview", "gemini-3.5-flash", "gemini-3.1-flash-lite"},
 		VisionModels: []string{"gemini-3-flash-preview", "gemini-3.5-flash", "gemini-3.1-flash-lite"},
 		AudioModels:  []string{"gemini-3-flash-preview", "gemini-3.5-flash", "gemini-3.1-flash-lite"},
-		PDFModels:    []string{"gemini-3-flash-preview", "gemini-3.5-flash", "gemini-3.1-flash-lite"},
 		ContextWindows: map[string]int{
 			"gemini-3-flash-preview": 1048576,
 			"gemini-3.5-flash":       1048576,
@@ -106,11 +105,11 @@ type gmCandidate struct {
 }
 
 type gmUsageMetadata struct {
-	PromptTokenCount          int `json:"promptTokenCount"`
-	CandidatesTokenCount      int `json:"candidatesTokenCount"`
-	TotalTokenCount           int `json:"totalTokenCount"`
-	ThoughtsTokenCount        int `json:"thoughtsTokenCount"`
-	CachedContentTokenCount   int `json:"cachedContentTokenCount"`
+	PromptTokenCount        int `json:"promptTokenCount"`
+	CandidatesTokenCount    int `json:"candidatesTokenCount"`
+	TotalTokenCount         int `json:"totalTokenCount"`
+	ThoughtsTokenCount      int `json:"thoughtsTokenCount"`
+	CachedContentTokenCount int `json:"cachedContentTokenCount"`
 }
 
 type gmAPIError struct {
@@ -271,8 +270,8 @@ func (p *GeminiProvider) chatStream(ctx context.Context, gmReq gmRequest, start 
 		defer adapter.Finish()
 
 		var (
-			content      strings.Builder
-			reasoning    strings.Builder
+			content          strings.Builder
+			reasoning        strings.Builder
 			toolCalls        []ToolCall
 			allParts         []gmPart
 			toolCallSignaled bool
@@ -478,7 +477,6 @@ func (p *GeminiProvider) parseResponse(resp gmResponse, start time.Time) (*Respo
 }
 
 // ---------- message conversion ----------
-
 
 // toGeminiContents converts canonical Messages to Gemini API format.
 // Returns (systemInstruction, contents, error).

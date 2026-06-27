@@ -20,7 +20,6 @@ import (
 const (
 	openaiImagesEndpointDefault = "https://api.openai.com/v1/images/generations"
 	openaiImagesAPIBaseDefault  = "https://api.openai.com"
-	whatAIImagesAPIBase         = "https://api.whatai.cc"
 )
 
 var (
@@ -44,7 +43,7 @@ var generateImageCmd = &cobra.Command{
 
 func init() {
 	generateImageCmd.Flags().StringVarP(&genImagePrompt, "prompt", "p", "", "Image prompt (required)")
-	generateImageCmd.Flags().StringVar(&genImageProvider, "provider", "openai", "openai (direct) | whatai (relay; uses DALL-E-3-style response_format)")
+	generateImageCmd.Flags().StringVar(&genImageProvider, "provider", "openai", "openai (direct API)")
 	generateImageCmd.Flags().StringVar(&genImageModel, "model", "gpt-image-2", "Image model name as understood by the chosen provider")
 	generateImageCmd.Flags().StringVar(&genImageSize, "size", "auto", "auto | 1024x1024 | 1536x1024 | 1024x1536")
 	generateImageCmd.Flags().StringVar(&genImageQuality, "quality", "auto", "auto | low | medium | high")
@@ -117,10 +116,8 @@ func runGenerateImage(_ *cobra.Command, _ []string) error {
 	switch provider {
 	case "openai":
 		result, err = generateViaOpenAI(cfg, params)
-	case "whatai":
-		result, err = generateViaWhatAI(cfg, params)
 	default:
-		return fmt.Errorf("--provider must be openai or whatai (got %q)", genImageProvider)
+		return fmt.Errorf("--provider must be openai (got %q)", genImageProvider)
 	}
 	if err != nil {
 		return err
@@ -246,111 +243,6 @@ func generateViaOpenAI(cfg *config.Config, p imageGenParams) (imageGenResult, er
 		raw, err := base64.StdEncoding.DecodeString(d.B64JSON)
 		if err != nil {
 			return imageGenResult{}, fmt.Errorf("openai data[%d] b64 decode: %w", i, err)
-		}
-		out.Bytes = append(out.Bytes, raw)
-	}
-	return out, nil
-}
-
-// ============================================================================
-// Provider: whatai (api.whatai.cc relay)
-//
-// Quirks vs real OpenAI:
-//   - Routes gpt-image-2 through DALL-E-3-style protocol.
-//   - Default response is {data:[{url:"..."}]}; needs response_format=b64_json
-//     to switch to b64. We always send response_format so we always get b64.
-//   - output_format / output_compression are ignored (relay only honors basic
-//     fields). We omit them.
-//   - Pricing is fixed $0.04/call regardless of size/quality/n (per their
-//     model card).
-// ============================================================================
-
-type whataiImgRequest struct {
-	Model          string `json:"model"`
-	Prompt         string `json:"prompt"`
-	N              int    `json:"n,omitempty"`
-	Size           string `json:"size,omitempty"`
-	Quality        string `json:"quality,omitempty"`
-	ResponseFormat string `json:"response_format"` // always "b64_json"
-}
-
-type whataiImgResponse struct {
-	Data []struct {
-		B64JSON string `json:"b64_json"`
-		URL     string `json:"url"`
-	} `json:"data"`
-	Usage struct {
-		InputTokens  int `json:"input_tokens"`
-		OutputTokens int `json:"output_tokens"`
-		TotalTokens  int `json:"total_tokens"`
-	} `json:"usage"`
-	Error *struct {
-		Message string `json:"message"`
-		Type    string `json:"type"`
-		Code    string `json:"code"`
-	} `json:"error,omitempty"`
-}
-
-func generateViaWhatAI(cfg *config.Config, p imageGenParams) (imageGenResult, error) {
-	pc := cfg.Providers.WhatAI
-	if pc == nil || pc.APIKey == "" {
-		return imageGenResult{}, fmt.Errorf("whatai apiKey not configured (add providers.whatai.apiKey to config.yaml)")
-	}
-
-	base := strings.TrimRight(pc.APIBase, "/")
-	if base == "" {
-		base = whatAIImagesAPIBase
-	}
-	endpoint := base + "/v1/images/generations"
-
-	req := whataiImgRequest{
-		Model:          p.Model,
-		Prompt:         p.Prompt,
-		N:              p.N,
-		Size:           p.Size,
-		Quality:        p.Quality,
-		ResponseFormat: "b64_json",
-	}
-
-	respBytes, statusCode, err := doImagePOST(endpoint, pc.APIKey, req)
-	if err != nil {
-		return imageGenResult{}, fmt.Errorf("whatai request failed: %w", err)
-	}
-
-	var parsed whataiImgResponse
-	if err := json.Unmarshal(respBytes, &parsed); err != nil {
-		return imageGenResult{}, fmt.Errorf("whatai parse (HTTP %d): %w; body: %s",
-			statusCode, err, truncateGenImg(string(respBytes), 400))
-	}
-	if statusCode != http.StatusOK {
-		msg := "unknown error"
-		if parsed.Error != nil && parsed.Error.Message != "" {
-			msg = parsed.Error.Message
-		}
-		return imageGenResult{}, fmt.Errorf("whatai HTTP %d: %s", statusCode, msg)
-	}
-	if len(parsed.Data) == 0 {
-		return imageGenResult{}, fmt.Errorf("whatai returned no images: %s", truncateGenImg(string(respBytes), 400))
-	}
-
-	out := imageGenResult{
-		Bytes:        make([][]byte, 0, len(parsed.Data)),
-		InputTokens:  parsed.Usage.InputTokens,
-		OutputTokens: parsed.Usage.OutputTokens,
-	}
-	for i, d := range parsed.Data {
-		if d.B64JSON == "" {
-			// We asked for b64_json explicitly; if relay still gave us a URL
-			// the contract is broken — surface it instead of silently
-			// fetching the URL (this would mask further drift).
-			if d.URL != "" {
-				return imageGenResult{}, fmt.Errorf("whatai data[%d] returned url despite response_format=b64_json: %s", i, d.URL)
-			}
-			return imageGenResult{}, fmt.Errorf("whatai data[%d] has neither b64_json nor url", i)
-		}
-		raw, err := base64.StdEncoding.DecodeString(d.B64JSON)
-		if err != nil {
-			return imageGenResult{}, fmt.Errorf("whatai data[%d] b64 decode: %w", i, err)
 		}
 		out.Bytes = append(out.Bytes, raw)
 	}

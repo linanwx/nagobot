@@ -47,7 +47,7 @@ func init() {
 	editImageCmd.Flags().StringArrayVar(&editImageImages, "image", nil, "Reference image path. Repeat for multiple references (image[] in the API).")
 	editImageCmd.Flags().StringVar(&editImageMask, "mask", "", "Optional PNG mask. Transparent regions are the editable area. Applies to the first --image.")
 	editImageCmd.Flags().StringVarP(&editImagePrompt, "prompt", "p", "", "Edit instruction (required). Refer to inputs as 'image 1', 'image 2', etc.")
-	editImageCmd.Flags().StringVar(&editImageProvider, "provider", "openai", "openai (direct) | whatai (relay)")
+	editImageCmd.Flags().StringVar(&editImageProvider, "provider", "openai", "openai (direct API)")
 	editImageCmd.Flags().StringVar(&editImageModel, "model", "gpt-image-2", "Image model name as understood by the chosen provider")
 	editImageCmd.Flags().StringVar(&editImageSize, "size", "auto", "auto | 1024x1024 | 1536x1024 | 1024x1536")
 	editImageCmd.Flags().StringVar(&editImageQuality, "quality", "auto", "auto | low | medium | high")
@@ -131,10 +131,8 @@ func runEditImage(_ *cobra.Command, _ []string) error {
 	switch provider {
 	case "openai":
 		result, err = editViaOpenAI(cfg, p)
-	case "whatai":
-		result, err = editViaWhatAI(cfg, p)
 	default:
-		return fmt.Errorf("--provider must be openai or whatai (got %q)", editImageProvider)
+		return fmt.Errorf("--provider must be openai (got %q)", editImageProvider)
 	}
 	if err != nil {
 		return err
@@ -264,115 +262,6 @@ func editViaOpenAI(cfg *config.Config, p editParams) (editResult, error) {
 	raw, err := base64.StdEncoding.DecodeString(parsed.Data[0].B64JSON)
 	if err != nil {
 		return editResult{}, fmt.Errorf("openai b64 decode: %w", err)
-	}
-	return editResult{
-		Bytes:        raw,
-		InputTokens:  parsed.Usage.InputTokens,
-		OutputTokens: parsed.Usage.OutputTokens,
-	}, nil
-}
-
-// ============================================================================
-// Provider: whatai (api.whatai.cc relay)
-//
-// Same multipart contract as openai, but we always set response_format=b64_json
-// the same way we do on generations — the relay routes gpt-image-2 through
-// DALL-E-3-style protocol where url is the default, b64_json is opt-in.
-// ============================================================================
-
-type whataiEditResponse struct {
-	Data []struct {
-		B64JSON string `json:"b64_json"`
-		URL     string `json:"url"`
-	} `json:"data"`
-	Usage struct {
-		InputTokens  int `json:"input_tokens"`
-		OutputTokens int `json:"output_tokens"`
-		TotalTokens  int `json:"total_tokens"`
-	} `json:"usage"`
-	Error *struct {
-		Message string `json:"message"`
-		Type    string `json:"type"`
-		Code    string `json:"code"`
-	} `json:"error,omitempty"`
-}
-
-func editViaWhatAI(cfg *config.Config, p editParams) (editResult, error) {
-	pc := cfg.Providers.WhatAI
-	if pc == nil || pc.APIKey == "" {
-		return editResult{}, fmt.Errorf("whatai apiKey not configured (add providers.whatai.apiKey to config.yaml)")
-	}
-
-	base := strings.TrimRight(pc.APIBase, "/")
-	if base == "" {
-		base = whatAIImagesAPIBase
-	}
-	endpoint := base + "/v1/images/edits"
-
-	body := &bytes.Buffer{}
-	mw := multipart.NewWriter(body)
-
-	textFields := map[string]string{
-		"model":           p.Model,
-		"prompt":          p.Prompt,
-		"response_format": "b64_json",
-	}
-	if p.Size != "" {
-		textFields["size"] = p.Size
-	}
-	if p.Quality != "" {
-		textFields["quality"] = p.Quality
-	}
-	for k, v := range textFields {
-		if err := mw.WriteField(k, v); err != nil {
-			return editResult{}, fmt.Errorf("multipart field %s: %w", k, err)
-		}
-	}
-
-	for i, path := range p.Images {
-		if err := attachFile(mw, "image[]", path); err != nil {
-			return editResult{}, fmt.Errorf("attach image[%d] %s: %w", i, path, err)
-		}
-	}
-	if p.Mask != "" {
-		if err := attachFile(mw, "mask", p.Mask); err != nil {
-			return editResult{}, fmt.Errorf("attach mask %s: %w", p.Mask, err)
-		}
-	}
-	if err := mw.Close(); err != nil {
-		return editResult{}, fmt.Errorf("multipart close: %w", err)
-	}
-
-	respBytes, statusCode, err := doMultipartPOST(endpoint, pc.APIKey, mw.FormDataContentType(), body)
-	if err != nil {
-		return editResult{}, fmt.Errorf("whatai request failed: %w", err)
-	}
-
-	var parsed whataiEditResponse
-	if err := json.Unmarshal(respBytes, &parsed); err != nil {
-		return editResult{}, fmt.Errorf("whatai parse (HTTP %d): %w; body: %s",
-			statusCode, err, truncateGenImg(string(respBytes), 400))
-	}
-	if statusCode != http.StatusOK {
-		msg := "unknown error"
-		if parsed.Error != nil && parsed.Error.Message != "" {
-			msg = parsed.Error.Message
-		}
-		return editResult{}, fmt.Errorf("whatai HTTP %d: %s", statusCode, msg)
-	}
-	if len(parsed.Data) == 0 {
-		return editResult{}, fmt.Errorf("whatai returned no image: %s", truncateGenImg(string(respBytes), 400))
-	}
-	d := parsed.Data[0]
-	if d.B64JSON == "" {
-		if d.URL != "" {
-			return editResult{}, fmt.Errorf("whatai returned url despite response_format=b64_json: %s", d.URL)
-		}
-		return editResult{}, fmt.Errorf("whatai data[0] has neither b64_json nor url")
-	}
-	raw, err := base64.StdEncoding.DecodeString(d.B64JSON)
-	if err != nil {
-		return editResult{}, fmt.Errorf("whatai b64 decode: %w", err)
 	}
 	return editResult{
 		Bytes:        raw,
