@@ -269,8 +269,8 @@ func buildBalanceCheckers(cfg *config.Config, metricsDir string) []monitor.Balan
 		&monitor.UnsupportedBalance{Name: "openai", Reason: "no balance API (requires Admin Key for billing queries)", KeyFn: keyFn("openai")},
 		&monitor.UnsupportedBalance{Name: "gemini", Reason: "no balance API (free tier, RPD/TPM limits only)", KeyFn: keyFn("gemini")},
 		&monitor.UnsupportedBalance{Name: "minimax-cn", Reason: "no balance API (pay-as-you-go; coding plan keys can use /coding_plan/remains)", KeyFn: keyFn("minimax-cn")},
-		&monitor.UnsupportedBalance{Name: "siliconflow-cn", Reason: "balance API not yet investigated", KeyFn: keyFn("siliconflow-cn")},
-		&monitor.UnsupportedBalance{Name: "siliconflow-global", Reason: "balance API not yet investigated", KeyFn: keyFn("siliconflow-global")},
+		&monitor.SiliconFlowBalance{Name: "siliconflow-cn", Base: "https://api.siliconflow.cn/v1", Currency: "CNY", KeyFn: keyFn("siliconflow-cn")},
+		&monitor.SiliconFlowBalance{Name: "siliconflow-global", Base: "https://api.siliconflow.com/v1", Currency: "USD", KeyFn: keyFn("siliconflow-global")},
 		&monitor.UnsupportedBalance{Name: "mimo", Reason: "no public balance API (check at platform.xiaomimimo.com)", KeyFn: keyFn("mimo")},
 	}
 }

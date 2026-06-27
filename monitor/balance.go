@@ -403,6 +403,79 @@ func (b *MoonshotBalance) Check(ctx context.Context) (*BalanceInfo, error) {
 	}, nil
 }
 
+// --- SiliconFlow ---
+
+// SiliconFlowBalance checks balance via GET /user/info. The cn and global
+// platforms share the same path and response shape; only Base and Currency
+// differ. Note: balance fields are JSON strings, not numbers.
+type SiliconFlowBalance struct {
+	Name     string // e.g. "siliconflow-cn" or "siliconflow-global"
+	Base     string // e.g. "https://api.siliconflow.cn/v1" or "https://api.siliconflow.com/v1"
+	Currency string // "CNY" for cn, "USD" for global
+	KeyFn    func() string
+}
+
+func (b *SiliconFlowBalance) Provider() string { return b.Name }
+func (b *SiliconFlowBalance) Available() bool  { return b.KeyFn != nil && b.KeyFn() != "" }
+
+func (b *SiliconFlowBalance) Check(ctx context.Context) (*BalanceInfo, error) {
+	key := b.KeyFn()
+	if key == "" {
+		return &BalanceInfo{Provider: b.Name, Error: "no API key configured"}, nil
+	}
+
+	req, err := http.NewRequestWithContext(ctx, "GET", b.Base+"/user/info", nil)
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Set("Authorization", "Bearer "+key)
+
+	client := &http.Client{Timeout: 10 * time.Second}
+	resp, err := client.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("%s balance request failed: %w", b.Name, err)
+	}
+	defer resp.Body.Close()
+
+	body, _ := io.ReadAll(resp.Body)
+	if resp.StatusCode != 200 {
+		return nil, fmt.Errorf("%s balance: HTTP %d: %s", b.Name, resp.StatusCode, string(body))
+	}
+
+	var result struct {
+		Code    int    `json:"code"`
+		Message string `json:"message"`
+		Data    struct {
+			Balance       string `json:"balance"`       // gift credit
+			ChargeBalance string `json:"chargeBalance"` // recharged credit
+			TotalBalance  string `json:"totalBalance"`  // balance + chargeBalance = remaining
+		} `json:"data"`
+	}
+	if err := json.Unmarshal(body, &result); err != nil {
+		return nil, fmt.Errorf("%s balance: parse error: %w", b.Name, err)
+	}
+	if result.Code != 20000 {
+		return &BalanceInfo{Provider: b.Name, Error: fmt.Sprintf("API code %d: %s", result.Code, result.Message)}, nil
+	}
+
+	src := result.Data.TotalBalance
+	if src == "" {
+		src = result.Data.Balance
+	}
+	var total float64
+	fmt.Sscanf(src, "%f", &total)
+
+	return &BalanceInfo{
+		Provider:  b.Name,
+		Available: true,
+		Balances: []BalanceEntry{{
+			Currency: b.Currency,
+			Balance:  total,
+			Detail:   fmt.Sprintf("charge=%s gift=%s", result.Data.ChargeBalance, result.Data.Balance),
+		}},
+	}, nil
+}
+
 // --- Zhipu ---
 
 // ZhipuBalance checks balance via the web dashboard API.
