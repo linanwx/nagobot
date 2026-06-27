@@ -66,7 +66,7 @@ func TestExtractMinimaxReasoning(t *testing.T) {
 // TestSjsonReasoningSplitTopLevel directly tests that tidwall/sjson places
 // "reasoning_split" at the top level when the key has no dots.
 func TestSjsonReasoningSplitTopLevel(t *testing.T) {
-	baseJSON := `{"model":"MiniMax-M2.5","messages":[{"role":"user","content":"hello"}],"temperature":1}`
+	baseJSON := `{"model":"MiniMax-M3","messages":[{"role":"user","content":"hello"}],"temperature":1}`
 
 	result, err := sjson.SetBytes([]byte(baseJSON), "reasoning_split", true)
 	if err != nil {
@@ -123,7 +123,7 @@ func TestMinimaxSDKRequestBody(t *testing.T) {
 			"id":      "test-id",
 			"object":  "chat.completion",
 			"created": 1234567890,
-			"model":   "MiniMax-M2.5",
+			"model":   "MiniMax-M3",
 			"choices": []map[string]any{
 				{
 					"index": 0,
@@ -157,7 +157,7 @@ func TestMinimaxSDKRequestBody(t *testing.T) {
 	)
 
 	chatReq := openai.ChatCompletionNewParams{
-		Model: shared.ChatModel("MiniMax-M2.5"),
+		Model: shared.ChatModel("MiniMax-M3"),
 		Messages: []openai.ChatCompletionMessageParamUnion{
 			openai.UserMessage("What is 1+1?"),
 		},
@@ -189,8 +189,8 @@ func TestMinimaxSDKRequestBody(t *testing.T) {
 	}
 
 	// Verify other expected fields
-	if capturedBody["model"] != "MiniMax-M2.5" {
-		t.Errorf("model = %v, want MiniMax-M2.5", capturedBody["model"])
+	if capturedBody["model"] != "MiniMax-M3" {
+		t.Errorf("model = %v, want MiniMax-M3", capturedBody["model"])
 	}
 
 	t.Logf("Verified: reasoning_split=true is at the TOP LEVEL of the request body")

@@ -21,19 +21,15 @@ const (
 
 // minimaxModelAPINames maps whitelist keys to actual API model strings.
 var minimaxModelAPINames = map[string]string{
-	"minimax-m2.5": "MiniMax-M2.5",
-	"minimax-m2.7": "MiniMax-M2.7",
-	"minimax-m3":   "MiniMax-M3",
+	"minimax-m3": "MiniMax-M3",
 }
 
 func init() {
 	RegisterProvider("minimax-cn", ProviderRegistration{
-		Models:       []string{"minimax-m2.5", "minimax-m2.7", "minimax-m3"},
+		Models:       []string{"minimax-m3"},
 		VisionModels: []string{"minimax-m3"},
 		ContextWindows: map[string]int{
-			"minimax-m2.5": 196608,
-			"minimax-m2.7": 204800,
-			"minimax-m3":   524288,
+			"minimax-m3": 524288,
 		},
 		EnvKey:  "MINIMAX_API_KEY",
 		EnvBase: "MINIMAX_API_BASE",
@@ -43,12 +39,10 @@ func init() {
 	})
 
 	RegisterProvider("minimax-global", ProviderRegistration{
-		Models:       []string{"minimax-m2.5", "minimax-m2.7", "minimax-m3"},
+		Models:       []string{"minimax-m3"},
 		VisionModels: []string{"minimax-m3"},
 		ContextWindows: map[string]int{
-			"minimax-m2.5": 196608,
-			"minimax-m2.7": 204800,
-			"minimax-m3":   524288,
+			"minimax-m3": 524288,
 		},
 		EnvKey:  "MINIMAX_GLOBAL_API_KEY",
 		EnvBase: "MINIMAX_GLOBAL_API_BASE",
@@ -72,7 +66,7 @@ type MinimaxProvider struct {
 
 func minimaxThinkingEnabled(modelType string) bool {
 	mt := strings.TrimSpace(modelType)
-	return mt == "minimax-m2.5" || mt == "minimax-m2.7" || mt == "minimax-m3"
+	return mt == "minimax-m3"
 }
 
 func minimaxRequestTemperature(modelType string, configured float64) (float64, bool) {

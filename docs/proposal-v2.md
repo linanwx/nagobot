@@ -220,7 +220,7 @@ Execute actions (wake threads, switch models, compress, archive)
      │           │           │           │           │
  ┌───┴───┐  ┌───┴───┐  ┌───┴───┐  ┌───┴───┐  ┌───┴───┐
  │Thread  │  │Thread  │  │Thread  │  │Thread  │  │Thread  │
- │deepseek│  │claude  │  │gpt-5.2│  │deepseek│  │claude  │
+ │deepseek│  │claude  │  │gpt-5.4│  │deepseek│  │claude  │
  │soul    │  │research│  │soul    │  │general │  │soul    │
  └───┬────┘  └───┬────┘  └───┬────┘  └───┬────┘  └───┬────┘
      │           │           │           │           │

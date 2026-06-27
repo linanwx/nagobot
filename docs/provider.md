@@ -7,19 +7,19 @@ From my real-world testing, although OpenRouter is convenient for accessing mode
 
 # Provider Config Examples
 
-OpenRouter (Kimi K2.5):
+OpenRouter (Kimi K2.6):
 
 ```yaml
 thread:
   provider: openrouter
-  modelType: moonshotai/kimi-k2.5
+  modelType: moonshotai/kimi-k2.6
 
 providers:
   openrouter:
     apiKey: sk-or-v1-xxx
 ```
 
-When using `moonshotai/kimi-k2.5`, provider routing to Moonshot is applied automatically.
+When using `moonshotai/kimi-k2.6`, provider routing to Moonshot is applied automatically.
 
 Anthropic config example:
 
@@ -39,7 +39,7 @@ Moonshot CN (official) config example:
 ```yaml
 thread:
   provider: moonshot-cn
-  modelType: kimi-k2.5
+  modelType: kimi-k2.6
 
 providers:
   moonshotCN:
@@ -52,7 +52,7 @@ Moonshot Global (official) config example:
 ```yaml
 thread:
   provider: moonshot-global
-  modelType: kimi-k2.5
+  modelType: kimi-k2.6
 
 providers:
   moonshotGlobal:
@@ -65,7 +65,7 @@ SiliconFlow CN config example:
 ```yaml
 thread:
   provider: siliconflow-cn
-  modelType: Pro/zai-org/GLM-5.1
+  modelType: Pro/zai-org/GLM-5.2
 
 providers:
   siliconflowCN:
@@ -78,7 +78,7 @@ SiliconFlow Global config example:
 ```yaml
 thread:
   provider: siliconflow-global
-  modelType: zai-org/GLM-5.1
+  modelType: zai-org/GLM-5.2
 
 providers:
   siliconflowGlobal:
@@ -86,7 +86,7 @@ providers:
     # apiBase: https://api.siliconflow.com/v1 # optional
 ```
 
-**Note:** SiliconFlow CN and Global are fully separate accounts with separate API keys and different model IDs for the same underlying model — CN uses `Pro/zai-org/GLM-5.1` / `Pro/zai-org/GLM-5.2` (paid-tier prefix), Global uses `zai-org/GLM-5.1` / `zai-org/GLM-5.2`. SiliconFlow hosts these models on its own infrastructure as an alternative to zai's overloaded endpoints. Reasoning (`reasoning_content`) is enabled by default on both endpoints and requires no extra configuration; for GLM-5.2 the bot additionally sends `reasoning_effort: high` to engage the High effort tier. GLM-5.1 and GLM-5.2 are whitelisted — other SiliconFlow-hosted models can be added later on demand.
+**Note:** SiliconFlow CN and Global are fully separate accounts with separate API keys and different model IDs for the same underlying model — CN uses `Pro/zai-org/GLM-5.2` (paid-tier prefix), Global uses `zai-org/GLM-5.2`. SiliconFlow hosts these models on its own infrastructure as an alternative to zai's overloaded endpoints. Reasoning (`reasoning_content`) is enabled by default on both endpoints and the bot sends `reasoning_effort: high` to engage the High effort tier. Other SiliconFlow-hosted models can be added later on demand.
 
 Zhipu / Z.ai native config example (GLM-5.2):
 

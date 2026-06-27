@@ -20,10 +20,10 @@ const (
 
 func init() {
 	RegisterProvider("moonshot-cn", ProviderRegistration{
-		Models:       []string{"kimi-k2.5"},
-		VisionModels: []string{"kimi-k2.5"},
+		Models:       []string{"kimi-k2.6"},
+		VisionModels: []string{"kimi-k2.6"},
 		ContextWindows: map[string]int{
-			"kimi-k2.5": 262144,
+			"kimi-k2.6": 262144,
 		},
 		EnvKey:  "MOONSHOT_API_KEY",
 		EnvBase: "MOONSHOT_API_BASE",
@@ -33,10 +33,10 @@ func init() {
 	})
 
 	RegisterProvider("moonshot-global", ProviderRegistration{
-		Models:       []string{"kimi-k2.5"},
-		VisionModels: []string{"kimi-k2.5"},
+		Models:       []string{"kimi-k2.6"},
+		VisionModels: []string{"kimi-k2.6"},
 		ContextWindows: map[string]int{
-			"kimi-k2.5": 262144,
+			"kimi-k2.6": 262144,
 		},
 		EnvKey:  "MOONSHOT_GLOBAL_API_KEY",
 		EnvBase: "MOONSHOT_GLOBAL_API_BASE",
@@ -59,7 +59,7 @@ type MoonshotProvider struct {
 }
 
 func moonshotRequestTemperature(modelType string, configured float64) (float64, bool) {
-	if strings.TrimSpace(modelType) == "kimi-k2.5" {
+	if strings.TrimSpace(modelType) == "kimi-k2.6" {
 		return 1, true
 	}
 	return configured, false
@@ -132,7 +132,7 @@ func (p *MoonshotProvider) Chat(ctx context.Context, req *Request) (ChatResult, 
 	}
 
 	var requestOpts []oaioption.RequestOption
-	if strings.TrimSpace(p.modelType) == "kimi-k2.5" {
+	if strings.TrimSpace(p.modelType) == "kimi-k2.6" {
 		requestOpts = append(requestOpts,
 			oaioption.WithJSONSet("extra_body.chat_template_kwargs.thinking", true),
 		)

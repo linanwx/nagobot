@@ -31,7 +31,7 @@ func TestMigrateLegacyModelNames_PerSpecialtyRouting(t *testing.T) {
 	cfg := &Config{
 		Thread: ThreadConfig{
 			Provider:  "openrouter",
-			ModelType: "moonshotai/kimi-k2.5",
+			ModelType: "moonshotai/kimi-k2.6",
 			Models: []ModelRule{
 				{Type: ModelRuleSpecialty, Name: "chat", Provider: "deepseek", ModelType: "deepseek-chat"},
 				{Type: ModelRuleSpecialty, Name: "reason", Provider: "deepseek", ModelType: "deepseek-reasoner"},
@@ -59,8 +59,42 @@ func TestMigrateLegacyModelNames_PerSpecialtyRouting(t *testing.T) {
 	}
 
 	// Thread-level fields under openrouter provider shouldn't be touched.
-	if cfg.Thread.ModelType != "moonshotai/kimi-k2.5" {
+	if cfg.Thread.ModelType != "moonshotai/kimi-k2.6" {
 		t.Errorf("non-deepseek thread modelType was rewritten: %q", cfg.Thread.ModelType)
+	}
+}
+
+func TestMigrateLegacyModelNames_KimiK26(t *testing.T) {
+	cfg := &Config{
+		Thread: ThreadConfig{
+			Provider:  "openrouter",
+			ModelType: "moonshotai/kimi-k2.5",
+			ModelName: "moonshotai/kimi-k2.5",
+			Models: []ModelRule{
+				{Type: ModelRuleSpecialty, Name: "chat", Provider: "openrouter", ModelType: "moonshotai/kimi-k2.5"},
+				{Type: ModelRuleSpecialty, Name: "cn", Provider: "moonshot-cn", ModelType: "kimi-k2.5"},
+				{Type: ModelRuleSpecialty, Name: "global", Provider: "moonshot-global", ModelType: "kimi-k2.5"},
+			},
+		},
+	}
+
+	if !cfg.migrateLegacyModelNames() {
+		t.Fatalf("expected migration to report changes")
+	}
+	if cfg.Thread.ModelType != "moonshotai/kimi-k2.6" {
+		t.Errorf("thread ModelType = %q, want moonshotai/kimi-k2.6", cfg.Thread.ModelType)
+	}
+	if cfg.Thread.ModelName != "moonshotai/kimi-k2.6" {
+		t.Errorf("thread ModelName = %q, want moonshotai/kimi-k2.6", cfg.Thread.ModelName)
+	}
+	if got := FindModelRule(cfg.Thread.Models, ModelRuleSpecialty, "chat").ModelType; got != "moonshotai/kimi-k2.6" {
+		t.Errorf("openrouter rule = %q, want moonshotai/kimi-k2.6", got)
+	}
+	if got := FindModelRule(cfg.Thread.Models, ModelRuleSpecialty, "cn").ModelType; got != "kimi-k2.6" {
+		t.Errorf("moonshot-cn rule = %q, want kimi-k2.6", got)
+	}
+	if got := FindModelRule(cfg.Thread.Models, ModelRuleSpecialty, "global").ModelType; got != "kimi-k2.6" {
+		t.Errorf("moonshot-global rule = %q, want kimi-k2.6", got)
 	}
 }
 

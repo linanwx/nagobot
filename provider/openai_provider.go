@@ -21,7 +21,7 @@ const (
 )
 
 func init() {
-	models := []string{"gpt-5.5", "gpt-5.4", "gpt-5.4-mini", "gpt-5.4-nano", "gpt-5.3-codex", "gpt-5.2-codex", "gpt-5.2"}
+	models := []string{"gpt-5.5", "gpt-5.4", "gpt-5.4-mini", "gpt-5.4-nano"}
 	constructor := func(apiKey, apiBase, modelType, modelName string, maxTokens int, temperature float64) Provider {
 		return newOpenAIProvider(apiKey, apiBase, modelType, modelName, maxTokens, temperature)
 	}
@@ -32,13 +32,10 @@ func init() {
 		Models:       models,
 		VisionModels: models,
 		ContextWindows: map[string]int{
-			"gpt-5.5":       1048576,
-			"gpt-5.4":       1048576,
-			"gpt-5.4-mini":  400000,
-			"gpt-5.4-nano":  200000,
-			"gpt-5.3-codex": 400000,
-			"gpt-5.2-codex": 400000,
-			"gpt-5.2":       400000,
+			"gpt-5.5":      1048576,
+			"gpt-5.4":      1048576,
+			"gpt-5.4-mini": 400000,
+			"gpt-5.4-nano": 200000,
 		},
 		EnvKey:      "OPENAI_API_KEY",
 		EnvBase:     "OPENAI_API_BASE",
@@ -54,13 +51,10 @@ func init() {
 		Models:       models,
 		VisionModels: models,
 		ContextWindows: map[string]int{
-			"gpt-5.5":       272000,
-			"gpt-5.4":       272000,
-			"gpt-5.4-mini":  272000,
-			"gpt-5.4-nano":  272000,
-			"gpt-5.3-codex": 272000,
-			"gpt-5.2-codex": 272000,
-			"gpt-5.2":       272000,
+			"gpt-5.5":      272000,
+			"gpt-5.4":      272000,
+			"gpt-5.4-mini": 272000,
+			"gpt-5.4-nano": 272000,
 		},
 		Constructor: constructor,
 	})
@@ -342,10 +336,10 @@ func (p *OpenAIProvider) buildRequestBody(req *Request) ([]byte, error) {
 	}
 
 	body := map[string]any{
-		"model":  p.modelName,
-		"input":  input,
-		"stream": true,
-		"store":  false,
+		"model":   p.modelName,
+		"input":   input,
+		"stream":  true,
+		"store":   false,
 		"include": []string{"reasoning.encrypted_content"},
 		"reasoning": map[string]any{
 			"effort":  "high",

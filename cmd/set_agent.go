@@ -24,7 +24,7 @@ takes effect on the next message in that session.
 
 Examples:
   nagobot set-agent --session "discord:123456" --agent fallout
-  nagobot set-agent --session "discord:123456" --provider openrouter --model xiaomi/mimo-v2-pro
+  nagobot set-agent --session "discord:123456" --provider openrouter --model xiaomi/mimo-v2.5-pro
   nagobot set-agent --session "discord:123456"                  # clear override`,
 	RunE: runSetAgent,
 }

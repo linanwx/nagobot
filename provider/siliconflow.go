@@ -20,9 +20,8 @@ const (
 
 func init() {
 	RegisterProvider("siliconflow-cn", ProviderRegistration{
-		Models: []string{"Pro/zai-org/GLM-5.1", "Pro/zai-org/GLM-5.2"},
+		Models: []string{"Pro/zai-org/GLM-5.2"},
 		ContextWindows: map[string]int{
-			"Pro/zai-org/GLM-5.1": 202752,
 			"Pro/zai-org/GLM-5.2": 1000000,
 		},
 		EnvKey:  "SILICONFLOW_API_KEY",
@@ -33,9 +32,8 @@ func init() {
 	})
 
 	RegisterProvider("siliconflow-global", ProviderRegistration{
-		Models: []string{"zai-org/GLM-5.1", "zai-org/GLM-5.2"},
+		Models: []string{"zai-org/GLM-5.2"},
 		ContextWindows: map[string]int{
-			"zai-org/GLM-5.1": 202752,
 			"zai-org/GLM-5.2": 1000000,
 		},
 		EnvKey:  "SILICONFLOW_GLOBAL_API_KEY",
@@ -60,13 +58,11 @@ type SiliconflowProvider struct {
 
 func siliconflowThinkingEnabled(modelType string) bool {
 	m := strings.TrimSpace(modelType)
-	return m == "Pro/zai-org/GLM-5.1" || m == "zai-org/GLM-5.1" ||
-		m == "Pro/zai-org/GLM-5.2" || m == "zai-org/GLM-5.2"
+	return m == "Pro/zai-org/GLM-5.2" || m == "zai-org/GLM-5.2"
 }
 
 // siliconflowReasoningEffort returns the reasoning_effort value for models that
-// support GLM-5.2's High/Max effort dial. Returns "" for GLM-5.1, which has
-// reasoning enabled by default and does not accept the field.
+// support GLM-5.2's High/Max effort dial.
 func siliconflowReasoningEffort(modelType string) string {
 	m := strings.TrimSpace(modelType)
 	if m == "Pro/zai-org/GLM-5.2" || m == "zai-org/GLM-5.2" {

@@ -18,13 +18,10 @@ const mimoAPIBase = "https://api.xiaomimimo.com/v1"
 
 func init() {
 	RegisterProvider("mimo", ProviderRegistration{
-		Models: []string{"mimo-v2.5-pro", "mimo-v2.5", "mimo-v2-pro", "mimo-v2-flash", "mimo-v2-omni"},
+		Models: []string{"mimo-v2.5-pro", "mimo-v2.5"},
 		ContextWindows: map[string]int{
 			"mimo-v2.5-pro": 1048576,
 			"mimo-v2.5":     1048576,
-			"mimo-v2-pro":   1048576,
-			"mimo-v2-flash": 131072,
-			"mimo-v2-omni":  262144,
 		},
 		EnvKey:  "MIMO_API_KEY",
 		EnvBase: "MIMO_API_BASE",
@@ -57,7 +54,7 @@ type mmThinking struct {
 
 type mmMessage struct {
 	Role             string     `json:"role"`
-	Content          *string    `json:"content"` // nullable
+	Content          *string    `json:"content"`                     // nullable
 	ReasoningContent *string    `json:"reasoning_content,omitempty"` // assistant only; required for multi-turn thinking mode
 	ToolCalls        []ToolCall `json:"tool_calls,omitempty"`
 	ToolCallID       string     `json:"tool_call_id,omitempty"`
@@ -65,10 +62,10 @@ type mmMessage struct {
 }
 
 type mmUsage struct {
-	PromptTokens            int `json:"prompt_tokens"`
-	CompletionTokens        int `json:"completion_tokens"`
-	TotalTokens             int `json:"total_tokens"`
-	PromptTokensDetails     struct {
+	PromptTokens        int `json:"prompt_tokens"`
+	CompletionTokens    int `json:"completion_tokens"`
+	TotalTokens         int `json:"total_tokens"`
+	PromptTokensDetails struct {
 		CachedTokens int `json:"cached_tokens"`
 	} `json:"prompt_tokens_details"`
 	CompletionTokensDetails struct {
@@ -152,10 +149,10 @@ func (p *MiMoProvider) endpoint() string {
 }
 
 // reasoningDefaultsOn reports whether this MiMo model has reasoning enabled by
-// default. v2.5 Pro and v2.5 both support reasoning; v2 pro and omni do; v2 flash does not.
+// default. v2.5 Pro and v2.5 both support reasoning; v2 flash does not.
 func mimoReasoningDefaultsOn(modelType string) bool {
 	mt := strings.TrimSpace(modelType)
-	return mt == "mimo-v2.5-pro" || mt == "mimo-v2.5" || mt == "mimo-v2-pro" || mt == "mimo-v2-omni"
+	return mt == "mimo-v2.5-pro" || mt == "mimo-v2.5"
 }
 
 // Chat sends a chat completion request to MiMo.

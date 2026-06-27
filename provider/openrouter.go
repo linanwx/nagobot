@@ -92,7 +92,7 @@ type openRouterModelMeta struct {
 }
 
 var openRouterModels = map[string]openRouterModelMeta{
-	"moonshotai/kimi-k2.5": {
+	"moonshotai/kimi-k2.6": {
 		ThinkingOpts: []oaioption.RequestOption{
 			oaioption.WithJSONSet("extra_body.chat_template_kwargs.thinking", true),
 		},
@@ -116,44 +116,11 @@ var openRouterModels = map[string]openRouterModelMeta{
 		},
 		ProviderOrder: []string{"z-ai"},
 	},
-	"z-ai/glm-5.1": {
-		ThinkingOpts: []oaioption.RequestOption{
-			oaioption.WithJSONSet("reasoning", map[string]any{"effort": "high"}),
-		},
-		ProviderOrder: []string{"z-ai"},
-	},
 	"z-ai/glm-5.2": {
 		ThinkingOpts: []oaioption.RequestOption{
 			oaioption.WithJSONSet("reasoning", map[string]any{"effort": "high"}),
 		},
 		ProviderOrder: []string{"z-ai"},
-	},
-	"z-ai/glm-5-turbo": {
-		ProviderOrder: []string{"z-ai"},
-	},
-	"minimax/minimax-m2.5": {
-		ThinkingOpts: []oaioption.RequestOption{
-			oaioption.WithJSONSet("reasoning", map[string]any{"effort": "high"}),
-		},
-		ProviderOrder: []string{"minimax/fp8"},
-	},
-	"minimax/minimax-m2.7": {
-		ThinkingOpts: []oaioption.RequestOption{
-			oaioption.WithJSONSet("reasoning", map[string]any{"effort": "high"}),
-		},
-		ProviderOrder: []string{"minimax/fp8"},
-	},
-	"qwen/qwen3.5-35b-a3b": {
-		ThinkingOpts: []oaioption.RequestOption{
-			oaioption.WithJSONSet("reasoning", map[string]any{"effort": "high"}),
-		},
-		ProviderOrder: []string{"alibaba"},
-	},
-	"qwen/qwen3.6-plus:free": {
-		ThinkingOpts: []oaioption.RequestOption{
-			oaioption.WithJSONSet("reasoning", map[string]any{"effort": "high"}),
-		},
-		ProviderOrder: []string{"alibaba"},
 	},
 	"google/gemini-3-flash-preview": {
 		ThinkingOpts: []oaioption.RequestOption{
@@ -170,13 +137,6 @@ var openRouterModels = map[string]openRouterModelMeta{
 	"google/gemini-3.1-flash-lite": {
 		ProviderOrder: []string{"google-ai-studio"},
 	},
-	"x-ai/grok-4.1-fast": {
-		// Grok 4.1 Fast only supports boolean reasoning toggle, not effort levels.
-		ThinkingOpts: []oaioption.RequestOption{
-			oaioption.WithJSONSet("reasoning", map[string]any{"enabled": true}),
-		},
-		ProviderOrder: []string{"xai"},
-	},
 	"openai/gpt-5.4-mini": {
 		ThinkingOpts: []oaioption.RequestOption{
 			oaioption.WithJSONSet("reasoning", map[string]any{"effort": "high"}),
@@ -188,16 +148,6 @@ var openRouterModels = map[string]openRouterModelMeta{
 			oaioption.WithJSONSet("reasoning", map[string]any{"effort": "high"}),
 		},
 		ProviderOrder: []string{"anthropic"},
-	},
-	"xiaomi/mimo-v2-pro": {
-		ThinkingOpts: []oaioption.RequestOption{
-			oaioption.WithJSONSet("reasoning", map[string]any{"effort": "high"}),
-		},
-	},
-	"xiaomi/mimo-v2-omni": {
-		ThinkingOpts: []oaioption.RequestOption{
-			oaioption.WithJSONSet("reasoning", map[string]any{"effort": "high"}),
-		},
 	},
 	"xiaomi/mimo-v2.5-pro": {
 		ThinkingOpts: []oaioption.RequestOption{
@@ -213,33 +163,23 @@ var openRouterModels = map[string]openRouterModelMeta{
 
 func init() {
 	RegisterProvider("openrouter", ProviderRegistration{
-		Models:       []string{"moonshotai/kimi-k2.5", "anthropic/claude-sonnet-4.6", "anthropic/claude-opus-4.6", "anthropic/claude-haiku-4.5", "z-ai/glm-5", "z-ai/glm-5.1", "z-ai/glm-5.2", "z-ai/glm-5-turbo", "minimax/minimax-m2.5", "minimax/minimax-m2.7", "minimax/minimax-m3", "qwen/qwen3.5-35b-a3b", "qwen/qwen3.5-flash-02-23", "qwen/qwen3.6-plus:free", "google/gemini-3-flash-preview", "google/gemini-3.5-flash", "google/gemini-3.1-flash-lite", "x-ai/grok-4.1-fast", "openai/gpt-5.4-mini", "xiaomi/mimo-v2.5-pro", "xiaomi/mimo-v2.5", "xiaomi/mimo-v2-pro", "xiaomi/mimo-v2-omni"},
-		VisionModels: []string{"moonshotai/kimi-k2.5", "anthropic/claude-sonnet-4.6", "anthropic/claude-opus-4.6", "anthropic/claude-haiku-4.5", "minimax/minimax-m3", "qwen/qwen3.5-35b-a3b", "qwen/qwen3.5-flash-02-23", "qwen/qwen3.6-plus:free", "google/gemini-3-flash-preview", "google/gemini-3.5-flash", "google/gemini-3.1-flash-lite", "x-ai/grok-4.1-fast", "openai/gpt-5.4-mini", "xiaomi/mimo-v2.5", "xiaomi/mimo-v2-omni"},
-		AudioModels:  []string{"google/gemini-3-flash-preview", "google/gemini-3.5-flash", "google/gemini-3.1-flash-lite", "xiaomi/mimo-v2.5", "xiaomi/mimo-v2-omni"},
+		Models:       []string{"moonshotai/kimi-k2.6", "anthropic/claude-sonnet-4.6", "anthropic/claude-opus-4.6", "anthropic/claude-haiku-4.5", "z-ai/glm-5", "z-ai/glm-5.2", "minimax/minimax-m3", "google/gemini-3-flash-preview", "google/gemini-3.5-flash", "google/gemini-3.1-flash-lite", "openai/gpt-5.4-mini", "xiaomi/mimo-v2.5-pro", "xiaomi/mimo-v2.5"},
+		VisionModels: []string{"moonshotai/kimi-k2.6", "anthropic/claude-sonnet-4.6", "anthropic/claude-opus-4.6", "anthropic/claude-haiku-4.5", "minimax/minimax-m3", "google/gemini-3-flash-preview", "google/gemini-3.5-flash", "google/gemini-3.1-flash-lite", "openai/gpt-5.4-mini", "xiaomi/mimo-v2.5"},
+		AudioModels:  []string{"google/gemini-3-flash-preview", "google/gemini-3.5-flash", "google/gemini-3.1-flash-lite", "xiaomi/mimo-v2.5"},
 		ContextWindows: map[string]int{
-			"moonshotai/kimi-k2.5":          262144,
+			"moonshotai/kimi-k2.6":          262144,
 			"anthropic/claude-sonnet-4.6":   1048576,
 			"anthropic/claude-opus-4.6":     1048576,
 			"z-ai/glm-5":                    200000,
-			"z-ai/glm-5.1":                  200000,
 			"z-ai/glm-5.2":                  262144,
-			"z-ai/glm-5-turbo":              202752,
-			"minimax/minimax-m2.5":          196608,
-			"minimax/minimax-m2.7":          204800,
 			"minimax/minimax-m3":            524288,
-			"qwen/qwen3.5-35b-a3b":          262144,
-			"qwen/qwen3.5-flash-02-23":      1000000,
-			"qwen/qwen3.6-plus:free":        1000000,
 			"google/gemini-3-flash-preview": 1048576,
 			"google/gemini-3.5-flash":       1048576,
 			"google/gemini-3.1-flash-lite":  1048576,
-			"x-ai/grok-4.1-fast":            2000000,
 			"openai/gpt-5.4-mini":           400000,
 			"anthropic/claude-haiku-4.5":    200000,
 			"xiaomi/mimo-v2.5-pro":          1048576,
 			"xiaomi/mimo-v2.5":              1048576,
-			"xiaomi/mimo-v2-pro":            1048576,
-			"xiaomi/mimo-v2-omni":           262144,
 		},
 		EnvKey:  "OPENROUTER_API_KEY",
 		EnvBase: "OPENROUTER_API_BASE",
