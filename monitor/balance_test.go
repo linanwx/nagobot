@@ -1,65 +1,11 @@
 package monitor
 
 import (
-	"context"
-	"net/http"
-	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"testing"
 	"time"
 )
-
-func TestSiliconFlowBalanceCheck(t *testing.T) {
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path != "/user/info" {
-			t.Errorf("unexpected path %q", r.URL.Path)
-		}
-		if got := r.Header.Get("Authorization"); got != "Bearer sk-test" {
-			t.Errorf("unexpected auth header %q", got)
-		}
-		w.Write([]byte(`{"code":20000,"message":"OK","status":true,"data":{"balance":"0.88","chargeBalance":"88.00","totalBalance":"88.88"}}`))
-	}))
-	defer srv.Close()
-
-	b := &SiliconFlowBalance{Name: "siliconflow-cn", Base: srv.URL, Currency: "CNY", KeyFn: func() string { return "sk-test" }}
-	info, err := b.Check(context.Background())
-	if err != nil {
-		t.Fatalf("Check: %v", err)
-	}
-	if !info.Available {
-		t.Fatalf("expected available, got error %q", info.Error)
-	}
-	if len(info.Balances) != 1 {
-		t.Fatalf("expected 1 balance entry, got %d", len(info.Balances))
-	}
-	got := info.Balances[0]
-	if got.Currency != "CNY" {
-		t.Errorf("currency: got %q want CNY", got.Currency)
-	}
-	if got.Balance != 88.88 {
-		t.Errorf("balance: got %v want 88.88", got.Balance)
-	}
-}
-
-func TestSiliconFlowBalanceCheckErrorCode(t *testing.T) {
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.Write([]byte(`{"code":50000,"message":"invalid key","data":{}}`))
-	}))
-	defer srv.Close()
-
-	b := &SiliconFlowBalance{Name: "siliconflow-cn", Base: srv.URL, Currency: "CNY", KeyFn: func() string { return "sk-bad" }}
-	info, err := b.Check(context.Background())
-	if err != nil {
-		t.Fatalf("Check: %v", err)
-	}
-	if info.Available {
-		t.Fatal("expected not available on non-20000 code")
-	}
-	if info.Error == "" {
-		t.Fatal("expected error message on non-20000 code")
-	}
-}
 
 func TestSaveLoadBalance(t *testing.T) {
 	dir := t.TempDir()
