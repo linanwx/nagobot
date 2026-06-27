@@ -92,7 +92,7 @@ Requirements:
 
 ### 5. Finish
 
-After writing the file, reply with: `WORLD_KNOWLEDGE_OK`
+After writing the file, call `dispatch({})` to end the turn.
 
 ## Rules
 

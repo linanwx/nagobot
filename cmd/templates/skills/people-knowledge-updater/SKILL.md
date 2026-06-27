@@ -88,7 +88,7 @@ Requirements:
 
 ## 6. Finish
 
-Reply with: `PEOPLE_KNOWLEDGE_OK`
+Call `dispatch({})` to end the turn.
 
 (No cleanup needed — the staging file at `{{WORKSPACE}}/.tmp/people-knowledge-input.txt` is overwritten on every run and swept by the tidyup cron, so it never accumulates.)
 
@@ -97,5 +97,5 @@ Reply with: `PEOPLE_KNOWLEDGE_OK`
 - **Read raw chat via `recent-chat`** (the append-only `chat.jsonl`, last 24h only). Never use `read-session` or `sample-session` — they return compressed/sampled context and lose history.
 - **Always merge, never blind-overwrite.** Read the existing file first; today's 24h window is an increment on top of it, not a replacement.
 - This is a non-interactive cron turn — there is no user to ask; act on the sessions or end.
-- If there was no activity in the last 24h, or you find no new people with real signal, leave the existing file exactly as it is — reply `PEOPLE_KNOWLEDGE_OK` and stop.
+- If there was no activity in the last 24h, or you find no new people with real signal, leave the existing file exactly as it is — call `dispatch({})` and stop.
 - Keep it factual and concise. No greetings, no commentary outside the file.

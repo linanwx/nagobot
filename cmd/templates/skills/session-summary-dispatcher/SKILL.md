@@ -14,7 +14,7 @@ tags: [session, summary, internal]
       - Who, What, Why, When, Where
    - Run `exec: {{WORKSPACE}}/bin/nagobot set-summary <key> <summary>` with a concise summary at a high level (≤200 characters).
 
-3. When done (whether or not any sessions were processed), reply with: `SESSION_SUMMARY_OK`
+3. When done (whether or not any sessions were processed), call `dispatch({})` to end the turn.
 
 ## Rules
 
