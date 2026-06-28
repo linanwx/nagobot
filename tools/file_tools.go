@@ -320,7 +320,7 @@ func (t *EditFileTool) Def() provider.ToolDef {
 		Type: "function",
 		Function: provider.FunctionDef{
 			Name:        "edit_file",
-			Description: "Edit a file by replacing specific text. Relative paths are resolved from workspace root. The old_text must match exactly (trailing whitespace differences are tolerated). Use replace_all to replace every occurrence (e.g. renaming a variable).",
+			Description: "Edit a file with one or more exact-text replacements in a single call. Relative paths are resolved from workspace root. Each old_text must match exactly (trailing whitespace, smart quotes, Unicode dashes/spaces, BOM, and CRLF/LF differences are tolerated) and must be unique in the file; include enough surrounding context to make it unique. All edits are matched against the original file (not applied one after another) and must not overlap.",
 			Parameters: map[string]any{
 				"type": "object",
 				"properties": map[string]any{
@@ -328,42 +328,140 @@ func (t *EditFileTool) Def() provider.ToolDef {
 						"type":        "string",
 						"description": "The path to the file to edit.",
 					},
-					"old_text": map[string]any{
-						"type":        "string",
-						"description": "The exact text to find and replace.",
-					},
-					"new_text": map[string]any{
-						"type":        "string",
-						"description": "The text to replace with.",
-					},
-					"replace_all": map[string]any{
-						"type":        "boolean",
-						"description": "Replace all occurrences instead of requiring a unique match. Defaults to false.",
+					"edits": map[string]any{
+						"type":        "array",
+						"description": "One or more replacements applied in a single call. Each old_text must be unique in the file and the edits must not overlap.",
+						"items": map[string]any{
+							"type": "object",
+							"properties": map[string]any{
+								"old_text": map[string]any{
+									"type":        "string",
+									"description": "The exact text to find and replace. Must be unique in the file.",
+								},
+								"new_text": map[string]any{
+									"type":        "string",
+									"description": "The text to replace with (may be empty to delete the matched text).",
+								},
+							},
+							"required": []string{"old_text", "new_text"},
+						},
 					},
 				},
-				"required": []string{"path", "old_text", "new_text"},
+				"required": []string{"path", "edits"},
 			},
 		},
 	}
 }
 
-// editFileArgs are the arguments for edit_file.
-// new_text may be empty (meaning "delete the matched text"), so it is not
-// marked required here even though the schema lists it as required.
-type editFileArgs struct {
-	Path       string `json:"path" required:"true"`
-	OldText    string `json:"old_text" required:"true" alias:"old_string"`
-	NewText    string `json:"new_text" alias:"new_string"`
-	ReplaceAll bool   `json:"replace_all,omitempty"`
+// editEntry is one replacement within an edit_file call. It accepts snake_case
+// (old_text/new_text), camelCase (oldText/newText), and *_string aliases so
+// edits authored by different models all parse.
+type editEntry struct {
+	OldText string
+	NewText string
 }
 
-// normalizeTrailingWS strips trailing spaces/tabs from each line for fuzzy matching.
-func normalizeTrailingWS(s string) string {
-	lines := strings.Split(s, "\n")
-	for i, l := range lines {
-		lines[i] = strings.TrimRight(l, " \t")
+func (e *editEntry) UnmarshalJSON(data []byte) error {
+	var m map[string]json.RawMessage
+	if err := json.Unmarshal(data, &m); err != nil {
+		return err
 	}
-	return strings.Join(lines, "\n")
+	pick := func(keys ...string) (string, error) {
+		for _, k := range keys {
+			v, ok := m[k]
+			if !ok {
+				continue
+			}
+			var s string
+			if err := json.Unmarshal(v, &s); err != nil {
+				return "", err
+			}
+			return s, nil
+		}
+		return "", nil
+	}
+	ot, err := pick("old_text", "oldText", "old_string")
+	if err != nil {
+		return err
+	}
+	nt, err := pick("new_text", "newText", "new_string")
+	if err != nil {
+		return err
+	}
+	e.OldText = ot
+	e.NewText = nt
+	return nil
+}
+
+// editFileArgs are the arguments for edit_file.
+type editFileArgs struct {
+	Path  string      `json:"path" required:"true"`
+	Edits []editEntry `json:"edits" required:"true"`
+}
+
+// prepareEditArguments normalizes inbound arguments into the canonical
+// {path, edits:[...]} shape before strict parsing, mirroring pi-mono's
+// prepareArguments. It parses edits sent as a JSON string, and folds a legacy
+// single-edit form (top-level old_text/new_text, including aliases) into edits,
+// dropping those legacy keys so the strict parser does not reject them.
+func prepareEditArguments(args json.RawMessage) json.RawMessage {
+	var m map[string]json.RawMessage
+	if err := json.Unmarshal(args, &m); err != nil {
+		return args // let parseArgs surface the malformed-JSON error
+	}
+
+	// Some models send edits as a JSON-encoded string instead of an array.
+	if raw, ok := m["edits"]; ok {
+		var s string
+		if json.Unmarshal(raw, &s) == nil {
+			var arr []json.RawMessage
+			if json.Unmarshal([]byte(s), &arr) == nil {
+				if b, err := json.Marshal(arr); err == nil {
+					m["edits"] = b
+				}
+			}
+		}
+	}
+
+	hasEdits := false
+	if raw, ok := m["edits"]; ok {
+		var arr []json.RawMessage
+		if json.Unmarshal(raw, &arr) == nil && len(arr) > 0 {
+			hasEdits = true
+		}
+	}
+
+	// Fold a legacy single-edit form into edits[].
+	if legacyOld := firstPresent(m, "old_text", "oldText", "old_string"); !hasEdits && legacyOld != nil {
+		entry := map[string]json.RawMessage{"old_text": legacyOld}
+		if legacyNew := firstPresent(m, "new_text", "newText", "new_string"); legacyNew != nil {
+			entry["new_text"] = legacyNew
+		} else {
+			entry["new_text"] = json.RawMessage(`""`)
+		}
+		if eb, err := json.Marshal([]map[string]json.RawMessage{entry}); err == nil {
+			m["edits"] = eb
+		}
+	}
+
+	// Drop folded legacy keys so the strict parser accepts the payload.
+	for _, k := range []string{"old_text", "oldText", "old_string", "new_text", "newText", "new_string"} {
+		delete(m, k)
+	}
+
+	if b, err := json.Marshal(m); err == nil {
+		return b
+	}
+	return args
+}
+
+func firstPresent(m map[string]json.RawMessage, keys ...string) json.RawMessage {
+	for _, k := range keys {
+		if v, ok := m[k]; ok {
+			return v
+		}
+	}
+	return nil
 }
 
 // Run executes the tool.
@@ -375,160 +473,49 @@ func (t *EditFileTool) Run(ctx context.Context, args json.RawMessage) string {
 
 func (t *EditFileTool) run(ctx context.Context, args json.RawMessage) string {
 	var a editFileArgs
-	if errMsg := parseArgs(args, &a); errMsg != "" {
+	if errMsg := parseArgs(prepareEditArguments(args), &a); errMsg != "" {
 		return errMsg
 	}
 
 	path := resolveToolPath(a.Path, t.workspace)
 	resolvedPath := absOrOriginal(path)
+	displayPath := formatResolvedPath(a.Path, resolvedPath)
 
 	content, err := os.ReadFile(path)
 	if err != nil {
 		if os.IsNotExist(err) {
-			return toolError("edit_file", fmt.Sprintf("file not found: %s", formatResolvedPath(a.Path, resolvedPath)))
+			return toolError("edit_file", fmt.Sprintf("file not found: %s", displayPath))
 		}
-		return toolError("edit_file", fmt.Sprintf("failed to read file: %s: %v", formatResolvedPath(a.Path, resolvedPath), err))
+		return toolError("edit_file", fmt.Sprintf("failed to read file: %s: %v", displayPath, err))
 	}
 
-	contentStr := string(content)
-	displayPath := formatResolvedPath(a.Path, resolvedPath)
+	// Strip a UTF-8 BOM and normalize line endings for matching; both are
+	// restored on write so the file's original encoding is preserved.
+	bom, body := stripBom(string(content))
+	ending := detectLineEnding(body)
+	normalized := normalizeToLF(body)
 
-	// Try exact match first.
-	count := strings.Count(contentStr, a.OldText)
-
-	if count == 0 {
-		// Fuzzy fallback: normalize trailing whitespace on both sides.
-		normContent := normalizeTrailingWS(contentStr)
-		normOld := normalizeTrailingWS(a.OldText)
-		normCount := strings.Count(normContent, normOld)
-
-		if normCount == 0 {
-			return toolError("edit_file", fmt.Sprintf("text not found in file: %q (path: %s)", a.OldText, displayPath))
-		}
-		if normCount > 1 && !a.ReplaceAll {
-			return toolError("edit_file", fmt.Sprintf("text appears %d times in file (path: %s); match must be unique. Provide more context or use replace_all.", normCount, displayPath))
-		}
-
-		// Find the corresponding region in the original content and replace.
-		var newContent string
-		if a.ReplaceAll {
-			newContent = normalizedReplaceAll(contentStr, normOld, a.NewText)
-		} else {
-			newContent = normalizedReplace(contentStr, normOld, a.NewText)
-		}
-
-		if ctx.Err() != nil {
-			return toolError("edit_file", "operation cancelled before write")
-		}
-		if err := os.WriteFile(path, []byte(newContent), 0644); err != nil {
-			return toolError("edit_file", fmt.Sprintf("failed to write file: %s: %v", displayPath, err))
-		}
-		n := normCount
-		if !a.ReplaceAll {
-			n = 1
-		}
-		return toolResult("edit_file", map[string]any{
-			"path":         displayPath,
-			"replacements": n,
-			"fuzzy":        true,
-		}, "")
+	edits := make([]editPair, len(a.Edits))
+	for i, e := range a.Edits {
+		edits[i] = editPair{oldText: e.OldText, newText: e.NewText}
 	}
 
-	if count > 1 && !a.ReplaceAll {
-		return toolError("edit_file", fmt.Sprintf("text appears %d times in file (path: %s); match must be unique. Provide more context or use replace_all.", count, displayPath))
+	newBody, usedFuzzy, err := applyEditsToNormalizedContent(normalized, edits, displayPath)
+	if err != nil {
+		return toolError("edit_file", err.Error())
 	}
 
-	var newContent string
-	if a.ReplaceAll {
-		newContent = strings.ReplaceAll(contentStr, a.OldText, a.NewText)
-	} else {
-		newContent = strings.Replace(contentStr, a.OldText, a.NewText, 1)
-	}
-
+	final := bom + restoreLineEndings(newBody, ending)
 	if ctx.Err() != nil {
 		return toolError("edit_file", "operation cancelled before write")
 	}
-	if err := os.WriteFile(path, []byte(newContent), 0644); err != nil {
+	if err := os.WriteFile(path, []byte(final), 0644); err != nil {
 		return toolError("edit_file", fmt.Sprintf("failed to write file: %s: %v", displayPath, err))
 	}
 
 	return toolResult("edit_file", map[string]any{
 		"path":         displayPath,
-		"replacements": count,
+		"replacements": len(a.Edits),
+		"fuzzy":        usedFuzzy,
 	}, "")
-}
-
-// normToOrigPos maps a character position in normalized text back to the
-// corresponding position in the original text. Since normalization only
-// trims trailing whitespace per line, positions within a line are identical;
-// only inter-line offsets differ.
-func normToOrigPos(origLines, normLines []string, normPos int) int {
-	normOff := 0
-	origOff := 0
-	for i := range normLines {
-		nlLen := len(normLines[i])
-		if normPos <= normOff+nlLen {
-			return origOff + (normPos - normOff)
-		}
-		normOff += nlLen + 1 // +1 for \n
-		origOff += len(origLines[i]) + 1
-	}
-	return origOff
-}
-
-// normalizedReplace replaces the first occurrence of normOld in content,
-// where matching is done on trailing-whitespace-normalized text but the
-// replacement is applied to the original content.
-func normalizedReplace(content, normOld, newText string) string {
-	origLines := strings.Split(content, "\n")
-	normLines := make([]string, len(origLines))
-	for i, l := range origLines {
-		normLines[i] = strings.TrimRight(l, " \t")
-	}
-	normContent := strings.Join(normLines, "\n")
-
-	normIdx := strings.Index(normContent, normOld)
-	if normIdx < 0 {
-		return content
-	}
-
-	origStart := normToOrigPos(origLines, normLines, normIdx)
-	origEnd := normToOrigPos(origLines, normLines, normIdx+len(normOld))
-	return content[:origStart] + newText + content[origEnd:]
-}
-
-// normalizedReplaceAll replaces all occurrences using normalized matching.
-// Matches are found in normalized text and mapped back to original positions.
-// Replacements proceed back-to-front to preserve earlier positions.
-func normalizedReplaceAll(content, normOld, newText string) string {
-	origLines := strings.Split(content, "\n")
-	normLines := make([]string, len(origLines))
-	for i, l := range origLines {
-		normLines[i] = strings.TrimRight(l, " \t")
-	}
-	normContent := strings.Join(normLines, "\n")
-
-	// Collect all match positions in normalized text.
-	var matches []int
-	pos := 0
-	for {
-		idx := strings.Index(normContent[pos:], normOld)
-		if idx < 0 {
-			break
-		}
-		matches = append(matches, pos+idx)
-		pos += idx + len(normOld)
-	}
-	if len(matches) == 0 {
-		return content
-	}
-
-	// Replace back-to-front to keep earlier positions valid.
-	result := content
-	for i := len(matches) - 1; i >= 0; i-- {
-		origStart := normToOrigPos(origLines, normLines, matches[i])
-		origEnd := normToOrigPos(origLines, normLines, matches[i]+len(normOld))
-		result = result[:origStart] + newText + result[origEnd:]
-	}
-	return result
 }
