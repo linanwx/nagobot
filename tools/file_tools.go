@@ -25,6 +25,10 @@ func formatResolvedPath(input, resolved string) string {
 
 const readFileDefaultLimit = 2000
 
+// readFileMaxBytes bounds read_file text output by bytes (in addition to the
+// line limit) so files with few but very long lines cannot blow the context.
+const readFileMaxBytes = 50 * 1024
+
 // ReadFileTool reads the contents of a file with line-based pagination.
 type ReadFileTool struct {
 	workspace string
@@ -216,17 +220,41 @@ func (t *ReadFileTool) handleText(a readFileArgs, filePath, absPath string) stri
 		}
 	}
 
+	// Byte cap, applied within the line window. A single line over the limit
+	// means the content likely isn't plain text (minified/binary) — error out
+	// without dumping it. Otherwise stop at the byte budget and paginate.
+	acc := 0
+	effEnd := startIdx
+	for i := startIdx; i < endIdx; i++ {
+		lineBytes := len(allLines[i])
+		if i == startIdx && lineBytes > readFileMaxBytes {
+			return toolError("read_file", fmt.Sprintf(
+				"line %d is %.1fKB, exceeds the %dKB read limit: %s. The file may not be plain text "+
+					"(e.g. minified or binary). Read it another way — extract/convert it first, or use exec "+
+					"with a targeted command.",
+				i+1, float64(lineBytes)/1024, readFileMaxBytes/1024, absPath))
+		}
+		if acc+lineBytes > readFileMaxBytes {
+			break
+		}
+		acc += lineBytes
+		effEnd = i + 1
+	}
+
 	fields := map[string]any{
 		"path":  absPath,
-		"lines": fmt.Sprintf("%d-%d", startIdx+1, endIdx),
+		"lines": fmt.Sprintf("%d-%d", startIdx+1, effEnd),
 		"total": totalLines,
 	}
-	if endIdx < totalLines {
-		fields["next_offset"] = endIdx + 1
+	if effEnd < totalLines {
+		fields["next_offset"] = effEnd + 1
+	}
+	if effEnd < endIdx {
+		fields["truncated"] = fmt.Sprintf("%dKB byte limit", readFileMaxBytes/1024)
 	}
 
 	var sb strings.Builder
-	for i := startIdx; i < endIdx; i++ {
+	for i := startIdx; i < effEnd; i++ {
 		fmt.Fprintf(&sb, "%d\t%s\n", i+1, allLines[i])
 	}
 
