@@ -5,6 +5,7 @@ import (
 	"bytes"
 	"context"
 	"crypto/rand"
+	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
@@ -106,6 +107,9 @@ type OpenAIProvider struct {
 	// error before anything was emitted), the rest of the turn falls back to
 	// plain HTTP (full context, no continuation) instead of repeatedly
 	// retrying a bad connection or network path.
+	// wsRequestID is sent as both session_id and x-client-request-id on the
+	// WS handshake. Derived from the session key (stable across turns) when
+	// ctx carries one, random otherwise — see ensureWSConn.
 	wsConn      *websocket.Conn
 	wsFailed    bool
 	wsRequestID string
@@ -208,7 +212,7 @@ func (p *OpenAIProvider) chatViaWS(ctx context.Context, req *Request) (ChatResul
 		return p.chatViaHTTP(ctx, req)
 	}
 
-	built, err := p.buildRequestBody(req, false)
+	built, err := p.buildRequestBody(ctx, req, false)
 	if err != nil {
 		return nil, fmt.Errorf("failed to build request: %w", err)
 	}
@@ -295,7 +299,14 @@ func (p *OpenAIProvider) ensureWSConn(ctx context.Context) (*websocket.Conn, err
 		return p.wsConn, nil
 	}
 	if p.wsRequestID == "" {
-		p.wsRequestID = randomHex(16)
+		// Prefer a per-session stable id over a random one: the backend uses
+		// session_id for cache-affine routing, so a value that survives across
+		// turns lets each new turn's first full-context call land on the shard
+		// that still holds the previous turn's prompt cache.
+		p.wsRequestID = sessionCacheKey(ctx)
+		if p.wsRequestID == "" {
+			p.wsRequestID = randomHex(16)
+		}
 	}
 
 	header := http.Header{}
@@ -398,7 +409,7 @@ func (p *OpenAIProvider) chatViaHTTP(ctx context.Context, req *Request) (ChatRes
 // WebSocket never fails a turn outright as long as nothing was streamed to
 // the caller yet.
 func (p *OpenAIProvider) runHTTPStreamInto(ctx context.Context, req *Request, adapter *streamAdapter, resp *Response, providerLabel string, start time.Time) {
-	built, err := p.buildRequestBody(req, true)
+	built, err := p.buildRequestBody(ctx, req, true)
 	if err != nil {
 		adapter.SetError(fmt.Errorf("failed to build request: %w", err))
 		return
@@ -645,7 +656,11 @@ func convertMessagesToInputItems(messages []Message) []map[string]any {
 // the rest. Any mismatch (compression touched old history, first call, retry
 // after rejection, or forceFullContext) falls back to sending everything, so
 // correctness never depends on the delta path succeeding.
-func (p *OpenAIProvider) buildRequestBody(req *Request, forceFullContext bool) (*builtRequest, error) {
+//
+// ctx supplies the session key (via provider.WithSessionKey) used to derive
+// prompt_cache_key — stable per session so full-context calls across turns
+// route to the same server-side prompt cache shard.
+func (p *OpenAIProvider) buildRequestBody(ctx context.Context, req *Request, forceFullContext bool) (*builtRequest, error) {
 	// Extract system messages into instructions — recomputed fully every call
 	// regardless of delta/full mode.
 	var instructions []string
@@ -695,6 +710,9 @@ func (p *OpenAIProvider) buildRequestBody(req *Request, forceFullContext bool) (
 	}
 	if previousResponseID != "" {
 		body["previous_response_id"] = previousResponseID
+	}
+	if cacheKey := sessionCacheKey(ctx); cacheKey != "" {
+		body["prompt_cache_key"] = cacheKey
 	}
 	if p.modelName == "gpt-5.4" || p.modelName == "gpt-5.5" {
 		body["text"] = map[string]any{"verbosity": "low"}
@@ -967,8 +985,29 @@ func headerInt(h http.Header, key string) int {
 	return n
 }
 
-// randomHex returns a random lowercase hex string of length n*2. Used to
-// generate a stable per-WS-connection client-request-id/session_id pair.
+// sessionCacheKey derives a stable per-session identifier from the session
+// key carried in ctx (set by thread.executeRunner via WithSessionKey). Used
+// as the request's prompt_cache_key and the WS handshake's session_id /
+// x-client-request-id: a value that is stable across turns keeps the backend
+// routing this session's requests to the same prompt cache shard, so each new
+// turn's first full-context call can hit the previous turn's cached prefix.
+// (With the old per-turn random id and no prompt_cache_key, those calls
+// almost always missed — 0–2% observed cache hit vs 95%+ on delta calls.)
+// Hashing rather than sending the raw key keeps the value in the 32-char hex
+// shape already proven against the backend and avoids shipping raw
+// channel/user ids in headers. Returns "" when ctx carries no session key
+// (e.g. standalone scripts), letting callers fall back to old behavior.
+func sessionCacheKey(ctx context.Context) string {
+	key := SessionKeyFromContext(ctx)
+	if key == "" {
+		return ""
+	}
+	sum := sha256.Sum256([]byte(key))
+	return hex.EncodeToString(sum[:16])
+}
+
+// randomHex returns a random lowercase hex string of length n*2. Fallback
+// client-request-id/session_id source when ctx carries no session key.
 func randomHex(n int) string {
 	buf := make([]byte, n)
 	if _, err := rand.Read(buf); err != nil {
