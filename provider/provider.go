@@ -28,6 +28,13 @@ type AccountIDSetter interface {
 	SetAccountID(id string)
 }
 
+// Closer is optionally implemented by providers that hold a live resource
+// scoped to one turn (e.g. openai-oauth's persistent WebSocket connection to
+// the Codex backend) and must release it once the turn's Runner loop ends.
+type Closer interface {
+	Close()
+}
+
 // Request represents a chat completion request.
 type Request struct {
 	Messages []Message

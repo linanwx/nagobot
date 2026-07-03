@@ -240,6 +240,9 @@ func (t *Thread) executeRunner(ctx, runCtx context.Context, p provider.Provider,
 	contextWindowTokens := t.contextBudget().ContextWindow
 	maxCompletionTokens := t.cfg().MaxCompletionTokens
 	loopBudget := contextLoopBudget(contextWindowTokens, maxCompletionTokens)
+	if closer, ok := p.(provider.Closer); ok {
+		defer closer.Close()
+	}
 	runner := NewRunner(p, t.toolsForTurn(), metrics, loopBudget)
 	runner.ShouldHalt(t.isHaltLoop)
 	runner.SetUserVisible(sysmsg.IsUserVisibleSource(t.lastWakeSource))

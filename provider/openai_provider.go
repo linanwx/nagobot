@@ -4,20 +4,34 @@ import (
 	"bufio"
 	"bytes"
 	"context"
+	"crypto/rand"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"io"
+	"maps"
 	"net/http"
+	"reflect"
 	"strconv"
 	"strings"
 	"time"
 
+	"github.com/gorilla/websocket"
 	"github.com/linanwx/nagobot/logger"
 )
 
 const (
-	openAIAPIBase     = "https://api.openai.com/v1"
-	openAIChatGPTBase = "https://chatgpt.com/backend-api/codex"
+	openAIAPIBase      = "https://api.openai.com/v1"
+	openAIChatGPTBase  = "https://chatgpt.com/backend-api/codex"
+	openAIChatGPTWSURL = "wss://chatgpt.com/backend-api/codex/responses"
+	// openAIBetaWebSockets unlocks previous_response_id continuation on the
+	// ChatGPT/Codex backend. That backend rejects the parameter entirely over
+	// plain HTTP (400 "Unsupported parameter: previous_response_id" —
+	// confirmed empirically against the real API), and only honors it inside
+	// a WebSocket connection carrying this header — confirmed by reading
+	// OpenClaw's implementation, which sends previous_response_id exclusively
+	// on its WebSocket code path and never on its plain HTTP/SSE path.
+	openAIBetaWebSockets = "responses_websockets=2026-02-06"
 )
 
 func init() {
@@ -70,11 +84,76 @@ type OpenAIProvider struct {
 	temperature float64
 	httpClient  *http.Client
 	accountID   string // ChatGPT account ID from OAuth id_token
+
+	// Continuation state for previous_response_id chaining. Scoped to this
+	// provider instance's lifetime, which is exactly one turn's agentic loop
+	// (ProviderFactory.Create() builds a fresh instance per turn — see
+	// thread.resolveProvider). Only reachable on the OAuth/ChatGPT-Codex
+	// backend (accountID != "") and only actually usable over the WebSocket
+	// transport below — see wsFailed. lastInputItems is the full logical
+	// input array (in Responses API item form) as of the last successful
+	// call, plus a synthesized echo of that call's own assistant reply — i.e.
+	// everything the server already knows as of lastResponseID.
+	lastResponseID string
+	lastInputItems []map[string]any
+
+	// WebSocket transport state (OAuth/ChatGPT-Codex backend only). One
+	// connection is dialed lazily on first use and reused for every
+	// subsequent tool-call iteration within this provider instance's turn,
+	// matching the Codex backend's requirement that previous_response_id
+	// only works inside the WS session that produced it. wsFailed is sticky:
+	// once the WS transport fails for any reason (dial, write, or a stream
+	// error before anything was emitted), the rest of the turn falls back to
+	// plain HTTP (full context, no continuation) instead of repeatedly
+	// retrying a bad connection or network path.
+	wsConn      *websocket.Conn
+	wsFailed    bool
+	wsRequestID string
+	wsQuota     *Quota
+}
+
+// invalidateContinuation drops any previous_response_id chain, forcing the
+// next call to send full context. Called after any failure so a bad or
+// expired response id can't be reused.
+func (p *OpenAIProvider) invalidateContinuation() {
+	p.lastResponseID = ""
+	p.lastInputItems = nil
+}
+
+// updateContinuation records the continuation state after a successful
+// response, so the next call on this provider instance (next tool-call
+// iteration within the same turn) can send only the delta.
+func (p *OpenAIProvider) updateContinuation(fullItems []map[string]any, responseID string, resp *Response) {
+	if responseID == "" {
+		p.invalidateContinuation()
+		return
+	}
+	echo := assistantMessageToInputItems(Message{
+		Content:          resp.Content,
+		ReasoningDetails: resp.ReasoningDetails,
+		ToolCalls:        resp.ToolCalls,
+	})
+	baseline := make([]map[string]any, 0, len(fullItems)+len(echo))
+	baseline = append(baseline, fullItems...)
+	baseline = append(baseline, echo...)
+	p.lastResponseID = responseID
+	p.lastInputItems = baseline
 }
 
 // SetAccountID sets the ChatGPT account ID for OAuth-based requests.
 func (p *OpenAIProvider) SetAccountID(id string) {
 	p.accountID = id
+}
+
+// Close releases the WebSocket connection, if one is open. Implements the
+// optional provider.Closer interface — thread.executeRunner defer-calls this
+// once the turn's Runner loop ends, mirroring the AccountIDSetter pattern for
+// optional per-provider capabilities. Safe to call multiple times.
+func (p *OpenAIProvider) Close() {
+	if p.wsConn != nil {
+		p.wsConn.Close()
+		p.wsConn = nil
+	}
 }
 
 func newOpenAIProvider(apiKey, apiBase, modelType, modelName string, maxTokens int, temperature float64) *OpenAIProvider {
@@ -98,81 +177,96 @@ func newOpenAIProvider(apiKey, apiBase, modelType, modelName string, maxTokens i
 	}
 }
 
-// Chat sends a request to the OpenAI Responses API (streaming).
+// Chat sends a chat completion request. On the OAuth/ChatGPT-Codex backend it
+// prefers a persistent WebSocket connection — required for
+// previous_response_id delta continuation, see wsFailed's doc comment above.
+// Any other provider, or any WebSocket failure, uses plain HTTP with full
+// context.
 func (p *OpenAIProvider) Chat(ctx context.Context, req *Request) (ChatResult, error) {
+	if p.accountID != "" && !p.wsFailed {
+		return p.chatViaWS(ctx, req)
+	}
+	return p.chatViaHTTP(ctx, req)
+}
+
+// chatViaWS sends the request over the Codex backend's WebSocket transport,
+// reusing this provider instance's connection across calls so
+// previous_response_id chaining is valid. Any failure before the dial or the
+// initial send falls back to chatViaHTTP synchronously; a stream failure that
+// happens after the goroutine is already returning deltas to the caller
+// cannot be silently retried (some output may already be visible), so it is
+// only retried if nothing was emitted yet.
+func (p *OpenAIProvider) chatViaWS(ctx context.Context, req *Request) (ChatResult, error) {
 	start := time.Now()
 	inputChars := inputChars(req.Messages)
 
-	logger.Info(
-		"openai request",
-		"provider", "openai",
-		"modelType", p.modelType,
-		"modelName", p.modelName,
-		"toolCount", len(req.Tools),
-		"inputChars", inputChars,
-	)
+	conn, err := p.ensureWSConn(ctx)
+	if err != nil {
+		logger.Warn("openai-oauth websocket dial failed, falling back to HTTP for the rest of this turn", "err", err)
+		p.wsFailed = true
+		p.invalidateContinuation()
+		return p.chatViaHTTP(ctx, req)
+	}
 
-	body, err := p.buildRequestBody(req)
+	built, err := p.buildRequestBody(req, false)
 	if err != nil {
 		return nil, fmt.Errorf("failed to build request: %w", err)
 	}
 
-	// Use ChatGPT backend when authenticated via OAuth (account ID present).
-	base := p.baseURL
-	if p.accountID != "" {
-		base = openAIChatGPTBase
-	}
-	url := base + "/responses"
-	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(body))
-	if err != nil {
-		return nil, fmt.Errorf("failed to create request: %w", err)
-	}
-	httpReq.Header.Set("Content-Type", "application/json")
-	httpReq.Header.Set("Accept", "text/event-stream")
-	httpReq.Header.Set("Authorization", "Bearer "+p.apiKey)
-	if p.accountID != "" {
-		httpReq.Header.Set("ChatGPT-Account-ID", p.accountID)
+	logger.Info(
+		"openai request",
+		"provider", "openai-oauth",
+		"transport", "ws",
+		"modelType", p.modelType,
+		"modelName", p.modelName,
+		"toolCount", len(req.Tools),
+		"inputChars", inputChars,
+		"usedDelta", built.usedDelta,
+	)
+
+	wsMsg := make(map[string]any, len(built.bodyMap)+1)
+	maps.Copy(wsMsg, built.bodyMap)
+	wsMsg["type"] = "response.create"
+
+	if err := conn.WriteJSON(wsMsg); err != nil {
+		logger.Warn("openai-oauth websocket write failed, falling back to HTTP for the rest of this turn", "err", err)
+		p.Close()
+		p.wsFailed = true
+		p.invalidateContinuation()
+		return p.chatViaHTTP(ctx, req)
 	}
 
-	httpResp, err := p.httpClient.Do(httpReq)
-	if err != nil {
-		logger.Error("openai request error", "provider", "openai", "err", err)
-		return nil, fmt.Errorf("request failed: %w", err)
-	}
-
-	if httpResp.StatusCode != http.StatusOK {
-		defer httpResp.Body.Close()
-		errBody, _ := io.ReadAll(httpResp.Body)
-		logger.Error("openai request error", "provider", "openai", "status", httpResp.StatusCode, "body", string(errBody))
-		return nil, fmt.Errorf("request failed: %d %s", httpResp.StatusCode, string(errBody))
-	}
-
-	providerLabel := "openai"
-	if p.accountID != "" {
-		providerLabel = "openai-oauth"
-	}
-
-	resp := &Response{ProviderLabel: providerLabel, ModelLabel: p.modelName}
+	resp := &Response{ProviderLabel: "openai-oauth", ModelLabel: p.modelName}
 	adapter := newStreamAdapter(ctx, resp)
 
 	go func() {
-		defer httpResp.Body.Close()
 		defer adapter.Finish()
 
-		if err := p.parseSSEStream(httpResp, adapter); err != nil {
-			logger.Error("openai SSE parse error", "provider", providerLabel, "err", err)
-			adapter.SetError(err)
+		responseID, emitted, perr := p.parseWSStream(ctx, conn, adapter)
+		if perr != nil {
+			p.Close()
+			p.wsFailed = true
+			p.invalidateContinuation()
+			if !emitted {
+				logger.Warn("openai-oauth websocket stream failed before any output, retrying with full context over HTTP",
+					"err", perr)
+				p.runHTTPStreamInto(ctx, req, adapter, resp, "openai-oauth", start)
+				return
+			}
+			logger.Error("openai-oauth websocket stream error", "err", perr)
+			adapter.SetError(perr)
 			return
 		}
 
-		// Extract rate-limit quota from response headers (OAuth mode only).
-		if p.accountID != "" {
-			resp.Quota = extractQuota(httpResp.Header)
+		p.updateContinuation(built.fullItems, responseID, resp)
+		if p.wsQuota != nil {
+			resp.Quota = p.wsQuota
 		}
 
 		logger.Info(
 			"openai response",
 			"provider", resp.ProviderLabel,
+			"transport", "ws",
 			"modelType", p.modelType,
 			"modelName", p.modelName,
 			"hasToolCalls", len(resp.ToolCalls) > 0,
@@ -183,6 +277,7 @@ func (p *OpenAIProvider) Chat(ctx context.Context, req *Request) (ChatResult, er
 			"cachedTokens", resp.Usage.CachedTokens,
 			"totalTokens", resp.Usage.TotalTokens,
 			"outputChars", len(resp.Content),
+			"usedDelta", built.usedDelta,
 			"latencyMs", time.Since(start).Milliseconds(),
 		)
 	}()
@@ -190,135 +285,387 @@ func (p *OpenAIProvider) Chat(ctx context.Context, req *Request) (ChatResult, er
 	return adapter.Result(), nil
 }
 
-// buildRequestBody converts internal Request to Responses API JSON.
-func (p *OpenAIProvider) buildRequestBody(req *Request) ([]byte, error) {
-	// Extract system messages into instructions.
-	var instructions []string
-	var input []map[string]any
+// ensureWSConn returns this provider's WebSocket connection to the Codex
+// backend, dialing one on first use. The connection stays open for the
+// lifetime of this provider instance (one turn) and is reused across every
+// tool-call iteration within it, since previous_response_id continuation is
+// scoped to the WS session that produced the referenced response.
+func (p *OpenAIProvider) ensureWSConn(ctx context.Context) (*websocket.Conn, error) {
+	if p.wsConn != nil {
+		return p.wsConn, nil
+	}
+	if p.wsRequestID == "" {
+		p.wsRequestID = randomHex(16)
+	}
 
-	for _, msg := range req.Messages {
-		switch msg.Role {
-		case "system":
-			instructions = append(instructions, msg.Content)
+	header := http.Header{}
+	header.Set("Authorization", "Bearer "+p.apiKey)
+	header.Set("ChatGPT-Account-ID", p.accountID)
+	header.Set("originator", "nagobot")
+	header.Set("User-Agent", "nagobot/1.0")
+	header.Set("OpenAI-Beta", openAIBetaWebSockets)
+	header.Set("x-client-request-id", p.wsRequestID)
+	header.Set("session_id", p.wsRequestID)
 
-		case "user":
-			content := []map[string]any{
-				{"type": "input_text", "text": msg.Content},
+	conn, httpResp, err := websocket.DefaultDialer.DialContext(ctx, openAIChatGPTWSURL, header)
+	if err != nil {
+		return nil, err
+	}
+	if httpResp != nil {
+		p.wsQuota = extractQuota(httpResp.Header)
+	}
+	p.wsConn = conn
+	return conn, nil
+}
+
+// parseWSStream reads WebSocket text frames from an already-open Codex
+// connection until one full response completes, assembling it the same way
+// parseSSEStream does over HTTP — same event vocabulary, different framing
+// (one JSON object per WS message instead of SSE "data:" lines). Unlike the
+// HTTP path, the connection is NOT closed after one response — it is reused
+// for the next call — so this loop must stop explicitly on a completion
+// event rather than relying on EOF. A watcher goroutine closes the
+// connection if ctx is cancelled, since gorilla/websocket reads don't
+// otherwise respect context cancellation.
+func (p *OpenAIProvider) parseWSStream(ctx context.Context, conn *websocket.Conn, adapter *streamAdapter) (responseID string, emitted bool, err error) {
+	watchDone := make(chan struct{})
+	defer close(watchDone)
+	go func() {
+		select {
+		case <-ctx.Done():
+			conn.Close()
+		case <-watchDone:
+		}
+	}()
+
+	asm := newResponseAssembler(adapter)
+	for {
+		_, data, readErr := conn.ReadMessage()
+		if readErr != nil {
+			return "", asm.emitted, fmt.Errorf("reading websocket stream: %w", readErr)
+		}
+		done, evErr := asm.handleEvent(data)
+		if evErr != nil {
+			return "", asm.emitted, evErr
+		}
+		if done {
+			break
+		}
+	}
+	asm.finish()
+	return asm.responseID, asm.emitted, nil
+}
+
+// chatViaHTTP sends one full-context request over plain HTTP/SSE. Used for
+// the non-OAuth (api.openai.com, API-key) path always, and as the sticky
+// fallback for openai-oauth once the WebSocket transport has failed for this
+// turn — the Codex backend never accepts previous_response_id outside a WS
+// session, so this path always sends full context.
+func (p *OpenAIProvider) chatViaHTTP(ctx context.Context, req *Request) (ChatResult, error) {
+	start := time.Now()
+	inputChars := inputChars(req.Messages)
+
+	providerLabel := "openai"
+	if p.accountID != "" {
+		providerLabel = "openai-oauth"
+	}
+
+	logger.Info(
+		"openai request",
+		"provider", providerLabel,
+		"transport", "http",
+		"modelType", p.modelType,
+		"modelName", p.modelName,
+		"toolCount", len(req.Tools),
+		"inputChars", inputChars,
+	)
+
+	resp := &Response{ProviderLabel: providerLabel, ModelLabel: p.modelName}
+	adapter := newStreamAdapter(ctx, resp)
+
+	go func() {
+		defer adapter.Finish()
+		p.runHTTPStreamInto(ctx, req, adapter, resp, providerLabel, start)
+	}()
+
+	return adapter.Result(), nil
+}
+
+// runHTTPStreamInto performs one full-context HTTP request/SSE cycle,
+// feeding results into an already-returned adapter. Used both as
+// chatViaHTTP's own goroutine body, and inline (same goroutine, no nested
+// adapter/Finish) as the WS-failure fallback in chatViaWS — so a broken
+// WebSocket never fails a turn outright as long as nothing was streamed to
+// the caller yet.
+func (p *OpenAIProvider) runHTTPStreamInto(ctx context.Context, req *Request, adapter *streamAdapter, resp *Response, providerLabel string, start time.Time) {
+	built, err := p.buildRequestBody(req, true)
+	if err != nil {
+		adapter.SetError(fmt.Errorf("failed to build request: %w", err))
+		return
+	}
+	marshaled, err := json.Marshal(built.bodyMap)
+	if err != nil {
+		adapter.SetError(fmt.Errorf("failed to encode request: %w", err))
+		return
+	}
+
+	base := p.baseURL
+	if p.accountID != "" {
+		base = openAIChatGPTBase
+	}
+	url := base + "/responses"
+
+	httpResp, err := p.doRequest(ctx, url, marshaled)
+	if err != nil {
+		logger.Error("openai request error", "provider", providerLabel, "err", err)
+		adapter.SetError(fmt.Errorf("request failed: %w", err))
+		return
+	}
+	if httpResp.StatusCode != http.StatusOK {
+		errBody, _ := io.ReadAll(httpResp.Body)
+		httpResp.Body.Close()
+		logger.Error("openai request error", "provider", providerLabel, "status", httpResp.StatusCode, "body", string(errBody))
+		adapter.SetError(fmt.Errorf("request failed: %d %s", httpResp.StatusCode, string(errBody)))
+		return
+	}
+
+	_, _, perr := p.parseSSEStream(httpResp, adapter)
+	httpResp.Body.Close()
+	if perr != nil {
+		logger.Error("openai SSE parse error", "provider", providerLabel, "err", perr)
+		adapter.SetError(perr)
+		return
+	}
+
+	// HTTP never chains previous_response_id (the Codex backend rejects it
+	// outside a WebSocket session) — nothing to record for the next call.
+
+	if p.accountID != "" {
+		resp.Quota = extractQuota(httpResp.Header)
+	}
+
+	logger.Info(
+		"openai response",
+		"provider", resp.ProviderLabel,
+		"transport", "http",
+		"modelType", p.modelType,
+		"modelName", p.modelName,
+		"hasToolCalls", len(resp.ToolCalls) > 0,
+		"toolCallCount", len(resp.ToolCalls),
+		"promptTokens", resp.Usage.PromptTokens,
+		"completionTokens", resp.Usage.CompletionTokens,
+		"reasoningTokens", resp.Usage.ReasoningTokens,
+		"cachedTokens", resp.Usage.CachedTokens,
+		"totalTokens", resp.Usage.TotalTokens,
+		"outputChars", len(resp.Content),
+		"latencyMs", time.Since(start).Milliseconds(),
+	)
+}
+
+// doRequest issues one POST to the Responses API with the given pre-built body.
+func (p *OpenAIProvider) doRequest(ctx context.Context, url string, body []byte) (*http.Response, error) {
+	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(body))
+	if err != nil {
+		return nil, fmt.Errorf("failed to create request: %w", err)
+	}
+	httpReq.Header.Set("Content-Type", "application/json")
+	httpReq.Header.Set("Accept", "text/event-stream")
+	httpReq.Header.Set("Authorization", "Bearer "+p.apiKey)
+	if p.accountID != "" {
+		httpReq.Header.Set("ChatGPT-Account-ID", p.accountID)
+	}
+	return p.httpClient.Do(httpReq)
+}
+
+// builtRequest is the result of buildRequestBody: the Responses API request
+// body (as a map, marshaled by whichever transport sends it) plus the
+// bookkeeping needed to maintain (or retry) previous_response_id chaining.
+type builtRequest struct {
+	bodyMap   map[string]any
+	usedDelta bool             // true if body carries previous_response_id + partial input
+	fullItems []map[string]any // full logical input array as of this call (pre-delta-slicing)
+}
+
+// userMessageToInputItems converts a single user-role message to Responses API
+// input items (always exactly one "message" item).
+func userMessageToInputItems(msg Message) []map[string]any {
+	content := []map[string]any{
+		{"type": "input_text", "text": msg.Content},
+	}
+	if len(msg.Media) > 0 {
+		_, markers := ParseMediaMarkers(strings.Join(msg.Media, "\n"))
+		for _, marker := range markers {
+			if !strings.HasPrefix(marker.MimeType, "image/") {
+				continue // OpenAI Responses API only supports image media
 			}
-			// Process explicit media attachments.
-			if len(msg.Media) > 0 {
-				_, markers := ParseMediaMarkers(strings.Join(msg.Media, "\n"))
-				for _, marker := range markers {
-					if !strings.HasPrefix(marker.MimeType, "image/") {
-						continue // OpenAI Responses API only supports image media
-					}
-					b64, err := ReadFileAsBase64(marker.FilePath)
-					if err != nil {
-						continue
-					}
-					content = append(content, map[string]any{
-						"type":      "input_image",
-						"image_url": "data:" + marker.MimeType + ";base64," + b64,
-					})
-				}
+			b64, err := ReadFileAsBase64(marker.FilePath)
+			if err != nil {
+				continue
 			}
-			input = append(input, map[string]any{
-				"type":    "message",
-				"role":    "user",
-				"content": content,
+			content = append(content, map[string]any{
+				"type":      "input_image",
+				"image_url": "data:" + marker.MimeType + ";base64," + b64,
 			})
+		}
+	}
+	return []map[string]any{{
+		"type":    "message",
+		"role":    "user",
+		"content": content,
+	}}
+}
 
-		case "assistant":
-			if msg.Content != "" {
-				input = append(input, map[string]any{
-					"type": "message",
-					"role": "assistant",
-					"content": []map[string]any{
-						{"type": "output_text", "text": msg.Content},
-					},
-				})
-			}
-			// Insert OpenAI reasoning items before function_calls if not trimmed.
-			// Only include items with type="reasoning" — ReasoningDetails from other
-			// providers (Anthropic thinking blocks, Gemini thought_signature) have
-			// different formats and must be skipped.
-			if !msg.ReasoningTrimmed && len(msg.ReasoningDetails) > 0 {
-				var items []json.RawMessage
-				if err := json.Unmarshal(msg.ReasoningDetails, &items); err == nil {
-					for _, raw := range items {
-						var ri map[string]any
-						if err := json.Unmarshal(raw, &ri); err == nil {
-							if riType, _ := ri["type"].(string); riType == "reasoning" {
-								input = append(input, ri)
-							}
-						}
+// assistantMessageToInputItems converts a single assistant-role message to
+// Responses API input items: an optional output_text message, reasoning items
+// (unless trimmed), then one function_call item per tool call. Used both for
+// full-history conversion and to synthesize the "echo" of a just-completed
+// response so continuation bookkeeping matches exactly what a later replay of
+// the same message would produce.
+func assistantMessageToInputItems(msg Message) []map[string]any {
+	var input []map[string]any
+	if msg.Content != "" {
+		input = append(input, map[string]any{
+			"type": "message",
+			"role": "assistant",
+			"content": []map[string]any{
+				{"type": "output_text", "text": msg.Content},
+			},
+		})
+	}
+	// Insert OpenAI reasoning items before function_calls if not trimmed.
+	// Only include items with type="reasoning" — ReasoningDetails from other
+	// providers (Anthropic thinking blocks, Gemini thought_signature) have
+	// different formats and must be skipped.
+	if !msg.ReasoningTrimmed && len(msg.ReasoningDetails) > 0 {
+		var items []json.RawMessage
+		if err := json.Unmarshal(msg.ReasoningDetails, &items); err == nil {
+			for _, raw := range items {
+				var ri map[string]any
+				if err := json.Unmarshal(raw, &ri); err == nil {
+					if riType, _ := ri["type"].(string); riType == "reasoning" {
+						input = append(input, ri)
 					}
 				}
-			}
-			for _, tc := range msg.ToolCalls {
-				args := tc.Function.Arguments
-				if !json.Valid([]byte(args)) {
-					args = "{}"
-				}
-				input = append(input, map[string]any{
-					"type":      "function_call",
-					"call_id":   tc.ID,
-					"name":      tc.Function.Name,
-					"arguments": args,
-				})
-			}
-
-		case "tool":
-			cleanedText, markers := ParseMediaMarkers(msg.Content)
-			hasMedia := len(markers) > 0
-			output := []map[string]any{
-				{"type": "input_text", "text": cleanedText},
-			}
-			for _, marker := range markers {
-				if !strings.HasPrefix(marker.MimeType, "image/") {
-					continue // OpenAI only supports image media
-				}
-				b64, err := ReadFileAsBase64(marker.FilePath)
-				if err != nil {
-					continue
-				}
-				output = append(output, map[string]any{
-					"type":      "input_image",
-					"image_url": "data:" + marker.MimeType + ";base64," + b64,
-				})
-			}
-			// Process explicit media attachments.
-			if len(msg.Media) > 0 {
-				_, mediaMarkers := ParseMediaMarkers(strings.Join(msg.Media, "\n"))
-				for _, marker := range mediaMarkers {
-					if !strings.HasPrefix(marker.MimeType, "image/") {
-						continue // OpenAI Responses API only supports image media
-					}
-					b64, err := ReadFileAsBase64(marker.FilePath)
-					if err != nil {
-						continue
-					}
-					output = append(output, map[string]any{
-						"type":      "input_image",
-						"image_url": "data:" + marker.MimeType + ";base64," + b64,
-					})
-					hasMedia = true
-				}
-			}
-			if hasMedia {
-				input = append(input, map[string]any{
-					"type":    "function_call_output",
-					"call_id": msg.ToolCallID,
-					"output":  output,
-				})
-			} else {
-				input = append(input, map[string]any{
-					"type":    "function_call_output",
-					"call_id": msg.ToolCallID,
-					"output":  msg.Content,
-				})
 			}
 		}
+	}
+	for _, tc := range msg.ToolCalls {
+		args := tc.Function.Arguments
+		if !json.Valid([]byte(args)) {
+			args = "{}"
+		}
+		input = append(input, map[string]any{
+			"type":      "function_call",
+			"call_id":   tc.ID,
+			"name":      tc.Function.Name,
+			"arguments": args,
+		})
+	}
+	return input
+}
+
+// toolMessageToInputItems converts a single tool-result message to Responses
+// API input items (always exactly one function_call_output item).
+func toolMessageToInputItems(msg Message) []map[string]any {
+	cleanedText, markers := ParseMediaMarkers(msg.Content)
+	hasMedia := len(markers) > 0
+	output := []map[string]any{
+		{"type": "input_text", "text": cleanedText},
+	}
+	for _, marker := range markers {
+		if !strings.HasPrefix(marker.MimeType, "image/") {
+			continue // OpenAI only supports image media
+		}
+		b64, err := ReadFileAsBase64(marker.FilePath)
+		if err != nil {
+			continue
+		}
+		output = append(output, map[string]any{
+			"type":      "input_image",
+			"image_url": "data:" + marker.MimeType + ";base64," + b64,
+		})
+	}
+	// Process explicit media attachments.
+	if len(msg.Media) > 0 {
+		_, mediaMarkers := ParseMediaMarkers(strings.Join(msg.Media, "\n"))
+		for _, marker := range mediaMarkers {
+			if !strings.HasPrefix(marker.MimeType, "image/") {
+				continue // OpenAI Responses API only supports image media
+			}
+			b64, err := ReadFileAsBase64(marker.FilePath)
+			if err != nil {
+				continue
+			}
+			output = append(output, map[string]any{
+				"type":      "input_image",
+				"image_url": "data:" + marker.MimeType + ";base64," + b64,
+			})
+			hasMedia = true
+		}
+	}
+	if hasMedia {
+		return []map[string]any{{
+			"type":    "function_call_output",
+			"call_id": msg.ToolCallID,
+			"output":  output,
+		}}
+	}
+	return []map[string]any{{
+		"type":    "function_call_output",
+		"call_id": msg.ToolCallID,
+		"output":  msg.Content,
+	}}
+}
+
+// convertMessagesToInputItems converts a run of messages to Responses API
+// input items. System messages are skipped (handled separately as
+// instructions) — callers that need instructions must scan for them too.
+func convertMessagesToInputItems(messages []Message) []map[string]any {
+	var input []map[string]any
+	for _, msg := range messages {
+		switch msg.Role {
+		case "user":
+			input = append(input, userMessageToInputItems(msg)...)
+		case "assistant":
+			input = append(input, assistantMessageToInputItems(msg)...)
+		case "tool":
+			input = append(input, toolMessageToInputItems(msg)...)
+		}
+	}
+	return input
+}
+
+// buildRequestBody converts internal Request to Responses API JSON.
+//
+// On the OAuth/ChatGPT-Codex backend (accountID != ""), if this provider
+// instance already completed an earlier call in the same turn (lastResponseID
+// set) and the freshly-reconstructed input array still starts with exactly
+// what was recorded as the server's known state (lastInputItems), only the
+// new tail is sent along with previous_response_id — the server reconstructs
+// the rest. Any mismatch (compression touched old history, first call, retry
+// after rejection, or forceFullContext) falls back to sending everything, so
+// correctness never depends on the delta path succeeding.
+func (p *OpenAIProvider) buildRequestBody(req *Request, forceFullContext bool) (*builtRequest, error) {
+	// Extract system messages into instructions — recomputed fully every call
+	// regardless of delta/full mode.
+	var instructions []string
+	for _, msg := range req.Messages {
+		if msg.Role == "system" {
+			instructions = append(instructions, msg.Content)
+		}
+	}
+
+	fullItems := convertMessagesToInputItems(req.Messages)
+
+	input := fullItems
+	usedDelta := false
+	previousResponseID := ""
+	if !forceFullContext && p.accountID != "" && p.lastResponseID != "" &&
+		len(fullItems) >= len(p.lastInputItems) &&
+		reflect.DeepEqual(fullItems[:len(p.lastInputItems)], p.lastInputItems) {
+		input = fullItems[len(p.lastInputItems):]
+		usedDelta = true
+		previousResponseID = p.lastResponseID
 	}
 
 	// Convert tools to Responses API format (flat structure).
@@ -346,6 +693,9 @@ func (p *OpenAIProvider) buildRequestBody(req *Request) ([]byte, error) {
 			"summary": "auto",
 		},
 	}
+	if previousResponseID != "" {
+		body["previous_response_id"] = previousResponseID
+	}
 	if p.modelName == "gpt-5.4" || p.modelName == "gpt-5.5" {
 		body["text"] = map[string]any{"verbosity": "low"}
 	}
@@ -368,21 +718,21 @@ func (p *OpenAIProvider) buildRequestBody(req *Request) ([]byte, error) {
 		}
 	}
 
-	return json.Marshal(body)
+	return &builtRequest{bodyMap: body, usedDelta: usedDelta, fullItems: fullItems}, nil
 }
 
 // parseSSEStream reads an SSE event stream and assembles the complete response.
-// It populates the adapter's Response directly and emits deltas via the adapter.
-// We collect response.output_text.delta events for streaming text delivery,
-// response.output_item.done events for complete output items, and
-// response.completed for usage data.
-func (p *OpenAIProvider) parseSSEStream(httpResp *http.Response, adapter *streamAdapter) error {
-	resp := adapter.resp
-	var content strings.Builder
-	var reasoning strings.Builder
-	var reasoningItems []json.RawMessage
-	var toolCallSignaled bool
-	var toolCalls []ToolCall
+// It populates the adapter's Response directly and emits deltas via the
+// adapter, using the same event-assembly logic as parseWSStream (see
+// responseAssembler).
+//
+// Returns the response's own id (for previous_response_id chaining — only
+// meaningful on the WS path, but harmless to compute here too) and whether
+// anything was ever emitted to the adapter — the caller uses "emitted" to
+// decide whether a failure is safe to silently retry (nothing has reached the
+// user/session yet) or must be surfaced.
+func (p *OpenAIProvider) parseSSEStream(httpResp *http.Response, adapter *streamAdapter) (responseID string, emitted bool, err error) {
+	asm := newResponseAssembler(adapter)
 
 	scanner := bufio.NewScanner(httpResp.Body)
 	// Increase buffer for large events.
@@ -400,79 +750,116 @@ func (p *OpenAIProvider) parseSSEStream(httpResp *http.Response, adapter *stream
 			break
 		}
 
-		var event struct {
-			Type     string         `json:"type"`
-			Delta    string         `json:"delta,omitempty"`
-			Item     map[string]any `json:"item,omitempty"`
-			Response struct {
-				Usage struct {
-					InputTokens        int `json:"input_tokens"`
-					OutputTokens       int `json:"output_tokens"`
-					TotalTokens        int `json:"total_tokens"`
-					InputTokensDetails struct {
-						CachedTokens int `json:"cached_tokens"`
-					} `json:"input_tokens_details"`
-					OutputTokensDetails struct {
-						ReasoningTokens int `json:"reasoning_tokens"`
-					} `json:"output_tokens_details"`
-				} `json:"usage"`
-				Error *responsesAPIError `json:"error,omitempty"`
-			} `json:"response,omitempty"`
+		done, evErr := asm.handleEvent([]byte(data))
+		if evErr != nil {
+			return "", asm.emitted, evErr
 		}
-		if err := json.Unmarshal([]byte(data), &event); err != nil {
-			continue // skip unparseable events
-		}
-
-		switch event.Type {
-		case "response.output_text.delta":
-			adapter.EmitText(event.Delta)
-
-		case "response.output_item.done":
-			if itemType, _ := event.Item["type"].(string); itemType == "function_call" {
-				if !toolCallSignaled {
-					toolCallSignaled = true
-					name, _ := event.Item["name"].(string)
-					adapter.EmitToolCall(name)
-				}
-			}
-			p.extractOutputItem(event.Item, &content, &toolCalls, &reasoning, &reasoningItems)
-
-		case "response.completed", "response.done":
-			resp.Usage = Usage{
-				PromptTokens:     event.Response.Usage.InputTokens,
-				CompletionTokens: event.Response.Usage.OutputTokens,
-				TotalTokens:      event.Response.Usage.TotalTokens,
-				CachedTokens:     event.Response.Usage.InputTokensDetails.CachedTokens,
-				ReasoningTokens:  event.Response.Usage.OutputTokensDetails.ReasoningTokens,
-			}
-
-		case "response.failed":
-			errInfo := event.Response.Error
-			if errInfo != nil {
-				return fmt.Errorf("API error [%s]: %s", errInfo.Code, errInfo.Message)
-			}
-			return fmt.Errorf("API returned response.failed")
+		if done {
+			break
 		}
 	}
 
-	if err := scanner.Err(); err != nil {
-		return fmt.Errorf("reading SSE stream: %w", err)
+	if scanErr := scanner.Err(); scanErr != nil {
+		return "", asm.emitted, fmt.Errorf("reading SSE stream: %w", scanErr)
 	}
 
-	// Pack all reasoning items into a single JSON array for round-trip in ReasoningDetails.
-	if len(reasoningItems) > 0 {
-		resp.ReasoningDetails, _ = json.Marshal(reasoningItems)
+	asm.finish()
+	return asm.responseID, asm.emitted, nil
+}
+
+// responseAssembler processes the Responses API's streaming event vocabulary
+// (response.output_text.delta, response.output_item.done,
+// response.completed/done/incomplete, response.failed) — shared between the
+// SSE (HTTP) and WebSocket transports, since both carry identical JSON event
+// payloads and differ only in framing (SSE "data:" lines vs. one WS text
+// frame per event).
+type responseAssembler struct {
+	adapter *streamAdapter
+	resp    *Response
+
+	content          strings.Builder
+	reasoning        strings.Builder
+	reasoningItems   []json.RawMessage
+	toolCalls        []ToolCall
+	toolCallSignaled bool
+	emitted          bool
+	responseID       string
+}
+
+func newResponseAssembler(adapter *streamAdapter) *responseAssembler {
+	return &responseAssembler{adapter: adapter, resp: adapter.resp}
+}
+
+// handleEvent processes one decoded event payload. done=true means the
+// response has completed (successfully, or with response.incomplete — still
+// a valid result to process, not an error); err set means response.failed or
+// another unrecoverable condition that must abort the turn.
+func (a *responseAssembler) handleEvent(data []byte) (done bool, err error) {
+	var event struct {
+		Type     string         `json:"type"`
+		Delta    string         `json:"delta,omitempty"`
+		Item     map[string]any `json:"item,omitempty"`
+		Response struct {
+			ID    string `json:"id"`
+			Usage struct {
+				InputTokens        int `json:"input_tokens"`
+				OutputTokens       int `json:"output_tokens"`
+				TotalTokens        int `json:"total_tokens"`
+				InputTokensDetails struct {
+					CachedTokens int `json:"cached_tokens"`
+				} `json:"input_tokens_details"`
+				OutputTokensDetails struct {
+					ReasoningTokens int `json:"reasoning_tokens"`
+				} `json:"output_tokens_details"`
+			} `json:"usage"`
+			Error *responsesAPIError `json:"error,omitempty"`
+		} `json:"response,omitempty"`
+	}
+	if unmarshalErr := json.Unmarshal(data, &event); unmarshalErr != nil {
+		return false, nil // skip unparseable events
 	}
 
-	resp.Content = content.String()
-	resp.ReasoningContent = reasoning.String()
-	resp.ToolCalls = toolCalls
+	switch event.Type {
+	case "response.output_text.delta":
+		if event.Delta != "" {
+			a.emitted = true
+		}
+		a.adapter.EmitText(event.Delta)
 
-	return nil
+	case "response.output_item.done":
+		if itemType, _ := event.Item["type"].(string); itemType == "function_call" {
+			if !a.toolCallSignaled {
+				a.toolCallSignaled = true
+				a.emitted = true
+				name, _ := event.Item["name"].(string)
+				a.adapter.EmitToolCall(name)
+			}
+		}
+		a.extractOutputItem(event.Item)
+
+	case "response.completed", "response.done", "response.incomplete":
+		a.responseID = event.Response.ID
+		a.resp.Usage = Usage{
+			PromptTokens:     event.Response.Usage.InputTokens,
+			CompletionTokens: event.Response.Usage.OutputTokens,
+			TotalTokens:      event.Response.Usage.TotalTokens,
+			CachedTokens:     event.Response.Usage.InputTokensDetails.CachedTokens,
+			ReasoningTokens:  event.Response.Usage.OutputTokensDetails.ReasoningTokens,
+		}
+		return true, nil
+
+	case "response.failed":
+		errInfo := event.Response.Error
+		if errInfo != nil {
+			return false, fmt.Errorf("API error [%s]: %s", errInfo.Code, errInfo.Message)
+		}
+		return false, fmt.Errorf("API returned response.failed")
+	}
+	return false, nil
 }
 
 // extractOutputItem processes a single completed output item from the stream.
-func (p *OpenAIProvider) extractOutputItem(item map[string]any, content *strings.Builder, toolCalls *[]ToolCall, reasoning *strings.Builder, reasoningItems *[]json.RawMessage) {
+func (a *responseAssembler) extractOutputItem(item map[string]any) {
 	if item == nil {
 		return
 	}
@@ -487,10 +874,10 @@ func (p *OpenAIProvider) extractOutputItem(item map[string]any, content *strings
 			}
 			if blockType, _ := block["type"].(string); blockType == "output_text" {
 				if text, _ := block["text"].(string); text != "" {
-					if content.Len() > 0 {
-						content.WriteString("\n")
+					if a.content.Len() > 0 {
+						a.content.WriteString("\n")
 					}
-					content.WriteString(text)
+					a.content.WriteString(text)
 				}
 			}
 		}
@@ -499,7 +886,7 @@ func (p *OpenAIProvider) extractOutputItem(item map[string]any, content *strings
 		callID, _ := item["call_id"].(string)
 		name, _ := item["name"].(string)
 		args, _ := item["arguments"].(string)
-		*toolCalls = append(*toolCalls, ToolCall{
+		a.toolCalls = append(a.toolCalls, ToolCall{
 			ID:   callID,
 			Type: "function",
 			Function: FunctionCall{
@@ -518,19 +905,31 @@ func (p *OpenAIProvider) extractOutputItem(item map[string]any, content *strings
 				}
 				if blockType, _ := block["type"].(string); blockType == "summary_text" {
 					if text, _ := block["text"].(string); text != "" {
-						if reasoning.Len() > 0 {
-							reasoning.WriteString("\n")
+						if a.reasoning.Len() > 0 {
+							a.reasoning.WriteString("\n")
 						}
-						reasoning.WriteString(text)
+						a.reasoning.WriteString(text)
 					}
 				}
 			}
 		}
 		// Preserve the complete reasoning item as raw JSON for round-trip.
 		if raw, err := json.Marshal(item); err == nil {
-			*reasoningItems = append(*reasoningItems, json.RawMessage(raw))
+			a.reasoningItems = append(a.reasoningItems, json.RawMessage(raw))
 		}
 	}
+}
+
+// finish flushes the assembled content/reasoning/tool calls into the
+// adapter's Response. Called once after the event loop ends successfully —
+// NOT called on error paths, matching the original single-function behavior.
+func (a *responseAssembler) finish() {
+	if len(a.reasoningItems) > 0 {
+		a.resp.ReasoningDetails, _ = json.Marshal(a.reasoningItems)
+	}
+	a.resp.Content = a.content.String()
+	a.resp.ReasoningContent = a.reasoning.String()
+	a.resp.ToolCalls = a.toolCalls
 }
 
 type responsesAPIError struct {
@@ -566,4 +965,14 @@ func headerInt(h http.Header, key string) int {
 	}
 	n, _ := strconv.Atoi(v)
 	return n
+}
+
+// randomHex returns a random lowercase hex string of length n*2. Used to
+// generate a stable per-WS-connection client-request-id/session_id pair.
+func randomHex(n int) string {
+	buf := make([]byte, n)
+	if _, err := rand.Read(buf); err != nil {
+		return fmt.Sprintf("%d", time.Now().UnixNano())
+	}
+	return hex.EncodeToString(buf)
 }
