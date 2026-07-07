@@ -22,13 +22,11 @@ type Factory struct {
 	fallbackCfg      *config.Config        // startup config used as fallback
 	defaultProv      string                // startup default (fallback only)
 	defaultModel     string                // startup default (fallback only)
-	maxTokens        int
-	temperature      float64
 }
 
 // NewFactory builds a provider factory. cfgFn is called on each Create() to
 // get the latest config from disk, enabling hot-reload of provider keys,
-// default provider/model, and model routing.
+// default provider/model, model routing, maxTokens, and temperature.
 func NewFactory(cfgFn func() *config.Config) (*Factory, error) {
 	cfg := cfgFn()
 	if cfg == nil {
@@ -54,8 +52,6 @@ func NewFactory(cfgFn func() *config.Config) (*Factory, error) {
 		fallbackCfg: cfg,
 		defaultProv: defaultProv,
 		defaultModel: defaultModel,
-		maxTokens:   cfg.GetMaxTokens(),
-		temperature: cfg.GetTemperature(),
 	}, nil
 }
 
@@ -98,7 +94,7 @@ func (f *Factory) Create(providerName, modelType string) (Provider, error) {
 	}
 
 	apiBase := providerAPIBase(cfg, providerName)
-	p := reg.Constructor(apiKey, apiBase, modelType, modelName, f.maxTokens, f.temperature)
+	p := reg.Constructor(apiKey, apiBase, modelType, modelName, cfg.GetMaxTokens(), cfg.GetTemperature())
 
 	// Set account ID only for OAuth-based provider.
 	if providerName == "openai-oauth" {

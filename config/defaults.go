@@ -5,7 +5,7 @@ import cronpkg "github.com/linanwx/nagobot/cron"
 const (
 	defaultProvider            = "deepseek"
 	defaultModelType           = "deepseek-v4-flash"
-	defaultMaxTokens           = 8192
+	defaultMaxTokens           = 65536
 	defaultTemperature         = 1.0
 	defaultContextWindowTokens = 300000
 	defaultWebAddr             = "127.0.0.1:18080"

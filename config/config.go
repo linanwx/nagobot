@@ -131,7 +131,7 @@ type ThreadConfig struct {
 	ModelType           string         `json:"modelType" yaml:"modelType"`
 	ModelName           string         `json:"modelName,omitempty" yaml:"modelName,omitempty"`                     // optional, defaults to modelType
 	Workspace           string         `json:"workspace,omitempty" yaml:"workspace,omitempty"`                     // defaults to ~/.nagobot/workspace
-	MaxTokens           int            `json:"maxTokens,omitempty" yaml:"maxTokens,omitempty"`                     // defaults to 8192
+	MaxTokens           int            `json:"maxTokens,omitempty" yaml:"maxTokens,omitempty"`                     // defaults to 65536
 	Temperature         float64        `json:"temperature,omitempty" yaml:"temperature,omitempty"`                 // defaults to 1.0
 	ContextWindowTokens int            `json:"contextWindowTokens,omitempty" yaml:"contextWindowTokens,omitempty"` // defaults to 300000
 	Models              []ModelRule    `json:"models,omitempty" yaml:"models,omitempty"`                           // typed model-routing rules (session/agent/specialty → provider/model)
