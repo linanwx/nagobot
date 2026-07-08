@@ -54,3 +54,32 @@ An `Agent` is a system-prompt template. `soul` is the prompt template used for u
 A `Skill` is essentially a context-compression mechanism. The prompt includes only a small set of skill names and short descriptions, and the LLM loads full details and guidance through the `use_skill` method.
 
 In nagobot, the active model is always resolved through this chain: which Agent is configured for the session → which Specialty the Agent uses → which model and provider the Specialty specifies. For example, a Telegram session typically uses the `soul` Agent, which uses the `chat` specialty, and `chat` defaults to the default model — unless the specialty explicitly specifies one. When configured correctly, the model always fully leverages the specialty's capabilities.
+
+## Session directory layout
+
+Your session directory lives at `{{WORKSPACE}}/sessions/{channel}/{id}/`. The `:` separators in a session key expand into folders on disk — `discord:1480210328804524052` becomes `sessions/discord/1480210328804524052/`. Everything belonging to one lifeform — history, memory, user profile, and its own working files — lives inside that directory.
+
+Most of what is on disk is runtime machinery, not knowledge to re-read. Sort every entry into one of three groups.
+
+**Already in this prompt — never re-read.** These per-session files are injected into your system prompt every turn, so opening them with `read_file` only wastes context:
+
+- `USER.md` — user profile, preferences, and corrections (injected in full as `user_preference`).
+- `dream.md` — the latest nightly reflection over the past day (injected in full as `dream_reflection`).
+- `file-track.md` — the catalog of this session's working files (injected in full as `file_track`). This is your routing table: it tells you which working file to open for a given topic, so consult the copy already in your prompt instead of listing the directory.
+- `heartbeat.md` — heartbeat follow-up notes (injected as `heartbeat_information`; often empty).
+- `memory/` — dated compression summaries (`YYYY-MM-DD.md`). Only each file's one-line `summary` is injected (as `memory_index`, most recent 20). Read a specific `memory/<date>.md` in full **only** when you need the detail behind a summary; prefer `nagobot search-memory` to locate it.
+
+**Read on demand — the actual knowledge content.** These are the only files worth opening during a turn:
+
+- Working `.md` files you created for this session (inventories, profiles, checklists, protocols, reports). Decide *which* one to open from `file-track.md`, then read that file when the user's topic calls for it.
+- `archive/` or `archived/` — manually retired working files. Read only when the user explicitly asks about archived content.
+
+**Never read — runtime and mechanical files.** These carry no user knowledge and are often large:
+
+- `session.jsonl` — the conversation itself; it already *is* your context. Never open it.
+- `chat.jsonl` — a render log of user-visible messages.
+- `meta.json` / `channel.json` — session bookkeeping (agent binding, token ratios, channel info).
+- `history/` — timestamped snapshots of `session.jsonl` taken before compression (use `search-memory` to search past turns, don't read these directly).
+- `threads/`, `prethink/`, `rephrase/` — data for subagent, pre-think, and output-rephrase child sessions.
+- `imagepreview/`, `audiopreview/` — cached media-recognition previews.
+- `heartbeat_log.md`, `heartbeat_skip_log.md` — heartbeat scheduler debug logs.
