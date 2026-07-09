@@ -36,7 +36,7 @@ const (
 )
 
 func init() {
-	models := []string{"gpt-5.5", "gpt-5.4", "gpt-5.4-mini", "gpt-5.4-nano"}
+	models := []string{"gpt-5.6-sol", "gpt-5.6-terra", "gpt-5.6-luna", "gpt-5.5", "gpt-5.4", "gpt-5.4-mini", "gpt-5.4-nano"}
 	constructor := func(apiKey, apiBase, modelType, modelName string, maxTokens int, temperature float64) Provider {
 		return newOpenAIProvider(apiKey, apiBase, modelType, modelName, maxTokens, temperature)
 	}
@@ -47,10 +47,13 @@ func init() {
 		Models:       models,
 		VisionModels: models,
 		ContextWindows: map[string]int{
-			"gpt-5.5":      1048576,
-			"gpt-5.4":      1048576,
-			"gpt-5.4-mini": 400000,
-			"gpt-5.4-nano": 200000,
+			"gpt-5.6-sol":   372000,
+			"gpt-5.6-terra": 372000,
+			"gpt-5.6-luna":  372000,
+			"gpt-5.5":       1048576,
+			"gpt-5.4":       1048576,
+			"gpt-5.4-mini":  400000,
+			"gpt-5.4-nano":  200000,
 		},
 		EnvKey:      "OPENAI_API_KEY",
 		EnvBase:     "OPENAI_API_BASE",
@@ -58,18 +61,19 @@ func init() {
 	})
 
 	// "openai-oauth" — OAuth token auth via the ChatGPT codex backend
-	// (chatgpt.com/backend-api/codex). The codex backend throttles context
-	// to the user's plan limit (272K for ChatGPT Plus) regardless of the
-	// model's underlying capacity. Values sourced from
+	// (chatgpt.com/backend-api/codex). Context limits are sourced from
 	// GET /backend-api/codex/models?client_version=1.0.0.
 	RegisterProvider("openai-oauth", ProviderRegistration{
 		Models:       models,
 		VisionModels: models,
 		ContextWindows: map[string]int{
-			"gpt-5.5":      272000,
-			"gpt-5.4":      272000,
-			"gpt-5.4-mini": 272000,
-			"gpt-5.4-nano": 272000,
+			"gpt-5.6-sol":   372000,
+			"gpt-5.6-terra": 372000,
+			"gpt-5.6-luna":  372000,
+			"gpt-5.5":       272000,
+			"gpt-5.4":       272000,
+			"gpt-5.4-mini":  272000,
+			"gpt-5.4-nano":  272000,
 		},
 		Constructor: constructor,
 	})

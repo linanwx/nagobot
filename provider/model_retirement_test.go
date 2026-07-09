@@ -82,3 +82,31 @@ func TestKimiK26Registration(t *testing.T) {
 		})
 	}
 }
+
+func TestOpenAIGPT56Registration(t *testing.T) {
+	cases := []struct {
+		provider string
+		model    string
+	}{
+		{"openai", "gpt-5.6-sol"},
+		{"openai", "gpt-5.6-terra"},
+		{"openai", "gpt-5.6-luna"},
+		{"openai-oauth", "gpt-5.6-sol"},
+		{"openai-oauth", "gpt-5.6-terra"},
+		{"openai-oauth", "gpt-5.6-luna"},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.provider+"/"+tc.model, func(t *testing.T) {
+			if err := ValidateProviderModelType(tc.provider, tc.model); err != nil {
+				t.Fatalf("ValidateProviderModelType(%q, %q) = %v, want nil", tc.provider, tc.model, err)
+			}
+			if got := ContextWindowForModel(tc.provider, tc.model); got != 372000 {
+				t.Fatalf("ContextWindowForModel(%q, %q) = %d, want 372000", tc.provider, tc.model, got)
+			}
+			if !SupportsVision(tc.provider, tc.model) {
+				t.Fatalf("SupportsVision(%q, %q) = false, want true", tc.provider, tc.model)
+			}
+		})
+	}
+}
