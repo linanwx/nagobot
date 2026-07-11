@@ -15,6 +15,7 @@ import (
 	"reflect"
 	"strconv"
 	"strings"
+	"sync/atomic"
 	"time"
 
 	"github.com/gorilla/websocket"
@@ -33,6 +34,30 @@ const (
 	// OpenClaw's implementation, which sends previous_response_id exclusively
 	// on its WebSocket code path and never on its plain HTTP/SSE path.
 	openAIBetaWebSockets = "responses_websockets=2026-02-06"
+
+	// wsWriteTimeout bounds a control frame (a ping — a few bytes);
+	// wsRequestWriteTimeout bounds the request body, which is routinely
+	// hundreds of kilobytes of context.
+	wsWriteTimeout        = 10 * time.Second
+	wsRequestWriteTimeout = time.Minute
+)
+
+// The WebSocket liveness clocks. Vars rather than consts so the stall test can
+// run in milliseconds instead of minutes; nothing outside tests writes them.
+var (
+	// wsStallTimeout is how long the Codex backend may go completely silent —
+	// not one frame of any kind — before the request is declared dead. It is a
+	// silence budget, not a latency budget: a response that streams for ten
+	// minutes never approaches it, while a healthy turn's time-to-first-event
+	// is seconds (the backend emits response.created on acceptance). Two
+	// minutes is generous against that and still bounded, and a false trip
+	// costs one HTTP retry rather than a failed turn.
+	wsStallTimeout = 2 * time.Minute
+	// wsPingInterval / wsPongTimeout catch the other death: a peer that is gone
+	// but never sent an RST. Two missed pongs is the signal — and only for a
+	// peer that has ponged at least once (see parseWSStream).
+	wsPingInterval = 20 * time.Second
+	wsPongTimeout  = 50 * time.Second
 )
 
 func init() {
@@ -236,6 +261,12 @@ func (p *OpenAIProvider) chatViaWS(ctx context.Context, req *Request) (ChatResul
 	maps.Copy(wsMsg, built.bodyMap)
 	wsMsg["type"] = "response.create"
 
+	// The write needs its own deadline, not the caller's context: gorilla's
+	// WriteJSON does not take one, so a peer that stops draining the socket
+	// mid-request would block here with no way for a cancelled ctx to reach it.
+	// Requests are large (hundreds of KB of context is normal) but they go to a
+	// socket that was healthy seconds ago, so a minute is silence, not slowness.
+	_ = conn.SetWriteDeadline(time.Now().Add(wsRequestWriteTimeout))
 	if err := conn.WriteJSON(wsMsg); err != nil {
 		logger.Warn("openai-oauth websocket write failed, falling back to HTTP for the rest of this turn", "err", err)
 		p.Close()
@@ -342,19 +373,93 @@ func (p *OpenAIProvider) ensureWSConn(ctx context.Context) (*websocket.Conn, err
 // event rather than relying on EOF. A watcher goroutine closes the
 // connection if ctx is cancelled, since gorilla/websocket reads don't
 // otherwise respect context cancellation.
+//
+// It also has to survive a server that says nothing at all. On 2026-07-11 the
+// Codex backend accepted a request on a freshly dialed socket, wrote no frame,
+// and did not close: the read below blocked, the turn never ended, and the
+// thread stayed wedged until the daemon was restarted — no error, no timeout,
+// no reply. The failure was invisible precisely because nothing failed. Two
+// independent clocks now bound that silence:
+//
+//   - wsStallTimeout, a read deadline refreshed on every frame. It measures
+//     silence in RESPONSE EVENTS, which is why the pong handler deliberately
+//     does NOT extend it. A socket that dutifully answers pings while its
+//     backend has forgotten the request is exactly the case that hung us, and
+//     a pong-extended deadline would have slept through it.
+//   - wsPingInterval, a keepalive ping whose missing pong reveals a peer that
+//     has gone away without an RST — the ordinary NAT/proxy death, which the
+//     stall deadline would otherwise take two minutes to notice.
+//
+// Either one trips a read error, which is a language the caller already speaks:
+// chatViaWS marks the transport failed and, since nothing was emitted, retries
+// the whole request over HTTP with full context. The recovery path was always
+// there. It just had no way to be reached.
 func (p *OpenAIProvider) parseWSStream(ctx context.Context, conn *websocket.Conn, adapter *streamAdapter) (responseID string, emitted bool, err error) {
 	watchDone := make(chan struct{})
 	defer close(watchDone)
 	go func() {
 		select {
 		case <-ctx.Done():
-			conn.Close()
+			// Both channels can be ready at once: the caller cancels its
+			// per-call context right after the response completes, and this
+			// goroutine may not have been scheduled until then. Closing the
+			// connection there would destroy a healthy socket the next
+			// tool-call iteration is about to reuse for previous_response_id
+			// continuation, so a finished stream always wins the tie.
+			select {
+			case <-watchDone:
+			default:
+				conn.Close()
+			}
 		case <-watchDone:
+		}
+	}()
+
+	// A pong proves the peer is alive; its ABSENCE only proves something once we
+	// know this peer answers pings at all. RFC 6455 makes a pong mandatory, but
+	// betting the working transport on a remote server's RFC compliance is a bad
+	// trade — if chatgpt.com ever declined to pong, enforcing the timeout would
+	// tear down healthy connections mid-response to defend against a dead-peer
+	// case we have never actually seen. So enforcement arms itself on the first
+	// pong received. Until then the stall deadline above is the only guard, which
+	// is exactly the guard the observed failure needed.
+	var lastPong atomic.Int64
+	conn.SetPongHandler(func(string) error {
+		lastPong.Store(time.Now().UnixNano())
+		return nil
+	})
+	go func() {
+		t := time.NewTicker(wsPingInterval)
+		defer t.Stop()
+		for {
+			select {
+			case <-t.C:
+				// WriteControl is the one write method gorilla documents as safe
+				// to call concurrently with the request write on another goroutine.
+				if err := conn.WriteControl(websocket.PingMessage, nil, time.Now().Add(wsWriteTimeout)); err != nil {
+					return // the read side will see the same broken socket
+				}
+				seen := lastPong.Load()
+				if seen == 0 {
+					continue // this peer has never ponged; not our business to judge it
+				}
+				if since := time.Since(time.Unix(0, seen)); since > wsPongTimeout {
+					logger.Warn("openai-oauth websocket peer stopped answering pings, closing",
+						"sincePong", since.Round(time.Second))
+					conn.Close()
+					return
+				}
+			case <-watchDone:
+				return
+			}
 		}
 	}()
 
 	asm := newResponseAssembler(adapter)
 	for {
+		if err := conn.SetReadDeadline(time.Now().Add(wsStallTimeout)); err != nil {
+			return "", asm.emitted, fmt.Errorf("setting websocket read deadline: %w", err)
+		}
 		_, data, readErr := conn.ReadMessage()
 		if readErr != nil {
 			return "", asm.emitted, fmt.Errorf("reading websocket stream: %w", readErr)

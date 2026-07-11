@@ -19,6 +19,10 @@ import (
 // iterations, the loop aborts to prevent runaway token spend.
 const maxIterations = 100
 
+// llmCallTimeout bounds one provider round-trip. It is a floor under every
+// provider, not a latency target — see callLLM.
+const llmCallTimeout = 10 * time.Minute
+
 // Runner is a generic agent loop executor.
 type Runner struct {
 	provider       provider.Provider
@@ -153,63 +157,13 @@ func (r *Runner) RunWithMessages(ctx context.Context, messages []provider.Messag
 			Tools:    toolDefs,
 		}
 
-		result, err := r.provider.Chat(ctx, chatReq)
+		call, err := r.callLLM(ctx, chatReq)
 		if err != nil {
-			return "", fmt.Errorf("provider error: %w", err)
+			return "", err
 		}
-
-		// Pull-based stream consumption: if provider returned a stream,
-		// consume deltas for event detection and optional sink forwarding.
-		var streamID string
-		streamingSignaled := false
-		toolCallSignaled := false
-
-		if stream, ok := result.(provider.StreamChatResult); ok {
-			streamID = RandomHex(8)
-			var repDetector repetitionDetector
-		recvLoop:
-			for {
-				delta, recvErr := stream.Recv()
-				if recvErr == io.EOF {
-					break
-				}
-				if recvErr != nil {
-					stream.Cancel() // unblock producer goroutine
-					return "", fmt.Errorf("stream error: %w", recvErr)
-				}
-				switch delta.Type {
-				case provider.DeltaText:
-					if r.onStream != nil {
-						r.onStream(streamID, delta.Text)
-					}
-					if !streamingSignaled && r.onEvent != nil {
-						streamingSignaled = true
-						r.onEvent(EventStreaming, "")
-					}
-					// Detect infinite repetition and cancel the stream early.
-					if repDetector.feed(delta.Text) {
-						logger.Warn("stream repetition detected, cancelling", "iterations", r.iterations)
-						stream.Cancel()
-						break recvLoop
-					}
-				case provider.DeltaToolCall:
-					if !toolCallSignaled && r.onEvent != nil {
-						toolCallSignaled = true
-						r.onEvent(EventToolCalls, delta.ToolName)
-					}
-				}
-			}
-		}
-
-		// Signal end of stream.
-		if r.onStream != nil && streamID != "" {
-			r.onStream(streamID, "")
-		}
-
-		resp, waitErr := result.Wait()
-		if waitErr != nil {
-			return "", fmt.Errorf("provider error: %w", waitErr)
-		}
+		resp := call.resp
+		streamingSignaled := call.streamingSignaled
+		toolCallSignaled := call.toolCallSignaled
 		if ctx.Err() != nil {
 			return "", ctx.Err()
 		}
@@ -371,6 +325,99 @@ func (r *Runner) RunWithMessages(ctx context.Context, messages []provider.Messag
 			}
 		}
 	}
+}
+
+// llmCall is one completed provider round-trip: the assembled response, plus
+// which lifecycle events the streaming path already fired so the caller does
+// not fire them a second time.
+type llmCall struct {
+	resp              *provider.Response
+	streamingSignaled bool
+	toolCallSignaled  bool
+}
+
+// callLLM performs one provider round-trip — Chat, the delta stream, and Wait —
+// under a deadline of its own.
+//
+// The rest of the loop needs no bound: tool execution fails by returning, and
+// the loop itself is capped by maxIterations. The provider round-trip is the
+// one step that can block forever, and "forever" is something a server can do
+// without anything failing. On 2026-07-11 the Codex WebSocket backend accepted
+// a request, sent no frame, and never closed the socket; the thread parked in
+// ReadMessage and the turn simply never ended — no reply, no error, and the
+// session's later messages queued behind a turn that was never coming back.
+//
+// The transport has since grown its own stall detection (provider.parseWSStream),
+// which is faster and can retry over HTTP. This deadline is the floor beneath
+// all of it: whatever a provider does, and whichever provider does it, it does
+// not get to hold a thread past this. Ten minutes is deliberately far above any
+// legitimate call — it exists to convert a hang into an error, not to police
+// latency.
+//
+// Note it wraps only the round-trip. Tool execution afterwards runs on the
+// caller's ctx, so a slow model cannot shorten the time a tool is given.
+func (r *Runner) callLLM(ctx context.Context, chatReq *provider.Request) (*llmCall, error) {
+	callCtx, cancel := context.WithTimeout(ctx, llmCallTimeout)
+	defer cancel()
+
+	result, err := r.provider.Chat(callCtx, chatReq)
+	if err != nil {
+		return nil, fmt.Errorf("provider error: %w", err)
+	}
+
+	out := &llmCall{}
+
+	// Pull-based stream consumption: if the provider returned a stream,
+	// consume deltas for event detection and optional sink forwarding.
+	var streamID string
+	if stream, ok := result.(provider.StreamChatResult); ok {
+		streamID = RandomHex(8)
+		var repDetector repetitionDetector
+	recvLoop:
+		for {
+			delta, recvErr := stream.Recv()
+			if recvErr == io.EOF {
+				break
+			}
+			if recvErr != nil {
+				stream.Cancel() // unblock producer goroutine
+				return nil, fmt.Errorf("stream error: %w", recvErr)
+			}
+			switch delta.Type {
+			case provider.DeltaText:
+				if r.onStream != nil {
+					r.onStream(streamID, delta.Text)
+				}
+				if !out.streamingSignaled && r.onEvent != nil {
+					out.streamingSignaled = true
+					r.onEvent(EventStreaming, "")
+				}
+				// Detect infinite repetition and cancel the stream early.
+				if repDetector.feed(delta.Text) {
+					logger.Warn("stream repetition detected, cancelling", "iterations", r.iterations)
+					stream.Cancel()
+					break recvLoop
+				}
+			case provider.DeltaToolCall:
+				if !out.toolCallSignaled && r.onEvent != nil {
+					out.toolCallSignaled = true
+					r.onEvent(EventToolCalls, delta.ToolName)
+				}
+			}
+		}
+	}
+
+	// Signal end of stream.
+	if r.onStream != nil && streamID != "" {
+		r.onStream(streamID, "")
+	}
+
+	resp, waitErr := result.Wait()
+	if waitErr != nil {
+		return nil, fmt.Errorf("provider error: %w", waitErr)
+	}
+	out.resp = resp
+	return out, nil
 }
 
 // trimMessageGroups drops the oldest assistant+tool_call groups until
