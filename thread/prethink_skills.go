@@ -7,7 +7,6 @@ import (
 	"math"
 	"sort"
 	"strings"
-	"sync"
 	"time"
 
 	"github.com/linanwx/nagobot/logger"
@@ -139,10 +138,10 @@ const (
 	skillRetryAfter   = time.Minute
 )
 
-var skillIndex = &skillIndexState{}
+var skillIndex = &skillIndexState{mu: newCtxMutex()}
 
 type skillIndexState struct {
-	mu       sync.Mutex
+	mu       ctxMutex
 	key      string // fingerprint of (model, candidate pool)
 	model    string
 	slugs    []string
@@ -167,8 +166,14 @@ func fingerprint(model string, cands []skillCandidate) string {
 	return hex.EncodeToString(h.Sum(nil))
 }
 
-// ensure builds (or reuses) the embedded index. Caller must hold s.mu.
-func (s *skillIndexState) ensure(ctx context.Context, cands []skillCandidate) bool {
+// ensure builds (or reuses) the embedded index. Caller must hold s.mu. Like the
+// other two indexes it runs on its own clock, not the caller's — see
+// searchEmbedState.ensure for why binding a build to the request budget would
+// mean it never completes.
+func (s *skillIndexState) ensure(cands []skillCandidate) bool {
+	ctx, cancel := context.WithTimeout(context.Background(), skillIndexTimeout)
+	defer cancel()
+
 	model, ok := searchEmbed.client.Model(ctx)
 	if !ok {
 		return false // no local Ollama — caller falls back
@@ -208,9 +213,7 @@ func (s *skillIndexState) ensure(ctx context.Context, cands []skillCandidate) bo
 	nSkillTexts := len(texts)
 	texts = append(texts, skillNoneAnchors...)
 
-	idxCtx, cancel := context.WithTimeout(ctx, skillIndexTimeout)
-	defer cancel()
-	vecs, err := searchEmbed.client.Embed(idxCtx, texts)
+	vecs, err := searchEmbed.client.Embed(ctx, texts)
 	if err != nil {
 		logger.Warn("pre-think skill index: embedding failed", "model", model, "texts", len(texts), "err", err)
 		return false
@@ -239,25 +242,26 @@ type scoredSkill struct {
 
 // rankSkills scores every eligible skill against the message, best first, and
 // returns the bar it has to clear: the best "none" anchor plus the margin.
-// ok=false means the classifier is unavailable (no local Ollama).
-func rankSkills(msg string, cands []skillCandidate) (ranked []scoredSkill, bar float64, ok bool) {
+// ok=false means the classifier is unavailable (no local Ollama), or that ctx
+// ran out before it could answer.
+func rankSkills(ctx context.Context, msg string, cands []skillCandidate) (ranked []scoredSkill, bar float64, ok bool) {
 	if strings.TrimSpace(msg) == "" || len(cands) == 0 {
 		return nil, 0, false
 	}
 
-	skillIndex.mu.Lock()
-	defer skillIndex.mu.Unlock()
+	if !skillIndex.mu.lock(ctx) {
+		return nil, 0, false
+	}
+	defer skillIndex.mu.unlock()
 
-	ctx, cancel := context.WithTimeout(context.Background(), skillIndexTimeout)
-	defer cancel()
-	if !skillIndex.ensure(ctx, cands) {
+	if !skillIndex.ensure(cands) {
 		return nil, 0, false
 	}
 
 	if r := []rune(msg); len(r) > searchEmbedMaxRunes {
 		msg = string(r[:searchEmbedMaxRunes])
 	}
-	qCtx, qCancel := context.WithTimeout(context.Background(), skillQueryTimeout)
+	qCtx, qCancel := context.WithTimeout(ctx, skillQueryTimeout)
 	defer qCancel()
 	qs, err := searchEmbed.client.Embed(qCtx, []string{skillQueryText(skillIndex.model, msg)})
 	if err != nil {
@@ -293,8 +297,8 @@ func rankSkills(msg string, cands []skillCandidate) (ranked []scoredSkill, bar f
 // unavailable and the caller should fall back; an empty slice with ok=true is
 // the real answer "no skill fits" — which the prompt asks for and an eager LLM
 // tends not to give.
-func relatedSkillsEmbed(msg string, cands []skillCandidate) (slugs []string, ok bool) {
-	ranked, bar, ok := rankSkills(msg, cands)
+func relatedSkillsEmbed(ctx context.Context, msg string, cands []skillCandidate) (slugs []string, ok bool) {
+	ranked, bar, ok := rankSkills(ctx, msg, cands)
 	if !ok {
 		return nil, false
 	}

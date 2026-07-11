@@ -4,7 +4,6 @@ import (
 	"context"
 	"math"
 	"sort"
-	"sync"
 	"time"
 
 	"github.com/linanwx/nagobot/embedding"
@@ -146,7 +145,34 @@ const (
 // classifySearchEmbedFn is indirected so tests can pin the regex-only path.
 var classifySearchEmbedFn = classifySearchEmbed
 
-var searchEmbed = &searchEmbedState{client: embedding.NewLocal()}
+var searchEmbed = &searchEmbedState{client: embedding.NewLocal(), mu: newCtxMutex()}
+
+// ctxMutex is a mutex you are allowed to give up on.
+//
+// Each classifier serializes on its own index, and building one against a cold
+// or wedged Ollama holds the lock for seconds. With a plain sync.Mutex every
+// message arriving in that window parks a goroutine behind it — goroutines
+// nobody is waiting for any more, because localPreThink gave up at preThinkBudget
+// and already answered from the regex verdicts. They wake up much later, embed a
+// message whose turn is long over, and pile up in the meantime. Taking the lock
+// through the caller's context lets them leave when the caller does.
+type ctxMutex chan struct{}
+
+func newCtxMutex() ctxMutex { return make(ctxMutex, 1) }
+
+// lock reports whether the lock was acquired before ctx was done. A false return
+// is not an error: the caller reports itself unavailable and the regex verdict
+// stands.
+func (m ctxMutex) lock(ctx context.Context) bool {
+	select {
+	case m <- struct{}{}:
+		return true
+	case <-ctx.Done():
+		return false
+	}
+}
+
+func (m ctxMutex) unlock() { <-m }
 
 // searchEmbedState lazily embeds the anchors and caches them per model. The
 // cache re-arms when detection reports a different model (e.g. the user pulls
@@ -155,7 +181,7 @@ var searchEmbed = &searchEmbedState{client: embedding.NewLocal()}
 type searchEmbedState struct {
 	client *embedding.Client
 
-	mu      sync.Mutex
+	mu      ctxMutex
 	model   string
 	pos     [][]float64
 	neg     [][]float64
@@ -164,7 +190,19 @@ type searchEmbedState struct {
 
 // ensure returns true when anchor vectors for the currently detected model are
 // ready. It must be called with s.mu held.
-func (s *searchEmbedState) ensure(ctx context.Context) bool {
+//
+// It deliberately does NOT take the caller's context. Building the index is a
+// one-time cost that a cold Ollama can stretch to several seconds — past
+// preThinkBudget — and binding it to the request would mean it gets cancelled
+// every time, then declines to retry for a minute (lastTry), then gets cancelled
+// again: the index would never finish and the embedding layer would stay off
+// forever. So the build runs to completion on its own clock. The message it was
+// building for is already lost — localPreThink answered from regex — but every
+// message after it finds the index warm, which is the whole point.
+func (s *searchEmbedState) ensure() bool {
+	ctx, cancel := context.WithTimeout(context.Background(), searchEmbedInitTimeout)
+	defer cancel()
+
 	model, ok := s.client.Model(ctx)
 	if !ok {
 		return false // no local Ollama — feature off, not an error
@@ -177,9 +215,7 @@ func (s *searchEmbedState) ensure(ctx context.Context) bool {
 	}
 	s.lastTry = time.Now()
 
-	initCtx, cancel := context.WithTimeout(ctx, searchEmbedInitTimeout)
-	defer cancel()
-	vecs, err := s.client.Embed(initCtx, append(append([]string{}, searchPosAnchors...), searchNegAnchors...))
+	vecs, err := s.client.Embed(ctx, append(append([]string{}, searchPosAnchors...), searchNegAnchors...))
 	if err != nil {
 		logger.Warn("pre-think search classifier: anchor embedding failed", "model", model, "err", err)
 		return false
@@ -198,20 +234,25 @@ func (s *searchEmbedState) ensure(ctx context.Context) bool {
 // score embeds msg and returns mean top-k cosine similarity to each anchor
 // side. ok=false means the classifier is unavailable and the caller should
 // fall back to the regex path.
-func (s *searchEmbedState) score(msg string) (pos, neg float64, ok bool) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
+//
+// Unlike the index build, the per-message embedding IS bound by ctx: it is work
+// done for one turn and worthless once that turn has moved on, so when the budget
+// blows the HTTP request is cancelled rather than left running against an Ollama
+// that is already struggling.
+func (s *searchEmbedState) score(ctx context.Context, msg string) (pos, neg float64, ok bool) {
+	if !s.mu.lock(ctx) {
+		return 0, 0, false
+	}
+	defer s.mu.unlock()
 
-	ctx, cancel := context.WithTimeout(context.Background(), searchEmbedInitTimeout)
-	defer cancel()
-	if !s.ensure(ctx) {
+	if !s.ensure() {
 		return 0, 0, false
 	}
 
 	if r := []rune(msg); len(r) > searchEmbedMaxRunes {
 		msg = string(r[:searchEmbedMaxRunes])
 	}
-	callCtx, cancelCall := context.WithTimeout(context.Background(), searchEmbedCallTimeout)
+	callCtx, cancelCall := context.WithTimeout(ctx, searchEmbedCallTimeout)
 	defer cancelCall()
 	vecs, err := s.client.Embed(callCtx, []string{msg})
 	if err != nil {
@@ -224,8 +265,8 @@ func (s *searchEmbedState) score(msg string) (pos, neg float64, ok bool) {
 }
 
 // classifySearchEmbed answers the <search> question by prototype vote.
-func classifySearchEmbed(msg string) (verdict bool, ok bool) {
-	pos, neg, ok := searchEmbed.score(msg)
+func classifySearchEmbed(ctx context.Context, msg string) (verdict bool, ok bool) {
+	pos, neg, ok := searchEmbed.score(ctx, msg)
 	if !ok {
 		return false, false
 	}

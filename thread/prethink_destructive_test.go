@@ -1,6 +1,7 @@
 package thread
 
 import (
+	"context"
 	"os"
 	"testing"
 )
@@ -177,12 +178,12 @@ var destructiveHeldOut = []struct {
 }
 
 func TestIsDestructive_HeldOut(t *testing.T) {
-	if _, ok := classifyDestructiveEmbedFn("probe"); !ok {
+	if _, ok := classifyDestructiveEmbedFn(context.Background(), "probe"); !ok {
 		t.Skip("no local ollama embedding model")
 	}
 	var caught int
 	for _, tc := range destructiveHeldOut {
-		got := isDestructive(tc.msg, "")
+		got := isDestructive(context.Background(), tc.msg, "")
 		switch {
 		case got && tc.known != "":
 			t.Errorf("%q now passes — drop its `known` note (%s)", tc.msg, tc.known)
@@ -209,12 +210,12 @@ func TestIsDestructive_HeldOut(t *testing.T) {
 // that fact fail loudly if anyone assumes otherwise.
 func TestIsDestructive_NoOllama(t *testing.T) {
 	orig := classifyDestructiveEmbedFn
-	classifyDestructiveEmbedFn = func(string) (bool, bool) { return false, false }
+	classifyDestructiveEmbedFn = func(context.Context, string) (bool, bool) { return false, false }
 	defer func() { classifyDestructiveEmbedFn = orig }()
 
 	// The verb table still holds the line on everything it knows about.
 	for _, tc := range destructiveCases {
-		if got := isDestructive(tc.msg, tc.chat); got != tc.want && tc.known == "" {
+		if got := isDestructive(context.Background(), tc.msg, tc.chat); got != tc.want && tc.known == "" {
 			t.Errorf("regex-only [%s] %q → %v, want %v", tc.lang, tc.msg, got, tc.want)
 		}
 	}
@@ -222,7 +223,7 @@ func TestIsDestructive_NoOllama(t *testing.T) {
 	// And nothing on what it does not.
 	var caught int
 	for _, tc := range destructiveHeldOut {
-		if isDestructive(tc.msg, "") {
+		if isDestructive(context.Background(), tc.msg, "") {
 			caught++
 		}
 	}
@@ -237,7 +238,7 @@ func TestIsDestructive_NoOllama(t *testing.T) {
 func TestIsDestructive(t *testing.T) {
 	var falseNeg, falsePos int
 	for _, tc := range destructiveCases {
-		got := isDestructive(tc.msg, tc.chat)
+		got := isDestructive(context.Background(), tc.msg, tc.chat)
 		pass := got == tc.want
 
 		switch {
@@ -276,13 +277,13 @@ func TestDestructiveMarginSweep(t *testing.T) {
 		t.Skip("set SWEEP=1")
 	}
 	rows := loadCorpus(t)
-	if _, _, ok := destructiveScores("probe"); !ok {
+	if _, _, ok := destructiveScores(context.Background(), "probe"); !ok {
 		t.Skip("no local ollama embedding model")
 	}
 
 	type scored struct{ pos, neg float64 }
 	score := func(s string) scored {
-		p, n, _ := destructiveScores(s)
+		p, n, _ := destructiveScores(context.Background(), s)
 		return scored{p, n}
 	}
 

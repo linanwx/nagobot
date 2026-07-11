@@ -2,7 +2,6 @@ package thread
 
 import (
 	"context"
-	"sync"
 	"time"
 
 	"github.com/linanwx/nagobot/logger"
@@ -170,10 +169,10 @@ const (
 // and measure each layer's contribution separately.
 var classifyDestructiveEmbedFn = classifyDestructiveEmbed
 
-var destructiveEmbed = &destructiveEmbedState{}
+var destructiveEmbed = &destructiveEmbedState{mu: newCtxMutex()}
 
 type destructiveEmbedState struct {
-	mu      sync.Mutex
+	mu      ctxMutex
 	model   string
 	pos     [][]float64
 	neg     [][]float64
@@ -181,7 +180,13 @@ type destructiveEmbedState struct {
 }
 
 // ensure embeds the anchors for the currently detected model. Caller holds s.mu.
-func (s *destructiveEmbedState) ensure(ctx context.Context) bool {
+// It runs on its own clock rather than the caller's, for the reason spelled out
+// on searchEmbedState.ensure: an index bound to the request budget would be
+// cancelled on every cold start and never finish.
+func (s *destructiveEmbedState) ensure() bool {
+	ctx, cancel := context.WithTimeout(context.Background(), destructiveInitTimeout)
+	defer cancel()
+
 	// Shares the Ollama client with the search classifier — same host, same model
 	// probe, one connection-refused per minute on a machine without Ollama.
 	model, ok := searchEmbed.client.Model(ctx)
@@ -196,10 +201,8 @@ func (s *destructiveEmbedState) ensure(ctx context.Context) bool {
 	}
 	s.lastTry = time.Now()
 
-	initCtx, cancel := context.WithTimeout(ctx, destructiveInitTimeout)
-	defer cancel()
 	all := append(append([]string{}, destructivePosAnchors...), destructiveNegAnchors...)
-	vecs, err := searchEmbed.client.Embed(initCtx, all)
+	vecs, err := searchEmbed.client.Embed(ctx, all)
 	if err != nil {
 		logger.Warn("pre-think destructive classifier: anchor embedding failed", "model", model, "err", err)
 		return false
@@ -216,20 +219,20 @@ func (s *destructiveEmbedState) ensure(ctx context.Context) bool {
 }
 
 // destructiveScores returns the top-k mean cosine to each class.
-func destructiveScores(msg string) (pos, neg float64, ok bool) {
-	destructiveEmbed.mu.Lock()
-	defer destructiveEmbed.mu.Unlock()
+func destructiveScores(ctx context.Context, msg string) (pos, neg float64, ok bool) {
+	if !destructiveEmbed.mu.lock(ctx) {
+		return 0, 0, false
+	}
+	defer destructiveEmbed.mu.unlock()
 
-	ctx, cancel := context.WithTimeout(context.Background(), destructiveInitTimeout)
-	defer cancel()
-	if !destructiveEmbed.ensure(ctx) {
+	if !destructiveEmbed.ensure() {
 		return 0, 0, false
 	}
 
 	if r := []rune(msg); len(r) > destructiveEmbedMaxRunes {
 		msg = string(r[:destructiveEmbedMaxRunes])
 	}
-	callCtx, cancelCall := context.WithTimeout(context.Background(), destructiveCallTimeout)
+	callCtx, cancelCall := context.WithTimeout(ctx, destructiveCallTimeout)
 	defer cancelCall()
 	vecs, err := searchEmbed.client.Embed(callCtx, []string{msg})
 	if err != nil {
@@ -245,8 +248,8 @@ func destructiveScores(msg string) (pos, neg float64, ok bool) {
 // classifyDestructiveEmbed answers "would doing this be irreversible?" by
 // prototype vote. ok=false means no local Ollama, and the caller keeps whatever
 // the regex decided — which fails toward MORE confirmations, never fewer.
-func classifyDestructiveEmbed(msg string) (verdict bool, ok bool) {
-	pos, neg, ok := destructiveScores(msg)
+func classifyDestructiveEmbed(ctx context.Context, msg string) (verdict bool, ok bool) {
+	pos, neg, ok := destructiveScores(ctx, msg)
 	if !ok {
 		return false, false
 	}

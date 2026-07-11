@@ -1,6 +1,7 @@
 package thread
 
 import (
+	"context"
 	"regexp"
 	"strings"
 )
@@ -241,23 +242,27 @@ var (
 // everything else the embedding classifier (local Ollama, see prethink_embed.go)
 // has the first word — it is the only layer that survives word-sense collisions.
 // Without Ollama the keyword path below is the fallback.
-func needsSearch(msg string) bool { return needsSearchWith(msg, classifySearchEmbedFn) }
+// ctx bounds the embedding round-trip; when it expires the classifier reports
+// itself unavailable and the keyword path answers.
+func needsSearch(ctx context.Context, msg string) bool {
+	return needsSearchWith(ctx, msg, classifySearchEmbedFn)
+}
 
 // needsSearchRegex is the same detector with the embedding layer taken away. It
 // exists because preThinkAction runs the embedding classifiers under a wall-clock
 // budget: when Ollama is slow enough to blow it, the turn still needs an answer,
 // and the honest answer is the one the regex alone can give rather than a silent
 // false. See preThinkAction in prethink.go.
-func needsSearchRegex(msg string) bool { return needsSearchWith(msg, noEmbed) }
+func needsSearchRegex(msg string) bool { return needsSearchWith(context.Background(), msg, noEmbed) }
 
 // embedClassifier is a detector's window onto the embedding layer. Returning
-// ok=false means "unavailable", which is what both a missing Ollama and an
-// overrun budget amount to.
-type embedClassifier func(string) (bool, bool)
+// ok=false means "unavailable", which is what a missing Ollama, an overrun
+// budget, and a cancelled context all amount to.
+type embedClassifier func(context.Context, string) (bool, bool)
 
-func noEmbed(string) (bool, bool) { return false, false }
+func noEmbed(context.Context, string) (bool, bool) { return false, false }
 
-func needsSearchWith(msg string, classify embedClassifier) bool {
+func needsSearchWith(ctx context.Context, msg string, classify embedClassifier) bool {
 	// Spec-explicit negatives first.
 	if translateRE.MatchString(msg) {
 		return false
@@ -287,7 +292,7 @@ func needsSearchWith(msg string, classify embedClassifier) bool {
 	if r := []rune(msg); len(r) < 5 || len(r) > 1200 {
 		return false
 	}
-	if verdict, ok := classify(msg); ok {
+	if verdict, ok := classify(ctx, msg); ok {
 		return verdict
 	}
 	// Regex fallback. Produce-something tasks do not rest on a live fact,

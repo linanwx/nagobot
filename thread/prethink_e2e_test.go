@@ -1,6 +1,7 @@
 package thread
 
 import (
+	"context"
 	"strings"
 	"testing"
 	"time"
@@ -15,7 +16,7 @@ import (
 // fallback path, which TestLocalPreThink_NoOllama already covers on purpose.
 func TestLocalPreThink_EndToEnd(t *testing.T) {
 	cands := loadRealSkills(t)
-	if _, ok := relatedSkillsEmbed("probe", cands); !ok {
+	if _, ok := relatedSkillsEmbed(context.Background(), "probe", cands); !ok {
 		t.Skip("no local ollama embedding model")
 	}
 
@@ -101,7 +102,7 @@ func TestLocalPreThink_EndToEnd(t *testing.T) {
 // three concurrent embeddings of one short message over localhost.
 func TestLocalPreThink_Latency(t *testing.T) {
 	cands := loadRealSkills(t)
-	if _, ok := relatedSkillsEmbed("probe", cands); !ok {
+	if _, ok := relatedSkillsEmbed(context.Background(), "probe", cands); !ok {
 		t.Skip("no local ollama embedding model")
 	}
 
@@ -148,8 +149,8 @@ func TestLocalPreThink_Latency(t *testing.T) {
 // classifiers report unavailable rather than waiting.
 func TestLocalPreThink_NoOllama(t *testing.T) {
 	origD, origS := classifyDestructiveEmbedFn, classifySearchEmbedFn
-	classifyDestructiveEmbedFn = func(string) (bool, bool) { return false, false }
-	classifySearchEmbedFn = func(string) (bool, bool) { return false, false }
+	classifyDestructiveEmbedFn = func(context.Context, string) (bool, bool) { return false, false }
+	classifySearchEmbedFn = func(context.Context, string) (bool, bool) { return false, false }
 	defer func() {
 		classifyDestructiveEmbedFn, classifySearchEmbedFn = origD, origS
 	}()
@@ -165,20 +166,63 @@ func TestLocalPreThink_NoOllama(t *testing.T) {
 	}
 }
 
+// TestPreThinkBudget_CallerLeavesWithItsDeadline pins what the budget is actually
+// worth. localPreThink gives up after preThinkBudget and answers from the regex
+// verdicts — but giving up on the ANSWER is not the same as giving up on the WORK.
+// The classifiers serialize on their indexes, and a cold build against a slow
+// Ollama holds one for seconds; on a plain sync.Mutex every message arriving
+// meanwhile parked a goroutine behind it, for a turn that was already over. Under
+// sustained traffic that queue only grows.
+//
+// So a classifier whose caller has run out of time must leave, not wait. It then
+// reports itself unavailable, which is exactly the "no local Ollama" path — the
+// regex verdict stands.
+//
+// No Ollama needed: contention is resolved before the index is ever touched.
+func TestPreThinkBudget_CallerLeavesWithItsDeadline(t *testing.T) {
+	held, release, done := make(chan struct{}), make(chan struct{}), make(chan struct{})
+	go func() { // stands in for a cold index build holding the lock
+		skillIndex.mu.lock(context.Background())
+		close(held)
+		<-release
+		skillIndex.mu.unlock()
+		close(done)
+	}()
+	<-held
+	defer func() { close(release); <-done }()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
+	defer cancel()
+
+	start := time.Now()
+	_, ok := relatedSkillsEmbed(ctx, "每天早上八点提醒我喝水",
+		[]skillCandidate{{Slug: "manage-cron", Description: "create and manage scheduled jobs"}})
+	took := time.Since(start)
+
+	if ok {
+		t.Error("a caller past its deadline must report unavailable, not produce an answer")
+	}
+	if took > 500*time.Millisecond {
+		t.Errorf("waited %v on a 50ms budget — the caller is still parked on the index lock", took)
+	}
+}
+
 // resetPreThinkIndexes drops every cached anchor set and skill index so the next
 // call rebuilds them from scratch. lastTry has to go too: it is a retry cooldown,
 // and leaving it set would make the rebuild silently decline and report itself
 // unavailable instead.
 func resetPreThinkIndexes() {
-	searchEmbed.mu.Lock()
+	ctx := context.Background() // no deadline: a reset that gives up would silently no-op
+
+	searchEmbed.mu.lock(ctx)
 	searchEmbed.model, searchEmbed.pos, searchEmbed.neg, searchEmbed.lastTry = "", nil, nil, time.Time{}
-	searchEmbed.mu.Unlock()
+	searchEmbed.mu.unlock()
 
-	destructiveEmbed.mu.Lock()
+	destructiveEmbed.mu.lock(ctx)
 	destructiveEmbed.model, destructiveEmbed.pos, destructiveEmbed.neg, destructiveEmbed.lastTry = "", nil, nil, time.Time{}
-	destructiveEmbed.mu.Unlock()
+	destructiveEmbed.mu.unlock()
 
-	skillIndex.mu.Lock()
+	skillIndex.mu.lock(ctx)
 	skillIndex.key, skillIndex.groups, skillIndex.noneVecs, skillIndex.lastTry = "", nil, nil, time.Time{}
-	skillIndex.mu.Unlock()
+	skillIndex.mu.unlock()
 }

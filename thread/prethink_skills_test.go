@@ -1,6 +1,7 @@
 package thread
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -142,13 +143,13 @@ var skillCases = []struct {
 
 func TestRelatedSkills(t *testing.T) {
 	cands := loadRealSkills(t)
-	if _, ok := relatedSkillsEmbed("probe", cands); !ok {
+	if _, ok := relatedSkillsEmbed(context.Background(), "probe", cands); !ok {
 		t.Skip("no local ollama embedding model")
 	}
 
 	var hit, cleanNeg, totalSlugs int
 	for _, tc := range skillCases {
-		got, ok := relatedSkillsEmbed(tc.msg, cands)
+		got, ok := relatedSkillsEmbed(context.Background(), tc.msg, cands)
 		if !ok {
 			t.Fatal("classifier went unavailable mid-run")
 		}
@@ -193,7 +194,7 @@ func TestRelatedSkills_Calibration(t *testing.T) {
 		t.Skip("set CALIBRATE=1")
 	}
 	cands := loadRealSkills(t)
-	if _, ok := relatedSkillsEmbed("probe", cands); !ok {
+	if _, ok := relatedSkillsEmbed(context.Background(), "probe", cands); !ok {
 		t.Skip("no local ollama embedding model")
 	}
 
@@ -209,7 +210,7 @@ func TestRelatedSkills_Calibration(t *testing.T) {
 
 func topSkillScores(t *testing.T, msg string, cands []skillCandidate, k int) string {
 	t.Helper()
-	scores, bar, ok := rankSkills(msg, cands)
+	scores, bar, ok := rankSkills(context.Background(), msg, cands)
 	if !ok {
 		return "(unavailable)"
 	}

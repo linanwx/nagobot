@@ -1,6 +1,7 @@
 package thread
 
 import (
+	"context"
 	"strings"
 	"time"
 
@@ -85,20 +86,33 @@ func localPreThink(userMsg, recentChat string, cands []skillCandidate) (string, 
 	search := needsSearchRegex(userMsg)
 	var slugs []string // no regex fallback exists; skills is embedding-only
 
+	// One context for the three classifiers, cancelled when the budget expires OR
+	// as soon as all three have answered. Without it the goroutines below would
+	// outlive the turn they were started for: each classifier's own timeouts are
+	// five seconds, so against a slow Ollama we would give up here at two seconds,
+	// answer from the regexes, and leave three HTTP requests running for three more
+	// — and then do it again on the next message, and the one after that, until the
+	// classifier mutexes are a queue of embeddings nobody will ever read.
+	//
+	// Index CONSTRUCTION is deliberately not on this context; see the comment on
+	// searchEmbedState.ensure. A cold build legitimately takes longer than the whole
+	// budget, and cancelling it every time would mean it never finishes at all.
+	ctx, cancel := context.WithTimeout(context.Background(), preThinkBudget)
+	defer cancel()
+
 	type result struct {
 		field string
 		flag  bool
 		slugs []string
 	}
 	results := make(chan result, 3)
-	go func() { results <- result{field: "destructive", flag: isDestructive(userMsg, recentChat)} }()
-	go func() { results <- result{field: "search", flag: needsSearch(userMsg)} }()
+	go func() { results <- result{field: "destructive", flag: isDestructive(ctx, userMsg, recentChat)} }()
+	go func() { results <- result{field: "search", flag: needsSearch(ctx, userMsg)} }()
 	go func() {
-		s, _ := relatedSkillsEmbed(userMsg, cands)
+		s, _ := relatedSkillsEmbed(ctx, userMsg, cands)
 		results <- result{field: "skills", slugs: s}
 	}()
 
-	deadline := time.After(preThinkBudget)
 	for pending := 3; pending > 0; {
 		select {
 		case r := <-results:
@@ -111,7 +125,7 @@ func localPreThink(userMsg, recentChat string, cands []skillCandidate) (string, 
 			case "skills":
 				slugs = r.slugs
 			}
-		case <-deadline:
+		case <-ctx.Done():
 			logger.Warn("pre-think: local analysis exceeded budget, falling back to regex verdicts",
 				"budget", preThinkBudget, "stillRunning", pending)
 			pending = 0
@@ -225,10 +239,11 @@ func WarmLocalPreThink(reg *skills.Registry) {
 //
 // Returns false when there is no local embedding model, which is not an error.
 func warmPreThinkIndexes(cands []skillCandidate) bool {
-	if _, ok := relatedSkillsEmbed("warm", cands); !ok {
+	ctx := context.Background()
+	if _, ok := relatedSkillsEmbed(ctx, "warm", cands); !ok {
 		return false
 	}
-	_, _ = classifySearchEmbed("warm")
-	_, _ = classifyDestructiveEmbed("warm")
+	_, _ = classifySearchEmbed(ctx, "warm")
+	_, _ = classifyDestructiveEmbed(ctx, "warm")
 	return true
 }

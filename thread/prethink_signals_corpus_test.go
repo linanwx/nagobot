@@ -2,6 +2,7 @@ package thread
 
 import (
 	"bufio"
+	"context"
 	"encoding/json"
 	"os"
 	"strings"
@@ -65,7 +66,7 @@ func TestNeedsSearch_Corpus(t *testing.T) {
 
 	var hits int
 	for _, r := range rows {
-		flagged := needsSearch(r.Text)
+		flagged := needsSearch(context.Background(), r.Text)
 		if flagged {
 			hits++
 		}
@@ -148,7 +149,7 @@ func TestIsDestructive_Corpus(t *testing.T) {
 
 	var hits int
 	for _, r := range rows {
-		if !isDestructive(r.Text, "") {
+		if !isDestructive(context.Background(), r.Text, "") {
 			continue
 		}
 		hits++

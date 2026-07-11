@@ -2,6 +2,7 @@ package thread
 
 import (
 	"bufio"
+	"context"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -146,9 +147,9 @@ func TestDetectorsVsLLM(t *testing.T) {
 
 	t.Logf("search                  %v", score(rows,
 		func(r labeledRow) bool { return r.Search },
-		func(r labeledRow) bool { return needsSearch(r.Text) }))
+		func(r labeledRow) bool { return needsSearch(context.Background(), r.Text) }))
 
 	t.Logf("destructive             %v", score(rows,
 		func(r labeledRow) bool { return r.Destructive },
-		func(r labeledRow) bool { return isDestructive(r.Text, "") }))
+		func(r labeledRow) bool { return isDestructive(context.Background(), r.Text, "") }))
 }

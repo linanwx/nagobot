@@ -1,6 +1,9 @@
 package thread
 
-import "testing"
+import (
+	"context"
+	"testing"
+)
 
 // Hand-written test set for the <has_web_url> pre-think field. Positives cover
 // the shapes users actually paste; negatives are the traps a naive "looks like a
@@ -262,12 +265,12 @@ var needsSearchCases = []struct {
 // local Ollama.
 func TestNeedsSearch(t *testing.T) {
 	old := classifySearchEmbedFn
-	classifySearchEmbedFn = func(string) (bool, bool) { return false, false }
+	classifySearchEmbedFn = func(context.Context, string) (bool, bool) { return false, false }
 	t.Cleanup(func() { classifySearchEmbedFn = old })
 
 	var fails int
 	for _, tc := range needsSearchCases {
-		if got := needsSearch(tc.msg); got != tc.want {
+		if got := needsSearch(context.Background(), tc.msg); got != tc.want {
 			fails++
 			t.Errorf("[%s] needsSearch(%q) = %v, want %v", tc.lang, tc.msg, got, tc.want)
 		}
@@ -278,16 +281,16 @@ func TestNeedsSearch(t *testing.T) {
 // TestNeedsSearch_Embed runs the same cases through the embedding classifier.
 // Requires a local Ollama with an embedding model; skips otherwise.
 func TestNeedsSearch_Embed(t *testing.T) {
-	if _, _, ok := searchEmbed.score("probe"); !ok {
+	if _, _, ok := searchEmbed.score(context.Background(), "probe"); !ok {
 		t.Skip("no local ollama embedding model")
 	}
 
 	var fails int
 	for _, tc := range needsSearchCases {
-		got := needsSearch(tc.msg)
+		got := needsSearch(context.Background(), tc.msg)
 		if got != tc.want {
 			fails++
-			pos, neg, _ := searchEmbed.score(tc.msg)
+			pos, neg, _ := searchEmbed.score(context.Background(), tc.msg)
 			t.Errorf("[%s] needsSearch(%q) = %v, want %v (pos=%.4f neg=%.4f margin=%+.4f)",
 				tc.lang, tc.msg, got, tc.want, pos, neg, pos-neg)
 		}

@@ -1,6 +1,7 @@
 package thread
 
 import (
+	"context"
 	"regexp"
 	"strings"
 )
@@ -28,8 +29,8 @@ import (
 // detector spends most of its rules on NOT firing: on the difference between
 // asking about rm and running it, between writing code that deletes a linked-list
 // node and deleting data, between editing a paragraph and erasing a disk.
-func isDestructive(msg, recentChat string) bool {
-	return isDestructiveWith(msg, recentChat, classifyDestructiveEmbedFn)
+func isDestructive(ctx context.Context, msg, recentChat string) bool {
+	return isDestructiveWith(ctx, msg, recentChat, classifyDestructiveEmbedFn)
 }
 
 // isDestructiveRegex is the same detector with the embedding layer taken away —
@@ -42,10 +43,10 @@ func isDestructive(msg, recentChat string) bool {
 // irreversible action proceeds with no confirmation. Whatever the verb table does
 // know, we keep.
 func isDestructiveRegex(msg, recentChat string) bool {
-	return isDestructiveWith(msg, recentChat, noEmbed)
+	return isDestructiveWith(context.Background(), msg, recentChat, noEmbed)
 }
 
-func isDestructiveWith(msg, recentChat string, classify embedClassifier) bool {
+func isDestructiveWith(ctx context.Context, msg, recentChat string, classify embedClassifier) bool {
 	// A bare confirmation is judged ONLY by what it confirms, never on its own.
 	// The order matters and it is not obvious: running the detector on "do it"
 	// first calls it destructive every time, because in isolation "do it" reads as
@@ -53,9 +54,9 @@ func isDestructiveWith(msg, recentChat string, classify embedClassifier) bool {
 	// The whole point of the class is that the words carry no intent; the intent is
 	// in the turn above. So we never let them be judged alone.
 	if isBareConfirmation(msg) {
-		return destructiveIntent(lastAssistantTurn(recentChat), classify)
+		return destructiveIntent(ctx, lastAssistantTurn(recentChat), classify)
 	}
-	return destructiveIntent(msg, classify)
+	return destructiveIntent(ctx, msg, classify)
 }
 
 // ---------------------------------------------------------------------------
@@ -182,7 +183,7 @@ var execIntentRE = regexp.MustCompile(`(?i)跑一下|跑跑|运行|执行|部署
 // harm. Exemptions run first: a message that is asking about a command, writing
 // code, or pasting a stack trace never reaches the verb table, no matter how many
 // dangerous words it contains.
-func destructiveIntent(s string, classify embedClassifier) bool {
+func destructiveIntent(ctx context.Context, s string, classify embedClassifier) bool {
 	s = strings.TrimSpace(s)
 	if s == "" {
 		return false
@@ -246,7 +247,7 @@ func destructiveIntent(s string, classify embedClassifier) bool {
 	// No local Ollama → ok=false → we keep the regex verdict. That fails toward
 	// fewer confirmations, which is the wrong direction for this field and is the
 	// reason Ollama is a hard requirement here rather than an optimization.
-	if verdict, ok := classify(s); ok {
+	if verdict, ok := classify(ctx, s); ok {
 		return verdict
 	}
 	return false

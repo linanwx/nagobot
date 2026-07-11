@@ -12,6 +12,7 @@ import (
 	"fmt"
 	"net/http"
 	"os"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -20,8 +21,18 @@ import (
 // preferredModels ranks the embedding models known to be multilingual, best
 // first. Detection picks the first installed match. nomic-embed-text comes
 // last: it is English-centric, but still beats no classifier at all.
+//
+// An entry carrying a tag ("qwen3-embedding:0.6b") matches only that exact tag;
+// a bare family name matches any tag of that family. The first entry is pinned
+// on purpose: qwen3-embedding ships in 0.6B, 4B and 8B, all three answer the
+// same API and classify about as well, but the numbers this package is built
+// around — ~150ms warm, ~640MB resident — are the 0.6B ones. Left unpinned, a
+// machine that happens to have the 8B pulled for something else would silently
+// load it here and blow the pre-think budget on every message. The bare family
+// name still follows as a fallback, so a host with only the 4B keeps working.
 var preferredModels = []string{
-	"qwen3-embedding",
+	"qwen3-embedding:0.6b",
+	"qwen3-embedding", // any other size, when 0.6b is not installed
 	"bge-m3",
 	"snowflake-arctic-embed2",
 	"granite-embedding",
@@ -100,16 +111,28 @@ func (c *Client) detect(ctx context.Context) string {
 		return ""
 	}
 
-	installed := make(map[string]string, len(tags.Models)) // base name → full tag
+	installed := make([]string, 0, len(tags.Models))
 	for _, m := range tags.Models {
-		base, _, _ := strings.Cut(m.Name, ":")
-		if _, dup := installed[base]; !dup {
-			installed[base] = m.Name
+		if n := strings.TrimSpace(m.Name); n != "" {
+			installed = append(installed, n)
 		}
 	}
+	// The order /api/tags returns is not contractual, so a host with several tags
+	// of one family used to resolve to whichever came back first — a different
+	// model across restarts, from the same installation. Sort, and the fallback
+	// arm of preferredModels becomes deterministic.
+	sort.Strings(installed)
+
 	for _, want := range preferredModels {
-		if full, ok := installed[want]; ok {
-			return full
+		exact := strings.Contains(want, ":")
+		for _, tag := range installed {
+			name := tag
+			if !exact {
+				name, _, _ = strings.Cut(tag, ":")
+			}
+			if strings.EqualFold(name, want) {
+				return tag
+			}
 		}
 	}
 	return ""
