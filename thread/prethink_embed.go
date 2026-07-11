@@ -1,0 +1,269 @@
+package thread
+
+import (
+	"context"
+	"math"
+	"sort"
+	"sync"
+	"time"
+
+	"github.com/linanwx/nagobot/embedding"
+	"github.com/linanwx/nagobot/logger"
+)
+
+// The regex gate for <search> tops out around 30% precision on real traffic:
+// the failures are word-sense collisions (评价 the essay verb vs 评价 the product
+// review, "version" of a story vs of a package) and keyword-free positives
+// ("is winrm timeout in seconds or milliseconds"). Those need meaning, not
+// morphemes — so when a local Ollama with an embedding model is present, the
+// verdict comes from prototype classification: the message is compared against
+// hand-written positive/negative anchor sentences in embedding space, and the
+// closer side wins. No Ollama → callers fall back to the regex path.
+//
+// The anchors are deliberately DISJOINT from the test cases in
+// prethink_signals_test.go — those stay held out. Several negatives are
+// transcribed from real false positives observed in a WildChat corpus sweep
+// (available drives, 如何评价 essays, story "versions", price-named variables).
+var searchPosAnchors = []string{
+	// prices, rates, markets
+	"今天黄金价格多少钱一克",
+	"美元现在的汇率是多少",
+	"特斯拉 Model 3 现在卖多少钱",
+	"what is the price of Bitcoin today",
+	"how much does ChatGPT Plus cost now",
+	"какая сейчас цена биткоина",
+	"cuánto cuesta el iPhone ahora",
+	"환율 지금 얼마야",
+	"convert 500 euros to dollars at the current rate",
+	"which cloud provider is the cheapest right now",
+	// weather, schedules, live state
+	"深圳明天天气怎么样",
+	"current weather in Berlin",
+	"какая погода в Москве завтра",
+	"東京の明日の天気は？",
+	"when is the next SpaceX launch",
+	// news, roles, recent events
+	"这周有什么重要的科技新闻",
+	"recent news about the EU AI Act",
+	"who is the CEO of OpenAI right now",
+	"现在英国首相是谁",
+	"who won the champions league final this season",
+	// versions, releases, availability, service capabilities
+	"Python 最新版本号是多少",
+	"latest stable version of Node.js",
+	"最新のGoのバージョンは？",
+	"iPhone 17 在日本上市了吗",
+	"is the RTX 5090 in stock anywhere",
+	"what new AI models were released this month",
+	"what payment methods does Stripe currently support",
+	// reviews, market comparisons, current docs
+	"best mirrorless camera this year according to reviews",
+	"which JavaScript framework is the most popular this year",
+	"which cloud platform is better in 2026, AWS or Azure",
+	"这款笔记本的评测和口碑怎么样",
+	"哪种农产品今年市场行情最好",
+	"what does the official documentation say about the default timeout unit",
+	"去日本的签证政策最近有变化吗",
+}
+
+var searchNegAnchors = []string{
+	// stable knowledge, homework, quizzes
+	"who invented the telephone",
+	"what is the capital of Japan",
+	"explain quantum entanglement simply",
+	"quelle est la différence entre TCP et UDP",
+	"什么是动态规划",
+	"牛顿第二定律是什么",
+	"为什么天空是蓝色的",
+	"how far is the moon from the earth",
+	"which organ produces insulin, the liver or the pancreas",
+	"cuéntame datos interesantes sobre los dinosaurios",
+	"calcola la forza tra due cariche elettriche",
+	"这个函数在 Python 里是什么意思",
+	// math, pure reasoning, stable conversions, word problems
+	"solve 2x + 3 = 11",
+	"把 37 转换成二进制",
+	"convert 100 fahrenheit to celsius",
+	"which is better, composition or inheritance",
+	"a shirt costs 40 dollars and is discounted by 15 percent, what is the final price",
+	"how many usable host addresses does a /26 subnet have",
+	// code work (incl. price-named variables — a real corpus trap)
+	"write a function to reverse a linked list",
+	"refactor this class to use dependency injection",
+	"why does this null pointer exception happen",
+	"帮我把这段代码改成异步的",
+	"write a unit test for the calculate_price function",
+	"оптимизируй этот SQL запрос",
+	// writing and creative production
+	"写一篇关于环保的演讲稿",
+	"help me draft a resignation email",
+	"write a poem about the ocean",
+	"escribe una historia corta de terror",
+	"帮我写一份产品需求文档",
+	"エッセイを書いてください",
+	"напиши уникальный SEO текст на тему путешествий",
+	"напиши описание товара для интернет-магазина",
+	// roleplay
+	"let's roleplay, you are a detective in 1920s Paris",
+	"假装你是我的面试官，问我三个问题",
+	// operations on user-supplied text/data
+	"translate this paragraph into German",
+	"把下面这段话总结成三点",
+	"proofread the following essay",
+	"these are my expenses from last year, tell me what I spent the most on",
+	// chit-chat and assistant self-identity
+	"早上好呀",
+	"how are you doing today",
+	"谢谢你的帮助",
+	"what model version are you running",
+	"are you GPT-4 or GPT-3, which model am I talking to",
+	"привет, ты какая версия ChatGPT?",
+	"isn't this year wonderful",
+	// corpus-observed traps
+	"design a NAS layout, the available drives are four 4TB disks",
+	"如何评价王安石变法的历史意义",
+	"in this story, the forest is an older version of the real world",
+	"should I learn Rust or Go as a beginner",
+	"我和女朋友吵架了，我该怎么办",
+}
+
+const (
+	searchEmbedTopK = 6
+	// Decision threshold on (posScore - negScore), calibrated against the
+	// hand-written set in TestNeedsSearch_Embed. Zero means "whichever side is
+	// nearer wins"; a small positive margin biases toward false because a
+	// wrong true costs a pointless search dispatch.
+	searchEmbedMargin = 0.0
+	// Long pastes are truncated before embedding: the request intent lives in
+	// the head of a message, and embedding models truncate internally anyway.
+	searchEmbedMaxRunes = 800
+
+	searchEmbedInitTimeout = 30 * time.Second
+	searchEmbedCallTimeout = 5 * time.Second
+	searchEmbedRetryAfter  = time.Minute
+)
+
+// classifySearchEmbedFn is indirected so tests can pin the regex-only path.
+var classifySearchEmbedFn = classifySearchEmbed
+
+var searchEmbed = &searchEmbedState{client: embedding.NewLocal()}
+
+// searchEmbedState lazily embeds the anchors and caches them per model. The
+// cache re-arms when detection reports a different model (e.g. the user pulls
+// a better one mid-run), and failed inits retry after a cooldown instead of
+// latching off forever.
+type searchEmbedState struct {
+	client *embedding.Client
+
+	mu      sync.Mutex
+	model   string
+	pos     [][]float64
+	neg     [][]float64
+	lastTry time.Time
+}
+
+// ensure returns true when anchor vectors for the currently detected model are
+// ready. It must be called with s.mu held.
+func (s *searchEmbedState) ensure(ctx context.Context) bool {
+	model, ok := s.client.Model(ctx)
+	if !ok {
+		return false // no local Ollama — feature off, not an error
+	}
+	if model == s.model && s.pos != nil {
+		return true
+	}
+	if time.Since(s.lastTry) < searchEmbedRetryAfter {
+		return false
+	}
+	s.lastTry = time.Now()
+
+	initCtx, cancel := context.WithTimeout(ctx, searchEmbedInitTimeout)
+	defer cancel()
+	vecs, err := s.client.Embed(initCtx, append(append([]string{}, searchPosAnchors...), searchNegAnchors...))
+	if err != nil {
+		logger.Warn("pre-think search classifier: anchor embedding failed", "model", model, "err", err)
+		return false
+	}
+	for i := range vecs {
+		normalize(vecs[i])
+	}
+	s.model = model
+	s.pos = vecs[:len(searchPosAnchors)]
+	s.neg = vecs[len(searchPosAnchors):]
+	logger.Info("pre-think search classifier ready", "model", model,
+		"posAnchors", len(s.pos), "negAnchors", len(s.neg))
+	return true
+}
+
+// score embeds msg and returns mean top-k cosine similarity to each anchor
+// side. ok=false means the classifier is unavailable and the caller should
+// fall back to the regex path.
+func (s *searchEmbedState) score(msg string) (pos, neg float64, ok bool) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	ctx, cancel := context.WithTimeout(context.Background(), searchEmbedInitTimeout)
+	defer cancel()
+	if !s.ensure(ctx) {
+		return 0, 0, false
+	}
+
+	if r := []rune(msg); len(r) > searchEmbedMaxRunes {
+		msg = string(r[:searchEmbedMaxRunes])
+	}
+	callCtx, cancelCall := context.WithTimeout(context.Background(), searchEmbedCallTimeout)
+	defer cancelCall()
+	vecs, err := s.client.Embed(callCtx, []string{msg})
+	if err != nil {
+		logger.Warn("pre-think search classifier: message embedding failed", "err", err)
+		return 0, 0, false
+	}
+	q := vecs[0]
+	normalize(q)
+	return topKMeanDot(q, s.pos, searchEmbedTopK), topKMeanDot(q, s.neg, searchEmbedTopK), true
+}
+
+// classifySearchEmbed answers the <search> question by prototype vote.
+func classifySearchEmbed(msg string) (verdict bool, ok bool) {
+	pos, neg, ok := searchEmbed.score(msg)
+	if !ok {
+		return false, false
+	}
+	return pos-neg > searchEmbedMargin, true
+}
+
+func normalize(v []float64) {
+	var sum float64
+	for _, x := range v {
+		sum += x * x
+	}
+	if sum == 0 {
+		return
+	}
+	inv := 1 / math.Sqrt(sum)
+	for i := range v {
+		v[i] *= inv
+	}
+}
+
+// topKMeanDot returns the mean of the k highest dot products between q and the
+// (normalized) anchors.
+func topKMeanDot(q []float64, anchors [][]float64, k int) float64 {
+	sims := make([]float64, 0, len(anchors))
+	for _, a := range anchors {
+		var dot float64
+		for i := range q {
+			dot += q[i] * a[i]
+		}
+		sims = append(sims, dot)
+	}
+	sort.Sort(sort.Reverse(sort.Float64Slice(sims)))
+	if k > len(sims) {
+		k = len(sims)
+	}
+	var sum float64
+	for _, s := range sims[:k] {
+		sum += s
+	}
+	return sum / float64(k)
+}

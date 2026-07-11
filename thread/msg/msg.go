@@ -144,7 +144,6 @@ const (
 	WakeCompression  WakeSource = "compression"
 	WakeHeartbeat    WakeSource = "heartbeat"
 	WakeResume       WakeSource = "resume"
-	WakePreThink     WakeSource = "prethink"
 	WakeAudioPreview WakeSource = "audiopreview"
 	WakeImagePreview WakeSource = "imagepreview"
 	WakeProgress     WakeSource = "progress" // external scanner reporting a long-running child's progress to its parent

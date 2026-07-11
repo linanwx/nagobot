@@ -7,7 +7,6 @@ import (
 
 func TestSpecialtyRestricted(t *testing.T) {
 	cases := map[string]bool{
-		"fast":     true,  // explicit whitelist
 		"image":    true,  // capability-derived
 		"audio":    true,  // capability-derived
 		"pdf":      true,  // capability-derived
@@ -23,36 +22,19 @@ func TestSpecialtyRestricted(t *testing.T) {
 	}
 }
 
+// TestSpecialtyOptional pins the current truth: nothing is optional any more.
+//
+// "fast" was the only member, and it existed to gate pre-think — absent rule meant
+// the feature was off. Pre-think no longer calls a model, so the gate has nothing
+// to gate. The mechanism (and onboard's enable/skip flow behind it) is kept as the
+// hook for the next such feature; this test is the sentinel that notices when one
+// arrives, so the flow gets re-exercised deliberately rather than by accident.
 func TestSpecialtyOptional(t *testing.T) {
-	if !SpecialtyOptional("fast") {
-		t.Error("fast should be optional (on/off feature, never defaults)")
-	}
-	for _, s := range []string{"image", "audio", "pdf", "chat", "toolcall", ""} {
+	for _, s := range []string{"fast", "image", "audio", "pdf", "chat", "toolcall", ""} {
 		if SpecialtyOptional(s) {
-			t.Errorf("%q should not be optional", s)
+			t.Errorf("%q is optional, but optionalSpecialties should be empty — "+
+				"if a new optional specialty was added, update this test and check onboard's enable/skip flow", s)
 		}
-	}
-}
-
-func TestAllowedModelsForSpecialty_FastExplicit(t *testing.T) {
-	// fast is locked to the DeepSeek official-direct instant aliases.
-	models, restricted := AllowedModelsForSpecialty("fast", "deepseek")
-	if !restricted {
-		t.Fatal("fast should be restricted")
-	}
-	if !slices.Equal(models, []string{"deepseek-v4-flash-instant", "deepseek-v4-pro-instant"}) {
-		t.Fatalf("fast@deepseek = %v, want [deepseek-v4-flash-instant deepseek-v4-pro-instant]", models)
-	}
-
-	// No other provider satisfies fast.
-	if models, _ := AllowedModelsForSpecialty("fast", "openrouter"); len(models) != 0 {
-		t.Errorf("fast@openrouter = %v, want empty", models)
-	}
-
-	// Only deepseek appears in the provider list.
-	providers, restricted := ProvidersForSpecialty("fast")
-	if !restricted || !slices.Equal(providers, []string{"deepseek"}) {
-		t.Errorf("ProvidersForSpecialty(fast) = %v (restricted=%v), want [deepseek]", providers, restricted)
 	}
 }
 

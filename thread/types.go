@@ -50,7 +50,6 @@ const (
 	WakeCompression  = msg.WakeCompression
 	WakeHeartbeat    = msg.WakeHeartbeat
 	WakeResume       = msg.WakeResume
-	WakePreThink     = msg.WakePreThink
 	WakeAudioPreview = msg.WakeAudioPreview
 	WakeImagePreview = msg.WakeImagePreview
 	WakeProgress     = msg.WakeProgress
@@ -127,21 +126,21 @@ type Thread struct {
 	injectInbox chan string       // Dedicated control/injection lane (bypasses tryMerge/canMerge).
 	signal      chan struct{}     // Shared with Manager for notification.
 
-	mu               sync.Mutex
-	hooks            []turnHook
-	postHooks        []postTurnHook // Hooks run after each turn; returned messages are appended to session.jsonl.
-	pending          []*WakeMessage // Non-mergeable messages deferred by tryMerge (avoids channel requeue deadlock).
-	defaultSink      Sink           // Fallback sink when WakeMessage.Sink is nil.
-	lastActiveAt     time.Time      // Last time this thread completed work (used by GC).
-	lastUserActiveAt time.Time      // Last time a real user interacted (used by compression).
-	lastWakeSource   msg.WakeSource // Source of the most recent wake (set at RunOnce start).
-	modelOverrideProvider string    // Per-wake model override provider (from dispatch subagent/fork); set at RunOnce start, empty when none. Highest routing precedence.
-	modelOverrideModel    string    // Per-wake model override model type; paired with modelOverrideProvider.
-	suppressSink     bool           // When true, RunOnce skips sink delivery (reset after each turn).
-	haltLoop         bool           // When true, Runner stops after current tool calls complete.
-	currentSink      Sink           // Current turn's active sink (set by run(), cleared on turn end). Used by dispatch(to=caller:*).
-	currentCallerKey string         // Caller session key for the current wake; empty for user/system wakes.
-	progressDispatchNudges int      // Per-turn count of dispatch-required nudges injected for a WakeProgress turn (reset each turn; caps re-iteration).
+	mu                     sync.Mutex
+	hooks                  []turnHook
+	postHooks              []postTurnHook // Hooks run after each turn; returned messages are appended to session.jsonl.
+	pending                []*WakeMessage // Non-mergeable messages deferred by tryMerge (avoids channel requeue deadlock).
+	defaultSink            Sink           // Fallback sink when WakeMessage.Sink is nil.
+	lastActiveAt           time.Time      // Last time this thread completed work (used by GC).
+	lastUserActiveAt       time.Time      // Last time a real user interacted (used by compression).
+	lastWakeSource         msg.WakeSource // Source of the most recent wake (set at RunOnce start).
+	modelOverrideProvider  string         // Per-wake model override provider (from dispatch subagent/fork); set at RunOnce start, empty when none. Highest routing precedence.
+	modelOverrideModel     string         // Per-wake model override model type; paired with modelOverrideProvider.
+	suppressSink           bool           // When true, RunOnce skips sink delivery (reset after each turn).
+	haltLoop               bool           // When true, Runner stops after current tool calls complete.
+	currentSink            Sink           // Current turn's active sink (set by run(), cleared on turn end). Used by dispatch(to=caller:*).
+	currentCallerKey       string         // Caller session key for the current wake; empty for user/system wakes.
+	progressDispatchNudges int            // Per-turn count of dispatch-required nudges injected for a WakeProgress turn (reset each turn; caps re-iteration).
 
 	execMetrics           *ExecMetrics // Non-nil only while a turn is executing.
 	lastCompressAttemptAt time.Time    // Last time tier 2 compression was enqueued (prevents duplicate enqueue).

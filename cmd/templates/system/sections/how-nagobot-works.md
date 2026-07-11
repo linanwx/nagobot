@@ -80,6 +80,7 @@ Most of what is on disk is runtime machinery, not knowledge to re-read. Sort eve
 - `chat.jsonl` — a render log of user-visible messages.
 - `meta.json` / `channel.json` — session bookkeeping (agent binding, token ratios, channel info).
 - `history/` — timestamped snapshots of `session.jsonl` taken before compression (use `search-memory` to search past turns, don't read these directly).
-- `threads/`, `prethink/`, `rephrase/` — data for subagent, pre-think, and output-rephrase child sessions.
+- `threads/`, `rephrase/` — data for subagent and output-rephrase child sessions.
+- `prethink/` — leftover from when pre-think was an LLM call. Nothing writes here any more; it is analyzed locally now.
 - `imagepreview/`, `audiopreview/` — cached media-recognition previews.
 - `heartbeat_log.md`, `heartbeat_skip_log.md` — heartbeat scheduler debug logs.

@@ -44,6 +44,29 @@ Wake payloads use YAML frontmatter + markdown body with per-source sender:
 
 Action hints for system sources explicitly tell the AI to include content in its response.
 
+### Pre-Think (`thread/prethink*.go`, `embedding/`)
+
+Every user message is analyzed before the main model sees it, producing the **action hint** in the wake payload. This used to be a blocking LLM call (a `fast` model, 10s timeout, 10 XML fields) into a `{sessionKey}:prethink` sibling session. **It is now local: regex + a local Ollama embedding model. No LLM call, no sibling session.** Warm cost is ~150ms.
+
+Five of the ten fields survived; the other five were deleted:
+
+| Field | How | Notes |
+|---|---|---|
+| `has_web_url` | regex | Strictly *more* accurate than the LLM, which missed real `https://` links |
+| `is_include_investigator` | regex, mask-then-match | |
+| `search` | regex gates → embedding prototype → regex fallback | |
+| `destructive` | precision gates → regex ∪ embedding, **reads recent chat** | "执行吧" is only dangerous because of the turn above it |
+| `skills` | embedding retrieval over skill descriptions | Cannot hallucinate a slug that doesn't exist |
+| ~~`tone`~~ | deleted | 83% constant, copied from USER.md |
+| ~~`is_multi_step`~~ | deleted | The LLM's verdict was effectively `len(msg) > 160`; an embedding classifier scored *below* an always-false baseline |
+| ~~`hallucination`~~ ~~`needs_verification`~~ ~~`confusing_terminology`~~ | deleted | By decision |
+
+**Ollama is a hard requirement for `destructive`, not an optimization.** Without it that field falls back to a verb table that scores 0/15 on held-out phrasings — and its failure direction is "irreversible action proceeds unconfirmed". Every other field degrades gracefully. Install `qwen3-embedding:0.6b` (~640MB); `embedding.NewLocal()` auto-detects and honors `OLLAMA_HOST`, caching probe failures for a minute so a machine without Ollama pays one connection refusal per minute.
+
+`preThinkAction` runs the three embedding-touching classifiers **concurrently** under a 2s budget (`preThinkBudget`). Serially their timeouts would sum to 15s — worse than the LLM they replace. Regex-only verdicts are computed first and stand as the fallback if the budget blows, so a timeout degrades to a weaker answer, never to `false` on `destructive`. `WarmLocalPreThink()` builds the three anchor indexes at daemon start so the first message doesn't pay ~1.5s for them.
+
+**Anchor tuning is measured, never guessed.** `scratchpad/label_prethink.py` labels a corpus with the real pre-think prompt to get ground truth; `thread/prethink_labeled_corpus_test.go` scores each detector against it. **Agreement with the LLM is not correctness** — that file's header documents two cases where the detector is right and the LLM's label is wrong.
+
 ### Agent Templates (`agent/`)
 
 Agents are markdown templates in `{workspace}/agents/{name}.md` with `{{PLACEHOLDER}}` syntax. Variables set via `agent.Set(key, value)` before `Build()`. Runtime vars (TOOLS, SKILLS, USER) are set per-turn in `thread/run.go`. `{{DATE}}` and `{{CALENDAR}}` are auto-resolved in `agent.Build()` at day-level granularity (no minutes/seconds).

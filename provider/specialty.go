@@ -11,13 +11,11 @@ import (
 // "z-ai/glm-5.2"). A specialty absent here (and not a capability specialty below)
 // is unrestricted: onboard offers every model the chosen provider supports.
 //
-//	fast — the pre-think agent must use a non-reasoning, high-throughput,
-//	officially-direct model for latency and stability. Only DeepSeek's
-//	"-instant" aliases (thinking disabled) qualify: v4-flash (cheapest) or
-//	v4-pro (stronger).
-var explicitSpecialtyModels = map[string][]string{
-	"fast": {"deepseek/deepseek-v4-flash-instant", "deepseek/deepseek-v4-pro-instant"},
-}
+// Currently empty. Its only member was "fast", which pinned the pre-think agent
+// to a DeepSeek "-instant" alias; pre-think no longer calls a model at all, so the
+// restriction has nothing left to restrict. The mechanism stays because it is the
+// hook for the next specialty that needs a hand-picked model list.
+var explicitSpecialtyModels = map[string][]string{}
 
 // specialtyCapability maps a capability specialty to its per-(provider, model)
 // predicate. These derive their allowed models from the provider registries
@@ -38,11 +36,12 @@ func specialtyCapability(specialty string) func(providerName, model string) bool
 // optionalSpecialties are on/off feature toggles: when the specialty has no
 // model rule the associated feature is DISABLED — it never falls back to the
 // default model. onboard offers enable/skip for these instead of forcing a
-// model. The runtime already enforces this (e.g. thread.fastModelConfigured
-// gates pre-think); this set keeps onboard's UX in sync with that semantic.
-var optionalSpecialties = map[string]bool{
-	"fast": true, // pre-think — runs only when fast is configured.
-}
+// model.
+//
+// Also empty now, and for the same reason: "fast" gated pre-think, and pre-think
+// is local. An existing config.yaml may still carry a `type: specialty, name: fast`
+// rule — it is inert, not an error, and is left alone rather than migrated.
+var optionalSpecialties = map[string]bool{}
 
 // SpecialtyOptional reports whether a specialty is an on/off feature toggle
 // (absent rule = disabled, never defaulted) rather than a model that must be

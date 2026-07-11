@@ -150,12 +150,15 @@ func TestMarkInjected_PreservesMultiLineActionScalar(t *testing.T) {
 }
 
 func TestBuildWakePayload_RecentChatInMarkdownBody(t *testing.T) {
+	// The media-preview sibling sessions are what carry RecentChat now. Pre-think
+	// used to be the other one; it no longer wakes a session at all, since it is
+	// computed locally (see prethink.go), so its wake source is gone.
 	loc := time.UTC
 	payload := buildWakePayload(
-		WakePreThink,
+		WakeImagePreview,
 		"What now?",
-		"t-1", "discord:1:prethink", "/sessions/discord/1/prethink",
-		"prethink delivery", "deepseek/deepseek-v4-flash", "pre-think",
+		"t-1", "discord:1:imagepreview", "/sessions/discord/1/imagepreview",
+		"imagepreview delivery", "openrouter/google/gemini-3.1-flash-lite", "imagereader",
 		loc, "system", "", time.Time{}, "Custom instruction.", "user: earlier\nassistant: reply",
 	)
 

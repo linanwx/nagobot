@@ -53,9 +53,16 @@ func buildThreadManager(cfg *config.Config, enableSessions bool) (*thread.Manage
 
 	skillRegistry := skills.NewRegistry()
 	// Load user first, then built-in (built-in overrides stale user copies on name conflict).
+	// A non-nil error here is a PARTIAL failure — the skills that parsed are loaded,
+	// and the ones that did not are named in the error. One malformed SKILL.md must
+	// not take the others down with it.
 	if err := skillRegistry.LoadFromDirectories(skillsDir, builtinSkillsDir); err != nil {
-		logger.Warn("failed to load skills", "err", err)
+		logger.Warn("some skills failed to load; the rest are active", "err", err)
 	}
+
+	// Build the local pre-think embedding indexes now, off the critical path, so the
+	// first user message does not pay ~1.5s for them.
+	thread.WarmLocalPreThink(skillRegistry)
 
 	toolRegistry := tools.NewRegistry()
 	toolLogsDir := filepath.Join(workspace, "logs", "tool_calls")

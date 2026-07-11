@@ -5,256 +5,111 @@ import (
 	"testing"
 )
 
-func TestParsePreThinkXML_FullStructure(t *testing.T) {
-	raw := `<prethink>
-  <is_multi_step>true</is_multi_step>
-  <search>true</search>
-  <tone>concise, technical</tone>
-</prethink>`
-
-	out := parsePreThinkXML(raw)
-	if out == "" {
-		t.Fatal("expected non-empty output")
+// The action hint is the pre-think system's entire output — the one string the
+// main model actually reads. Its wording is carried over verbatim from the old
+// LLM-parsing path on purpose: the main model's behaviour was tuned against these
+// exact sentences, and swapping the classifier underneath is already a large
+// enough change without rewording the instructions too.
+//
+// So these tests pin the TEXT, not just the booleans. If a sentence here has to
+// change, that is a deliberate prompt change and should be made as one.
+func TestComposePreThinkHint(t *testing.T) {
+	tests := []struct {
+		name        string
+		destructive bool
+		search      bool
+		invest      bool
+		webURL      bool
+		slugs       []string
+		wantAll     []string
+		wantNone    []string
+	}{
+		{
+			name:     "nothing fires",
+			wantNone: []string{"Destructive", "Search", "Investigator", "Web URL", "skill"},
+		},
+		{
+			name:        "destructive",
+			destructive: true,
+			wantAll: []string{
+				"Destructive action: fulfilling this may delete data, send/publish to others, write outside the workspace, or trigger irreversible side effects.",
+				"Confirm with the user via dispatch(to=user) before executing, and prefer a dry-run or reversible path.",
+			},
+		},
+		{
+			name:    "search",
+			search:  true,
+			wantAll: []string{"Consider dispatching a search subagent."},
+		},
+		{
+			name:    "investigator",
+			invest:  true,
+			wantAll: []string{"Investigator: you must call dispatch to fan out an investigator subagent before responding to the user."},
+		},
+		{
+			name:    "web url",
+			webURL:  true,
+			wantAll: []string{"Web URL present: consider using playwright to open it."},
+		},
+		{
+			name:     "one skill is singular",
+			slugs:    []string{"manage-cron"},
+			wantAll:  []string{`Related skill: manage-cron. Consider use_skill("manage-cron")`},
+			wantNone: []string{"Related skills:"},
+		},
+		{
+			name:    "several skills are plural and each gets a call",
+			slugs:   []string{"image", "send-image"},
+			wantAll: []string{`Related skills: image, send-image.`, `use_skill("image") / use_skill("send-image")`},
+		},
+		{
+			// Order is fixed: the irreversible warning must lead, because it is the one
+			// the model has to act on before anything else.
+			name:        "destructive leads",
+			destructive: true,
+			search:      true,
+			wantAll:     []string{"Destructive action:"},
+		},
 	}
-	for _, want := range []string{
-		"Multi-step task: plan the steps and complete all of them before responding.",
-		"Consider dispatching a search subagent.",
-		"Tone: concise, technical",
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			got := composePreThinkHint(tc.destructive, tc.search, tc.invest, tc.webURL, tc.slugs)
+			for _, w := range tc.wantAll {
+				if !strings.Contains(got, w) {
+					t.Errorf("hint missing %q\ngot: %s", w, got)
+				}
+			}
+			for _, w := range tc.wantNone {
+				if strings.Contains(got, w) {
+					t.Errorf("hint should not contain %q\ngot: %s", w, got)
+				}
+			}
+			if tc.name == "nothing fires" && got != "" {
+				t.Errorf("a quiet turn must produce no hint at all, got: %q", got)
+			}
+			if tc.name == "destructive leads" && !strings.HasPrefix(got, "Destructive action:") {
+				t.Errorf("destructive must come first, got: %s", got)
+			}
+		})
+	}
+}
+
+// TestPreThinkDroppedFields guards the five fields that were removed. Each was
+// dropped for a reason recorded in prethink.go, and a hint sentence reappearing
+// here means one crept back in — most likely by someone reviving the old prompt
+// rather than by deliberate decision.
+func TestPreThinkDroppedFields(t *testing.T) {
+	hint := composePreThinkHint(true, true, true, true, []string{"image"})
+	for _, gone := range []string{
+		"Multi-step task",        // reproduced by len(msg) > 160; not worth a model
+		"Tone:",                  // 83% constant, copied from USER.md
+		"Possible hallucination", // dropped by decision
+		"Needs verification",     // dropped by decision
+		"Needs clarification",    // confusing_terminology, dropped by decision
 	} {
-		if !strings.Contains(out, want) {
-			t.Errorf("output missing %q\ngot: %s", want, out)
+		if strings.Contains(hint, gone) {
+			t.Errorf("dropped field is back in the hint: %q", gone)
 		}
-	}
-}
-
-func TestParsePreThinkXML_IsMultiStep(t *testing.T) {
-	raw := `<prethink>
-  <intent>帮我搭一个端到端流程</intent>
-  <is_multi_step>true</is_multi_step>
-  <tone>thorough</tone>
-</prethink>`
-
-	out := parsePreThinkXML(raw)
-	if !strings.Contains(out, "Multi-step task: plan the steps and complete all of them before responding.") {
-		t.Errorf("is_multi_step should render, got: %s", out)
-	}
-}
-
-func TestParsePreThinkXML_FalseBoolTreatedAsAbsent(t *testing.T) {
-	raw := `<prethink>
-  <intent>clear one-shot question</intent>
-  <is_multi_step>false</is_multi_step>
-  <tone>concise</tone>
-</prethink>`
-
-	out := parsePreThinkXML(raw)
-	if strings.Contains(out, "Multi-step") {
-		t.Errorf("explicit false is_multi_step must be ignored, got: %s", out)
-	}
-}
-
-func TestParsePreThinkXML_ConfusingTerminologyRequiresClarification(t *testing.T) {
-	// confusing_terminology is a presence-based bool: true fires the mandatory
-	// clarification step (covers both ambiguous wording and insufficient context).
-	raw := `<prethink>
-  <intent>用户想修改模板，但措辞可能有歧义</intent>
-  <confusing_terminology>true</confusing_terminology>
-  <tone>careful</tone>
-</prethink>`
-
-	out := parsePreThinkXML(raw)
-	if !strings.Contains(out, "Needs clarification:") {
-		t.Errorf("confusing_terminology=true should trigger clarification, got: %s", out)
-	}
-	if !strings.Contains(out, "ask the user via dispatch(to=user)") {
-		t.Errorf("confusing_terminology should suggest clarifying via dispatch(to=user), got: %s", out)
-	}
-}
-
-func TestParsePreThinkXML_NoConfusingTerminologyNoClarification(t *testing.T) {
-	raw := `<prethink>
-  <intent>用户的问题很清楚</intent>
-  <is_multi_step>true</is_multi_step>
-  <tone>concise</tone>
-</prethink>`
-
-	out := parsePreThinkXML(raw)
-	if strings.Contains(out, "Needs clarification") {
-		t.Errorf("absent confusing_terminology must NOT trigger clarification, got: %s", out)
-	}
-}
-
-func TestParsePreThinkXML_Hallucination(t *testing.T) {
-	raw := `<prethink>
-  <intent>问 XXX 型号有没有 YYY 功能</intent>
-  <hallucination>true</hallucination>
-  <tone>concise</tone>
-</prethink>`
-
-	out := parsePreThinkXML(raw)
-	if !strings.Contains(out, "Possible hallucination:") || !strings.Contains(out, "Verify against a source") {
-		t.Errorf("hallucination=true should add the hallucination hint, got: %s", out)
-	}
-}
-
-func TestParsePreThinkXML_NoHallucination(t *testing.T) {
-	raw := `<prethink>
-  <intent>简单聊天</intent>
-  <hallucination></hallucination>
-  <tone>warm</tone>
-</prethink>`
-
-	out := parsePreThinkXML(raw)
-	if strings.Contains(out, "Possible hallucination") {
-		t.Errorf("empty hallucination must be omitted, got: %s", out)
-	}
-}
-
-func TestParsePreThinkXML_Destructive(t *testing.T) {
-	raw := `<prethink>
-  <destructive>true</destructive>
-  <tone>careful</tone>
-</prethink>`
-	out := parsePreThinkXML(raw)
-	if !strings.Contains(out, "Destructive action:") || !strings.Contains(out, "Confirm with the user via dispatch(to=user)") {
-		t.Errorf("destructive=true should add a confirm-before-acting hint, got: %s", out)
-	}
-}
-
-func TestParsePreThinkXML_NoDestructive(t *testing.T) {
-	raw := `<prethink>
-  <destructive>false</destructive>
-  <tone>warm</tone>
-</prethink>`
-	if out := parsePreThinkXML(raw); strings.Contains(out, "Destructive action") {
-		t.Errorf("destructive=false must be omitted, got: %s", out)
-	}
-}
-
-func TestParsePreThinkXML_NeedsVerification(t *testing.T) {
-	raw := `<prethink>
-  <needs_verification>true</needs_verification>
-  <tone>thorough</tone>
-</prethink>`
-	out := parsePreThinkXML(raw)
-	if !strings.Contains(out, "Needs verification:") || !strings.Contains(out, "observing actual behavior after acting") {
-		t.Errorf("needs_verification=true should add a verify-by-observation hint, got: %s", out)
-	}
-}
-
-func TestParsePreThinkXML_InvestigatorForcesDispatch(t *testing.T) {
-	raw := `<prethink>
-  <intent>调查一下竞品定价</intent>
-  <is_include_investigator>true</is_include_investigator>
-  <tone>thorough</tone>
-</prethink>`
-
-	out := parsePreThinkXML(raw)
-	if !strings.Contains(out, "Investigator: you must call dispatch to fan out an investigator subagent before responding to the user.") {
-		t.Errorf("is_include_investigator should force dispatch, got: %s", out)
-	}
-}
-
-func TestParsePreThinkXML_HasWebURL(t *testing.T) {
-	raw := `<prethink>
-  <intent>看下这个页面 https://example.com/post</intent>
-  <has_web_url>true</has_web_url>
-  <tone>concise</tone>
-</prethink>`
-
-	out := parsePreThinkXML(raw)
-	if !strings.Contains(out, "Web URL present: consider using playwright to open it.") {
-		t.Errorf("has_web_url should suggest playwright, got: %s", out)
-	}
-}
-
-func TestParsePreThinkXML_Skill(t *testing.T) {
-	// Singular <skill> tag (old format) still parses.
-	raw := `<prethink>
-  <skill>playwright-cli</skill>
-  <tone>concise</tone>
-</prethink>`
-
-	out := parsePreThinkXML(raw)
-	if !strings.Contains(out, `Related skill: playwright-cli. Consider use_skill("playwright-cli") to load instructions before proceeding.`) {
-		t.Errorf("skill should suggest use_skill, got: %s", out)
-	}
-}
-
-func TestParsePreThinkXML_MultipleSkills(t *testing.T) {
-	raw := `<prethink>
-  <skills>playwright-cli, create-html</skills>
-  <tone>concise</tone>
-</prethink>`
-
-	out := parsePreThinkXML(raw)
-	if !strings.Contains(out, `Related skills: playwright-cli, create-html. Consider use_skill("playwright-cli") / use_skill("create-html") to load instructions before proceeding.`) {
-		t.Errorf("skills should suggest each use_skill, got: %s", out)
-	}
-}
-
-func TestParsePreThinkXML_SkillsCappedAtThree(t *testing.T) {
-	raw := `<prethink>
-  <skills>a, b, c, d, e</skills>
-  <tone>concise</tone>
-</prethink>`
-
-	out := parsePreThinkXML(raw)
-	if !strings.Contains(out, "Related skills: a, b, c.") {
-		t.Errorf("skills should cap at 3, got: %s", out)
-	}
-	if strings.Contains(out, `use_skill("d")`) {
-		t.Errorf("4th skill must be dropped, got: %s", out)
-	}
-}
-
-func TestParsePreThinkXML_NoSkill(t *testing.T) {
-	raw := `<prethink>
-  <skills></skills>
-  <tone>warm</tone>
-</prethink>`
-
-	if out := parsePreThinkXML(raw); strings.Contains(out, "Related skill") {
-		t.Errorf("empty skills must be omitted, got: %s", out)
-	}
-}
-
-func TestParsePreThinkXML_CasualMinimal(t *testing.T) {
-	raw := `<prethink>
-  <tone>warm, friendly</tone>
-</prethink>`
-
-	out := parsePreThinkXML(raw)
-	if !strings.Contains(out, "Tone: warm, friendly") {
-		t.Errorf("got: %s", out)
-	}
-	// Only tone — no flag phrases.
-	for _, unexpected := range []string{"Multi-step", "Needs clarification", "Investigator", "Search:", "Web URL", "Related skill", "Intent"} {
-		if strings.Contains(out, unexpected) {
-			t.Errorf("unexpected %q in minimal output: %s", unexpected, out)
-		}
-	}
-}
-
-func TestParsePreThinkXML_NoTagsReturnsEmpty(t *testing.T) {
-	raw := "This is just plain text without any XML tags."
-	if out := parsePreThinkXML(raw); out != "" {
-		t.Errorf("expected empty, got: %s", out)
-	}
-}
-
-func TestParsePreThinkXML_EmptyInput(t *testing.T) {
-	if out := parsePreThinkXML(""); out != "" {
-		t.Errorf("expected empty, got: %s", out)
-	}
-}
-
-func TestParsePreThinkXML_NewlinesCollapsed(t *testing.T) {
-	raw := `<prethink><intent>line1
-line2
-line3</intent></prethink>`
-	out := parsePreThinkXML(raw)
-	if strings.Contains(out, "\n") {
-		t.Errorf("newlines should be collapsed, got: %q", out)
 	}
 }

@@ -54,9 +54,8 @@ var imagePreviewSpec = previewSpec{
 
 // previewConfigured reports whether a preview variant can run: its agent
 // template is loaded AND its specialty resolves to a concrete provider/model.
-// Mirrors pre-think's fastModelConfigured guard — if the variant is not set
-// up, the caller silently skips the preview rather than routing media to a
-// model that cannot consume it.
+// If the variant is not set up, the caller silently skips the preview rather
+// than routing media to a model that cannot consume it.
 func (mgr *Manager) previewConfigured(spec previewSpec) bool {
 	cfg := mgr.cfg
 	if cfg == nil || cfg.Agents == nil || cfg.Agents.Def(spec.agent) == nil {
