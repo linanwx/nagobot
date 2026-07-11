@@ -1,6 +1,6 @@
 ---
 name: monitoring
-description: Check LLM provider account balances, query performance metrics, and view compression stats. Use when the user asks about provider credits/balance, response times, token usage, error rates, session compression history, or wants to see how different models/agents/sessions are performing over time windows (1h, 1d, 7d).
+description: Read-only reporting on spend and performance — check LLM provider account balances and remaining credit, query metrics (response times, token usage, error rates), and view session compression stats over time windows (1h, 1d, 7d). Use when the user asks how much credit is left, how much has been spent, or how models/agents/sessions are performing. This never changes settings — to set a key or switch models, use manage-config instead.
 ---
 # Monitoring
 

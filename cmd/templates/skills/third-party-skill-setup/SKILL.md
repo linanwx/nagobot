@@ -1,7 +1,6 @@
 ---
 name: third-party-skill-setup
 description: Use when user wants to set up browser automation tools, install playwright-cli, or prepare dependencies for browser-based skills. Also use when a tool reports missing dependencies that need installation.
-tags: [setup, dependencies, playwright, browser]
 ---
 # Third-Party Skill Setup
 

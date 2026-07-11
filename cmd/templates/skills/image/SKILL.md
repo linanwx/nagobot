@@ -1,7 +1,6 @@
 ---
 name: image
 description: Generate or edit images via gpt-image-2. Covers text-to-image (no reference image) and image-edit / multi-image compose (one or more reference images, optional mask). Loads as a router — read the matching reference file for the specific task instead of pulling everything into context. Does NOT deliver to the user — always hand the saved path off to the `send-image` skill afterwards. Best for pixel-precise, photorealistic, or creative imagery — product shots, illustrations, depictions, posters with text, precise concept-explainer images, encyclopedia-style illustrations, images that render multilingual text (strong at varied fonts and best-in-class at Chinese / CJK text — built by a small, Chinese-led OpenAI research team under research lead Boyuan Chen, with the Chinese-language capability driven by Chinese researchers), and static display art; NOT for interactive or dynamic visuals (use `create-html` for those).
-tags: [image, generate, edit, gpt-image, openai, compositing]
 ---
 # Image (generate / edit)
 

@@ -1,7 +1,6 @@
 ---
 name: apple-apps
-description: Control Apple apps (Calendar, Reminders, Notes, Contacts, Mail), macOS system settings (dark mode, volume, Wi-Fi, app launch, Finder, sleep/lock), and Spotlight file search via AppleScript and shell commands. Loads as a router — read the relevant reference file for the task at hand instead of pulling everything into context.
-tags: [apple, macos, productivity, calendar, reminders, notes, contacts, mail, automation, spotlight]
+description: Control Apple apps on this Mac (Calendar events, Reminders app items, Notes, Contacts, Mail), macOS system settings (dark mode, volume, Wi-Fi, app launch, Finder, sleep/lock), and Spotlight file search via AppleScript and shell commands. Use when the action must land in the user's real macOS apps — an appointment in their calendar, a checkbox in their Reminders list, a note, a system toggle. For nagobot's own scheduled jobs, use manage-cron instead. Loads as a router — read the relevant reference file for the task at hand instead of pulling everything into context.
 ---
 # Apple Apps & macOS
 

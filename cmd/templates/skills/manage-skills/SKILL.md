@@ -1,6 +1,6 @@
 ---
 name: manage-skills
-description: Search, install, remove, and update skills from ClawHub (13,000+ community skills). Use when the user wants new capabilities, or when you need a skill that isn't currently available — search the hub to find it.
+description: Search, install, remove, and update skills from ClawHub, a hub of 13,000+ community skills. Use when the user explicitly asks to install, remove, or update a skill, or names a capability nagobot lacks and wants it added — for example a file format it cannot read yet. Also use when a task needs a skill that is not in the list above and the hub should be searched for one.
 ---
 # Manage Skills
 

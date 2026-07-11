@@ -1,6 +1,6 @@
 ---
 name: context-ops
-description: Manage session context — compress to free token budget, or clear to start fresh. Use when context pressure is high, the session is too long, or the user wants a fresh start.
+description: Manage this session's own conversation context — compress the chat history to free up token budget, or clear it to start a fresh conversation. Use when the context window is filling up, the session has grown too long, token pressure is high, or the user wants to wipe the history and start over. This acts on the LLM context window itself, not on a document or passage the user pasted.
 ---
 # Context Operations
 

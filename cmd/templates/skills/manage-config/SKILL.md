@@ -1,6 +1,6 @@
 ---
 name: manage-config
-description: Configure nagobot settings — LLM provider API keys, model routing, and web search providers. Use when the user wants to add/change/check API keys, switch models, configure search providers, or troubleshoot provider/model configuration issues.
+description: Change nagobot's configuration — set or replace LLM provider API keys, switch which model a session or agent runs on, and set up web search providers. This is the WRITE path — add a key, rotate an expired key, change the model, fix a misconfigured provider. Use when the user wants to configure, change, or troubleshoot provider/model/search settings. To only READ balances or usage, use monitoring instead.
 ---
 # Manage Configuration
 

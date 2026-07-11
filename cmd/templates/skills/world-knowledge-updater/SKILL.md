@@ -1,7 +1,6 @@
 ---
 name: world-knowledge-updater
 description: Periodic world knowledge updater — searches the web for recent major events beyond the model's training cutoff and writes a concise summary to the system prompt. Used by the world-knowledge cron task.
-tags: [world-knowledge, search, internal]
 ---
 # World Knowledge Updater
 

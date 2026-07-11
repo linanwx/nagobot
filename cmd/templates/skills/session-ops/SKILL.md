@@ -1,7 +1,6 @@
 ---
 name: session-ops
 description: Use when the user wants to review past conversations, search session history or memory, check context usage/compression stats, inspect which model/provider a session is using (model resolution chain), inspect session metadata, or configure session settings (switch agent, set timezone). Also use when asking "what model am I using" or debugging model routing.
-tags: [session, summary, search, internal]
 ---
 # Session Operations
 

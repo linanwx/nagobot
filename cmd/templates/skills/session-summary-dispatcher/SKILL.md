@@ -1,7 +1,6 @@
 ---
 name: session-summary-dispatcher
 description: Session summary dispatcher — scan active sessions, sample conversations, and write concise summaries via CLI commands. Used by the session-summary cron task.
-tags: [session, summary, internal]
 ---
 
 ## Workflow

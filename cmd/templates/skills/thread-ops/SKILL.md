@@ -1,7 +1,6 @@
 ---
 name: thread-ops
 description: Use when you need to interact with other threads or manage thread lifecycle. Covers dispatching work to subagents / forks / existing sessions via a single primitive, inspecting session state by key, scheduling a delayed self-wake (via the manage-cron set-at --direct-wake job), and running health diagnostics across all active threads.
-tags: [thread, internal, orchestration]
 ---
 # Thread Operations
 

@@ -3,6 +3,7 @@
 package skills
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -14,12 +15,18 @@ import (
 )
 
 // Skill represents a skill definition.
+//
+// Description is the single source of truth for routing: it is what the prompt
+// renders as {{SKILLS}} for the LLM, and what the pre-think skill retriever
+// embeds. There is deliberately no parallel `tags` channel — one existed, was
+// invisible to the LLM (BuildPromptSection emits only slug + description), and
+// so let retrieval and routing drift apart. Anything worth routing on belongs in
+// Description, where both readers can see it.
 type Skill struct {
 	Name        string   `yaml:"name"`
-	Slug        string   `yaml:"-"`           // Directory name, used as registry key and invocation name.
+	Slug        string   `yaml:"-"` // Directory name, used as registry key and invocation name.
 	Description string   `yaml:"description"`
 	Prompt      string   `yaml:"prompt"`
-	Tags        []string `yaml:"tags,omitempty"`
 	Examples    []string `yaml:"examples,omitempty"`
 	Dir         string   `yaml:"-"` // Absolute path to skill directory (if directory-based).
 }
@@ -72,11 +79,12 @@ func (r *Registry) List() []*Skill {
 
 // LoadFromDirectory loads all skills from a directory.
 // Supports both .yaml/.yml files and .md files with YAML frontmatter.
+//
+// A returned error means some skills failed to load, NOT that none did: the
+// ones that parsed are registered regardless. Callers should log the error and
+// keep going — that is the whole point of the isolation.
 func (r *Registry) LoadFromDirectory(dir string) error {
 	loaded, err := loadSkillsFromDirectory(dir)
-	if err != nil {
-		return err
-	}
 
 	r.mu.Lock()
 	defer r.mu.Unlock()
@@ -84,36 +92,37 @@ func (r *Registry) LoadFromDirectory(dir string) error {
 		r.skills[name] = skill
 	}
 
-	return nil
+	return err
 }
 
 // ReloadFromDirectory replaces current skills with the latest files from dir.
+// As with LoadFromDirectory, a non-nil error is a partial failure: the skills
+// that did parse are installed.
 func (r *Registry) ReloadFromDirectory(dir string) error {
 	loaded, err := loadSkillsFromDirectory(dir)
-	if err != nil {
-		return err
-	}
 	r.mu.Lock()
 	r.skills = loaded
 	r.mu.Unlock()
-	return nil
+	return err
 }
 
 // LoadFromDirectories loads skills from multiple directories.
 // Later directories override earlier ones (user skills override built-in).
+// A bad skill in one directory does not stop the others from loading.
 func (r *Registry) LoadFromDirectories(dirs ...string) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
+	var errs []error
 	for _, dir := range dirs {
 		loaded, err := loadSkillsFromDirectory(dir)
 		if err != nil {
-			return err
+			errs = append(errs, err)
 		}
 		for name, skill := range loaded {
 			r.skills[name] = skill
 		}
 	}
-	return nil
+	return errors.Join(errs...)
 }
 
 // ReloadFromDirectories replaces current skills with files from multiple directories.
@@ -129,21 +138,31 @@ func (r *Registry) ReloadFromDirectories(dirs ...string) error {
 	}
 
 	merged := make(map[string]*Skill)
+	var errs []error
 	for _, dir := range dirs {
 		loaded, err := loadSkillsFromDirectory(dir)
 		if err != nil {
-			return err
+			errs = append(errs, err)
 		}
 		for name, skill := range loaded {
 			merged[name] = skill
 		}
 	}
+
 	r.mu.Lock()
 	r.skills = merged
-	r.lastSnapshot = snap
 	r.dirs = dirs
+	// The snapshot is only recorded on a clean load. A broken skill therefore
+	// re-parses and re-warns on every turn instead of warning once and then
+	// going quiet — a skill that is missing because it does not parse must stay
+	// loud until it is fixed, and this also picks the fix up the moment it lands.
+	if len(errs) == 0 {
+		r.lastSnapshot = snap
+	} else {
+		r.lastSnapshot = dirSnapshot{}
+	}
 	r.mu.Unlock()
-	return nil
+	return errors.Join(errs...)
 }
 
 // Reload forces a full reload from the directories used by the last
@@ -206,16 +225,30 @@ func (s dirSnapshot) equals(other dirSnapshot) bool {
 	return true
 }
 
+// loadSkillsFromDirectory loads every skill it can and reports the ones it
+// could not, rather than failing the whole directory at the first bad file.
+//
+// The isolation is the point. A skills directory is not curated — manage-skills
+// installs from ClawHub, where thousands of community skills are one clone away
+// — and an early return here meant a single malformed SKILL.md deleted every
+// other skill in the directory: the callers only log the error and carry on, so
+// the assistant would come up with an empty registry and no idea why. The trap
+// is easy to spring, too: an unquoted YAML scalar cannot contain ": ", so a
+// description as ordinary as "the WRITE path: add a key" fails to parse.
+//
+// A bad skill is skipped and named in the returned error, never swallowed. The
+// caller logs it; the other skills keep working.
 func loadSkillsFromDirectory(dir string) (map[string]*Skill, error) {
 	entries, err := os.ReadDir(dir)
 	if err != nil {
 		if os.IsNotExist(err) {
 			return map[string]*Skill{}, nil // No skills directory is okay
 		}
-		return nil, err
+		return nil, err // Cannot read the directory at all — nothing to salvage.
 	}
 
 	loaded := make(map[string]*Skill)
+	var errs []error
 	for _, entry := range entries {
 		// Directory-based skill: look for SKILL.md or SKILLS.md inside.
 		if entry.IsDir() {
@@ -226,7 +259,8 @@ func loadSkillsFromDirectory(dir string) (map[string]*Skill, error) {
 			}
 			skill, loadErr := loadMarkdownSkill(skillFile, slug)
 			if loadErr != nil {
-				return nil, fmt.Errorf("failed to load skill %s/SKILL.md: %w", slug, loadErr)
+				errs = append(errs, fmt.Errorf("skill %s (%s): %w", slug, skillFile, loadErr))
+				continue
 			}
 			if skill != nil {
 				skill.Slug = slug
@@ -254,7 +288,8 @@ func loadSkillsFromDirectory(dir string) (map[string]*Skill, error) {
 		}
 
 		if loadErr != nil {
-			return nil, fmt.Errorf("failed to load skill %s: %w", name, loadErr)
+			errs = append(errs, fmt.Errorf("skill %s: %w", name, loadErr))
+			continue
 		}
 
 		if skill != nil {
@@ -265,7 +300,7 @@ func loadSkillsFromDirectory(dir string) (map[string]*Skill, error) {
 		}
 	}
 
-	return loaded, nil
+	return loaded, errors.Join(errs...)
 }
 
 // FindSkillFile returns the path to SKILL.md or SKILLS.md in the given

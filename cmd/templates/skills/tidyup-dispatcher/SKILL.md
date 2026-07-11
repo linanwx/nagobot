@@ -1,7 +1,6 @@
 ---
 name: tidyup-dispatcher
 description: Workspace tidyup dispatcher — move long report files from workspace root into reports/. Used by the tidyup cron task.
-tags: [workspace, internal]
 ---
 # Tidyup Dispatcher
 

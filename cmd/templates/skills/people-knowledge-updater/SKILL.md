@@ -1,7 +1,6 @@
 ---
 name: people-knowledge-updater
 description: Nightly people-knowledge updater — scans the last 24h of conversation across sessions and incrementally merges into a person-centric, time-sensitive knowledge file (who, recent activity, upcoming plans, key time/place, motivation, with confidence) for injection into the soul system prompt. Used by the people-knowledge cron task.
-tags: [people, knowledge, cross-session, internal]
 ---
 # People Knowledge Updater
 

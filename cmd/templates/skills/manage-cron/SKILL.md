@@ -1,6 +1,6 @@
 ---
 name: manage-cron
-description: Use when the user wants to schedule recurring or one-time tasks, set up automated reminders/jobs, or manage existing cron schedules (create, update, remove, list).
+description: Schedule nagobot's own background jobs — recurring tasks, one-time delayed tasks, and repeating reminders that nagobot itself delivers to the user as a message. Use when the user wants something to happen automatically later or on a repeat (every morning, every Monday, daily at a set hour, in two hours), or wants to create, update, remove, or list existing cron schedules. For an entry in the macOS Reminders or Calendar app instead, use apple-apps.
 ---
 # Manage Cron Jobs
 
