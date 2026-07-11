@@ -701,6 +701,12 @@ func (p *OpenAIProvider) buildRequestBody(ctx context.Context, req *Request, for
 		tools = append(tools, tool)
 	}
 
+	// gpt-5.6-sol burns tokens too fast at high effort for everyday use.
+	effort := "high"
+	if p.modelName == "gpt-5.6-sol" {
+		effort = "medium"
+	}
+
 	body := map[string]any{
 		"model":   p.modelName,
 		"input":   input,
@@ -708,7 +714,7 @@ func (p *OpenAIProvider) buildRequestBody(ctx context.Context, req *Request, for
 		"store":   false,
 		"include": []string{"reasoning.encrypted_content"},
 		"reasoning": map[string]any{
-			"effort":  "high",
+			"effort":  effort,
 			"summary": "auto",
 		},
 	}
