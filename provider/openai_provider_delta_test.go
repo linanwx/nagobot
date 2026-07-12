@@ -60,7 +60,7 @@ func TestBuildRequestBody_DeltaOnMatchingPrefix(t *testing.T) {
 			{ID: "call_1", Type: "function", Function: FunctionCall{Name: "search", Arguments: "{}"}},
 		},
 	}
-	p.updateContinuation(built1.fullItems, "resp_abc", resp)
+	p.updateContinuation(built1, "resp_abc", resp)
 
 	if p.lastResponseID != "resp_abc" {
 		t.Fatalf("expected lastResponseID to be recorded, got %q", p.lastResponseID)
@@ -110,7 +110,7 @@ func TestBuildRequestBody_MismatchFallsBackToFull(t *testing.T) {
 		t.Fatalf("buildRequestBody (1): %v", err)
 	}
 	resp := &Response{Content: "ok"}
-	p.updateContinuation(built1.fullItems, "resp_xyz", resp)
+	p.updateContinuation(built1, "resp_xyz", resp)
 
 	// History was rewritten (e.g. compression) instead of purely appended to.
 	req2 := &Request{Messages: []Message{
@@ -137,7 +137,7 @@ func TestBuildRequestBody_ForceFullContextIgnoresContinuation(t *testing.T) {
 	p := newTestOAuthProvider()
 	req1 := &Request{Messages: []Message{{Role: "user", Content: "hi"}}}
 	built1, _ := p.buildRequestBody(context.Background(), req1, false)
-	p.updateContinuation(built1.fullItems, "resp_1", &Response{Content: "hello"})
+	p.updateContinuation(built1, "resp_1", &Response{Content: "hello"})
 
 	req2 := &Request{Messages: []Message{
 		{Role: "user", Content: "hi"},
@@ -165,7 +165,7 @@ func TestBuildRequestBody_NonOAuthNeverUsesDelta(t *testing.T) {
 	p := newOpenAIProvider("test-key", "", "gpt-5.5", "gpt-5.5", 0, 0) // no SetAccountID call
 	req1 := &Request{Messages: []Message{{Role: "user", Content: "hi"}}}
 	built1, _ := p.buildRequestBody(context.Background(), req1, false)
-	p.updateContinuation(built1.fullItems, "resp_1", &Response{Content: "hello"})
+	p.updateContinuation(built1, "resp_1", &Response{Content: "hello"})
 
 	req2 := &Request{Messages: []Message{
 		{Role: "user", Content: "hi"},
@@ -231,8 +231,122 @@ func TestUpdateContinuation_NoResponseIDInvalidates(t *testing.T) {
 	p := newTestOAuthProvider()
 	p.lastResponseID = "stale"
 	p.lastInputItems = []map[string]any{{"type": "message"}}
-	p.updateContinuation([]map[string]any{{"type": "message"}}, "", &Response{})
+	p.updateContinuation(&builtRequest{fullItems: []map[string]any{{"type": "message"}}}, "", &Response{})
 	if p.lastResponseID != "" || p.lastInputItems != nil {
 		t.Fatalf("expected continuation to be invalidated when responseID is empty")
+	}
+}
+
+// TestBuildRequestBody_InstructionsChangeDropsDelta: sending
+// previous_response_id with different instructions is undefined server
+// behavior, so a cross-turn instructions change (USER.md rewrite, {{DATE}}
+// rollover) must force full context AND invalidate the continuation.
+func TestBuildRequestBody_InstructionsChangeDropsDelta(t *testing.T) {
+	p := newTestOAuthProvider()
+	req1 := &Request{Messages: []Message{
+		{Role: "system", Content: "sys v1"},
+		{Role: "user", Content: "hello"},
+	}}
+	built1, err := p.buildRequestBody(context.Background(), req1, false)
+	if err != nil {
+		t.Fatalf("buildRequestBody (1): %v", err)
+	}
+	p.updateContinuation(built1, "resp_1", &Response{Content: "hi"})
+
+	req2 := &Request{Messages: []Message{
+		{Role: "system", Content: "sys v2 — the date rolled over"},
+		{Role: "user", Content: "hello"},
+		AssistantMessageWithTools("hi", "", nil, nil),
+		{Role: "user", Content: "follow up"},
+	}}
+	built2, err := p.buildRequestBody(context.Background(), req2, false)
+	if err != nil {
+		t.Fatalf("buildRequestBody (2): %v", err)
+	}
+	if built2.usedDelta {
+		t.Fatal("changed instructions must force full context")
+	}
+	if _, ok := built2.bodyMap["previous_response_id"]; ok {
+		t.Fatal("changed instructions must not send previous_response_id")
+	}
+	if p.lastResponseID != "" {
+		t.Fatal("changed instructions must invalidate the continuation")
+	}
+}
+
+// TestBuildRequestBody_ToolsChangeDropsDelta: same rule for the tool list
+// (skill hot-reload can change it between turns).
+func TestBuildRequestBody_ToolsChangeDropsDelta(t *testing.T) {
+	toolA := ToolDef{Type: "function", Function: FunctionDef{Name: "search", Parameters: map[string]any{"type": "object"}}}
+	toolB := ToolDef{Type: "function", Function: FunctionDef{Name: "fetch", Parameters: map[string]any{"type": "object"}}}
+
+	p := newTestOAuthProvider()
+	req1 := &Request{
+		Messages: []Message{{Role: "user", Content: "hello"}},
+		Tools:    []ToolDef{toolA},
+	}
+	built1, err := p.buildRequestBody(context.Background(), req1, false)
+	if err != nil {
+		t.Fatalf("buildRequestBody (1): %v", err)
+	}
+	p.updateContinuation(built1, "resp_1", &Response{Content: "hi"})
+
+	req2 := &Request{
+		Messages: []Message{
+			{Role: "user", Content: "hello"},
+			AssistantMessageWithTools("hi", "", nil, nil),
+			{Role: "user", Content: "follow up"},
+		},
+		Tools: []ToolDef{toolA, toolB},
+	}
+	built2, err := p.buildRequestBody(context.Background(), req2, false)
+	if err != nil {
+		t.Fatalf("buildRequestBody (2): %v", err)
+	}
+	if built2.usedDelta {
+		t.Fatal("changed tools must force full context")
+	}
+	if p.lastResponseID != "" {
+		t.Fatal("changed tools must invalidate the continuation")
+	}
+}
+
+// TestBuildRequestBody_StableAttrsKeepDelta: identical instructions and tools
+// across turns keep the delta path — the case the pool exists for.
+func TestBuildRequestBody_StableAttrsKeepDelta(t *testing.T) {
+	tool := ToolDef{Type: "function", Function: FunctionDef{Name: "search", Parameters: map[string]any{"type": "object"}}}
+
+	p := newTestOAuthProvider()
+	req1 := &Request{
+		Messages: []Message{
+			{Role: "system", Content: "sys"},
+			{Role: "user", Content: "hello"},
+		},
+		Tools: []ToolDef{tool},
+	}
+	built1, err := p.buildRequestBody(context.Background(), req1, false)
+	if err != nil {
+		t.Fatalf("buildRequestBody (1): %v", err)
+	}
+	p.updateContinuation(built1, "resp_1", &Response{Content: "hi"})
+
+	req2 := &Request{
+		Messages: []Message{
+			{Role: "system", Content: "sys"},
+			{Role: "user", Content: "hello"},
+			AssistantMessageWithTools("hi", "", nil, nil),
+			{Role: "user", Content: "follow up"},
+		},
+		Tools: []ToolDef{tool},
+	}
+	built2, err := p.buildRequestBody(context.Background(), req2, false)
+	if err != nil {
+		t.Fatalf("buildRequestBody (2): %v", err)
+	}
+	if !built2.usedDelta {
+		t.Fatal("unchanged attributes with an extending history must use delta")
+	}
+	if built2.bodyMap["previous_response_id"] != "resp_1" {
+		t.Fatalf("expected previous_response_id=resp_1, got %v", built2.bodyMap["previous_response_id"])
 	}
 }

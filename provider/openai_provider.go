@@ -69,6 +69,16 @@ var (
 // request in the 272K–282K band would be silently double-billed. 272000 makes
 // crossing the band structurally impossible (Tier 2 then fires at 182K).
 // This is the same defect Codex itself has: openai/codex#32486.
+//
+// OpenClaw, the reference implementation for this backend, reaches the same
+// number by a cleaner route: it keeps the native capacity and the runtime cap
+// as two separate values (extensions/codex/provider-catalog.ts —
+// KNOWN_CONTEXT_WINDOW_BY_MODEL_ID puts gpt-5.6-* at 372_000, while
+// DEFAULT_CONTEXT_WINDOW is 272_000, the effective runtime cap it applies to
+// the whole Codex family including gpt-5.5). We collapse the two, which is
+// equivalent here because the registered window is only ever consumed as a
+// budget (compression thresholds and Runner.contextBudget) — we never surface
+// the model's native capacity anywhere.
 const gpt56ContextWindow = 272000
 
 func init() {
@@ -127,17 +137,36 @@ type OpenAIProvider struct {
 	httpClient  *http.Client
 	accountID   string // ChatGPT account ID from OAuth id_token
 
-	// Continuation state for previous_response_id chaining. Scoped to this
-	// provider instance's lifetime, which is exactly one turn's agentic loop
-	// (ProviderFactory.Create() builds a fresh instance per turn — see
-	// thread.resolveProvider). Only reachable on the OAuth/ChatGPT-Codex
-	// backend (accountID != "") and only actually usable over the WebSocket
-	// transport below — see wsFailed. lastInputItems is the full logical
-	// input array (in Responses API item form) as of the last successful
-	// call, plus a synthesized echo of that call's own assistant reply — i.e.
-	// everything the server already knows as of lastResponseID.
-	lastResponseID string
-	lastInputItems []map[string]any
+	// Continuation state for previous_response_id chaining. The provider
+	// instance is turn-scoped (ProviderFactory.Create() builds a fresh one per
+	// turn — see thread.resolveProvider), but this state is session-scoped: at
+	// the end of a healthy turn Close() parks it in the WSPool together with
+	// the connection it is valid on, and the next turn's ensureWSConn adopts
+	// both. Only reachable on the OAuth/ChatGPT-Codex backend (accountID !=
+	// "") and only actually usable over the WebSocket transport below — see
+	// wsFailed. lastInputItems is the full logical input array (in Responses
+	// API item form) as of the last successful call, plus a synthesized echo
+	// of that call's own assistant reply — i.e. everything the server already
+	// knows as of lastResponseID. lastInstructions/lastToolsFP snapshot the
+	// request attributes that must ALSO be unchanged for a delta to be valid
+	// (mirroring codex's responses_request_properties_match): sending
+	// previous_response_id with different instructions or tools is undefined
+	// server behavior, so any mismatch drops to full context.
+	lastResponseID   string
+	lastInputItems   []map[string]any
+	lastInstructions string
+	lastToolsFP      string
+
+	// Cross-turn connection pool, injected by the Factory (nil outside it,
+	// e.g. in tests). poolKey is derived on first use from the session key in
+	// ctx plus the model name; empty means this turn cannot pool (no session
+	// key — one-off calls). wsFromPool records whether the current wsConn was
+	// adopted from the pool: a pooled socket may have died while parked, so
+	// its first failure gets one redial instead of demoting the whole turn to
+	// HTTP full-context (which would be strictly worse than not pooling).
+	pool       *WSPool
+	poolKey    string
+	wsFromPool bool
 
 	// WebSocket transport state (OAuth/ChatGPT-Codex backend only). One
 	// connection is dialed lazily on first use and reused for every
@@ -163,12 +192,15 @@ type OpenAIProvider struct {
 func (p *OpenAIProvider) invalidateContinuation() {
 	p.lastResponseID = ""
 	p.lastInputItems = nil
+	p.lastInstructions = ""
+	p.lastToolsFP = ""
 }
 
 // updateContinuation records the continuation state after a successful
-// response, so the next call on this provider instance (next tool-call
-// iteration within the same turn) can send only the delta.
-func (p *OpenAIProvider) updateContinuation(fullItems []map[string]any, responseID string, resp *Response) {
+// response, so the next call — the next tool-call iteration within this turn,
+// or the next turn's first call after the pool round trip — can send only the
+// delta.
+func (p *OpenAIProvider) updateContinuation(built *builtRequest, responseID string, resp *Response) {
 	if responseID == "" {
 		p.invalidateContinuation()
 		return
@@ -178,11 +210,13 @@ func (p *OpenAIProvider) updateContinuation(fullItems []map[string]any, response
 		ReasoningDetails: resp.ReasoningDetails,
 		ToolCalls:        resp.ToolCalls,
 	})
-	baseline := make([]map[string]any, 0, len(fullItems)+len(echo))
-	baseline = append(baseline, fullItems...)
+	baseline := make([]map[string]any, 0, len(built.fullItems)+len(echo))
+	baseline = append(baseline, built.fullItems...)
 	baseline = append(baseline, echo...)
 	p.lastResponseID = responseID
 	p.lastInputItems = baseline
+	p.lastInstructions = built.instructions
+	p.lastToolsFP = built.toolsFP
 }
 
 // SetAccountID sets the ChatGPT account ID for OAuth-based requests.
@@ -190,15 +224,52 @@ func (p *OpenAIProvider) SetAccountID(id string) {
 	p.accountID = id
 }
 
-// Close releases the WebSocket connection, if one is open. Implements the
-// optional provider.Closer interface — thread.executeRunner defer-calls this
-// once the turn's Runner loop ends, mirroring the AccountIDSetter pattern for
-// optional per-provider capabilities. Safe to call multiple times.
+// setWSPool implements wsPoolSetter; the Factory injects its process-wide
+// pool here so connections can outlive this turn-scoped provider instance.
+func (p *OpenAIProvider) setWSPool(pool *WSPool) {
+	p.pool = pool
+}
+
+// Close implements the optional provider.Closer interface —
+// thread.executeRunner defer-calls this once the turn's Runner loop ends.
+// A healthy connection is parked in the session pool together with its
+// continuation state (they are only valid together); anything else is torn
+// down. Safe to call multiple times.
+//
+// Error paths inside a turn must NOT call this: they run before wsFailed is
+// set, so the health check here would happily park a broken connection. They
+// call closeHard instead.
 func (p *OpenAIProvider) Close() {
+	if p.wsConn == nil {
+		return
+	}
+	if p.wsFailed || p.pool == nil || p.poolKey == "" {
+		p.closeHard()
+		return
+	}
+	entry := &wsPoolEntry{
+		conn:             p.wsConn,
+		lastResponseID:   p.lastResponseID,
+		lastInputItems:   p.lastInputItems,
+		lastInstructions: p.lastInstructions,
+		lastToolsFP:      p.lastToolsFP,
+		wsQuota:          p.wsQuota,
+		baseURL:          p.baseURL,
+		accountID:        p.accountID,
+	}
+	p.wsConn = nil
+	p.wsFromPool = false
+	p.pool.Put(p.poolKey, entry)
+}
+
+// closeHard tears the WebSocket connection down immediately and never parks
+// it. The teardown path for every in-turn failure.
+func (p *OpenAIProvider) closeHard() {
 	if p.wsConn != nil {
 		p.wsConn.Close()
 		p.wsConn = nil
 	}
+	p.wsFromPool = false
 }
 
 func newOpenAIProvider(apiKey, apiBase, modelType, modelName string, maxTokens int, temperature float64) *OpenAIProvider {
@@ -241,51 +312,25 @@ func (p *OpenAIProvider) Chat(ctx context.Context, req *Request) (ChatResult, er
 // happens after the goroutine is already returning deltas to the caller
 // cannot be silently retried (some output may already be visible), so it is
 // only retried if nothing was emitted yet.
+//
+// Connections adopted from the WSPool get one extra chance on both the write
+// and the pre-emission stream path: a socket that died while parked must cost
+// at most a redial (what a pool miss would have cost), never the demotion of
+// the whole turn to HTTP full-context — that would also forfeit the in-turn
+// delta calls and make pooling strictly worse than not pooling.
 func (p *OpenAIProvider) chatViaWS(ctx context.Context, req *Request) (ChatResult, error) {
 	start := time.Now()
-	inputChars := inputChars(req.Messages)
+	nInputChars := inputChars(req.Messages)
 
-	conn, err := p.ensureWSConn(ctx)
+	conn, built, err := p.writeWSRequest(ctx, req, nInputChars)
 	if err != nil {
-		logger.Warn("openai-oauth websocket dial failed, falling back to HTTP for the rest of this turn", "err", err)
+		logger.Warn("openai-oauth websocket unavailable, falling back to HTTP for the rest of this turn", "err", err)
+		p.closeHard()
 		p.wsFailed = true
 		p.invalidateContinuation()
 		return p.chatViaHTTP(ctx, req)
 	}
-
-	built, err := p.buildRequestBody(ctx, req, false)
-	if err != nil {
-		return nil, fmt.Errorf("failed to build request: %w", err)
-	}
-
-	logger.Info(
-		"openai request",
-		"provider", "openai-oauth",
-		"transport", "ws",
-		"modelType", p.modelType,
-		"modelName", p.modelName,
-		"toolCount", len(req.Tools),
-		"inputChars", inputChars,
-		"usedDelta", built.usedDelta,
-	)
-
-	wsMsg := make(map[string]any, len(built.bodyMap)+1)
-	maps.Copy(wsMsg, built.bodyMap)
-	wsMsg["type"] = "response.create"
-
-	// The write needs its own deadline, not the caller's context: gorilla's
-	// WriteJSON does not take one, so a peer that stops draining the socket
-	// mid-request would block here with no way for a cancelled ctx to reach it.
-	// Requests are large (hundreds of KB of context is normal) but they go to a
-	// socket that was healthy seconds ago, so a minute is silence, not slowness.
-	_ = conn.SetWriteDeadline(time.Now().Add(wsRequestWriteTimeout))
-	if err := conn.WriteJSON(wsMsg); err != nil {
-		logger.Warn("openai-oauth websocket write failed, falling back to HTTP for the rest of this turn", "err", err)
-		p.Close()
-		p.wsFailed = true
-		p.invalidateContinuation()
-		return p.chatViaHTTP(ctx, req)
-	}
+	fromPool := p.wsFromPool
 
 	resp := &Response{ProviderLabel: "openai-oauth", ModelLabel: p.modelName}
 	adapter := newStreamAdapter(ctx, resp)
@@ -294,8 +339,24 @@ func (p *OpenAIProvider) chatViaWS(ctx context.Context, req *Request) (ChatResul
 		defer adapter.Finish()
 
 		responseID, emitted, perr := p.parseWSStream(ctx, conn, adapter)
+		if perr != nil && !emitted && fromPool {
+			// The parked socket was stale (server dropped its state or the
+			// connection died without an RST). Nothing was emitted, so retry
+			// once on a fresh dial — full context, since the continuation
+			// died with the old connection.
+			logger.Warn("openai-oauth pooled websocket stream failed before any output, redialing once", "err", perr)
+			p.closeHard()
+			p.invalidateContinuation()
+			conn2, built2, werr := p.writeWSRequest(ctx, req, nInputChars)
+			if werr != nil {
+				perr = werr
+			} else {
+				built = built2
+				responseID, emitted, perr = p.parseWSStream(ctx, conn2, adapter)
+			}
+		}
 		if perr != nil {
-			p.Close()
+			p.closeHard()
 			p.wsFailed = true
 			p.invalidateContinuation()
 			if !emitted {
@@ -309,7 +370,7 @@ func (p *OpenAIProvider) chatViaWS(ctx context.Context, req *Request) (ChatResul
 			return
 		}
 
-		p.updateContinuation(built.fullItems, responseID, resp)
+		p.updateContinuation(built, responseID, resp)
 		if p.wsQuota != nil {
 			resp.Quota = p.wsQuota
 		}
@@ -337,15 +398,93 @@ func (p *OpenAIProvider) chatViaWS(ctx context.Context, req *Request) (ChatResul
 	return adapter.Result(), nil
 }
 
-// ensureWSConn returns this provider's WebSocket connection to the Codex
-// backend, dialing one on first use. The connection stays open for the
-// lifetime of this provider instance (one turn) and is reused across every
-// tool-call iteration within it, since previous_response_id continuation is
-// scoped to the WS session that produced the referenced response.
+// writeWSRequest obtains a connection (pooled or freshly dialed), builds the
+// request body against whatever continuation state is current, and writes it.
+// A write failure on a pooled connection gets exactly one retry: drop the
+// stale socket, invalidate the continuation, redial, REBUILD the body (the
+// delta body references a previous_response_id that died with the old
+// connection), and write again. A fresh connection's write failure is
+// returned to the caller, which falls back to HTTP — same as before pooling.
+func (p *OpenAIProvider) writeWSRequest(ctx context.Context, req *Request, nInputChars int) (*websocket.Conn, *builtRequest, error) {
+	for attempt := 0; ; attempt++ {
+		conn, err := p.ensureWSConn(ctx)
+		if err != nil {
+			return nil, nil, err
+		}
+
+		built, err := p.buildRequestBody(ctx, req, false)
+		if err != nil {
+			return nil, nil, fmt.Errorf("failed to build request: %w", err)
+		}
+
+		logger.Info(
+			"openai request",
+			"provider", "openai-oauth",
+			"transport", "ws",
+			"modelType", p.modelType,
+			"modelName", p.modelName,
+			"toolCount", len(req.Tools),
+			"inputChars", nInputChars,
+			"usedDelta", built.usedDelta,
+			"fromPool", p.wsFromPool,
+			"attempt", attempt,
+		)
+
+		wsMsg := make(map[string]any, len(built.bodyMap)+1)
+		maps.Copy(wsMsg, built.bodyMap)
+		wsMsg["type"] = "response.create"
+
+		// The write needs its own deadline, not the caller's context: gorilla's
+		// WriteJSON does not take one, so a peer that stops draining the socket
+		// mid-request would block here with no way for a cancelled ctx to reach it.
+		// Requests are large (hundreds of KB of context is normal) but they go to a
+		// socket that was healthy seconds ago, so a minute is silence, not slowness.
+		_ = conn.SetWriteDeadline(time.Now().Add(wsRequestWriteTimeout))
+		if werr := conn.WriteJSON(wsMsg); werr != nil {
+			wasPooled := p.wsFromPool
+			p.closeHard()
+			p.invalidateContinuation()
+			if wasPooled && attempt == 0 {
+				logger.Warn("openai-oauth pooled websocket write failed, redialing once", "err", werr)
+				continue
+			}
+			return nil, nil, werr
+		}
+		return conn, built, nil
+	}
+}
+
+// ensureWSConn returns a WebSocket connection to the Codex backend: the one
+// already in use this turn, a healthy one adopted from the session pool
+// (together with the continuation state that is only valid on it), or a
+// freshly dialed one. previous_response_id continuation is scoped to the WS
+// session that produced the referenced response, which is why the connection
+// and the continuation state always travel together.
 func (p *OpenAIProvider) ensureWSConn(ctx context.Context) (*websocket.Conn, error) {
 	if p.wsConn != nil {
 		return p.wsConn, nil
 	}
+
+	if p.poolKey == "" {
+		if sk := sessionCacheKey(ctx); sk != "" {
+			p.poolKey = sk + "|" + p.modelName
+		}
+	}
+	if p.pool != nil && p.poolKey != "" {
+		if e := p.pool.Take(p.poolKey, p.baseURL, p.accountID); e != nil {
+			p.wsConn = e.conn
+			p.lastResponseID = e.lastResponseID
+			p.lastInputItems = e.lastInputItems
+			p.lastInstructions = e.lastInstructions
+			p.lastToolsFP = e.lastToolsFP
+			p.wsQuota = e.wsQuota
+			p.wsFromPool = true
+			logger.Info("openai ws pool hit", "key", p.poolKey, "hasContinuation", e.lastResponseID != "")
+			return e.conn, nil
+		}
+		logger.Info("openai ws pool miss", "key", p.poolKey)
+	}
+
 	if p.wsRequestID == "" {
 		// Prefer a per-session stable id over a random one: the backend uses
 		// session_id for cache-affine routing, so a value that survives across
@@ -374,6 +513,7 @@ func (p *OpenAIProvider) ensureWSConn(ctx context.Context) (*websocket.Conn, err
 		p.wsQuota = extractQuota(httpResp.Header)
 	}
 	p.wsConn = conn
+	p.wsFromPool = false
 	return conn, nil
 }
 
@@ -615,9 +755,29 @@ func (p *OpenAIProvider) doRequest(ctx context.Context, url string, body []byte)
 // body (as a map, marshaled by whichever transport sends it) plus the
 // bookkeeping needed to maintain (or retry) previous_response_id chaining.
 type builtRequest struct {
-	bodyMap   map[string]any
-	usedDelta bool             // true if body carries previous_response_id + partial input
-	fullItems []map[string]any // full logical input array as of this call (pre-delta-slicing)
+	bodyMap      map[string]any
+	usedDelta    bool             // true if body carries previous_response_id + partial input
+	fullItems    []map[string]any // full logical input array as of this call (pre-delta-slicing)
+	instructions string           // joined system messages as sent — snapshotted into continuation state
+	toolsFP      string           // fingerprint of the converted tools array — ditto
+}
+
+// toolsFingerprint hashes the converted tools array. json.Marshal sorts map
+// keys, so identical tool sets always fingerprint identically.
+func toolsFingerprint(tools []map[string]any) string {
+	if len(tools) == 0 {
+		return ""
+	}
+	b, err := json.Marshal(tools)
+	if err != nil {
+		// Unreachable for map/string-valued tool defs; the constant keeps the
+		// signature total. (Two unmarshalable arrays would falsely match, but
+		// an unmarshalable tools array would already have broken the request
+		// marshal itself long before caching mattered.)
+		return "unmarshalable"
+	}
+	sum := sha256.Sum256(b)
+	return hex.EncodeToString(sum[:])
 }
 
 // userMessageToInputItems converts a single user-role message to Responses API
@@ -793,20 +953,12 @@ func (p *OpenAIProvider) buildRequestBody(ctx context.Context, req *Request, for
 		}
 	}
 
+	joinedInstructions := strings.Join(instructions, "\n\n")
+
 	fullItems := convertMessagesToInputItems(req.Messages)
 
-	input := fullItems
-	usedDelta := false
-	previousResponseID := ""
-	if !forceFullContext && p.accountID != "" && p.lastResponseID != "" &&
-		len(fullItems) >= len(p.lastInputItems) &&
-		reflect.DeepEqual(fullItems[:len(p.lastInputItems)], p.lastInputItems) {
-		input = fullItems[len(p.lastInputItems):]
-		usedDelta = true
-		previousResponseID = p.lastResponseID
-	}
-
-	// Convert tools to Responses API format (flat structure).
+	// Convert tools to Responses API format (flat structure). Done before the
+	// delta gate below because the gate needs the tools fingerprint.
 	var tools []map[string]any
 	for _, t := range req.Tools {
 		tool := map[string]any{
@@ -818,6 +970,35 @@ func (p *OpenAIProvider) buildRequestBody(ctx context.Context, req *Request, for
 			tool["description"] = t.Function.Description
 		}
 		tools = append(tools, tool)
+	}
+	toolsFP := toolsFingerprint(tools)
+
+	input := fullItems
+	usedDelta := false
+	previousResponseID := ""
+	if !forceFullContext && p.accountID != "" && p.lastResponseID != "" {
+		// A delta is valid only when the request is an extension of what the
+		// server already holds: same instructions, same tools, and an input
+		// array whose head is byte-for-byte what was sent (plus the echoed
+		// reply). Within a turn the attributes are frozen so only the prefix
+		// check bites; across turns (pooled continuation) instructions change
+		// on {{DATE}} rollover, USER.md rewrites, or skill hot-reloads —
+		// sending previous_response_id with different attributes is undefined
+		// server behavior, so mirror codex's responses_request_properties_match
+		// and drop to full context instead.
+		attrsMatch := joinedInstructions == p.lastInstructions && toolsFP == p.lastToolsFP
+		if attrsMatch &&
+			len(fullItems) >= len(p.lastInputItems) &&
+			reflect.DeepEqual(fullItems[:len(p.lastInputItems)], p.lastInputItems) {
+			input = fullItems[len(p.lastInputItems):]
+			usedDelta = true
+			previousResponseID = p.lastResponseID
+		} else if !attrsMatch {
+			logger.Info("openai continuation dropped: request attributes changed",
+				"instructionsChanged", joinedInstructions != p.lastInstructions,
+				"toolsChanged", toolsFP != p.lastToolsFP)
+			p.invalidateContinuation()
+		}
 	}
 
 	// gpt-5.6-sol burns tokens too fast at high effort for everyday use.
@@ -846,8 +1027,8 @@ func (p *OpenAIProvider) buildRequestBody(ctx context.Context, req *Request, for
 	if p.modelName == "gpt-5.4" || p.modelName == "gpt-5.5" {
 		body["text"] = map[string]any{"verbosity": "low"}
 	}
-	if len(instructions) > 0 {
-		body["instructions"] = strings.Join(instructions, "\n\n")
+	if joinedInstructions != "" {
+		body["instructions"] = joinedInstructions
 	}
 	if len(tools) > 0 {
 		body["tools"] = tools
@@ -865,7 +1046,13 @@ func (p *OpenAIProvider) buildRequestBody(ctx context.Context, req *Request, for
 		}
 	}
 
-	return &builtRequest{bodyMap: body, usedDelta: usedDelta, fullItems: fullItems}, nil
+	return &builtRequest{
+		bodyMap:      body,
+		usedDelta:    usedDelta,
+		fullItems:    fullItems,
+		instructions: joinedInstructions,
+		toolsFP:      toolsFP,
+	}, nil
 }
 
 // parseSSEStream reads an SSE event stream and assembles the complete response.
@@ -949,13 +1136,14 @@ func (a *responseAssembler) handleEvent(data []byte) (done bool, err error) {
 		Response struct {
 			ID    string `json:"id"`
 			Usage struct {
-				InputTokens        int `json:"input_tokens"`
-				OutputTokens       int `json:"output_tokens"`
-				TotalTokens        int `json:"total_tokens"`
-				InputTokensDetails struct {
-					CachedTokens     int `json:"cached_tokens"`
-					CacheWriteTokens int `json:"cache_write_tokens"`
-				} `json:"input_tokens_details"`
+				InputTokens  int `json:"input_tokens"`
+				OutputTokens int `json:"output_tokens"`
+				TotalTokens  int `json:"total_tokens"`
+				// Kept raw so the exact keys the server sent can be logged when
+				// they don't add up — see the cache-accounting check below. The
+				// ChatGPT/Codex backend and api.openai.com do not necessarily
+				// populate the same fields here.
+				InputTokensDetails  json.RawMessage `json:"input_tokens_details"`
 				OutputTokensDetails struct {
 					ReasoningTokens int `json:"reasoning_tokens"`
 				} `json:"output_tokens_details"`
@@ -987,14 +1175,26 @@ func (a *responseAssembler) handleEvent(data []byte) (done bool, err error) {
 
 	case "response.completed", "response.done", "response.incomplete":
 		a.responseID = event.Response.ID
+		var inDetails struct {
+			CachedTokens     int `json:"cached_tokens"`
+			CacheWriteTokens int `json:"cache_write_tokens"`
+		}
+		rawDetails := event.Response.Usage.InputTokensDetails
+		if len(rawDetails) > 0 {
+			if detErr := json.Unmarshal(rawDetails, &inDetails); detErr != nil {
+				logger.Warn("openai usage: input_tokens_details failed to parse",
+					"err", detErr, "raw", string(rawDetails))
+			}
+		}
 		a.resp.Usage = Usage{
 			PromptTokens:     event.Response.Usage.InputTokens,
 			CompletionTokens: event.Response.Usage.OutputTokens,
 			TotalTokens:      event.Response.Usage.TotalTokens,
-			CachedTokens:     event.Response.Usage.InputTokensDetails.CachedTokens,
-			CacheWriteTokens: event.Response.Usage.InputTokensDetails.CacheWriteTokens,
+			CachedTokens:     inDetails.CachedTokens,
+			CacheWriteTokens: inDetails.CacheWriteTokens,
 			ReasoningTokens:  event.Response.Usage.OutputTokensDetails.ReasoningTokens,
 		}
+
 		return true, nil
 
 	case "response.failed":
