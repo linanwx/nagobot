@@ -52,6 +52,106 @@ func isEndpointChannel(name string) bool {
 	return slices.Contains(endpointChannels, name)
 }
 
+// dispatchFields enumerates every addressing field on DispatchSend other than
+// to/body, paired with its accessor. Adding a field to DispatchSend means
+// adding it here.
+var dispatchFields = []struct {
+	name string
+	get  func(DispatchSend) string
+}{
+	{"agent", func(s DispatchSend) string { return s.Agent }},
+	{"task_id", func(s DispatchSend) string { return s.TaskID }},
+	{"provider", func(s DispatchSend) string { return s.Provider }},
+	{"model", func(s DispatchSend) string { return s.Model }},
+	{"session_key", func(s DispatchSend) string { return s.SessionKey }},
+	{"channel", func(s DispatchSend) string { return s.Channel }},
+	{"user_id", func(s DispatchSend) string { return s.UserID }},
+}
+
+// acceptedFields is the per-target whitelist of addressing fields. It is a
+// WHITELIST, not a per-branch reject list, and that is the whole point: a field
+// added to DispatchSend is rejected on every target until some target opts in.
+// The previous hand-written reject lists silently ignored channel/user_id on
+// four of the six targets — the model got no error, so it read silence as
+// acceptance while its intended delivery never happened.
+var acceptedFields = map[DispatchTarget]map[string]bool{
+	TargetCallerUser:    {},
+	TargetCallerSession: {},
+	TargetUser:          {},
+	TargetSubagent:      {"agent": true, "task_id": true, "provider": true, "model": true},
+	TargetFork:          {"agent": true, "task_id": true, "provider": true, "model": true},
+	TargetSession:       {"session_key": true, "channel": true, "user_id": true},
+}
+
+// dispatchFieldHints explain what a misplaced field is actually for, so the
+// rejection tells the model where the field belongs rather than only that it
+// does not belong here.
+var dispatchFieldHints = map[string]string{
+	"agent":       "agent/task_id belong to subagent/fork",
+	"task_id":     "agent/task_id belong to subagent/fork",
+	"provider":    "the provider+model override applies to subagent/fork only",
+	"model":       "the provider+model override applies to subagent/fork only",
+	"session_key": "session_key addresses an existing session via to=session",
+	"channel":     "channel+user_id address a channel endpoint via to=session",
+	"user_id":     "channel+user_id address a channel endpoint via to=session",
+}
+
+// normalizeSends trims every identifier-ish field of every send, once, at the
+// entry point. Body is left untouched — leading and trailing whitespace is part
+// of the payload.
+//
+// Trimming here means presence checks, equality guards, existence lookups and
+// execution all see the same value. They used to disagree: presence was tested
+// with a bare != "" in some places and strings.TrimSpace(...) != "" in others,
+// giving a whitespace-only value two identities at once. The sharp edge was
+// session_key: the hasKey gate trimmed, the self-reference guard did not, and
+// execution trimmed again — so `session_key: "cli:main "` slipped past the
+// self-wake guard and then failed its existence check on a session that plainly
+// exists. Today only that existence check stands between a trailing space and
+// self-wake recursion.
+func normalizeSends(sends []DispatchSend) {
+	for i := range sends {
+		s := &sends[i]
+		s.To = DispatchTarget(strings.TrimSpace(string(s.To)))
+		s.Agent = strings.TrimSpace(s.Agent)
+		s.TaskID = strings.TrimSpace(s.TaskID)
+		s.Provider = strings.TrimSpace(s.Provider)
+		s.Model = strings.TrimSpace(s.Model)
+		s.SessionKey = strings.TrimSpace(s.SessionKey)
+		s.Channel = strings.TrimSpace(s.Channel)
+		s.UserID = strings.TrimSpace(s.UserID)
+	}
+}
+
+// rejectUnacceptedFields returns a validation detail if the send sets any
+// addressing field its target does not accept, or "" when the send is clean.
+func rejectUnacceptedFields(send DispatchSend, accepted map[string]bool) string {
+	var bad, hints []string
+	for _, f := range dispatchFields {
+		if f.get(send) == "" || accepted[f.name] {
+			continue
+		}
+		bad = append(bad, f.name)
+		if h := dispatchFieldHints[f.name]; h != "" && !slices.Contains(hints, h) {
+			hints = append(hints, h)
+		}
+	}
+	if len(bad) == 0 {
+		return ""
+	}
+	accepts := "nothing besides to/body"
+	if len(accepted) > 0 {
+		names := make([]string, 0, len(accepted))
+		for n := range accepted {
+			names = append(names, n)
+		}
+		slices.Sort(names)
+		accepts = strings.Join(names, "/")
+	}
+	return fmt.Sprintf("%s does not accept %s (accepts: %s). %s",
+		send.To, strings.Join(bad, "/"), accepts, strings.Join(hints, "; "))
+}
+
 // resolvedSessionKey returns the target session key of a to=session send:
 // the explicit session_key, or channel+":"+user_id for the endpoint form.
 // Empty when neither form is complete.
@@ -147,7 +247,7 @@ func (t *DispatchTool) Def() provider.ToolDef {
 								},
 								"agent": map[string]any{
 									"type":        "string",
-									"description": "Agent template name for subagent/fork. Optional — omit entirely to use the session default; do not pass an empty string, \"default\", or \"none\".",
+									"description": "Agent template name for subagent/fork. Optional — omit it, or pass an empty string, to use the session default. Do NOT invent a placeholder such as \"default\" or \"none\": any non-empty value is looked up as a real template name and fails if no such template exists.",
 								},
 								"task_id": map[string]any{
 									"type":        "string",
@@ -239,6 +339,7 @@ func (t *DispatchTool) run(ctx context.Context, args json.RawMessage) string {
 	if t.host == nil {
 		return toolError("dispatch", "host not configured")
 	}
+	normalizeSends(a.Sends)
 
 	// Reject the content+dispatch combo. When the model emits text in the
 	// assistant content field alongside this dispatch tool_call, that text has
@@ -354,20 +455,26 @@ func (t *DispatchTool) validateAll(sends []DispatchSend) []DispatchError {
 	return errs
 }
 
+// validateOne checks a single send. Fields are already trimmed by
+// normalizeSends, so presence is a plain != "" everywhere below.
 func (t *DispatchTool) validateOne(send DispatchSend, currentSession string) string {
 	if strings.TrimSpace(send.Body) == "" {
 		return "body is required"
 	}
-	// Model override (provider/model) applies to subagent/fork only.
-	if (strings.TrimSpace(send.Provider) != "" || strings.TrimSpace(send.Model) != "") &&
-		send.To != TargetSubagent && send.To != TargetFork {
-		return fmt.Sprintf("%s does not accept provider/model (model override applies to subagent/fork only)", send.To)
+	// Field admission is a whitelist keyed by target; an unknown target has no
+	// entry, which makes this lookup the unknown-to check as well.
+	accepted, known := acceptedFields[send.To]
+	if !known {
+		return fmt.Sprintf("unknown to: %q (must be one of caller:user/caller:session/user/subagent/fork/session)", send.To)
 	}
+	if detail := rejectUnacceptedFields(send, accepted); detail != "" {
+		return detail
+	}
+
+	// Per-target semantic validation. Everything below assumes the send carries
+	// only fields its target accepts.
 	switch send.To {
 	case TargetCallerUser:
-		if send.Agent != "" || send.TaskID != "" || send.SessionKey != "" {
-			return "caller:user does not accept agent/task_id/session_key"
-		}
 		kind, callerKey, _ := t.host.CallerInfo()
 		switch kind {
 		case msg.CallerKindUser:
@@ -380,9 +487,6 @@ func (t *DispatchTool) validateOne(send DispatchSend, currentSession string) str
 			return "current wake has no routable caller"
 		}
 	case TargetCallerSession:
-		if send.Agent != "" || send.TaskID != "" || send.SessionKey != "" {
-			return "caller:session does not accept agent/task_id/session_key"
-		}
 		kind, _, _ := t.host.CallerInfo()
 		switch kind {
 		case msg.CallerKindSession:
@@ -395,26 +499,20 @@ func (t *DispatchTool) validateOne(send DispatchSend, currentSession string) str
 			return "current wake has no routable caller"
 		}
 	case TargetUser:
-		if send.Agent != "" || send.TaskID != "" || send.SessionKey != "" {
-			return "user does not accept agent/task_id/session_key"
-		}
 		if !t.host.IsUserFacing() {
 			return "current session is not user-facing — to=user is only valid for telegram/discord/cli/web/feishu/wecom sessions"
 		}
 	case TargetSubagent, TargetFork:
-		if send.SessionKey != "" {
-			return fmt.Sprintf("%s does not accept session_key", send.To)
-		}
-		if strings.TrimSpace(send.TaskID) == "" {
+		if send.TaskID == "" {
 			return "task_id is required"
 		}
 		if !taskIDRegex.MatchString(send.TaskID) {
 			return "task_id must match [a-z0-9_-]+"
 		}
 		if send.Agent != "" && !t.host.AgentExists(send.Agent) {
-			return fmt.Sprintf("agent %q not found", send.Agent)
+			return fmt.Sprintf("agent %q not found — omit agent (or pass an empty string) to use the session default", send.Agent)
 		}
-		if p, m := strings.TrimSpace(send.Provider), strings.TrimSpace(send.Model); p != "" || m != "" {
+		if p, m := send.Provider, send.Model; p != "" || m != "" {
 			if p == "" || m == "" {
 				return "provider and model must be set together for a model override"
 			}
@@ -423,11 +521,8 @@ func (t *DispatchTool) validateOne(send DispatchSend, currentSession string) str
 			}
 		}
 	case TargetSession:
-		if send.Agent != "" || send.TaskID != "" {
-			return "session does not accept agent/task_id"
-		}
-		hasKey := strings.TrimSpace(send.SessionKey) != ""
-		hasEndpoint := strings.TrimSpace(send.Channel) != "" || strings.TrimSpace(send.UserID) != ""
+		hasKey := send.SessionKey != ""
+		hasEndpoint := send.Channel != "" || send.UserID != ""
 		switch {
 		case hasKey && hasEndpoint:
 			return "session accepts either session_key OR channel+user_id, not both"
@@ -439,7 +534,7 @@ func (t *DispatchTool) validateOne(send DispatchSend, currentSession string) str
 				return fmt.Sprintf("session %q not found — the session_key form requires an existing session. To contact a channel user who may have no session yet, use channel+user_id instead", send.SessionKey)
 			}
 		case hasEndpoint:
-			ch, uid := strings.TrimSpace(send.Channel), strings.TrimSpace(send.UserID)
+			ch, uid := send.Channel, send.UserID
 			if ch == "" || uid == "" {
 				return "channel and user_id must both be set"
 			}
@@ -458,8 +553,6 @@ func (t *DispatchTool) validateOne(send DispatchSend, currentSession string) str
 		default:
 			return "session requires either session_key (existing session) or channel+user_id (created if missing)"
 		}
-	default:
-		return fmt.Sprintf("unknown to: %q (must be one of caller:user/caller:session/user/subagent/fork/session)", send.To)
 	}
 	return ""
 }

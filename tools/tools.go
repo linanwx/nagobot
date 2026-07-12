@@ -75,15 +75,54 @@ type Tool interface {
 	Run(ctx context.Context, args json.RawMessage) string
 }
 
-// parseArgs decodes a tool's JSON arguments into target with three guards:
+// Tool argument contract
+//
+// Go's encoding/json cannot distinguish an omitted key from an explicit `""`
+// or `null` when decoding into a non-pointer field, and many models cannot
+// omit a declared property at all — they emit every key and leave unused ones
+// empty. Rather than fight that, every tool obeys one rule:
+//
+//	EMPTY STRING IS "NOT PROVIDED".
+//
+// Consequences, which are binding on every tool in this package:
+//
+//   - A parameter description must NEVER forbid the empty string ("do not pass
+//     an empty string", "omit entirely"). Such an instruction is unsatisfiable
+//     for a model that cannot omit fields, and pushes it toward sentinel values
+//     like "default" or "none" that are then interpreted as real values. State
+//     the empty-string semantics instead, the way web_search does:
+//     "Search source. Empty to see guide."
+//
+//   - `required:"true"` means PRESENT AND NON-EMPTY. It cannot express
+//     "required, but empty is a legal value" — for that, declare the field as a
+//     POINTER (*string). The required check below tests pointers with IsNil, so
+//     a *string field tagged required rejects a missing/null key while still
+//     accepting "". write_file's `content` needs exactly this: content is
+//     mandatory, yet "" is the legitimate way to create an empty file.
+//
+//   - Numeric parameters treat <= 0 as "use the default". A future numeric
+//     parameter for which 0 is a meaningful value MUST be a pointer, or an
+//     omitted key will silently mean 0.
+//
+//   - Identifier-ish fields (keys, ids, names) are trimmed before presence
+//     checks; content fields (body, content, old_text, command) are never
+//     trimmed, since leading/trailing whitespace is part of the payload.
+//
+// parseArgs decodes a tool's JSON arguments into target with three guards,
+// applied RECURSIVELY through nested objects and arrays:
 //
 //  1. Alias compat: any field tagged `alias:"foo,bar"` also accepts foo/bar as
 //     input keys (canonical key wins if both are present).
-//  2. Required-non-empty: fields tagged `required:"true"` must not be empty
+//  2. Unknown-key rejection: keys that match neither a declared field nor a
+//     declared alias fail fast, with a JSON path (e.g. `sends[0].delay`), so a
+//     misplaced key can never be silently dropped. This guard recurses: a
+//     top-level-only check would let `dispatch(sends=[{delay:"1h"}])` and
+//     `edit_file(edits=[{replace_all:true}])` through, and both fail silently
+//     in ways the model reads as success.
+//  3. Required-non-empty: fields tagged `required:"true"` must not be empty
 //     (empty string / empty slice / empty map / nil pointer triggers an error).
-//  3. Unknown-key rejection: keys that match neither a declared field nor a
-//     declared alias fail fast, so silent-drop bugs (e.g. Go's strings.Count
-//     with "" returning runeCount+1) cannot happen downstream.
+//     Checked at the top level only; nested requirements belong to each tool's
+//     semantic validation, which can produce a far better error message.
 //
 // These checks run centrally so every tool gets them without duplicated code.
 func parseArgs[T any](args json.RawMessage, target *T) string {
@@ -102,78 +141,9 @@ func parseArgs[T any](args json.RawMessage, target *T) string {
 		return ""
 	}
 
-	var raw map[string]json.RawMessage
-	if err := json.Unmarshal(args, &raw); err != nil {
-		return fmt.Sprintf("Error: invalid arguments: %v", err)
-	}
-
-	allowed := make(map[string]struct{}, tv.NumField())
-	aliases := make(map[string]string)
-	type reqSpec struct {
-		name  string
-		index int
-	}
-	var required []reqSpec
-
-	for i := 0; i < tv.NumField(); i++ {
-		f := tv.Field(i)
-		jsonTag := f.Tag.Get("json")
-		if jsonTag == "-" {
-			continue
-		}
-		name := strings.SplitN(jsonTag, ",", 2)[0]
-		if name == "" {
-			name = f.Name
-		}
-		allowed[name] = struct{}{}
-
-		if aliasTag := f.Tag.Get("alias"); aliasTag != "" {
-			for _, al := range strings.Split(aliasTag, ",") {
-				al = strings.TrimSpace(al)
-				if al == "" {
-					continue
-				}
-				aliases[al] = name
-			}
-		}
-		if f.Tag.Get("required") == "true" {
-			required = append(required, reqSpec{name: name, index: i})
-		}
-	}
-
-	// Apply aliases: alias → canonical. Canonical wins on conflict.
-	for alias, canonical := range aliases {
-		v, ok := raw[alias]
-		if !ok {
-			continue
-		}
-		if _, exists := raw[canonical]; !exists {
-			raw[canonical] = v
-		}
-		delete(raw, alias)
-	}
-
-	// Reject unknown keys after alias rewrite.
-	var unknown []string
-	for k := range raw {
-		if _, ok := allowed[k]; !ok {
-			unknown = append(unknown, k)
-		}
-	}
-	if len(unknown) > 0 {
-		sort.Strings(unknown)
-		allowedList := make([]string, 0, len(allowed))
-		for k := range allowed {
-			allowedList = append(allowedList, k)
-		}
-		sort.Strings(allowedList)
-		return fmt.Sprintf("Error: unknown argument(s): %s (allowed: %s)",
-			strings.Join(unknown, ", "), strings.Join(allowedList, ", "))
-	}
-
-	normalized, err := json.Marshal(raw)
-	if err != nil {
-		return fmt.Sprintf("Error: failed to normalize arguments: %v", err)
+	normalized, errMsg := normalizeArgs(args, tv, "")
+	if errMsg != "" {
+		return errMsg
 	}
 	if err := json.Unmarshal(normalized, target); err != nil {
 		return fmt.Sprintf("Error: invalid arguments: %v", err)
@@ -181,17 +151,23 @@ func parseArgs[T any](args json.RawMessage, target *T) string {
 
 	vv := reflect.ValueOf(target).Elem()
 	var missing []string
-	for _, r := range required {
-		fv := vv.Field(r.index)
+	for i := 0; i < tv.NumField(); i++ {
+		f := tv.Field(i)
+		if f.Tag.Get("required") != "true" {
+			continue
+		}
+		fv := vv.Field(i)
 		empty := false
 		switch fv.Kind() {
 		case reflect.String, reflect.Slice, reflect.Map, reflect.Array:
 			empty = fv.Len() == 0
 		case reflect.Ptr, reflect.Interface:
+			// Pointer fields are the escape hatch for "required, but empty is a
+			// legal value": only a missing/null key is rejected here.
 			empty = fv.IsNil()
 		}
 		if empty {
-			missing = append(missing, r.name)
+			missing = append(missing, fieldJSONName(f))
 		}
 	}
 	if len(missing) > 0 {
@@ -200,6 +176,141 @@ func parseArgs[T any](args json.RawMessage, target *T) string {
 			strings.Join(missing, ", "))
 	}
 	return ""
+}
+
+var jsonUnmarshalerType = reflect.TypeOf((*json.Unmarshaler)(nil)).Elem()
+
+// fieldJSONName returns the JSON key a struct field decodes from.
+func fieldJSONName(f reflect.StructField) string {
+	jsonTag := f.Tag.Get("json")
+	name := strings.SplitN(jsonTag, ",", 2)[0]
+	if name == "" {
+		name = f.Name
+	}
+	return name
+}
+
+// joinPath appends a key to a JSON path prefix ("" → "k", "a" → "a.k").
+func joinPath(path, key string) string {
+	if path == "" {
+		return key
+	}
+	return path + "." + key
+}
+
+// normalizeArgs recursively rewrites aliases and rejects unknown keys against
+// the shape of typ, returning the rewritten JSON. path is the JSON path prefix
+// used in error messages ("" at the top level).
+//
+// Decode failures are NOT reported here: they are passed through untouched so
+// that the caller's typed json.Unmarshal produces the canonical Go error
+// ("cannot unmarshal string into Go struct field grepArgs.max_results of type
+// int"), which names the field and the expected type. Re-reporting them from
+// here would only make that message worse.
+func normalizeArgs(raw json.RawMessage, typ reflect.Type, path string) (json.RawMessage, string) {
+	for typ.Kind() == reflect.Ptr {
+		typ = typ.Elem()
+	}
+	// Types that decode themselves are opaque to reflection — pass through.
+	if typ == reflect.TypeOf(json.RawMessage(nil)) || reflect.PointerTo(typ).Implements(jsonUnmarshalerType) {
+		return raw, ""
+	}
+	switch typ.Kind() {
+	case reflect.Struct:
+		return normalizeStructArgs(raw, typ, path)
+	case reflect.Slice, reflect.Array:
+		return normalizeSliceArgs(raw, typ, path)
+	default:
+		return raw, ""
+	}
+}
+
+func normalizeStructArgs(raw json.RawMessage, typ reflect.Type, path string) (json.RawMessage, string) {
+	var m map[string]json.RawMessage
+	if err := json.Unmarshal(raw, &m); err != nil || m == nil {
+		return raw, "" // not an object (or JSON null) — let the typed decode speak
+	}
+
+	fields := make(map[string]reflect.StructField, typ.NumField())
+	aliases := make(map[string]string)
+	for i := 0; i < typ.NumField(); i++ {
+		f := typ.Field(i)
+		if f.Tag.Get("json") == "-" {
+			continue
+		}
+		name := fieldJSONName(f)
+		fields[name] = f
+		for _, al := range strings.Split(f.Tag.Get("alias"), ",") {
+			if al = strings.TrimSpace(al); al != "" {
+				aliases[al] = name
+			}
+		}
+	}
+
+	// Apply aliases: alias → canonical. Canonical wins on conflict.
+	for alias, canonical := range aliases {
+		v, ok := m[alias]
+		if !ok {
+			continue
+		}
+		if _, exists := m[canonical]; !exists {
+			m[canonical] = v
+		}
+		delete(m, alias)
+	}
+
+	// Reject unknown keys after alias rewrite.
+	var unknown []string
+	for k := range m {
+		if _, ok := fields[k]; !ok {
+			unknown = append(unknown, joinPath(path, k))
+		}
+	}
+	if len(unknown) > 0 {
+		sort.Strings(unknown)
+		allowedList := make([]string, 0, len(fields))
+		for k := range fields {
+			allowedList = append(allowedList, k)
+		}
+		sort.Strings(allowedList)
+		return nil, fmt.Sprintf("Error: unknown argument(s): %s (allowed: %s)",
+			strings.Join(unknown, ", "), strings.Join(allowedList, ", "))
+	}
+
+	// Recurse into declared fields.
+	for k, v := range m {
+		nested, errMsg := normalizeArgs(v, fields[k].Type, joinPath(path, k))
+		if errMsg != "" {
+			return nil, errMsg
+		}
+		m[k] = nested
+	}
+
+	out, err := json.Marshal(m)
+	if err != nil {
+		return nil, fmt.Sprintf("Error: failed to normalize arguments: %v", err)
+	}
+	return out, ""
+}
+
+func normalizeSliceArgs(raw json.RawMessage, typ reflect.Type, path string) (json.RawMessage, string) {
+	var arr []json.RawMessage
+	if err := json.Unmarshal(raw, &arr); err != nil || arr == nil {
+		return raw, "" // not an array (or JSON null) — let the typed decode speak
+	}
+	elem := typ.Elem()
+	for i, v := range arr {
+		nested, errMsg := normalizeArgs(v, elem, fmt.Sprintf("%s[%d]", path, i))
+		if errMsg != "" {
+			return nil, errMsg
+		}
+		arr[i] = nested
+	}
+	out, err := json.Marshal(arr)
+	if err != nil {
+		return nil, fmt.Sprintf("Error: failed to normalize arguments: %v", err)
+	}
+	return out, ""
 }
 
 // Registry holds registered tools.

@@ -82,7 +82,17 @@ func (t *HealthTool) Run(ctx context.Context, args json.RawMessage) string {
 	})
 }
 
-func (t *HealthTool) run(ctx context.Context, _ json.RawMessage) string {
+// healthArgs is empty on purpose: health declares no parameters. Running the
+// payload through parseArgs anyway makes a stray argument a loud error instead
+// of a silent no-op, matching every other tool.
+type healthArgs struct{}
+
+func (t *HealthTool) run(ctx context.Context, args json.RawMessage) string {
+	var a healthArgs
+	if errMsg := parseArgs(args, &a); errMsg != "" {
+		return errMsg
+	}
+
 	const (
 		treeDepth      = 1
 		treeMaxEntries = 200

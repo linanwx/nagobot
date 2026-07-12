@@ -39,7 +39,7 @@ func (t *GrepTool) Def() provider.ToolDef {
 					},
 					"max_results": map[string]any{
 						"type":        "integer",
-						"description": "Maximum number of matches to return. Defaults to 50.",
+						"description": "Maximum number of output LINES to return. Defaults to 50. Context lines and the separators between context blocks each count toward this limit, so with context_lines set, one match costs several lines of the budget.",
 					},
 					"context_lines": map[string]any{
 						"type":        "integer",
@@ -118,7 +118,7 @@ func (t *GrepTool) run(ctx context.Context, args json.RawMessage) string {
 			return toolResult("grep", map[string]any{
 				"pattern": a.Pattern,
 				"path":    searchPath,
-				"results": 0,
+				"lines":   0,
 			}, "No matches found.")
 		}
 		if output != "" {
@@ -131,19 +131,22 @@ func (t *GrepTool) run(ctx context.Context, args json.RawMessage) string {
 		return toolResult("grep", map[string]any{
 			"pattern": a.Pattern,
 			"path":    searchPath,
-			"results": 0,
+			"lines":   0,
 		}, "No matches found.")
 	}
 
-	// Truncate to max_results lines
+	// Truncate to max_results lines. The count reported back is `lines`, not
+	// `results`: with context_lines > 0 a single match spans several output
+	// lines plus a separator, so calling this a match count overstated it by
+	// roughly the context factor.
 	lines := strings.Split(output, "\n")
 	fields := map[string]any{
 		"pattern": a.Pattern,
 		"path":    searchPath,
-		"results": len(lines),
+		"lines":   len(lines),
 	}
 	if len(lines) > maxResults {
-		fields["results"] = maxResults
+		fields["lines"] = maxResults
 		fields["total"] = len(lines)
 		fields["truncated"] = true
 		output = strings.Join(lines[:maxResults], "\n")

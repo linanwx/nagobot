@@ -986,3 +986,122 @@ func TestDispatch_WakeSessionEndpoint_GroupConvention(t *testing.T) {
 		t.Errorf("expected wecom:group:wrNbLgXQAA wake, got %+v", host.wokeSessions)
 	}
 }
+
+// --- Field admission: every misplaced field is rejected, none is ignored -----
+//
+// channel/user_id used to be accepted-then-ignored on the four non-session
+// targets, while every other misplaced field was rejected. Silence reads as
+// acceptance: the model got its subagent and no channel delivery, with no error
+// to learn from.
+
+func TestDispatch_ChannelRejectedOnSubagent(t *testing.T) {
+	host := &mockDispatchHost{currentKey: "cli", callerKind: "system", agents: map[string]bool{"worker": true}}
+	outcome, result := runDispatch(t, host,
+		`{"sends": [{"to": "subagent", "task_id": "t1", "agent": "worker", "channel": "telegram", "user_id": "123", "body": "go"}]}`)
+	if outcome != "validation-error" {
+		t.Fatalf("outcome=%q, result=%s", outcome, result)
+	}
+	if !strings.Contains(result, "channel") || !strings.Contains(result, "user_id") {
+		t.Errorf("expected both offending fields named, got: %s", result)
+	}
+	if len(host.subagentCalls) != 0 {
+		t.Errorf("no send may execute when validation fails, got %+v", host.subagentCalls)
+	}
+}
+
+func TestDispatch_ChannelRejectedOnCallerUser(t *testing.T) {
+	host := &mockDispatchHost{currentKey: "telegram:1", callerKind: "user", userFacing: true}
+	outcome, result := runDispatch(t, host,
+		`{"sends": [{"to": "caller:user", "channel": "telegram", "user_id": "999", "body": "hi"}]}`)
+	if outcome != "validation-error" {
+		t.Fatalf("outcome=%q, result=%s", outcome, result)
+	}
+	if !strings.Contains(result, "does not accept") {
+		t.Errorf("expected a does-not-accept rejection, got: %s", result)
+	}
+	if host.sentToCaller != "" {
+		t.Errorf("nothing may be delivered on a validation error, sent: %q", host.sentToCaller)
+	}
+}
+
+// An unknown key inside a send is rejected by parseArgs' recursive guard. The
+// motivating case is `delay`: dispatch has no delay parameter, and dropping it
+// silently woke the target immediately while the model believed it had
+// scheduled a future wake.
+func TestDispatch_UnknownFieldInsideSendRejected(t *testing.T) {
+	host := &mockDispatchHost{currentKey: "cli", callerKind: "user", userFacing: true}
+	_, result := runDispatch(t, host,
+		`{"sends": [{"to": "caller:user", "body": "later", "delay": "1h"}]}`)
+	if !strings.Contains(result, "sends[0].delay") {
+		t.Fatalf("expected sends[0].delay to be rejected with its path, got: %s", result)
+	}
+	if host.sentToCaller != "" {
+		t.Errorf("nothing may be delivered, sent: %q", host.sentToCaller)
+	}
+}
+
+// --- Whitespace normalization: one value, one identity ----------------------
+
+func TestDispatch_SessionKeyTrimmedBeforeLookup(t *testing.T) {
+	host := &mockDispatchHost{
+		currentKey: "cli",
+		callerKind: "system",
+		sessions:   map[string]bool{"telegram:42": true},
+	}
+	outcome, result := runDispatch(t, host,
+		`{"sends": [{"to": "session", "session_key": "telegram:42 ", "body": "ping"}]}`)
+	if outcome != "turn-terminated" {
+		t.Fatalf("a trailing space must not fail an existing session: outcome=%q, result=%s", outcome, result)
+	}
+	if len(host.wokeSessions) != 1 || host.wokeSessions[0].SessionKey != "telegram:42" {
+		t.Errorf("expected the trimmed key to be woken, got %+v", host.wokeSessions)
+	}
+}
+
+// The self-reference guard used to compare untrimmed while the hasKey gate
+// trimmed, so a trailing space walked past it and was caught only by the
+// existence check further down.
+func TestDispatch_SelfReferenceNotBypassableByWhitespace(t *testing.T) {
+	host := &mockDispatchHost{
+		currentKey: "cli:main",
+		callerKind: "system",
+		sessions:   map[string]bool{"cli:main": true},
+	}
+	outcome, result := runDispatch(t, host,
+		`{"sends": [{"to": "session", "session_key": "cli:main ", "body": "self"}]}`)
+	if outcome != "validation-error" {
+		t.Fatalf("outcome=%q, result=%s", outcome, result)
+	}
+	if !strings.Contains(result, "self-reference") {
+		t.Errorf("expected the self-reference guard to fire, got: %s", result)
+	}
+	if len(host.wokeSessions) != 0 {
+		t.Errorf("self-wake must not execute, got %+v", host.wokeSessions)
+	}
+}
+
+// A model that cannot omit fields sends them as whitespace. That must read as
+// "not provided" everywhere, not as "provided" on the reject path.
+func TestDispatch_WhitespaceAgentTreatedAsAbsent(t *testing.T) {
+	host := &mockDispatchHost{currentKey: "telegram:1", callerKind: "user", userFacing: true}
+	outcome, result := runDispatch(t, host,
+		`{"sends": [{"to": "caller:user", "agent": " ", "task_id": "", "body": "hi"}]}`)
+	if outcome != "turn-terminated" {
+		t.Fatalf("whitespace agent must read as absent: outcome=%q, result=%s", outcome, result)
+	}
+	if host.sentToCaller != "hi" {
+		t.Errorf("expected delivery to caller, sent: %q", host.sentToCaller)
+	}
+}
+
+func TestDispatch_WhitespaceAgentOnSubagentUsesSessionDefault(t *testing.T) {
+	host := &mockDispatchHost{currentKey: "cli", callerKind: "system"}
+	outcome, result := runDispatch(t, host,
+		`{"sends": [{"to": "subagent", "task_id": "t1", "agent": "  ", "body": "go"}]}`)
+	if outcome != "turn-terminated" {
+		t.Fatalf("outcome=%q, result=%s", outcome, result)
+	}
+	if len(host.subagentCalls) != 1 || host.subagentCalls[0].Agent != "" {
+		t.Errorf("expected the session default (empty agent), got %+v", host.subagentCalls)
+	}
+}

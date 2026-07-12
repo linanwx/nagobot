@@ -282,7 +282,7 @@ func (t *WriteFileTool) Def() provider.ToolDef {
 					},
 					"content": map[string]any{
 						"type":        "string",
-						"description": "The content to write to the file.",
+						"description": "The content to write to the file. Always required — the file is overwritten with exactly this text. Pass an empty string to create an empty file.",
 					},
 				},
 				"required": []string{"path", "content"},
@@ -292,9 +292,15 @@ func (t *WriteFileTool) Def() provider.ToolDef {
 }
 
 // writeFileArgs are the arguments for write_file.
+//
+// Content is a *string, not a string, and that is load-bearing: write_file
+// overwrites, so a dropped `content` key must NOT decode to "" and silently
+// truncate the target file to zero bytes. A pointer distinguishes "key absent"
+// (nil → rejected by the required check) from "key present and empty" (""" →
+// a legitimate empty-file write). See the tool argument contract in tools.go.
 type writeFileArgs struct {
-	Path    string `json:"path" required:"true"`
-	Content string `json:"content"`
+	Path    string  `json:"path" required:"true"`
+	Content *string `json:"content" required:"true"`
 }
 
 // Run executes the tool.
@@ -309,6 +315,10 @@ func (t *WriteFileTool) run(ctx context.Context, args json.RawMessage) string {
 	if errMsg := parseArgs(args, &a); errMsg != "" {
 		return errMsg
 	}
+
+	// Guaranteed non-nil by the required check in parseArgs; a missing `content`
+	// key never reaches this point (it would truncate the file).
+	content := *a.Content
 
 	path := resolveToolPath(a.Path, t.workspace)
 	resolvedPath := absOrOriginal(path)
@@ -327,13 +337,13 @@ func (t *WriteFileTool) run(ctx context.Context, args json.RawMessage) string {
 	}
 
 	// Write file (overwrite)
-	if err := os.WriteFile(path, []byte(a.Content), 0644); err != nil {
+	if err := os.WriteFile(path, []byte(content), 0644); err != nil {
 		return toolError("write_file", fmt.Sprintf("failed to write file: %s: %v", formatResolvedPath(a.Path, resolvedPath), err))
 	}
 
 	return toolResult("write_file", map[string]any{
 		"path":  resolvedPath,
-		"bytes": len(a.Content),
+		"bytes": len(content),
 	}, "")
 }
 
@@ -384,41 +394,18 @@ func (t *EditFileTool) Def() provider.ToolDef {
 // editEntry is one replacement within an edit_file call. It accepts snake_case
 // (old_text/new_text), camelCase (oldText/newText), and *_string aliases so
 // edits authored by different models all parse.
+//
+// The aliases are declared as struct tags rather than hand-rolled in a custom
+// UnmarshalJSON, and that is deliberate: a type that decodes itself is opaque
+// to reflection, so parseArgs' recursive normalizer cannot see inside it and
+// every unknown key within an edit — notably `replace_all`, which models
+// trained on other agent harnesses emit routinely — would be silently dropped.
+// Declared this way, the normalizer rewrites the aliases AND rejects unknown
+// keys with a path (`edits[0].replace_all`), so the model learns the flag is
+// unsupported instead of retrying against a confusing uniqueness error.
 type editEntry struct {
-	OldText string
-	NewText string
-}
-
-func (e *editEntry) UnmarshalJSON(data []byte) error {
-	var m map[string]json.RawMessage
-	if err := json.Unmarshal(data, &m); err != nil {
-		return err
-	}
-	pick := func(keys ...string) (string, error) {
-		for _, k := range keys {
-			v, ok := m[k]
-			if !ok {
-				continue
-			}
-			var s string
-			if err := json.Unmarshal(v, &s); err != nil {
-				return "", err
-			}
-			return s, nil
-		}
-		return "", nil
-	}
-	ot, err := pick("old_text", "oldText", "old_string")
-	if err != nil {
-		return err
-	}
-	nt, err := pick("new_text", "newText", "new_string")
-	if err != nil {
-		return err
-	}
-	e.OldText = ot
-	e.NewText = nt
-	return nil
+	OldText string `json:"old_text" alias:"oldText,old_string"`
+	NewText string `json:"new_text" alias:"newText,new_string"`
 }
 
 // editFileArgs are the arguments for edit_file.

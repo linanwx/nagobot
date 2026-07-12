@@ -39,7 +39,7 @@ func (t *UseSkillTool) Def() provider.ToolDef {
 				"properties": map[string]any{
 					"name": map[string]any{
 						"type":        "string",
-						"description": "The skill name to load (for example: 'research'). Pass empty string to list all available skills.",
+						"description": "The skill name to load (for example: 'research'). Omit it, or pass an empty string, to list all available skills instead.",
 					},
 				},
 			},
@@ -48,8 +48,13 @@ func (t *UseSkillTool) Def() provider.ToolDef {
 }
 
 // useSkillArgs are the arguments for use_skill.
+//
+// Name is deliberately NOT tagged required: an empty name is a valid call that
+// lists the available skills. `required:"true"` means "present AND non-empty"
+// (see the tool argument contract in tools.go), so tagging it would reject the
+// empty string and make the listing branch in run() unreachable.
 type useSkillArgs struct {
-	Name string `json:"name" required:"true"`
+	Name string `json:"name"`
 }
 
 // Run executes the tool.

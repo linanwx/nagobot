@@ -86,7 +86,7 @@ func (t *ExecTool) Def() provider.ToolDef {
 					},
 					"confirm": map[string]any{
 						"type":        "string",
-						"description": "Confirmation token returned by a previous call when a dangerous command was detected. Pass it back with the same command to confirm execution.",
+						"description": "Confirmation token returned by a previous call when a dangerous command was detected. Pass it back with the same command to confirm execution. Leave it empty (omit it, or pass an empty string) on a first attempt.",
 					},
 				},
 				"required": []string{"command"},
@@ -135,29 +135,35 @@ func (t *ExecTool) Run(ctx context.Context, args json.RawMessage) string {
 		return errMsg
 	}
 
+	// An unconfirmed call is one with no token. Trim first: a model that cannot
+	// omit a field sends confirm as whitespace, and an untrimmed check would
+	// treat that as a token, fail the HMAC compare, and loop on the
+	// invalid-token error forever.
+	confirm := strings.TrimSpace(a.Confirm)
+
 	// Check for dangerous rm command.
 	if isRmCommand(a.Command) {
-		if a.Confirm == "" {
+		if confirm == "" {
 			return toolError("exec", fmt.Sprintf("Dangerous command detected: rm. "+
 				"Prefer using safer alternatives like `trash` or `gio trash` to move files to trash instead of permanent deletion. "+
 				"If you still need to use rm, re-call this tool with the same command and set confirm to: %s", t.computeHMAC(a.Command)))
 		}
-		if !hmac.Equal([]byte(a.Confirm), []byte(t.computeHMAC(a.Command))) {
-			return toolError("exec", "invalid confirmation token. The command may have been modified. Please retry without the confirm parameter.")
+		if !hmac.Equal([]byte(confirm), []byte(t.computeHMAC(a.Command))) {
+			return toolError("exec", "invalid confirmation token. The command may have been modified. Retry with confirm left empty (omit it, or pass an empty string) to get a fresh token for the exact command you intend to run.")
 		}
 	}
 
 	// Check for pip install — pollutes host Python.
 	if isPipInstallCommand(a.Command) {
-		if a.Confirm == "" {
+		if confirm == "" {
 			return toolError("exec", fmt.Sprintf("Dangerous command detected: pip install. "+
 				"Installing packages with pip pollutes the host Python environment (system or Homebrew). "+
 				"Prefer `uv run --with <pkg> <script>` for one-off script runs, `uv tool install <pkg>` or `pipx install <pkg>` for CLI tools, "+
 				"or run pip from inside an activated venv (e.g. `.venv/bin/pip install <pkg>`). "+
 				"If you still need to run this exact command, re-call this tool with the same command and set confirm to: %s", t.computeHMAC(a.Command)))
 		}
-		if !hmac.Equal([]byte(a.Confirm), []byte(t.computeHMAC(a.Command))) {
-			return toolError("exec", "invalid confirmation token. The command may have been modified. Please retry without the confirm parameter.")
+		if !hmac.Equal([]byte(confirm), []byte(t.computeHMAC(a.Command))) {
+			return toolError("exec", "invalid confirmation token. The command may have been modified. Retry with confirm left empty (omit it, or pass an empty string) to get a fresh token for the exact command you intend to run.")
 		}
 	}
 
