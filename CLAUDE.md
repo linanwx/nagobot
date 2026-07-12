@@ -139,20 +139,25 @@ The heartbeat runs background maintenance between user interactions. It does NOT
 
 A Go goroutine (`heartbeatScheduler`) scans every 30s and fires heartbeat pulses into user sessions. NOT a cron job — the old cron-based dispatcher was removed.
 
-Every pulse runs `use_skill("heartbeat-wake")`, which is a **3-way router** (`cmd/templates/skills/heartbeat-wake/SKILL.md`), not a do-everything skill. The pulse payload carries `pulse_index`, `elapsed_since_user`, `next_pulse`, and (only on dream pulses) `should_dream: true`. Routing, checked in order:
+**Most pulses wake nothing.** `maybeFirePulse` calls `mgr.Wake()` only when `pulseIndex == hbReflectPulse || dream` — every other pulse advances `lastPulse`, logs `heartbeat pulse fired`, and costs **zero LLM calls**. (The log line is misleading: it prints even when no thread was woken.)
 
-- **`should_dream: true`** → `use_skill("dream")` — review the past 24h, overwrite `dream.md`, then run file-track. The scheduler sets this only at session-local night (02:00–06:00), user quiet long, and ≥4h since the last dream (`shouldDream`, dedup via `dream_log.jsonl`).
-- **`pulse_index == 2`** (and not a dream) → `use_skill("session-reflect")` — extract user preferences/corrections/patterns into `USER.md`.
-- **anything else** → `dispatch({})`, silent no-op (just the cheap router turn).
+When a pulse *does* wake the thread, it runs `use_skill("heartbeat-wake")`, a router (`cmd/templates/skills/heartbeat-wake/SKILL.md`). The payload carries `pulse_index`, `elapsed_since_user`, `next_pulse`, and (only on dream pulses) `should_dream: true`. Routing, checked in order:
 
-All three paths end silently — heartbeat never produces user-facing output. The two context-heavy paths (dream reads 24h, session-reflect reads history) are the source's main cost drivers; dream's input is fresh nightly content, so prompt caching cannot help it.
+- **`should_dream: true`** → `use_skill("dream")` — review the past 24h, overwrite `dream.md`, then run file-track. The scheduler sets this only at session-local night (02:00–06:00), user quiet long, `pulse_index > 2`, and ≥4h since the last dream (`shouldDream`, dedup via `dream_log.jsonl`).
+- **`pulse_index == 4`** (`hbReflectPulse`, = 4h00m of user quiet; and not a dream) → `use_skill("session-reflect")` — extract user preferences/corrections/patterns into `USER.md`.
+- **anything else** → `dispatch({})`. This branch is **unreachable** — the scheduler never wakes on those pulses. It exists only as a guard.
+
+The pulse number lives in two places — `hbReflectPulse` in Go and the routing table in the skill markdown. Changing one without the other silently disables reflect.
+
+Both live paths end silently — heartbeat never produces user-facing output. They are also the system's single largest token consumer: measured over 14 days, heartbeat was 47.9% of all prompt tokens (1.85x every real Discord conversation combined) for zero user-facing output. Two known sources of waste remain inside the turns: `session-reflect` calls `read_file(USER.md)` even though `buildUserSection` (`thread/run.go`) already injects USER.md **in full** into the system prompt, and it fans out into repeated `edit_file` calls instead of the single `write_file` the skill asks for. Each such call re-sends the entire session context.
 
 ### Timing
 
 - **Quiet threshold**: 15 min after last user message (`hbQuietMin`)
 - **Pulse interval**: 45 min base, +30 min each cycle (`hbPulseInterval`, `hbPulseGrowth`)
 - **Activity window**: 48h — stops pulsing if no user activity within 48h (~21 pulses max)
-- **Schedule**: `lastActive+15m, +60m, +135m, +240m, ...` (15 min first pulse, then 45/75/105/... growing gaps)
+- **Schedule**: `lastActive+15m, +60m, +135m, +240m, +375m, ...` (15 min first pulse, then 45/75/105/135/... growing gaps). Pulse 4 = `+240m` = 4h00m — the `hbReflectPulse` that fires session-reflect.
+- **`pulse_index` resets to 1 on every user message.** It measures *continuous quiet*, not elapsed wall-clock. A user who speaks every 2h never reaches pulse 4, so no reflect fires for that session that day — this is intended (reflect should run when the conversation is over, not during a lunch break), but it means pulse index can never express a "at most once every N hours" cooldown.
 
 ### Critical Implementation Details
 

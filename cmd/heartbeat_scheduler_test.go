@@ -649,6 +649,48 @@ func TestGrowingIntervals(t *testing.T) {
 	}
 }
 
+// TestReflectPulseLandsAt4h pins hbReflectPulse to the wall-clock offset it is
+// meant to represent: session-reflect must fire only after the user has been
+// quiet for a full 4h00m, not at the 1h lull it used to fire at. The pulse index
+// alone is meaningless — it is a function of hbQuietMin/hbPulseInterval/
+// hbPulseGrowth, so tuning any of those silently moves reflect to a different
+// hour unless this test catches it.
+func TestReflectPulseLandsAt4h(t *testing.T) {
+	lastActive := time.Date(2025, 1, 1, 12, 0, 0, 0, time.UTC)
+
+	if _, _, idx := latestDueTrigger(lastActive, lastActive.Add(4*time.Hour)); idx != hbReflectPulse {
+		t.Errorf("at +4h00m: pulseIndex = %d, want hbReflectPulse (%d)", idx, hbReflectPulse)
+	}
+
+	// One minute earlier we are still on the previous pulse — reflect must not fire yet.
+	if _, _, idx := latestDueTrigger(lastActive, lastActive.Add(4*time.Hour-time.Minute)); idx == hbReflectPulse {
+		t.Errorf("at +3h59m: pulseIndex = %d, must not equal hbReflectPulse (%d)", idx, hbReflectPulse)
+	}
+
+	// The pulse index counts *continuous quiet*, so it resets whenever the user
+	// speaks. A user who talks every 2h can never reach hbReflectPulse — that is
+	// intended, and it is why the pulse index cannot express a time-based cooldown.
+	if _, _, idx := latestDueTrigger(lastActive.Add(2*time.Hour), lastActive.Add(4*time.Hour)); idx >= hbReflectPulse {
+		t.Errorf("user spoke at +2h: pulseIndex = %d, want < hbReflectPulse (%d)", idx, hbReflectPulse)
+	}
+}
+
+// TestDreamNeverCollidesWithEarlyPulses guards the shouldDream precondition that
+// makes the two live heartbeat branches mutually exclusive: dream requires
+// pulse_index > 2, so it can never steal the pulse that reflect used to own.
+// It CAN steal hbReflectPulse (4 > 2) at night — that is accepted, the next
+// long quiet gap picks the reflect back up.
+func TestDreamRequiresPulseAboveTwo(t *testing.T) {
+	s := &heartbeatScheduler{sessions: map[string]*hbSessionState{}, lastDream: map[string]time.Time{}}
+	night := time.Date(2025, 1, 1, 3, 0, 0, 0, time.UTC)
+
+	for _, idx := range []int{1, 2} {
+		if s.shouldDream("k", night, idx) {
+			t.Errorf("shouldDream at pulse %d = true, want false (dream requires pulse_index > 2)", idx)
+		}
+	}
+}
+
 func assertFire(t *testing.T, label string, got, want bool) {
 	t.Helper()
 	if got != want {

@@ -24,6 +24,12 @@ const (
 	hbPulseGrowth    = 30 * time.Minute // Each subsequent interval grows by this amount.
 	hbActivityWindow = 48 * time.Hour   // Only pulse sessions active within this window.
 	hbDreamDedup     = 4 * time.Hour    // After a dream fires, suppress dreams for this session for this long.
+
+	// hbReflectPulse is the pulse index that triggers session-reflect. On the
+	// timeline above, pulse 4 lands 4h00m after the user's last message —
+	// late enough that the conversation is really over, not just a lunch break.
+	// The heartbeat-wake skill routes on this same number: keep the two in sync.
+	hbReflectPulse = 4
 )
 
 // hbSessionState holds persisted per-session heartbeat state.
@@ -341,8 +347,9 @@ func (s *heartbeatScheduler) maybeFirePulse(key string, now time.Time, lastActiv
 	message := buildHeartbeatMessage(mdModified, nextPulse, pulseIndex, elapsed, lastPulse, dream)
 
 	// Wake for pulse indices that have registered handlers, or when a dream is due.
-	// index 2 (60min) → session-reflect; pulse_index > 2 at night → dream.
-	if pulseIndex == 2 || dream {
+	// hbReflectPulse (4h00m) → session-reflect; pulse_index > 2 at night → dream.
+	// Every other pulse wakes nothing and costs no LLM call.
+	if pulseIndex == hbReflectPulse || dream {
 		s.mgr.Wake(key, &thread.WakeMessage{
 			Source:  thread.WakeHeartbeat,
 			Message: message,

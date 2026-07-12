@@ -1,10 +1,10 @@
 ---
 name: session-reflect
-description: Background reflection on conversation history. Extracts user preferences, corrections, and workflow patterns into USER.md. Triggered by heartbeat at the 60-minute quiet mark — never call directly.
+description: Background reflection on conversation history. Extracts user preferences, corrections, and workflow patterns into USER.md. Triggered by heartbeat at the 4-hour quiet mark — never call directly.
 ---
 # Session Reflect
 
-Review the conversation history and extract learnings into USER.md. This runs in the background after the user has been quiet for ~60 minutes.
+Review the conversation history and extract learnings into USER.md. This runs in the background after the user has been quiet for ~4 hours.
 
 ## Workflow
 
