@@ -25,25 +25,25 @@ const llmCallTimeout = 10 * time.Minute
 
 // Runner is a generic agent loop executor.
 type Runner struct {
-	provider       provider.Provider
-	tools          *tools.Registry
-	metrics        *ExecMetrics              // optional; nil disables metrics collection
-	totalUsage     provider.Usage            // accumulated usage across all Chat calls
-	lastTurnUsage  provider.Usage            // usage from the most recent Chat call (not accumulated)
-	lastQuota      *provider.Quota           // last non-nil quota from provider response
-	contextBudget  int                       // contextWindow - maxCompletionTokens; 0 = no guard
-	toolDefsTokens int                       // cached token estimate for tool definitions
-	onStream       func(streamID, delta string)      // optional: called with each streaming text delta; empty delta signals end of stream
-	onMessage      func(provider.Message)            // optional: called for every message (assistant, tool, injected)
-	onEvent        func(event RunnerEvent, detail string) // optional: lifecycle events (tool calls, etc.)
-	onIterationEnd func() []provider.Message         // optional: called after each tool iteration; returned messages are injected before the next LLM call
-	onNoToolCalls  func(content string) []provider.Message // optional: called when the LLM emits a final response without tool calls; returning non-empty messages rejects the finish and forces another LLM iteration with those messages appended (the assistant's rejected text is still appended/persisted so the model sees its prior attempt). Used by cross-thread wakes to require explicit dispatch.
-	shouldHalt     func() bool                       // optional: if true, stop loop after current tool calls
+	provider           provider.Provider
+	tools              *tools.Registry
+	metrics            *ExecMetrics                                        // optional; nil disables metrics collection
+	totalUsage         provider.Usage                                      // accumulated usage across all Chat calls
+	lastTurnUsage      provider.Usage                                      // usage from the most recent Chat call (not accumulated)
+	lastQuota          *provider.Quota                                     // last non-nil quota from provider response
+	contextBudget      int                                                 // contextWindow - maxCompletionTokens; 0 = no guard
+	toolDefsTokens     int                                                 // cached token estimate for tool definitions
+	onStream           func(streamID, delta string)                        // optional: called with each streaming text delta; empty delta signals end of stream
+	onMessage          func(provider.Message)                              // optional: called for every message (assistant, tool, injected)
+	onEvent            func(event RunnerEvent, detail string)              // optional: lifecycle events (tool calls, etc.)
+	onIterationEnd     func() []provider.Message                           // optional: called after each tool iteration; returned messages are injected before the next LLM call
+	onNoToolCalls      func(content string) []provider.Message             // optional: called when the LLM emits a final response without tool calls; returning non-empty messages rejects the finish and forces another LLM iteration with those messages appended (the assistant's rejected text is still appended/persisted so the model sees its prior attempt). Used by cross-thread wakes to require explicit dispatch.
+	shouldHalt         func() bool                                         // optional: if true, stop loop after current tool calls
 	onEstimationSample func(providerName, modelName string, ratio float64) // optional: called after each LLM call with the (real / estimated) total-token ratio
-	providerLabel   string             // effective provider name from last response
-	modelLabel      string             // effective model name from last response
-	userVisible     bool               // true when the current turn was triggered by a user-visible message
-	iterations      int                // number of tool-call iterations completed
+	providerLabel      string                                              // effective provider name from last response
+	modelLabel         string                                              // effective model name from last response
+	userVisible        bool                                                // true when the current turn was triggered by a user-visible message
+	iterations         int                                                 // number of tool-call iterations completed
 }
 
 // RunnerEvent identifies a lifecycle event in the agentic loop.
@@ -172,6 +172,7 @@ func (r *Runner) RunWithMessages(ctx context.Context, messages []provider.Messag
 		r.totalUsage.CompletionTokens += resp.Usage.CompletionTokens
 		r.totalUsage.TotalTokens += resp.Usage.TotalTokens
 		r.totalUsage.CachedTokens += resp.Usage.CachedTokens
+		r.totalUsage.CacheWriteTokens += resp.Usage.CacheWriteTokens
 		r.totalUsage.ReasoningTokens += resp.Usage.ReasoningTokens
 		r.providerLabel = resp.ProviderLabel
 		r.modelLabel = resp.ModelLabel
@@ -551,6 +552,7 @@ func (r *Runner) logEstimationAccuracy(messages []provider.Message, resp *provid
 		r.metrics.LastCompletionActual = actual.CompletionTokens
 		r.metrics.LastTotalActual = actual.TotalTokens
 		r.metrics.LastCachedActual = actual.CachedTokens
+		r.metrics.LastCacheWriteActual = actual.CacheWriteTokens
 		r.metrics.LastReasoningActual = actual.ReasoningTokens
 		media = r.metrics.Media
 	}

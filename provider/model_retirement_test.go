@@ -101,12 +101,42 @@ func TestOpenAIGPT56Registration(t *testing.T) {
 			if err := ValidateProviderModelType(tc.provider, tc.model); err != nil {
 				t.Fatalf("ValidateProviderModelType(%q, %q) = %v, want nil", tc.provider, tc.model, err)
 			}
-			if got := ContextWindowForModel(tc.provider, tc.model); got != 372000 {
-				t.Fatalf("ContextWindowForModel(%q, %q) = %d, want 372000", tc.provider, tc.model, got)
+			// Deliberately 272000, not the model's real 372000 capacity: past
+			// 272K input, OpenAI bills the whole gpt-5.6 request at 2x input /
+			// 1.5x output. Registering the true capacity would let context grow
+			// to 282K before Tier 2 compression ever fired, double-billing every
+			// request in the 272K–282K band. See gpt56ContextWindow.
+			if got := ContextWindowForModel(tc.provider, tc.model); got != gpt56ContextWindow {
+				t.Fatalf("ContextWindowForModel(%q, %q) = %d, want %d (the 2x price break, not the 372000 capacity)",
+					tc.provider, tc.model, got, gpt56ContextWindow)
 			}
 			if !SupportsVision(tc.provider, tc.model) {
 				t.Fatalf("SupportsVision(%q, %q) = false, want true", tc.provider, tc.model)
 			}
 		})
 	}
+}
+
+// TestGPT56ContextWindowStaysUnderPriceBreak guards the invariant that actually
+// matters: Tier 2 compression must fire before input can reach OpenAI's 272K
+// higher-usage threshold. The registered window is the only input to that
+// calculation, so a well-meaning "restore the real 372K capacity" edit would
+// silently reintroduce double billing. This asserts the math, not the constant.
+func TestGPT56ContextWindowStaysUnderPriceBreak(t *testing.T) {
+	const priceBreak = 272000
+
+	if gpt56ContextWindow > priceBreak {
+		t.Fatalf("gpt56ContextWindow = %d exceeds the %d price break: every request past %d is billed 2x input / 1.5x output",
+			gpt56ContextWindow, priceBreak, priceBreak)
+	}
+
+	// Mirror thread.ComputeContextThresholds: Tier 2 fires once usage reaches
+	// contextWindow - min(contextWindow/5, 50000)*1.8.
+	warn := min(gpt56ContextWindow/5, 50000)
+	tier2At := gpt56ContextWindow - int(float64(warn)*1.8)
+	if tier2At >= priceBreak {
+		t.Fatalf("Tier 2 would not fire until %d tokens, at or past the %d price break", tier2At, priceBreak)
+	}
+	t.Logf("gpt-5.6 window %d → Tier 2 fires at %d, %d tokens of headroom under the %d price break",
+		gpt56ContextWindow, tier2At, priceBreak-tier2At, priceBreak)
 }

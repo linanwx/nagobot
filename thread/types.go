@@ -173,6 +173,7 @@ type ExecMetrics struct {
 	LastCompletionActual int
 	LastTotalActual      int
 	LastCachedActual     int
+	LastCacheWriteActual int
 	LastReasoningActual  int
 	Media                MediaBreakdown
 }

@@ -35,6 +35,7 @@ type TurnRecord struct {
 	LastCompletionTokens int `json:"lastCompletionTokens,omitempty"`
 	LastTotalTokens      int `json:"lastTotalTokens,omitempty"`
 	LastCachedTokens     int `json:"lastCachedTokens,omitempty"`
+	LastCacheWriteTokens int `json:"lastCacheWriteTokens,omitempty"`
 	LastReasoningTokens  int `json:"lastReasoningTokens,omitempty"`
 
 	// Accumulated: sum across all API calls in this run.
@@ -42,17 +43,20 @@ type TurnRecord struct {
 	AccCompletionTokens int `json:"accCompletionTokens,omitempty"`
 	AccTotalTokens      int `json:"accTotalTokens,omitempty"`
 	AccCachedTokens     int `json:"accCachedTokens,omitempty"`
+	// AccCacheWriteTokens is the cold-prefix cache write, billed by gpt-5.6 at
+	// 1.25x uncached input. Only OpenAI reports it; other providers leave it 0.
+	AccCacheWriteTokens int `json:"accCacheWriteTokens,omitempty"`
 	AccReasoningTokens  int `json:"accReasoningTokens,omitempty"`
 
 	// Client-side estimates (last turn).
-	EstPromptTokens    int `json:"estPromptTokens,omitempty"`
-	EstReasoningTokens int `json:"estReasoningTokens,omitempty"`
-	EstMediaImageCount int `json:"estMediaImageCount,omitempty"`
+	EstPromptTokens     int `json:"estPromptTokens,omitempty"`
+	EstReasoningTokens  int `json:"estReasoningTokens,omitempty"`
+	EstMediaImageCount  int `json:"estMediaImageCount,omitempty"`
 	EstMediaImageTokens int `json:"estMediaImageTokens,omitempty"`
-	EstMediaAudioCount int `json:"estMediaAudioCount,omitempty"`
+	EstMediaAudioCount  int `json:"estMediaAudioCount,omitempty"`
 	EstMediaAudioTokens int `json:"estMediaAudioTokens,omitempty"`
-	EstMediaPDFCount   int `json:"estMediaPDFCount,omitempty"`
-	EstMediaPDFTokens  int `json:"estMediaPDFTokens,omitempty"`
+	EstMediaPDFCount    int `json:"estMediaPDFCount,omitempty"`
+	EstMediaPDFTokens   int `json:"estMediaPDFTokens,omitempty"`
 }
 
 // Store persists and queries turn metrics.

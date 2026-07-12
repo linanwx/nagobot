@@ -81,13 +81,14 @@ type MetricsSummary struct {
 
 // ProviderStats groups metrics by provider with model breakdown.
 type ProviderStats struct {
-	Turns                    int                    `json:"turns" yaml:"turns"`
-	AvgDurMs                 int64                  `json:"avgDurationMs" yaml:"avgDurationMs"`
-	PromptTokens             int                    `json:"promptTokens" yaml:"promptTokens"`
-	CachedTokens             int                    `json:"cachedTokens" yaml:"cachedTokens"`
-	CacheEligiblePromptTokens int                   `json:"cacheEligiblePromptTokens,omitempty" yaml:"cacheEligiblePromptTokens,omitempty"`
-	CacheHitRate             string                 `json:"cacheHitRate" yaml:"cacheHitRate"`
-	Models                   map[string]*GroupStats `json:"models,omitempty" yaml:"models,omitempty"`
+	Turns                     int                    `json:"turns" yaml:"turns"`
+	AvgDurMs                  int64                  `json:"avgDurationMs" yaml:"avgDurationMs"`
+	PromptTokens              int                    `json:"promptTokens" yaml:"promptTokens"`
+	CachedTokens              int                    `json:"cachedTokens" yaml:"cachedTokens"`
+	CacheWriteTokens          int                    `json:"cacheWriteTokens,omitempty" yaml:"cacheWriteTokens,omitempty"`
+	CacheEligiblePromptTokens int                    `json:"cacheEligiblePromptTokens,omitempty" yaml:"cacheEligiblePromptTokens,omitempty"`
+	CacheHitRate              string                 `json:"cacheHitRate" yaml:"cacheHitRate"`
+	Models                    map[string]*GroupStats `json:"models,omitempty" yaml:"models,omitempty"`
 }
 
 // isCacheUnreliable returns true for providers that don't reliably return cached_tokens.
@@ -97,13 +98,18 @@ func isCacheUnreliable(providerName string) bool {
 
 // GroupStats holds aggregated metrics for a group.
 type GroupStats struct {
-	Turns                    int    `json:"turns" yaml:"turns"`
-	AvgDurMs                 int64  `json:"avgDurationMs" yaml:"avgDurationMs"`
-	PromptTokens             int    `json:"promptTokens" yaml:"promptTokens"`
-	CompletionTokens         int    `json:"completionTokens,omitempty" yaml:"completionTokens,omitempty"`
-	CachedTokens             int    `json:"cachedTokens" yaml:"cachedTokens"`
-	CacheEligiblePromptTokens int   `json:"cacheEligiblePromptTokens,omitempty" yaml:"cacheEligiblePromptTokens,omitempty"`
-	CacheHitRate             string `json:"cacheHitRate" yaml:"cacheHitRate"`
+	Turns            int   `json:"turns" yaml:"turns"`
+	AvgDurMs         int64 `json:"avgDurationMs" yaml:"avgDurationMs"`
+	PromptTokens     int   `json:"promptTokens" yaml:"promptTokens"`
+	CompletionTokens int   `json:"completionTokens,omitempty" yaml:"completionTokens,omitempty"`
+	CachedTokens     int   `json:"cachedTokens" yaml:"cachedTokens"`
+	// CacheWriteTokens is summed for every provider, unlike CachedTokens, which
+	// is gated on cacheReliable. A raw count needs no matched denominator, so an
+	// unreliable provider cannot skew it — and omitempty keeps it out of the
+	// output for the providers that never report it.
+	CacheWriteTokens          int    `json:"cacheWriteTokens,omitempty" yaml:"cacheWriteTokens,omitempty"`
+	CacheEligiblePromptTokens int    `json:"cacheEligiblePromptTokens,omitempty" yaml:"cacheEligiblePromptTokens,omitempty"`
+	CacheHitRate              string `json:"cacheHitRate" yaml:"cacheHitRate"`
 }
 
 // Query aggregates turn records for the given time window.
@@ -153,6 +159,7 @@ func Query(store *Store, window Window) *MetricsSummary {
 		ps.Turns++
 		ps.AvgDurMs += r.DurationMs
 		ps.PromptTokens += r.AccPromptTokens
+		ps.CacheWriteTokens += r.AccCacheWriteTokens
 		// Cache numerator and denominator must come from the same turn set:
 		// only count cached + eligible tokens for cache-reliable providers.
 		// Otherwise an unreliable provider's cached tokens (counted) without
@@ -169,6 +176,7 @@ func Query(store *Store, window Window) *MetricsSummary {
 		ms.Turns++
 		ms.AvgDurMs += r.DurationMs
 		ms.PromptTokens += r.AccPromptTokens
+		ms.CacheWriteTokens += r.AccCacheWriteTokens
 		ms.CompletionTokens += r.AccCompletionTokens
 		if cacheReliable {
 			ms.CachedTokens += r.AccCachedTokens
@@ -185,6 +193,7 @@ func Query(store *Store, window Window) *MetricsSummary {
 			as.Turns++
 			as.AvgDurMs += r.DurationMs
 			as.PromptTokens += r.AccPromptTokens
+			as.CacheWriteTokens += r.AccCacheWriteTokens
 			as.CompletionTokens += r.AccCompletionTokens
 			if cacheReliable {
 				as.CachedTokens += r.AccCachedTokens
@@ -202,6 +211,7 @@ func Query(store *Store, window Window) *MetricsSummary {
 			ss.Turns++
 			ss.AvgDurMs += r.DurationMs
 			ss.PromptTokens += r.AccPromptTokens
+			ss.CacheWriteTokens += r.AccCacheWriteTokens
 			ss.CompletionTokens += r.AccCompletionTokens
 			if cacheReliable {
 				ss.CachedTokens += r.AccCachedTokens
@@ -219,6 +229,7 @@ func Query(store *Store, window Window) *MetricsSummary {
 			src.Turns++
 			src.AvgDurMs += r.DurationMs
 			src.PromptTokens += r.AccPromptTokens
+			src.CacheWriteTokens += r.AccCacheWriteTokens
 			src.CompletionTokens += r.AccCompletionTokens
 			if cacheReliable {
 				src.CachedTokens += r.AccCachedTokens

@@ -43,22 +43,22 @@ type Request struct {
 
 // Message represents a chat message in OpenAI format (internal canonical format).
 type Message struct {
-	Role             string     `json:"role"`                        // system, user, assistant, tool
-	Content          string     `json:"content,omitempty"`           // text content
-	Media            []string   `json:"media,omitempty"`             // media markers like <<media:image/jpeg:/path>>
+	Role             string          `json:"role"`                        // system, user, assistant, tool
+	Content          string          `json:"content,omitempty"`           // text content
+	Media            []string        `json:"media,omitempty"`             // media markers like <<media:image/jpeg:/path>>
 	ReasoningContent string          `json:"reasoning_content,omitempty"` // reasoning text for providers that require it
 	ReasoningDetails json.RawMessage `json:"reasoning_details,omitempty"` // opaque reasoning details (Gemini thought_signature)
 	ToolCalls        []ToolCall      `json:"tool_calls,omitempty"`        // for assistant messages
-	ToolCallID       string     `json:"tool_call_id,omitempty"`      // for tool result messages
-	Name             string     `json:"name,omitempty"`              // tool name for tool results
-	ID               string     `json:"id,omitempty"`                // unique message identifier
-	Timestamp        time.Time  `json:"timestamp,omitempty"`         // when message was created
-	Compressed       string     `json:"compressed,omitempty"`        // compressed version of content
-	ReasoningTrimmed bool       `json:"reasoning_trimmed,omitempty"` // Tier 1 flag: reasoning marked for send-time exclusion (original data preserved)
-	ReasoningTokens  int        `json:"reasoning_tokens,omitempty"`  // precise reasoning token count from provider API
-	HeartbeatTrim    bool       `json:"heartbeat_trim,omitempty"`    // Tier 1 flag: heartbeat turn marked for send-time removal
-	SkipTrim         bool       `json:"skip_trim,omitempty"`         // tool result must not be compressed (e.g. compression summary)
-	Source           string     `json:"source,omitempty"`            // wake source that triggered this message
+	ToolCallID       string          `json:"tool_call_id,omitempty"`      // for tool result messages
+	Name             string          `json:"name,omitempty"`              // tool name for tool results
+	ID               string          `json:"id,omitempty"`                // unique message identifier
+	Timestamp        time.Time       `json:"timestamp,omitempty"`         // when message was created
+	Compressed       string          `json:"compressed,omitempty"`        // compressed version of content
+	ReasoningTrimmed bool            `json:"reasoning_trimmed,omitempty"` // Tier 1 flag: reasoning marked for send-time exclusion (original data preserved)
+	ReasoningTokens  int             `json:"reasoning_tokens,omitempty"`  // precise reasoning token count from provider API
+	HeartbeatTrim    bool            `json:"heartbeat_trim,omitempty"`    // Tier 1 flag: heartbeat turn marked for send-time removal
+	SkipTrim         bool            `json:"skip_trim,omitempty"`         // tool result must not be compressed (e.g. compression summary)
+	Source           string          `json:"source,omitempty"`            // wake source that triggered this message
 }
 
 // GetContent returns the compressed content if available, otherwise the original content.
@@ -117,6 +117,13 @@ type Usage struct {
 	TotalTokens      int `json:"total_tokens"`
 	CachedTokens     int `json:"cached_tokens,omitempty"`
 	ReasoningTokens  int `json:"reasoning_tokens,omitempty"`
+
+	// CacheWriteTokens counts input tokens written into the prompt cache on a
+	// cold prefix. gpt-5.6 bills these at 1.25x the uncached input rate, so on a
+	// cache miss this is the single most expensive line of the request — and
+	// unlike CachedTokens it is invisible in PromptTokens vs CachedTokens alone.
+	// Only OpenAI's Responses API reports it today; other providers leave it 0.
+	CacheWriteTokens int `json:"cache_write_tokens,omitempty"`
 }
 
 // ToolDef defines a tool for the LLM (OpenAI function calling format).
@@ -496,7 +503,7 @@ func inputChars(messages []Message) int {
 // This handles LLMs that put useful output in reasoning but leave content empty.
 func resolveContentWithReasoningFallback(finalContent, reasoningText, providerName string, toolCalls []ToolCall) string {
 	if strings.TrimSpace(finalContent) == "" && len(toolCalls) == 0 && strings.TrimSpace(reasoningText) != "" {
-		logger.Warn(providerName+" response content empty, using reasoning text fallback")
+		logger.Warn(providerName + " response content empty, using reasoning text fallback")
 		return reasoningText
 	}
 	return finalContent

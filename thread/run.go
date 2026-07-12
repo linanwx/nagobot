@@ -773,12 +773,14 @@ func (t *Thread) recordTurn(metrics *ExecMetrics, providerName, modelName, agent
 		LastCompletionTokens: metrics.LastCompletionActual,
 		LastTotalTokens:      metrics.LastTotalActual,
 		LastCachedTokens:     metrics.LastCachedActual,
+		LastCacheWriteTokens: metrics.LastCacheWriteActual,
 		LastReasoningTokens:  metrics.LastReasoningActual,
 
 		AccPromptTokens:     usage.PromptTokens,
 		AccCompletionTokens: usage.CompletionTokens,
 		AccTotalTokens:      usage.TotalTokens,
 		AccCachedTokens:     usage.CachedTokens,
+		AccCacheWriteTokens: usage.CacheWriteTokens,
 		AccReasoningTokens:  usage.ReasoningTokens,
 
 		EstPromptTokens:     metrics.PromptEstimated,

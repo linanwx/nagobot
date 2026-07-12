@@ -60,6 +60,17 @@ var (
 	wsPongTimeout  = 50 * time.Second
 )
 
+// gpt56ContextWindow caps the gpt-5.6 family at the price break instead of at
+// its real 372K capacity. OpenAI bills a gpt-5.6 request whose input exceeds
+// 272K at 2x input / 1.5x output — for the *whole* request, not just the excess.
+// The context window is what drives compression: Tier 2 fires at
+// contextWindow - min(contextWindow/5, 50000)*1.8, so registering the true
+// 372000 would let context grow to 282K before compression ever ran, i.e. every
+// request in the 272K–282K band would be silently double-billed. 272000 makes
+// crossing the band structurally impossible (Tier 2 then fires at 182K).
+// This is the same defect Codex itself has: openai/codex#32486.
+const gpt56ContextWindow = 272000
+
 func init() {
 	models := []string{"gpt-5.6-sol", "gpt-5.6-terra", "gpt-5.6-luna", "gpt-5.5", "gpt-5.4", "gpt-5.4-mini", "gpt-5.4-nano"}
 	constructor := func(apiKey, apiBase, modelType, modelName string, maxTokens int, temperature float64) Provider {
@@ -67,14 +78,15 @@ func init() {
 	}
 
 	// "openai" — API key auth, hits api.openai.com directly. Context windows
-	// reflect the model's full API capacity.
+	// reflect the model's full API capacity, except for gpt-5.6: see
+	// gpt56ContextWindow below.
 	RegisterProvider("openai", ProviderRegistration{
 		Models:       models,
 		VisionModels: models,
 		ContextWindows: map[string]int{
-			"gpt-5.6-sol":   372000,
-			"gpt-5.6-terra": 372000,
-			"gpt-5.6-luna":  372000,
+			"gpt-5.6-sol":   gpt56ContextWindow,
+			"gpt-5.6-terra": gpt56ContextWindow,
+			"gpt-5.6-luna":  gpt56ContextWindow,
 			"gpt-5.5":       1048576,
 			"gpt-5.4":       1048576,
 			"gpt-5.4-mini":  400000,
@@ -92,9 +104,9 @@ func init() {
 		Models:       models,
 		VisionModels: models,
 		ContextWindows: map[string]int{
-			"gpt-5.6-sol":   372000,
-			"gpt-5.6-terra": 372000,
-			"gpt-5.6-luna":  372000,
+			"gpt-5.6-sol":   gpt56ContextWindow,
+			"gpt-5.6-terra": gpt56ContextWindow,
+			"gpt-5.6-luna":  gpt56ContextWindow,
 			"gpt-5.5":       272000,
 			"gpt-5.4":       272000,
 			"gpt-5.4-mini":  272000,
@@ -314,6 +326,7 @@ func (p *OpenAIProvider) chatViaWS(ctx context.Context, req *Request) (ChatResul
 			"completionTokens", resp.Usage.CompletionTokens,
 			"reasoningTokens", resp.Usage.ReasoningTokens,
 			"cachedTokens", resp.Usage.CachedTokens,
+			"cacheWriteTokens", resp.Usage.CacheWriteTokens,
 			"totalTokens", resp.Usage.TotalTokens,
 			"outputChars", len(resp.Content),
 			"usedDelta", built.usedDelta,
@@ -576,6 +589,7 @@ func (p *OpenAIProvider) runHTTPStreamInto(ctx context.Context, req *Request, ad
 		"completionTokens", resp.Usage.CompletionTokens,
 		"reasoningTokens", resp.Usage.ReasoningTokens,
 		"cachedTokens", resp.Usage.CachedTokens,
+		"cacheWriteTokens", resp.Usage.CacheWriteTokens,
 		"totalTokens", resp.Usage.TotalTokens,
 		"outputChars", len(resp.Content),
 		"latencyMs", time.Since(start).Milliseconds(),
@@ -939,7 +953,8 @@ func (a *responseAssembler) handleEvent(data []byte) (done bool, err error) {
 				OutputTokens       int `json:"output_tokens"`
 				TotalTokens        int `json:"total_tokens"`
 				InputTokensDetails struct {
-					CachedTokens int `json:"cached_tokens"`
+					CachedTokens     int `json:"cached_tokens"`
+					CacheWriteTokens int `json:"cache_write_tokens"`
 				} `json:"input_tokens_details"`
 				OutputTokensDetails struct {
 					ReasoningTokens int `json:"reasoning_tokens"`
@@ -977,6 +992,7 @@ func (a *responseAssembler) handleEvent(data []byte) (done bool, err error) {
 			CompletionTokens: event.Response.Usage.OutputTokens,
 			TotalTokens:      event.Response.Usage.TotalTokens,
 			CachedTokens:     event.Response.Usage.InputTokensDetails.CachedTokens,
+			CacheWriteTokens: event.Response.Usage.InputTokensDetails.CacheWriteTokens,
 			ReasoningTokens:  event.Response.Usage.OutputTokensDetails.ReasoningTokens,
 		}
 		return true, nil
