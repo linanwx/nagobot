@@ -570,10 +570,20 @@ func trimMessageGroups(messages []provider.Message, toolDefsTokens, budget int) 
 	return result
 }
 
-// contextLoopBudget is the shared token budget for in-context trimming: 90% of
-// the window left after reserving completion tokens. Returns 0 when non-positive.
+// contextLoopBudget is the shared token budget for in-context trimming — the
+// LAST-RESORT line, which must sit above both compression tiers (Tier 2 at 70%,
+// Tier 3 at 85% of the window) so compression always gets the first chance:
+//
+//	min(92% of the window, window − maxCompletion − 10K)
+//
+// The 92% term leaves 8% proportional slack for token-estimate error (measured
+// ~6% overshoot); the absolute term guarantees request validity on providers
+// that send max_tokens, and only binds on small windows (< ~330K at the 16,384
+// default). The ordering trim > Tier 3 holds for windows ≥ ~176K; below that
+// the output reservation dominates and the fix is lowering maxTokens, not
+// moving the tiers. Returns 0 when non-positive.
 func contextLoopBudget(contextWindow, maxCompletion int) int {
-	b := int(float64(contextWindow-maxCompletion) * 0.9)
+	b := min(contextWindow*92/100, contextWindow-maxCompletion-10000)
 	if b < 0 {
 		return 0
 	}

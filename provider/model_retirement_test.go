@@ -130,13 +130,22 @@ func TestGPT56ContextWindowStaysUnderPriceBreak(t *testing.T) {
 			gpt56ContextWindow, priceBreak, priceBreak)
 	}
 
-	// Mirror thread.ComputeContextThresholds: Tier 2 fires once usage reaches
-	// contextWindow - min(contextWindow/5, 50000)*1.8.
-	warn := min(gpt56ContextWindow/5, 50000)
-	tier2At := gpt56ContextWindow - int(float64(warn)*1.8)
+	// Mirror thread.ComputeContextThresholds (Tier 2 fires at 70% of the
+	// window) and thread.contextLoopBudget, the last-resort trim line that is
+	// the actual hard bound on request size: min(92% of the window,
+	// window − maxTokens − 10K) with the 16,384 maxTokens default. Tier 2
+	// firing under the break is the soft guarantee; the trim line staying
+	// under it is the structural one — a "restore the real 372K capacity"
+	// edit would push the trim line to ~342K and reintroduce double billing
+	// even though Tier 2 (at 260K) would still look safe.
+	tier2At := gpt56ContextWindow * 70 / 100
 	if tier2At >= priceBreak {
 		t.Fatalf("Tier 2 would not fire until %d tokens, at or past the %d price break", tier2At, priceBreak)
 	}
-	t.Logf("gpt-5.6 window %d → Tier 2 fires at %d, %d tokens of headroom under the %d price break",
-		gpt56ContextWindow, tier2At, priceBreak-tier2At, priceBreak)
+	trimAt := min(gpt56ContextWindow*92/100, gpt56ContextWindow-16384-10000)
+	if trimAt >= priceBreak {
+		t.Fatalf("the context budget trim line %d is at or past the %d price break: requests in between are billed 2x", trimAt, priceBreak)
+	}
+	t.Logf("gpt-5.6 window %d → Tier 2 at %d, trim line at %d, %d tokens of headroom under the %d price break",
+		gpt56ContextWindow, tier2At, trimAt, priceBreak-trimAt, priceBreak)
 }

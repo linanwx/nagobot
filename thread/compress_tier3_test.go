@@ -26,7 +26,7 @@ func newTier3TestManager(t *testing.T, key string, window int) (*Manager, *Threa
 
 func TestTryTier3Compress_EnqueuesWhenOverThreshold(t *testing.T) {
 	key := "test:tier3-over"
-	// window 2000 → WarnToken 400 → Tier 3 threshold = 1600 tokens.
+	// window 2000 → WarnToken 300 (15%) → Tier 3 threshold = 1700 tokens.
 	mgr, th, store := newTier3TestManager(t, key, 2000)
 
 	// A session far over the threshold.
@@ -65,7 +65,7 @@ func TestTryTier1Compress_ResetsUserMsgCounter(t *testing.T) {
 
 func TestTryTier3Compress_SkipsWhenUnderThreshold(t *testing.T) {
 	key := "test:tier3-under"
-	// Large window → Tier 3 threshold ~160000 tokens; a tiny session stays well under.
+	// Large window → Tier 3 threshold 170000 tokens (85%); a tiny session stays well under.
 	mgr, th, store := newTier3TestManager(t, key, 200000)
 
 	if err := store.Append(key, provider.UserMessage("just a short message")); err != nil {

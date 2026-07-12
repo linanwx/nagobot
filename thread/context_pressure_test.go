@@ -14,11 +14,11 @@ func TestComputeContextThresholds(t *testing.T) {
 		wantWarn      int
 		wantTier2     int
 	}{
-		{"128K model", 128000, 25600, 46080},
-		{"200K model", 200000, 40000, 72000},
-		{"256K model", 256000, 50000, 90000},
-		{"1M model", 1000000, 50000, 90000},
-		{"small 32K model", 32000, 6400, 11520},
+		{"128K model", 128000, 19200, 38400},
+		{"200K model", 200000, 30000, 60000},
+		{"256K model", 256000, 38400, 76800},
+		{"1M model", 1000000, 150000, 300000},
+		{"small 32K model", 32000, 4800, 9600},
 		{"zero", 0, 0, 0},
 	}
 	for _, tt := range tests {
@@ -38,15 +38,15 @@ func TestComputeContextThresholds(t *testing.T) {
 }
 
 func TestPressureStatus(t *testing.T) {
-	ct := ComputeContextThresholds(200000) // WarnToken=40000, Tier2Token=72000
+	ct := ComputeContextThresholds(200000) // WarnToken=30000, Tier2Token=60000
 	tests := []struct {
 		name       string
 		usedTokens int
 		want       string
 	}{
 		{"ok - plenty of room", 50000, "ok"},
-		{"warning - within tier2 zone", 140000, "warning"},
-		{"pressure - remaining below warnToken", 170000, "pressure"},
+		{"warning - within tier2 zone", 145000, "warning"},
+		{"pressure - remaining below warnToken", 175000, "pressure"},
 		{"pressure - remaining exactly zero", 200000, "pressure"},
 	}
 	for _, tt := range tests {
@@ -128,18 +128,12 @@ func TestContextThresholds_TriggerPercents(t *testing.T) {
 		wantTier2Pct  float64
 		wantTier3Pct  float64
 	}{
-		// 200K: WarnToken=40000, Tier2Token=72000
-		//   Tier2 pct = (200000 - 72000) / 200000 * 100 = 64
-		//   Tier3 pct = (200000 - 40000) / 200000 * 100 = 80
-		{"200K model", 200000, 64.0, 80.0},
-		// 128K: WarnToken=25600, Tier2Token=46080
-		//   Tier2 pct = (128000 - 46080) / 128000 * 100 = 64
-		//   Tier3 pct = (128000 - 25600) / 128000 * 100 = 80
-		{"128K model", 128000, 64.0, 80.0},
-		// 1M: WarnToken capped at 50000, Tier2Token=90000
-		//   Tier2 pct = (1000000 - 90000) / 1000000 * 100 = 91
-		//   Tier3 pct = (1000000 - 50000) / 1000000 * 100 = 95
-		{"1M model (capped)", 1000000, 91.0, 95.0},
+		// Reserves are pure percentages (30% / 15%), so the trigger percents
+		// are 70/85 at EVERY window size — scale invariance is the property
+		// that keeps Tier 2 < Tier 3 < trim from crossing on large windows.
+		{"200K model", 200000, 70.0, 85.0},
+		{"128K model", 128000, 70.0, 85.0},
+		{"1M model", 1000000, 70.0, 85.0},
 		{"zero window", 0, 0.0, 0.0},
 	}
 	for _, tt := range tests {

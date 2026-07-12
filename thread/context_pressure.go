@@ -7,8 +7,18 @@ import (
 	"github.com/linanwx/nagobot/provider"
 )
 
-// tier2Multiplier scales WarnToken to get the Tier 2 threshold.
-const tier2Multiplier = 1.8
+// Reserve fractions for the compression tiers. Both are percentages of the
+// window — deliberately, and load-bearing: the old reserves were capped at an
+// absolute 50K (WarnToken) / 90K (Tier2Token) for windows ≥ 250K, while the
+// context budget guard's last-resort trim line scales proportionally. Mixing a
+// capped-constant reserve with a proportional one made the lines cross as the
+// window grew (at 500K the trim fired before Tier 3; at 1M before Tier 2 —
+// trimming before compression ever had a chance). All-percentage keeps the
+// ordering Tier 2 < Tier 3 < trim at every window size ≥ ~176K.
+const (
+	tier3ReserveFraction = 0.15 // Tier 3 fires at 85% of the window
+	tier2ReserveFraction = 0.30 // Tier 2 fires at 70% of the window
+)
 
 // ContextThresholds holds computed context pressure thresholds.
 type ContextThresholds struct {
@@ -22,14 +32,10 @@ func ComputeContextThresholds(contextWindow int) ContextThresholds {
 	if contextWindow <= 0 {
 		return ContextThresholds{}
 	}
-	warnToken := contextWindow / 5
-	if warnToken > 50000 {
-		warnToken = 50000
-	}
 	return ContextThresholds{
 		ContextWindow: contextWindow,
-		WarnToken:     warnToken,
-		Tier2Token:    int(float64(warnToken) * tier2Multiplier),
+		WarnToken:     int(float64(contextWindow) * tier3ReserveFraction),
+		Tier2Token:    int(float64(contextWindow) * tier2ReserveFraction),
 	}
 }
 

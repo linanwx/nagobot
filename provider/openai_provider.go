@@ -63,12 +63,12 @@ var (
 // gpt56ContextWindow caps the gpt-5.6 family at the price break instead of at
 // its real 372K capacity. OpenAI bills a gpt-5.6 request whose input exceeds
 // 272K at 2x input / 1.5x output — for the *whole* request, not just the excess.
-// The context window is what drives compression: Tier 2 fires at
-// contextWindow - min(contextWindow/5, 50000)*1.8, so registering the true
-// 372000 would let context grow to 282K before compression ever ran, i.e. every
-// request in the 272K–282K band would be silently double-billed. 272000 makes
-// crossing the band structurally impossible (Tier 2 then fires at 182K).
-// This is the same defect Codex itself has: openai/codex#32486.
+// The context window is what drives compression and the context budget trim
+// (Tier 2 at 70%, Tier 3 at 85%, trim at min(92%, window−maxTokens−10K)), so
+// registering the true 372000 would let requests grow to ~342K — every request
+// in the 272K–342K band silently double-billed. 272000 caps the trim line at
+// ~245K, making crossing the band structurally impossible. This is the same
+// defect Codex itself has: openai/codex#32486.
 //
 // OpenClaw, the reference implementation for this backend, reaches the same
 // number by a cleaner route: it keeps the native capacity and the runtime cap
