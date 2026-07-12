@@ -5,7 +5,12 @@ import cronpkg "github.com/linanwx/nagobot/cron"
 const (
 	defaultProvider            = "deepseek"
 	defaultModelType           = "deepseek-v4-flash"
-	defaultMaxTokens           = 65536
+	// defaultMaxTokens is the output reservation. Deliberately small: observed
+	// outputs are 700–3,500 tokens, and every token reserved here lowers the
+	// context budget guard's trigger line — at 65536 the guard fired barely
+	// above (or on 1M windows, well BEFORE) the Tier-2 compression line, so
+	// requests got trimmed before compression ever had a chance to run.
+	defaultMaxTokens           = 16384
 	defaultTemperature         = 1.0
 	defaultContextWindowTokens = 300000
 	defaultWebAddr             = "127.0.0.1:18080"
