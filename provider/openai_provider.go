@@ -998,6 +998,23 @@ func (p *OpenAIProvider) buildRequestBody(ctx context.Context, req *Request, for
 				"instructionsChanged", joinedInstructions != p.lastInstructions,
 				"toolsChanged", toolsFP != p.lastToolsFP)
 			p.invalidateContinuation()
+		} else {
+			// History prefix changed: compression rewrote it, or the context
+			// budget guard advanced its head trim. Never leave this silent —
+			// exactly this silence hid the budget-trim oscillation that broke
+			// cross-turn delta on every other turn (2026-07-12).
+			firstDiff := -1
+			n := min(len(fullItems), len(p.lastInputItems))
+			for i := 0; i < n; i++ {
+				if !reflect.DeepEqual(fullItems[i], p.lastInputItems[i]) {
+					firstDiff = i
+					break
+				}
+			}
+			logger.Info("openai continuation dropped: history prefix changed",
+				"baselineItems", len(p.lastInputItems),
+				"rebuiltItems", len(fullItems),
+				"firstDiff", firstDiff)
 		}
 	}
 

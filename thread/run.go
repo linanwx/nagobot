@@ -196,10 +196,10 @@ func (t *Thread) buildMessageHistory(ctx context.Context, systemPrompt, userMess
 	messages = append(messages, userMsg)
 	turnUserMessages = append(turnUserMessages, userMsg)
 
-	// Bound the request to the shared context budget: drop the oldest
-	// assistant+tool_call groups, preserving the system prompt and all user
-	// messages (including the first task message). Same logic and budget as the
-	// in-loop guard; idempotent and ephemeral (the session file is untouched).
+	// Bound the request to the shared context budget: halve the conversation
+	// from the head at user-turn boundaries (system prompt and current turn
+	// always kept). Same logic and budget as the in-loop guard; idempotent and
+	// ephemeral (the session file is untouched).
 	messages = trimMessageGroups(messages, toolDefsTokens, contextLoopBudget(contextWindowTokens, maxCompletionTokens))
 
 	requestEstimatedTokens := EstimateMessagesTokens(messages) + toolDefsTokens

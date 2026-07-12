@@ -421,15 +421,32 @@ func (r *Runner) callLLM(ctx context.Context, chatReq *provider.Request) (*llmCa
 	return out, nil
 }
 
-// trimMessageGroups drops the oldest assistant+tool_call groups until
-// EstimateMessagesTokens(messages)+toolDefsTokens <= budget. It preserves the
-// system prompt (messages[0]) and EVERY user message — including the first task
-// message — and always keeps the most recent group. Returns messages unchanged
-// when there is at most one droppable group, so it does NOT guarantee a fit for
-// sessions with too few tool groups (e.g. pure chat). Ephemeral — never modifies
-// the session file. Shared by the turn-start trim and the in-loop guard.
+// trimMessageGroups bounds the request to budget by halving the conversation:
+// at the first crossing it drops the oldest half, and keeps dropping further
+// half-budget chunks as the session grows. The drop amount is QUANTIZED to
+// multiples of budget/2 — the smallest multiple that brings the remainder
+// under budget. Quantization is what keeps the request head stable: a naive
+// "drop until remaining ≤ total/2" recomputes a moving target every call, so
+// tail growth advances the cut a little each turn, which rewrites the request
+// head and kills openai-oauth's cross-turn previous_response_id delta (and
+// every provider's prefix cache). Measured 2026-07-12 (coffee channel,
+// gpt-5.6-terra): one Tier-2 turn made 4 calls of ~175K prompt tokens each at
+// ~0% cache hit (~44 credits) because the head moved before each call. With
+// quantized drops the head moves once per budget/2 (~93K on terra) of growth,
+// and each move frees another ~budget/2 of headroom.
+//
+// Boundaries: messages[0] (system prompt) is always kept; the cut lands on a
+// user-message boundary, so tool results are never orphaned from their calls
+// and the message after the system prompt is always a user message; the final
+// turn (last user message onward) is never prefix-cut. If the drop quota is
+// not reached by whole turns alone (one mega-agentic turn — the in-loop
+// guard's case), it falls back to dropping that turn's oldest
+// assistant+tool_call groups, keeping the turn's user message and the most
+// recent group. May still return over budget when nothing droppable remains —
+// that is logged, never silent. Ephemeral — never modifies the session file.
+// Shared by the turn-start trim and the in-loop guard.
 func trimMessageGroups(messages []provider.Message, toolDefsTokens, budget int) []provider.Message {
-	if budget <= 0 {
+	if budget <= 0 || len(messages) == 0 {
 		return messages
 	}
 	total := EstimateMessagesTokens(messages) + toolDefsTokens
@@ -437,62 +454,118 @@ func trimMessageGroups(messages []provider.Message, toolDefsTokens, budget int) 
 		return messages
 	}
 
-	// Find removable tool-call/tool-result groups (skip messages[0] = system prompt).
-	type group struct{ start, end int }
-	var groups []group
-	i := 1
-	for i < len(messages) {
-		m := messages[i]
-		if m.Role == "assistant" && len(m.ToolCalls) > 0 {
-			tcIDs := make(map[string]bool, len(m.ToolCalls))
-			for _, tc := range m.ToolCalls {
-				tcIDs[tc.ID] = true
+	// Drop quota: smallest multiple of budget/2 that brings total under
+	// budget. A step function of total — stable while the session grows
+	// within one half-budget band, which is what pins the cut in place.
+	half := max(budget/2, 1)
+	dropTarget := (total - budget + half - 1) / half * half
+
+	// Stage 1: drop whole turns from the head. Advance the cut user-boundary
+	// by user-boundary until the dropped prefix meets the quota, never cutting
+	// into the final turn (the current wake and its agentic tail).
+	lastUser := -1
+	for i := len(messages) - 1; i >= 1; i-- {
+		if messages[i].Role == "user" {
+			lastUser = i
+			break
+		}
+	}
+	result := messages
+	dropped := 0
+	removedTurnMsgs := 0
+	if lastUser > 1 {
+		keepFrom := 1
+		prefix := 0 // tokens in messages[1:i]
+		for i := 1; i <= lastUser; i++ {
+			if messages[i].Role == "user" {
+				keepFrom = i
+				if prefix >= dropTarget {
+					break
+				}
 			}
-			end := i + 1
-			for end < len(messages) && messages[end].Role == "tool" && tcIDs[messages[end].ToolCallID] {
-				end++
+			prefix += EstimateMessageTokens(messages[i])
+		}
+		if keepFrom > 1 {
+			result = make([]provider.Message, 0, 1+len(messages)-keepFrom)
+			result = append(result, messages[0])
+			result = append(result, messages[keepFrom:]...)
+			removedTurnMsgs = keepFrom - 1
+			before := total
+			total = EstimateMessagesTokens(result) + toolDefsTokens
+			dropped = before - total
+		}
+	}
+
+	// Stage 2 (rare): whole turns didn't meet the quota — the final turn alone
+	// blows the budget. Drop its oldest assistant+tool_call groups, keeping
+	// the most recent group. Same quantized quota, so the same stability.
+	removedGroupMsgs := 0
+	if dropped < dropTarget {
+		type group struct{ start, end int }
+		var groups []group
+		i := 1
+		for i < len(result) {
+			m := result[i]
+			if m.Role == "assistant" && len(m.ToolCalls) > 0 {
+				tcIDs := make(map[string]bool, len(m.ToolCalls))
+				for _, tc := range m.ToolCalls {
+					tcIDs[tc.ID] = true
+				}
+				end := i + 1
+				for end < len(result) && result[end].Role == "tool" && tcIDs[result[end].ToolCallID] {
+					end++
+				}
+				groups = append(groups, group{i, end})
+				i = end
+				continue
 			}
-			groups = append(groups, group{i, end})
-			i = end
-			continue
+			i++
 		}
-		i++
+		if len(groups) > 1 {
+			marked := append([]provider.Message(nil), result...)
+			for gi := 0; gi < len(groups)-1 && dropped < dropTarget; gi++ {
+				g := groups[gi]
+				for j := g.start; j < g.end; j++ {
+					n := EstimateMessageTokens(marked[j])
+					total -= n
+					dropped += n
+					marked[j].Role = "" // mark for removal
+					removedGroupMsgs++
+				}
+			}
+			if removedGroupMsgs > 0 {
+				compact := make([]provider.Message, 0, len(marked)-removedGroupMsgs)
+				for _, m := range marked {
+					if m.Role != "" {
+						compact = append(compact, m)
+					}
+				}
+				result = compact
+			}
+		}
 	}
 
-	if len(groups) <= 1 {
-		return messages // keep at least the last group
-	}
-
-	// Remove groups from the oldest until under budget, but keep the last group.
-	removed := 0
-	for gi := 0; gi < len(groups)-1 && total > budget; gi++ {
-		g := groups[gi]
-		for j := g.start; j < g.end; j++ {
-			total -= EstimateMessageTokens(messages[j])
-			removed++
-		}
-		for j := g.start; j < g.end; j++ {
-			messages[j].Role = "" // mark for removal
-		}
-	}
-
-	if removed == 0 {
+	if removedTurnMsgs+removedGroupMsgs == 0 {
+		logger.Warn("context budget guard: over budget but nothing droppable",
+			"tokens", total,
+			"budget", budget,
+		)
 		return messages
 	}
 
-	// Compact: remove marked messages.
-	result := make([]provider.Message, 0, len(messages)-removed)
-	for _, m := range messages {
-		if m.Role != "" {
-			result = append(result, m)
-		}
-	}
-
-	logger.Info("context budget guard: trimmed old tool groups",
-		"removed", removed,
+	logger.Info("context budget guard: halved conversation",
+		"removedTurnMsgs", removedTurnMsgs,
+		"removedGroupMsgs", removedGroupMsgs,
 		"remainingTokens", total,
 		"budget", budget,
+		"dropTarget", dropTarget,
 	)
+	if total > budget {
+		logger.Warn("context budget guard: still over budget after trim",
+			"tokens", total,
+			"budget", budget,
+		)
+	}
 
 	return result
 }
