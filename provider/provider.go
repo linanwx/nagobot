@@ -120,9 +120,25 @@ type Usage struct {
 
 	// CacheWriteTokens counts input tokens written into the prompt cache on a
 	// cold prefix. gpt-5.6 bills these at 1.25x the uncached input rate, so on a
-	// cache miss this is the single most expensive line of the request — and
-	// unlike CachedTokens it is invisible in PromptTokens vs CachedTokens alone.
-	// Only OpenAI's Responses API reports it today; other providers leave it 0.
+	// cache miss this is the most expensive line of the request.
+	//
+	// It is 0 on openai-oauth, and that is not a bug on our side: the
+	// ChatGPT/Codex backend does not report cache writes at all. Verified two
+	// ways — a 177K-token cold turn (cached_tokens=0, i.e. a guaranteed full
+	// cache write) came back with no cache-write field, and OpenClaw, the
+	// reference implementation for that backend, reads only inputTokens /
+	// cachedInputTokens / outputTokens / totalTokens from the Codex
+	// TokenUsageBreakdown; there is no write counter to read. Its docs say the
+	// same: "Expect cacheRead only; cacheWrite stays 0."
+	//
+	// The consequence is that the 1.25x charge on openai-oauth is NOT auditable
+	// from usage data. The parse is kept because api.openai.com's Responses API
+	// does populate input_tokens_details.cache_write_tokens.
+	//
+	// NOTE on arithmetic: OpenAI's input_tokens INCLUDES both the cached and the
+	// cache-write buckets. Truly uncached (1.0x) input is
+	// PromptTokens - CachedTokens - CacheWriteTokens, not PromptTokens -
+	// CachedTokens. The two are equal only while CacheWriteTokens is 0.
 	CacheWriteTokens int `json:"cache_write_tokens,omitempty"`
 }
 

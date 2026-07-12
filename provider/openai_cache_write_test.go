@@ -91,3 +91,43 @@ func TestCacheWriteTokensAbsentIsZero(t *testing.T) {
 		t.Errorf("CachedTokens = %d, want 900 — an absent sibling field broke the usage parse", got)
 	}
 }
+
+// TestUsageWithNoInputTokensDetails is the shape we actually observe from the
+// ChatGPT/Codex backend on a cold turn: a large prompt, and no cache accounting
+// at all (that backend never reports cache writes — see Usage.CacheWriteTokens).
+// The parse must yield zeros and leave the rest of the usage intact rather
+// than failing.
+func TestUsageWithNoInputTokensDetails(t *testing.T) {
+	resp := &Response{}
+	a := newResponseAssembler(newStreamAdapter(context.Background(), resp))
+
+	event := []byte(`{
+		"type": "response.completed",
+		"response": {
+			"id": "resp_cold",
+			"usage": {
+				"input_tokens": 177005,
+				"output_tokens": 576,
+				"total_tokens": 177581,
+				"output_tokens_details": {"reasoning_tokens": 410}
+			}
+		}
+	}`)
+
+	done, err := a.handleEvent(event)
+	if err != nil {
+		t.Fatalf("a missing input_tokens_details must not fail the parse: %v", err)
+	}
+	if !done {
+		t.Fatal("response.completed did not report done")
+	}
+	if resp.Usage.CachedTokens != 0 || resp.Usage.CacheWriteTokens != 0 {
+		t.Errorf("cache fields = (%d, %d), want (0, 0)", resp.Usage.CachedTokens, resp.Usage.CacheWriteTokens)
+	}
+	if got := resp.Usage.PromptTokens; got != 177005 {
+		t.Errorf("PromptTokens = %d, want 177005 — the missing details block ate the rest of usage", got)
+	}
+	if got := resp.Usage.ReasoningTokens; got != 410 {
+		t.Errorf("ReasoningTokens = %d, want 410", got)
+	}
+}
