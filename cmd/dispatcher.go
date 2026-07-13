@@ -273,7 +273,7 @@ func (d *Dispatcher) buildCronSink(msg *channel.Message) thread.Sink {
 	}
 	var label string
 	if reportTo != "" {
-		label = "cron caller output is dropped. After completing your task, dispatch(to=session, session_key=\"" + reportTo + "\") to deliver results."
+		label = "cron caller output is dropped. After completing your task, dispatch(to=session, params={session_key: \"" + reportTo + "\"}) to deliver results."
 	} else {
 		label = "cron caller output is dropped. No delivery target configured; use dispatch explicitly if you need to forward results."
 	}

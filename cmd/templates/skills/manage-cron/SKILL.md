@@ -7,7 +7,7 @@ description: Schedule nagobot's own background jobs — recurring tasks, one-tim
 Cron fires are channel events — caller = cron, not a routable session. Every
 cron-triggered turn's caller sink is a **drop sink**: naive final text output
 is discarded. The session MUST call `dispatch(to=user)` or
-`dispatch(to=session, session_key=...)` explicitly to deliver anywhere.
+`dispatch(to=session, params={session_key: ...})` explicitly to deliver anywhere.
 
 ## Two Modes
 
@@ -115,5 +115,5 @@ Cron has no session to reply to. If the model naively outputs final text
 without dispatch, that text goes to the drop sink — it is recorded in session
 history but not delivered anywhere. This is by design: every delivery path
 must be explicit. Always decide: `dispatch(to=user)` (inject mode, user-facing
-target), `dispatch(to=session, session_key=...)` (cross-session forward), or
+target), `dispatch(to=session, params={session_key: ...})` (cross-session forward), or
 `dispatch({})` (silent intentional skip).

@@ -462,7 +462,7 @@ func TestDispatch_Subagent(t *testing.T) {
 		agents:     map[string]bool{"search": true},
 	}
 	outcome, res := runDispatch(t, host,
-		`{"sends": [{"to": "subagent", "agent": "search", "task_id": "bg-check", "body": "查 X"}]}`)
+		`{"sends": [{"to": "subagent", "params": {"agent": "search", "task_id": "bg-check"}, "body": "查 X"}]}`)
 	if outcome != "turn-terminated" {
 		t.Fatalf("outcome=%q, result=%s", outcome, res)
 	}
@@ -480,7 +480,7 @@ func TestDispatch_Subagent(t *testing.T) {
 func TestDispatch_SubagentMissingAgent(t *testing.T) {
 	host := &mockDispatchHost{currentKey: "cli", callerKind: "user", agents: map[string]bool{}}
 	_, res := runDispatch(t, host,
-		`{"sends": [{"to": "subagent", "agent": "nonexistent", "task_id": "x", "body": "go"}]}`)
+		`{"sends": [{"to": "subagent", "params": {"agent": "nonexistent", "task_id": "x"}, "body": "go"}]}`)
 	if !strings.Contains(res, "validation-error") {
 		t.Errorf("expected validation-error, got: %s", res)
 	}
@@ -492,7 +492,7 @@ func TestDispatch_SubagentMissingAgent(t *testing.T) {
 func TestDispatch_SubagentAgentOptional(t *testing.T) {
 	host := &mockDispatchHost{currentKey: "cli", callerKind: "user"}
 	outcome, res := runDispatch(t, host,
-		`{"sends": [{"to": "subagent", "task_id": "bg-check", "body": "go"}]}`)
+		`{"sends": [{"to": "subagent", "params": {"task_id": "bg-check"}, "body": "go"}]}`)
 	if outcome != "turn-terminated" {
 		t.Fatalf("expected success with empty agent (session default), got %q; %s", outcome, res)
 	}
@@ -507,7 +507,7 @@ func TestDispatch_SubagentAgentOptional(t *testing.T) {
 func TestDispatch_SubagentBadTaskID(t *testing.T) {
 	host := &mockDispatchHost{currentKey: "cli", callerKind: "user", agents: map[string]bool{"s": true}}
 	_, res := runDispatch(t, host,
-		`{"sends": [{"to": "subagent", "agent": "s", "task_id": "BAD ID!", "body": "x"}]}`)
+		`{"sends": [{"to": "subagent", "params": {"agent": "s", "task_id": "BAD ID!"}, "body": "x"}]}`)
 	if !strings.Contains(res, "validation-error") {
 		t.Errorf("expected validation-error for bad task_id, got: %s", res)
 	}
@@ -520,7 +520,7 @@ func TestDispatch_Fork(t *testing.T) {
 		agents:     map[string]bool{"analyst": true},
 	}
 	outcome, res := runDispatch(t, host,
-		`{"sends": [{"to": "fork", "agent": "analyst", "task_id": "hypo-a", "body": "explore"}]}`)
+		`{"sends": [{"to": "fork", "params": {"agent": "analyst", "task_id": "hypo-a"}, "body": "explore"}]}`)
 	if outcome != "turn-terminated" {
 		t.Fatalf("outcome=%q; %s", outcome, res)
 	}
@@ -542,7 +542,7 @@ func TestDispatch_SubagentModelOverride_OK(t *testing.T) {
 		validModels: map[string]bool{"openrouter:anthropic/claude-opus-4.6": true},
 	}
 	outcome, res := runDispatch(t, host,
-		`{"sends": [{"to": "subagent", "agent": "s", "task_id": "hard-q", "body": "go", "provider": "openrouter", "model": "anthropic/claude-opus-4.6"}]}`)
+		`{"sends": [{"to": "subagent", "params": {"agent": "s", "task_id": "hard-q", "provider": "openrouter", "model": "anthropic/claude-opus-4.6"}, "body": "go"}]}`)
 	if outcome != "turn-terminated" {
 		t.Fatalf("outcome=%q; %s", outcome, res)
 	}
@@ -563,7 +563,7 @@ func TestDispatch_SubagentModelOverride_Unavailable(t *testing.T) {
 		validModels: map[string]bool{}, // nothing valid
 	}
 	_, res := runDispatch(t, host,
-		`{"sends": [{"to": "subagent", "agent": "s", "task_id": "hard-q", "body": "go", "provider": "openrouter", "model": "nope/model"}]}`)
+		`{"sends": [{"to": "subagent", "params": {"agent": "s", "task_id": "hard-q", "provider": "openrouter", "model": "nope/model"}, "body": "go"}]}`)
 	if !strings.Contains(res, "validation-error") || !strings.Contains(res, "not available") {
 		t.Errorf("expected unavailable-override validation error, got: %s", res)
 	}
@@ -576,7 +576,7 @@ func TestDispatch_SubagentModelOverride_Unavailable(t *testing.T) {
 func TestDispatch_SubagentModelOverride_RequiresBoth(t *testing.T) {
 	host := &mockDispatchHost{currentKey: "cli", callerKind: "user", agents: map[string]bool{"s": true}}
 	_, res := runDispatch(t, host,
-		`{"sends": [{"to": "subagent", "agent": "s", "task_id": "q", "body": "go", "provider": "openrouter"}]}`)
+		`{"sends": [{"to": "subagent", "params": {"agent": "s", "task_id": "q", "provider": "openrouter"}, "body": "go"}]}`)
 	if !strings.Contains(res, "validation-error") || !strings.Contains(res, "set together") {
 		t.Errorf("expected paired-fields validation error, got: %s", res)
 	}
@@ -586,8 +586,8 @@ func TestDispatch_SubagentModelOverride_RequiresBoth(t *testing.T) {
 func TestDispatch_ModelOverride_WrongTarget(t *testing.T) {
 	host := &mockDispatchHost{currentKey: "cli", callerKind: "user", userFacing: true}
 	_, res := runDispatch(t, host,
-		`{"sends": [{"to": "user", "body": "hi", "provider": "openrouter", "model": "anthropic/claude-opus-4.6"}]}`)
-	if !strings.Contains(res, "validation-error") || !strings.Contains(res, "model override applies to subagent/fork only") {
+		`{"sends": [{"to": "user", "params": {"provider": "openrouter", "model": "anthropic/claude-opus-4.6"}, "body": "hi"}]}`)
+	if !strings.Contains(res, "validation-error") || !strings.Contains(res, "override applies to to=subagent/fork only") {
 		t.Errorf("expected wrong-target validation error, got: %s", res)
 	}
 }
@@ -600,7 +600,7 @@ func TestDispatch_ForkNested(t *testing.T) {
 		agents:     map[string]bool{"analyst": true},
 	}
 	_, res := runDispatch(t, host,
-		`{"sends": [{"to": "fork", "agent": "analyst", "task_id": "b", "body": "deeper"}]}`)
+		`{"sends": [{"to": "fork", "params": {"agent": "analyst", "task_id": "b"}, "body": "deeper"}]}`)
 	if !strings.Contains(res, "telegram:1:fork:a:fork:b") {
 		t.Errorf("expected nested fork key, got: %s", res)
 	}
@@ -613,7 +613,7 @@ func TestDispatch_WakeSession(t *testing.T) {
 		sessions:   map[string]bool{"telegram:2": true},
 	}
 	outcome, _ := runDispatch(t, host,
-		`{"sends": [{"to": "session", "session_key": "telegram:2", "body": "ping"}]}`)
+		`{"sends": [{"to": "session", "params": {"session_key": "telegram:2"}, "body": "ping"}]}`)
 	if outcome != "turn-terminated" {
 		t.Fatalf("outcome=%q", outcome)
 	}
@@ -625,7 +625,7 @@ func TestDispatch_WakeSession(t *testing.T) {
 func TestDispatch_WakeSessionMissing(t *testing.T) {
 	host := &mockDispatchHost{currentKey: "cli", callerKind: "user"}
 	_, res := runDispatch(t, host,
-		`{"sends": [{"to": "session", "session_key": "telegram:999", "body": "ping"}]}`)
+		`{"sends": [{"to": "session", "params": {"session_key": "telegram:999"}, "body": "ping"}]}`)
 	if !strings.Contains(res, "validation-error") {
 		t.Errorf("expected validation-error, got: %s", res)
 	}
@@ -638,7 +638,7 @@ func TestDispatch_SelfReferenceRejected(t *testing.T) {
 		sessions:   map[string]bool{"telegram:1": true},
 	}
 	_, res := runDispatch(t, host,
-		`{"sends": [{"to": "session", "session_key": "telegram:1", "body": "me"}]}`)
+		`{"sends": [{"to": "session", "params": {"session_key": "telegram:1"}, "body": "me"}]}`)
 	if !strings.Contains(res, "self-reference") {
 		t.Errorf("expected self-reference error, got: %s", res)
 	}
@@ -655,9 +655,9 @@ func TestDispatch_MultipleTargets(t *testing.T) {
 	outcome, res := runDispatch(t, host,
 		`{"sends": [
 			{"to": "caller:user", "body": "working on it"},
-			{"to": "subagent", "agent": "search", "task_id": "bg", "body": "查"},
-			{"to": "fork", "agent": "analyst", "task_id": "hypo", "body": "branch"},
-			{"to": "session", "session_key": "telegram:2", "body": "sync"}
+			{"to": "subagent", "params": {"agent": "search", "task_id": "bg"}, "body": "查"},
+			{"to": "fork", "params": {"agent": "analyst", "task_id": "hypo"}, "body": "branch"},
+			{"to": "session", "params": {"session_key": "telegram:2"}, "body": "sync"}
 		]}`)
 	if outcome != "turn-terminated" {
 		t.Fatalf("outcome=%q; %s", outcome, res)
@@ -698,8 +698,8 @@ func TestDispatch_DuplicateInBatchRejected(t *testing.T) {
 	}
 	_, res := runDispatch(t, host,
 		`{"sends": [
-			{"to": "subagent", "agent": "s", "task_id": "x", "body": "1"},
-			{"to": "subagent", "agent": "s", "task_id": "x", "body": "2"}
+			{"to": "subagent", "params": {"agent": "s", "task_id": "x"}, "body": "1"},
+			{"to": "subagent", "params": {"agent": "s", "task_id": "x"}, "body": "2"}
 		]}`)
 	if !strings.Contains(res, "duplicate target in batch") {
 		t.Errorf("expected duplicate error, got: %s", res)
@@ -778,8 +778,8 @@ func TestDispatch_ExecFailureHaltsButReportsErrors(t *testing.T) {
 	}
 	_, res := runDispatch(t, host,
 		`{"sends": [
-			{"to": "subagent", "agent": "search", "task_id": "ok", "body": "a"},
-			{"to": "subagent", "agent": "broken", "task_id": "bad", "body": "b"}
+			{"to": "subagent", "params": {"agent": "search", "task_id": "ok"}, "body": "a"},
+			{"to": "subagent", "params": {"agent": "broken", "task_id": "bad"}, "body": "b"}
 		]}`)
 	if !strings.Contains(res, "partial-failure") {
 		t.Errorf("expected partial-failure, got: %s", res)
@@ -877,7 +877,7 @@ func TestDispatch_WakeSessionEndpoint_Existing(t *testing.T) {
 		sessions:   map[string]bool{"wecom:LiNan": true},
 	}
 	outcome, res := runDispatch(t, host,
-		`{"sends": [{"to": "session", "channel": "wecom", "user_id": "LiNan", "body": "summarize uploads"}]}`)
+		`{"sends": [{"to": "session", "params": {"channel": "wecom", "user_id": "LiNan"}, "body": "summarize uploads"}]}`)
 	if outcome != "turn-terminated" {
 		t.Fatalf("outcome=%q result=%s", outcome, res)
 	}
@@ -892,7 +892,7 @@ func TestDispatch_WakeSessionEndpoint_Existing(t *testing.T) {
 func TestDispatch_WakeSessionEndpoint_CreatesMissing(t *testing.T) {
 	host := &mockDispatchHost{currentKey: "cron:weekly-thanks", callerKind: "system"}
 	outcome, res := runDispatch(t, host,
-		`{"sends": [{"to": "session", "channel": "wecom", "user_id": "ZhaoJing", "body": "thank for uploads"}]}`)
+		`{"sends": [{"to": "session", "params": {"channel": "wecom", "user_id": "ZhaoJing"}, "body": "thank for uploads"}]}`)
 	if outcome != "turn-terminated" {
 		t.Fatalf("outcome=%q result=%s", outcome, res)
 	}
@@ -911,7 +911,7 @@ func TestDispatch_WakeSessionEndpoint_BothFormsRejected(t *testing.T) {
 		sessions:   map[string]bool{"wecom:LiNan": true},
 	}
 	_, res := runDispatch(t, host,
-		`{"sends": [{"to": "session", "session_key": "wecom:LiNan", "channel": "wecom", "user_id": "LiNan", "body": "x"}]}`)
+		`{"sends": [{"to": "session", "params": {"session_key": "wecom:LiNan", "channel": "wecom", "user_id": "LiNan"}, "body": "x"}]}`)
 	if !strings.Contains(res, "validation-error") || !strings.Contains(res, "not both") {
 		t.Errorf("expected both-forms rejection, got: %s", res)
 	}
@@ -920,7 +920,7 @@ func TestDispatch_WakeSessionEndpoint_BothFormsRejected(t *testing.T) {
 func TestDispatch_WakeSessionEndpoint_ChannelWithoutUserID(t *testing.T) {
 	host := &mockDispatchHost{currentKey: "cli", callerKind: "user"}
 	_, res := runDispatch(t, host,
-		`{"sends": [{"to": "session", "channel": "wecom", "body": "x"}]}`)
+		`{"sends": [{"to": "session", "params": {"channel": "wecom"}, "body": "x"}]}`)
 	if !strings.Contains(res, "validation-error") || !strings.Contains(res, "channel and user_id must both be set") {
 		t.Errorf("expected paired-fields error, got: %s", res)
 	}
@@ -930,7 +930,7 @@ func TestDispatch_WakeSession_NeitherFormRejected(t *testing.T) {
 	host := &mockDispatchHost{currentKey: "cli", callerKind: "user"}
 	_, res := runDispatch(t, host,
 		`{"sends": [{"to": "session", "body": "x"}]}`)
-	if !strings.Contains(res, "validation-error") || !strings.Contains(res, "session requires either session_key") {
+	if !strings.Contains(res, "validation-error") || !strings.Contains(res, "session requires params") {
 		t.Errorf("expected missing-form error, got: %s", res)
 	}
 }
@@ -938,7 +938,7 @@ func TestDispatch_WakeSession_NeitherFormRejected(t *testing.T) {
 func TestDispatch_WakeSessionEndpoint_UnknownChannel(t *testing.T) {
 	host := &mockDispatchHost{currentKey: "cli", callerKind: "user"}
 	_, res := runDispatch(t, host,
-		`{"sends": [{"to": "session", "channel": "wechat", "user_id": "LiNan", "body": "x"}]}`)
+		`{"sends": [{"to": "session", "params": {"channel": "wechat", "user_id": "LiNan"}, "body": "x"}]}`)
 	if !strings.Contains(res, "validation-error") || !strings.Contains(res, `unknown channel "wechat"`) {
 		t.Errorf("expected unknown-channel error, got: %s", res)
 	}
@@ -947,7 +947,7 @@ func TestDispatch_WakeSessionEndpoint_UnknownChannel(t *testing.T) {
 func TestDispatch_WakeSessionEndpoint_SelfReferenceRejected(t *testing.T) {
 	host := &mockDispatchHost{currentKey: "wecom:LiNan", callerKind: "user"}
 	_, res := runDispatch(t, host,
-		`{"sends": [{"to": "session", "channel": "wecom", "user_id": "LiNan", "body": "me"}]}`)
+		`{"sends": [{"to": "session", "params": {"channel": "wecom", "user_id": "LiNan"}, "body": "me"}]}`)
 	if !strings.Contains(res, "self-reference") {
 		t.Errorf("expected self-reference error, got: %s", res)
 	}
@@ -956,7 +956,7 @@ func TestDispatch_WakeSessionEndpoint_SelfReferenceRejected(t *testing.T) {
 func TestDispatch_WakeSessionEndpoint_SubsessionInfixRejected(t *testing.T) {
 	host := &mockDispatchHost{currentKey: "cli", callerKind: "user"}
 	_, res := runDispatch(t, host,
-		`{"sends": [{"to": "session", "channel": "telegram", "user_id": "123:threads:bg", "body": "x"}]}`)
+		`{"sends": [{"to": "session", "params": {"channel": "telegram", "user_id": "123:threads:bg"}, "body": "x"}]}`)
 	if !strings.Contains(res, "validation-error") || !strings.Contains(res, "cannot address subagent/fork sessions") {
 		t.Errorf("expected infix rejection, got: %s", res)
 	}
@@ -969,7 +969,7 @@ func TestDispatch_WakeSessionEndpoint_DedupAgainstKeyForm(t *testing.T) {
 		sessions:   map[string]bool{"wecom:LiNan": true},
 	}
 	_, res := runDispatch(t, host,
-		`{"sends": [{"to": "session", "session_key": "wecom:LiNan", "body": "a"}, {"to": "session", "channel": "wecom", "user_id": "LiNan", "body": "b"}]}`)
+		`{"sends": [{"to": "session", "params": {"session_key": "wecom:LiNan"}, "body": "a"}, {"to": "session", "params": {"channel": "wecom", "user_id": "LiNan"}, "body": "b"}]}`)
 	if !strings.Contains(res, "validation-error") || !strings.Contains(res, "duplicate target in batch: wecom:LiNan") {
 		t.Errorf("expected cross-form dedup error, got: %s", res)
 	}
@@ -978,7 +978,7 @@ func TestDispatch_WakeSessionEndpoint_DedupAgainstKeyForm(t *testing.T) {
 func TestDispatch_WakeSessionEndpoint_GroupConvention(t *testing.T) {
 	host := &mockDispatchHost{currentKey: "cron:weekly-thanks", callerKind: "system"}
 	outcome, _ := runDispatch(t, host,
-		`{"sends": [{"to": "session", "channel": "wecom", "user_id": "group:wrNbLgXQAA", "body": "weekly digest"}]}`)
+		`{"sends": [{"to": "session", "params": {"channel": "wecom", "user_id": "group:wrNbLgXQAA"}, "body": "weekly digest"}]}`)
 	if outcome != "turn-terminated" {
 		t.Fatalf("outcome=%q", outcome)
 	}
@@ -997,7 +997,7 @@ func TestDispatch_WakeSessionEndpoint_GroupConvention(t *testing.T) {
 func TestDispatch_ChannelRejectedOnSubagent(t *testing.T) {
 	host := &mockDispatchHost{currentKey: "cli", callerKind: "system", agents: map[string]bool{"worker": true}}
 	outcome, result := runDispatch(t, host,
-		`{"sends": [{"to": "subagent", "task_id": "t1", "agent": "worker", "channel": "telegram", "user_id": "123", "body": "go"}]}`)
+		`{"sends": [{"to": "subagent", "params": {"task_id": "t1", "agent": "worker", "channel": "telegram", "user_id": "123"}, "body": "go"}]}`)
 	if outcome != "validation-error" {
 		t.Fatalf("outcome=%q, result=%s", outcome, result)
 	}
@@ -1012,7 +1012,7 @@ func TestDispatch_ChannelRejectedOnSubagent(t *testing.T) {
 func TestDispatch_ChannelRejectedOnCallerUser(t *testing.T) {
 	host := &mockDispatchHost{currentKey: "telegram:1", callerKind: "user", userFacing: true}
 	outcome, result := runDispatch(t, host,
-		`{"sends": [{"to": "caller:user", "channel": "telegram", "user_id": "999", "body": "hi"}]}`)
+		`{"sends": [{"to": "caller:user", "params": {"channel": "telegram", "user_id": "999"}, "body": "hi"}]}`)
 	if outcome != "validation-error" {
 		t.Fatalf("outcome=%q, result=%s", outcome, result)
 	}
@@ -1049,7 +1049,7 @@ func TestDispatch_SessionKeyTrimmedBeforeLookup(t *testing.T) {
 		sessions:   map[string]bool{"telegram:42": true},
 	}
 	outcome, result := runDispatch(t, host,
-		`{"sends": [{"to": "session", "session_key": "telegram:42 ", "body": "ping"}]}`)
+		`{"sends": [{"to": "session", "params": {"session_key": "telegram:42 "}, "body": "ping"}]}`)
 	if outcome != "turn-terminated" {
 		t.Fatalf("a trailing space must not fail an existing session: outcome=%q, result=%s", outcome, result)
 	}
@@ -1068,7 +1068,7 @@ func TestDispatch_SelfReferenceNotBypassableByWhitespace(t *testing.T) {
 		sessions:   map[string]bool{"cli:main": true},
 	}
 	outcome, result := runDispatch(t, host,
-		`{"sends": [{"to": "session", "session_key": "cli:main ", "body": "self"}]}`)
+		`{"sends": [{"to": "session", "params": {"session_key": "cli:main "}, "body": "self"}]}`)
 	if outcome != "validation-error" {
 		t.Fatalf("outcome=%q, result=%s", outcome, result)
 	}
@@ -1085,7 +1085,7 @@ func TestDispatch_SelfReferenceNotBypassableByWhitespace(t *testing.T) {
 func TestDispatch_WhitespaceAgentTreatedAsAbsent(t *testing.T) {
 	host := &mockDispatchHost{currentKey: "telegram:1", callerKind: "user", userFacing: true}
 	outcome, result := runDispatch(t, host,
-		`{"sends": [{"to": "caller:user", "agent": " ", "task_id": "", "body": "hi"}]}`)
+		`{"sends": [{"to": "caller:user", "params": {"agent": " ", "task_id": ""}, "body": "hi"}]}`)
 	if outcome != "turn-terminated" {
 		t.Fatalf("whitespace agent must read as absent: outcome=%q, result=%s", outcome, result)
 	}
@@ -1097,11 +1097,84 @@ func TestDispatch_WhitespaceAgentTreatedAsAbsent(t *testing.T) {
 func TestDispatch_WhitespaceAgentOnSubagentUsesSessionDefault(t *testing.T) {
 	host := &mockDispatchHost{currentKey: "cli", callerKind: "system"}
 	outcome, result := runDispatch(t, host,
-		`{"sends": [{"to": "subagent", "task_id": "t1", "agent": "  ", "body": "go"}]}`)
+		`{"sends": [{"to": "subagent", "params": {"task_id": "t1", "agent": "  "}, "body": "go"}]}`)
 	if outcome != "turn-terminated" {
 		t.Fatalf("outcome=%q, result=%s", outcome, result)
 	}
 	if len(host.subagentCalls) != 1 || host.subagentCalls[0].Agent != "" {
 		t.Errorf("expected the session default (empty agent), got %+v", host.subagentCalls)
+	}
+}
+
+// --- params dictionary behaviors --------------------------------------------
+
+// The exact failure shape observed live (2026-07-13): a model emitted the old
+// flat layout with channel:"discord" on to=user. Flat addressing keys no
+// longer exist — parseArgs rejects them by path so the model sees exactly
+// which key is wrong and what the send object accepts.
+func TestDispatch_FlatAddressingKeysRejectedByPath(t *testing.T) {
+	host := &mockDispatchHost{currentKey: "discord:1474429571540582463", callerKind: "system", userFacing: true}
+	_, res := runDispatch(t, host,
+		`{"sends":[{"agent":"","body":"💊 今晚已吃药 ✅","channel":"discord","model":"","provider":"","session_key":"","task_id":"","to":"user","user_id":""}]}`)
+	if !strings.Contains(res, "sends[0].channel") || !strings.Contains(res, "params") {
+		t.Errorf("expected path-named rejection pointing at params, got: %s", res)
+	}
+	if host.sentToUser != "" {
+		t.Errorf("nothing may be delivered, sent: %q", host.sentToUser)
+	}
+}
+
+// A strict-structured-output model that cannot omit keys blanks them instead.
+// An all-empty params dictionary must read as "no params", not as misplaced
+// addressing — this send must deliver.
+func TestDispatch_AllEmptyParamsTreatedAsAbsent(t *testing.T) {
+	host := &mockDispatchHost{currentKey: "discord:123", callerKind: "system", userFacing: true}
+	outcome, res := runDispatch(t, host,
+		`{"sends": [{"to": "user", "params": {"agent": "", "task_id": "", "provider": "", "model": "", "session_key": "", "channel": "", "user_id": ""}, "body": "💊 今晚已吃药 ✅"}]}`)
+	if outcome != "turn-terminated" {
+		t.Fatalf("all-empty params must be ignored: outcome=%q, result=%s", outcome, res)
+	}
+	if host.sentToUser != "💊 今晚已吃药 ✅" {
+		t.Errorf("expected delivery, sent: %q", host.sentToUser)
+	}
+}
+
+// A misplaced non-empty params key on a to/body-only target is rejected with
+// copy-paste guidance: the corrected JSON to resend.
+func TestDispatch_MisplacedParamsGuidanceIncludesCorrectedJSON(t *testing.T) {
+	host := &mockDispatchHost{currentKey: "discord:123", callerKind: "system", userFacing: true}
+	outcome, res := runDispatch(t, host,
+		`{"sends": [{"to": "user", "params": {"channel": "discord"}, "body": "hi"}]}`)
+	if outcome != "validation-error" {
+		t.Fatalf("outcome=%q, result=%s", outcome, res)
+	}
+	if !strings.Contains(res, `{"sends":[{"body":"hi","to":"user"}]}`) {
+		t.Errorf("expected corrected JSON in guidance, got: %s", res)
+	}
+}
+
+// A params key no target understands is rejected by name with the valid key list.
+func TestDispatch_UnknownParamsKeyRejected(t *testing.T) {
+	host := &mockDispatchHost{currentKey: "cli", callerKind: "user", userFacing: true}
+	_, res := runDispatch(t, host,
+		`{"sends": [{"to": "caller:user", "params": {"delay": "1h"}, "body": "later"}]}`)
+	if !strings.Contains(res, "unknown params key(s): delay") || !strings.Contains(res, "task_id") {
+		t.Errorf("expected unknown-key rejection with valid key list, got: %s", res)
+	}
+	if host.sentToCaller != "" {
+		t.Errorf("nothing may be delivered, sent: %q", host.sentToCaller)
+	}
+}
+
+// The to=session self-reference rejection points back to to=user with the
+// exact JSON — previously it dead-ended (the to=user error suggested
+// to=session, the to=session error rejected self-reference, and the model
+// ping-ponged between them).
+func TestDispatch_SelfReferenceGuidesToUser(t *testing.T) {
+	host := &mockDispatchHost{currentKey: "discord:123", callerKind: "system", userFacing: true}
+	_, res := runDispatch(t, host,
+		`{"sends": [{"to": "session", "params": {"channel": "discord", "user_id": "123"}, "body": "ping"}]}`)
+	if !strings.Contains(res, "self-reference") || !strings.Contains(res, `{"sends":[{"body":"ping","to":"user"}]}`) {
+		t.Errorf("expected self-reference error with to=user corrected JSON, got: %s", res)
 	}
 }

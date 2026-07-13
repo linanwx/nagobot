@@ -103,7 +103,7 @@ func (c *CronChannel) Start(ctx context.Context) error {
 				return "", nil
 			}
 			delivery := "you were woken by cron (inject mode). Caller is cron — output to caller is dropped. " +
-				"Use dispatch(to=user) to message the channel user, or dispatch(to=session, session_key=...) " +
+				"Use dispatch(to=user) to message your user, or dispatch(to=session, params={session_key: ...}) " +
 				"to forward elsewhere."
 			c.onDirectWake(target, msg.WakeCron, task, "", delivery)
 			return "", nil
@@ -115,7 +115,7 @@ func (c *CronChannel) Start(ctx context.Context) error {
 		var delivery string
 		if target != "" {
 			delivery = "you were woken by cron (independent mode). Caller is cron — output to caller is dropped. " +
-				"After completing your task, dispatch(to=session, session_key=\"" + target + "\") to deliver results."
+				"After completing your task, dispatch(to=session, params={session_key: \"" + target + "\"}) to deliver results."
 		} else {
 			delivery = "you were woken by cron (independent mode). Caller is cron — output to caller is dropped. " +
 				"No delivery target configured; use dispatch explicitly if you need to forward results."

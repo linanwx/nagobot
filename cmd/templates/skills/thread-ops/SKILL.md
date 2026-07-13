@@ -15,9 +15,9 @@ The single turn-terminating routing primitive. Call it at the end of a turn to d
 - **`caller:user`** — reply to whoever woke THIS turn AND assert the caller is the channel user (user-channel wake: telegram / discord / cli / web / feishu / wecom). Fields: `body`.
 - **`caller:session`** — reply to the caller AND assert the caller is another session (cross-session wake; `caller_session_key` is present in the wake YAML). Fields: `body`.
 - **`user`** — reply to your channel user via your session's user-channel sink. Only valid for user-facing sessions (`telegram:*` / `discord:*` / `cli` / `web` / `feishu:*` / `wecom:*`). Distinct from `caller:user`: useful when a non-user source (cron, heartbeat, another session) woke you and you want to proactively message your user instead of replying to the waker. Fields: `body`.
-- **`subagent`** — spawn a new subagent thread, or wake the existing one at the same `task_id`. Fields: `agent` (optional — falls back to session default), `task_id` (required, `[a-z0-9_-]+`), `body`.
-- **`fork`** — branch the current session as a new agent thread with stripped history inherited, or wake the existing one at the same `task_id`. Fields: `agent` (optional), `task_id`, `body`.
-- **`session`** — wake another session's AI. The body becomes that session's wake message, processed by **its** AI (own agent / persona / history) — it is NOT delivered verbatim to that session's human user; the target AI decides what, if anything, to forward (typically via its own `dispatch(to=user)`). Two addressing forms, mutually exclusive: `session_key` (exact key — the session must already exist) or `channel` + `user_id` (channel endpoint — the session is **created if missing**; use this to initiate contact with a user who may never have talked to the bot, e.g. `channel: "wecom", user_id: "ZhaoJing"`; groups follow the channel's own convention, e.g. `user_id: "group:<chatid>"`). Either way the target's `dispatch(to=caller:session)` routes back to **your** session (not the target's channel user). The exchange recurses until one side halts.
+- **`subagent`** — spawn a new subagent thread, or wake the existing one at the same `task_id`. Fields: `body` + `params`: `agent` (optional — falls back to session default), `task_id` (required, `[a-z0-9_-]+`).
+- **`fork`** — branch the current session as a new agent thread with stripped history inherited, or wake the existing one at the same `task_id`. Fields: `body` + `params`: `agent` (optional), `task_id`.
+- **`session`** — wake another session's AI. The body becomes that session's wake message, processed by **its** AI (own agent / persona / history) — it is NOT delivered verbatim to that session's human user; the target AI decides what, if anything, to forward (typically via its own `dispatch(to=user)`). Addressing lives in `params`, two mutually exclusive forms: `params.session_key` (exact key — the session must already exist) or `params.channel` + `params.user_id` (channel endpoint — the session is **created if missing**; use this to initiate contact with a user who may never have talked to the bot, e.g. `params: {channel: "wecom", user_id: "ZhaoJing"}`; groups follow the channel's own convention, e.g. `user_id: "group:<chatid>"`). Either way the target's `dispatch(to=caller:session)` routes back to **your** session (not the target's channel user). The exchange recurses until one side halts.
 
 ### Picking between `caller:user` and `caller:session`
 
@@ -38,26 +38,26 @@ If you receive a cross-session wake (WakeSession) that you believe was sent to t
 
 ### Drop-sink callers (cron / compression / heartbeat)
 
-Some wakes attach a drop sink rather than a routable sink. The wake YAML `delivery` field says so explicitly (e.g. "Caller is cron — output to caller is dropped"). For those turns there is NO valid caller form: both `caller:user` and `caller:session` will fail validation. End with `dispatch({})` (silent), or in user-facing sessions use `dispatch(to=user)` / `dispatch(to=session, session_key=...)` for explicit delivery.
+Some wakes attach a drop sink rather than a routable sink. The wake YAML `delivery` field says so explicitly (e.g. "Caller is cron — output to caller is dropped"). For those turns there is NO valid caller form: both `caller:user` and `caller:session` will fail validation. End with `dispatch({})` (silent), or in user-facing sessions use `dispatch(to=user)` / `dispatch(to=session, params={session_key: ...})` for explicit delivery.
 
 ```
 tool_call: dispatch(sends=[
   {"to": "caller:session", "body": "I'll look into this and get back to you."},
-  {"to": "subagent", "agent": "search", "task_id": "find-news", "body": "Search for recent news about X"},
-  {"to": "fork", "agent": "analyst", "task_id": "hypo-a", "body": "Explore hypothesis A from current discussion"},
-  {"to": "session", "session_key": "telegram:12345", "body": "Ping: report is ready"}
+  {"to": "subagent", "params": {"agent": "search", "task_id": "find-news"}, "body": "Search for recent news about X"},
+  {"to": "fork", "params": {"agent": "analyst", "task_id": "hypo-a"}, "body": "Explore hypothesis A from current discussion"},
+  {"to": "session", "params": {"session_key": "telegram:12345"}, "body": "Ping: report is ready"}
 ])
 ```
 
 Empty `sends` — `dispatch({})` — silently terminates the turn with no delivery (history still recorded).
 
-On successful dispatch the turn ends; on validation error the turn continues so you can re-call. Subagent / fork generated session keys follow `{current}:threads:{task_id}` and `{current}:fork:{task_id}`. Re-using a task_id from a prior turn wakes the existing session (noted `resumed` in the result); dispatching to a missing-agent or unknown session_key is a validation error. The `channel`+`user_id` endpoint form instead creates the missing session (noted `created` in the result) — that is the deliberate path for first contact.
+On successful dispatch the turn ends; on validation error the turn continues so you can re-call. Subagent / fork generated session keys follow `{current}:threads:{task_id}` and `{current}:fork:{task_id}`. Re-using a task_id from a prior turn wakes the existing session (noted `resumed` in the result); dispatching to a missing-agent or unknown session_key is a validation error. The `params.channel`+`params.user_id` endpoint form instead creates the missing session (noted `created` in the result) — that is the deliberate path for first contact.
 
 **When to use which `to`:**
 - Parallel subtasks or delegating to a specialized agent (e.g. `imagereader`, `audioreader`): **subagent**.
 - When the child must reason about the current conversation itself (scheduling, reflection, summarization): **fork**.
-- Cross-session notifications ("notify user in telegram:12345"): **session** with `session_key`.
-- Proactively contacting a channel user who may have no session yet (e.g. a cron job messaging an employee for the first time): **session** with `channel` + `user_id`.
+- Cross-session notifications ("notify user in telegram:12345"): **session** with `params.session_key`.
+- Proactively contacting a channel user who may have no session yet (e.g. a cron job messaging an employee for the first time): **session** with `params.channel` + `params.user_id`.
 - Replying to the current user / parent: **caller:user** (channel-user wake) or **caller:session** (cross-session wake).
 
 ### check_session
@@ -120,7 +120,7 @@ tool_call: health()
 
 ### Delegate to a subagent and follow up by key
 ```
-1. dispatch(sends=[{to: "subagent", agent: "researcher", task_id: "find-x", body: "Find information about X"}])
+1. dispatch(sends=[{to: "subagent", params: {agent: "researcher", task_id: "find-x"}, body: "Find information about X"}])
 2. Your turn ends. The child runs asynchronously.
 3. When the child completes, it wakes you with `child_completed` automatically.
 4. Optionally check_session(session_key="<current>:threads:find-x") to probe state.
@@ -146,14 +146,14 @@ bin/nagobot cron set-at --id self-checkin-<uniq> --at <RFC3339> \
 
 ### Cross-session notification
 ```
-dispatch(sends=[{to: "session", session_key: "telegram:12345", body: "Notify the user that the report is ready"}])
+dispatch(sends=[{to: "session", params: {session_key: "telegram:12345"}, body: "Notify the user that the report is ready"}])
 ```
 
 ### Parallel fan-out, independent task bodies
 ```
 dispatch(sends=[
-  {to: "subagent", agent: "search", task_id: "news-a", body: "Topic A"},
-  {to: "subagent", agent: "search", task_id: "news-b", body: "Topic B"}
+  {to: "subagent", params: {agent: "search", task_id: "news-a"}, body: "Topic A"},
+  {to: "subagent", params: {agent: "search", task_id: "news-b"}, body: "Topic B"}
 ])
 → Two independent children spawn; each wakes you with child_completed when done.
 ```

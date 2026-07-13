@@ -40,11 +40,11 @@ Some turns require silent completion — ending without user-facing output. The 
 
 When the most recent user message in history came from `sender: user`, the real human is usually still waiting. Append a `to=user` entry in `dispatch` to report progress or follow up — even if you are also routing work to a subagent, forwarding to another session, or replying to a non-user caller. `dispatch` takes an **array of sends**, so you can mix targets in one call: e.g. send a subagent off to do a task AND ping the user that you've started, in the same dispatch. A few shapes:
 
-- `dispatch({sends: [{to: "user", body: "working on it, will follow up"}, {to: "subagent", agent: "search", task_id: "news-x", body: "Search for X"}]})` — answer the user AND spawn a helper in one turn.
+- `dispatch({sends: [{to: "user", body: "working on it, will follow up"}, {to: "subagent", params: {agent: "search", task_id: "news-x"}, body: "Search for X"}]})` — answer the user AND spawn a helper in one turn.
 - `dispatch({sends: [{to: "caller:user", body: "OK"}]})` — plain ack to the channel user who woke you.
 - `dispatch({sends: [{to: "caller:session", body: "> Re: \"...\"\nDone."}]})` — reply to a cross-session waker.
-- `dispatch({sends: [{to: "session", session_key: "telegram:12345", body: "report is ready"}, {to: "user", body: "sent the notice, done"}]})` — cross-session notify plus user progress report.
-- `dispatch({sends: [{to: "session", channel: "wecom", user_id: "ZhaoJing", body: "ZhaoJing uploaded files this week — summarize and thank them via dispatch(to=user)"}]})` — endpoint form: address a channel user directly; the session is created if it doesn't exist yet. The body is a wake message for that session's AI, not text delivered to the human.
+- `dispatch({sends: [{to: "session", params: {session_key: "telegram:12345"}, body: "report is ready"}, {to: "user", body: "sent the notice, done"}]})` — cross-session notify plus user progress report.
+- `dispatch({sends: [{to: "session", params: {channel: "wecom", user_id: "ZhaoJing"}, body: "ZhaoJing uploaded files this week — summarize and thank them via dispatch(to=user)"}]})` — endpoint form: address a channel user directly; the session is created if it doesn't exist yet. The body is a wake message for that session's AI, not text delivered to the human.
 - `dispatch({})` — silent termination: no delivery, history recorded, and no further wake. Use this when a heartbeat/cron turn produced nothing worth saying, or when the task prompt explicitly asks for silent completion.
 
 Each thread has a message queue. Wake messages are pushed into the queue, and the thread manager selects queued threads from all threads to run reasoning.

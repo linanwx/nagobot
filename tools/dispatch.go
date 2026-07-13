@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"maps"
 	"regexp"
 	"slices"
 	"strings"
@@ -30,17 +31,21 @@ const (
 	TargetSession       DispatchTarget = "session"
 )
 
-// DispatchSend is a single dispatch entry. Field requirements vary by To.
+// DispatchSend is a single dispatch entry. Params is a free-form string
+// dictionary — deliberately NOT a struct and NOT enumerated in the tool
+// schema. Models trained on strict structured outputs emit every declared
+// property of every object (blanking the unused ones with ""), and with seven
+// declared addressing fields one of them eventually gets a plausible wrong
+// value instead of a blank (observed live: `channel:"discord"` pinned onto
+// to=user for 15 identical rejected calls while a medication reminder was
+// silently dropped). A dictionary declares nothing, so there is nothing to
+// compulsively fill: the simple targets send `params: {}` and the others
+// write exactly the keys they need. Key validation happens here, per target,
+// with guidance in every rejection.
 type DispatchSend struct {
-	To         DispatchTarget `json:"to"`
-	Body       string         `json:"body"`
-	Agent      string         `json:"agent,omitempty"`       // subagent/fork
-	TaskID     string         `json:"task_id,omitempty"`     // subagent/fork
-	Provider   string         `json:"provider,omitempty"`    // subagent/fork — optional model override; set together with Model
-	Model      string         `json:"model,omitempty"`       // subagent/fork — optional model override; set together with Provider
-	SessionKey string         `json:"session_key,omitempty"` // session (key form — must exist)
-	Channel    string         `json:"channel,omitempty"`     // session (endpoint form — created if missing)
-	UserID     string         `json:"user_id,omitempty"`     // session (endpoint form)
+	To     DispatchTarget    `json:"to"`
+	Body   string            `json:"body"`
+	Params map[string]string `json:"params,omitempty"`
 }
 
 // endpointChannels lists the channels addressable via the to=session
@@ -52,27 +57,15 @@ func isEndpointChannel(name string) bool {
 	return slices.Contains(endpointChannels, name)
 }
 
-// dispatchFields enumerates every addressing field on DispatchSend other than
-// to/body, paired with its accessor. Adding a field to DispatchSend means
-// adding it here.
-var dispatchFields = []struct {
-	name string
-	get  func(DispatchSend) string
-}{
-	{"agent", func(s DispatchSend) string { return s.Agent }},
-	{"task_id", func(s DispatchSend) string { return s.TaskID }},
-	{"provider", func(s DispatchSend) string { return s.Provider }},
-	{"model", func(s DispatchSend) string { return s.Model }},
-	{"session_key", func(s DispatchSend) string { return s.SessionKey }},
-	{"channel", func(s DispatchSend) string { return s.Channel }},
-	{"user_id", func(s DispatchSend) string { return s.UserID }},
-}
+// dispatchParamKeys is every params key any target understands, in the order
+// errors report them. A key outside this list is rejected by name.
+var dispatchParamKeys = []string{"agent", "task_id", "provider", "model", "session_key", "channel", "user_id"}
 
-// acceptedFields is the per-target whitelist of addressing fields. It is a
-// WHITELIST, not a per-branch reject list, and that is the whole point: a field
-// added to DispatchSend is rejected on every target until some target opts in.
-// The previous hand-written reject lists silently ignored channel/user_id on
-// four of the six targets — the model got no error, so it read silence as
+// acceptedFields is the per-target whitelist of params keys. It is a
+// WHITELIST, not a per-branch reject list, and that is the whole point: a key
+// understood by one target is rejected on every other until that target opts
+// in. The pre-params layout once accepted-then-ignored channel/user_id on four
+// of the six targets — the model got no error, so it read silence as
 // acceptance while its intended delivery never happened.
 var acceptedFields = map[DispatchTarget]map[string]bool{
 	TargetCallerUser:    {},
@@ -83,22 +76,25 @@ var acceptedFields = map[DispatchTarget]map[string]bool{
 	TargetSession:       {"session_key": true, "channel": true, "user_id": true},
 }
 
-// dispatchFieldHints explain what a misplaced field is actually for, so the
-// rejection tells the model where the field belongs rather than only that it
+// dispatchFieldHints explain what a misplaced params key is actually for, so
+// the rejection tells the model where the key belongs rather than only that it
 // does not belong here.
 var dispatchFieldHints = map[string]string{
-	"agent":       "agent/task_id belong to subagent/fork",
-	"task_id":     "agent/task_id belong to subagent/fork",
-	"provider":    "the provider+model override applies to subagent/fork only",
-	"model":       "the provider+model override applies to subagent/fork only",
+	"agent":       "agent/task_id belong to to=subagent/fork",
+	"task_id":     "agent/task_id belong to to=subagent/fork",
+	"provider":    "the provider+model override applies to to=subagent/fork only",
+	"model":       "the provider+model override applies to to=subagent/fork only",
 	"session_key": "session_key addresses an existing session via to=session",
 	"channel":     "channel+user_id address a channel endpoint via to=session",
 	"user_id":     "channel+user_id address a channel endpoint via to=session",
 }
 
-// normalizeSends trims every identifier-ish field of every send, once, at the
-// entry point. Body is left untouched — leading and trailing whitespace is part
-// of the payload.
+// normalizeSends trims every send's to and params keys/values, once, at the
+// entry point, and deletes params entries whose trimmed value is empty — an
+// empty value is "not provided" (models that cannot omit keys blank them), and
+// deleting it up front means presence below is a plain non-empty map lookup.
+// Body is left untouched — leading and trailing whitespace is part of the
+// payload.
 //
 // Trimming here means presence checks, equality guards, existence lookups and
 // execution all see the same value. They used to disagree: presence was tested
@@ -113,53 +109,84 @@ func normalizeSends(sends []DispatchSend) {
 	for i := range sends {
 		s := &sends[i]
 		s.To = DispatchTarget(strings.TrimSpace(string(s.To)))
-		s.Agent = strings.TrimSpace(s.Agent)
-		s.TaskID = strings.TrimSpace(s.TaskID)
-		s.Provider = strings.TrimSpace(s.Provider)
-		s.Model = strings.TrimSpace(s.Model)
-		s.SessionKey = strings.TrimSpace(s.SessionKey)
-		s.Channel = strings.TrimSpace(s.Channel)
-		s.UserID = strings.TrimSpace(s.UserID)
+		if len(s.Params) == 0 {
+			continue
+		}
+		clean := make(map[string]string, len(s.Params))
+		for k, v := range s.Params {
+			k, v = strings.TrimSpace(k), strings.TrimSpace(v)
+			if k == "" || v == "" {
+				continue
+			}
+			clean[k] = v
+		}
+		s.Params = clean
 	}
 }
 
-// rejectUnacceptedFields returns a validation detail if the send sets any
-// addressing field its target does not accept, or "" when the send is clean.
-func rejectUnacceptedFields(send DispatchSend, accepted map[string]bool) string {
-	var bad, hints []string
-	for _, f := range dispatchFields {
-		if f.get(send) == "" || accepted[f.name] {
+// rejectBadParams returns a validation detail if the send's params carry a key
+// no target understands, or a key its own target does not accept; "" when the
+// send is clean. The rejection is guidance, not just a verdict: it names where
+// each misplaced key belongs, and for the to/body-only targets it includes the
+// exact corrected JSON to resend — a model that pinned a plausible-but-wrong
+// key needs a copy-paste replacement, not prose.
+func rejectBadParams(send DispatchSend, accepted map[string]bool) string {
+	var unknown, bad, hints []string
+	for _, k := range slices.Sorted(maps.Keys(send.Params)) {
+		if !slices.Contains(dispatchParamKeys, k) {
+			unknown = append(unknown, k)
 			continue
 		}
-		bad = append(bad, f.name)
-		if h := dispatchFieldHints[f.name]; h != "" && !slices.Contains(hints, h) {
+		if accepted[k] {
+			continue
+		}
+		bad = append(bad, k)
+		if h := dispatchFieldHints[k]; h != "" && !slices.Contains(hints, h) {
 			hints = append(hints, h)
 		}
+	}
+	if len(unknown) > 0 {
+		return fmt.Sprintf("unknown params key(s): %s (valid keys: %s)",
+			strings.Join(unknown, "/"), strings.Join(dispatchParamKeys, "/"))
 	}
 	if len(bad) == 0 {
 		return ""
 	}
-	accepts := "nothing besides to/body"
+	accepts := "no params at all"
 	if len(accepted) > 0 {
-		names := make([]string, 0, len(accepted))
-		for n := range accepted {
-			names = append(names, n)
-		}
-		slices.Sort(names)
+		names := slices.Sorted(maps.Keys(accepted))
 		accepts = strings.Join(names, "/")
 	}
-	return fmt.Sprintf("%s does not accept %s (accepts: %s). %s",
+	detail := fmt.Sprintf("%s does not accept params %s (accepts: %s). %s",
 		send.To, strings.Join(bad, "/"), accepts, strings.Join(hints, "; "))
+	if len(accepted) == 0 {
+		detail += fmt.Sprintf(". %s already knows its destination — to deliver this message, resend exactly: %s",
+			send.To, correctedSendJSON(send.To, send.Body))
+	}
+	return detail
+}
+
+// correctedSendJSON renders the exact JSON to resend for a to/body-only
+// target — copy-paste self-healing beats prose when a model is repeating a
+// rejected shape. Long bodies are elided so a validation error cannot double
+// a huge payload in context.
+func correctedSendJSON(to DispatchTarget, body string) string {
+	if runes := []rune(body); len(runes) > 300 {
+		body = "<same body unchanged>"
+	}
+	entry, _ := json.Marshal(map[string]string{"to": string(to), "body": body})
+	return `{"sends":[` + string(entry) + `]}`
 }
 
 // resolvedSessionKey returns the target session key of a to=session send:
 // the explicit session_key, or channel+":"+user_id for the endpoint form.
-// Empty when neither form is complete.
+// Empty when neither form is complete. Params are already trimmed and
+// empty-pruned by normalizeSends.
 func resolvedSessionKey(send DispatchSend) string {
-	if k := strings.TrimSpace(send.SessionKey); k != "" {
+	if k := send.Params["session_key"]; k != "" {
 		return k
 	}
-	ch, uid := strings.TrimSpace(send.Channel), strings.TrimSpace(send.UserID)
+	ch, uid := send.Params["channel"], send.Params["user_id"]
 	if ch == "" || uid == "" {
 		return ""
 	}
@@ -217,10 +244,10 @@ func (t *DispatchTool) Def() provider.ToolDef {
 				"Each entry in `sends` has a `to` field selecting the target:\n" +
 				"- caller:user — reply to whoever woke THIS turn AND assert the caller is the channel user (user-channel wake: telegram/discord/cli/web/feishu/wecom). Fails validation if the actual caller is another session or a system source.\n" +
 				"- caller:session — reply to the caller AND assert the caller is another session (cross-session wake; `caller_session_key` is present in wake YAML). Fails validation if the actual caller is the channel user or system.\n" +
-				"- user: reply to the channel user via this session's user-channel sink. Only valid for user-facing sessions. Use this when a non-user source (cron/heartbeat/another session) woke you and you want to proactively message YOUR user INSTEAD OF replying to the waker.\n" +
-				"- subagent: spawn a new subagent thread, or wake existing at same task_id. Fields: agent (optional), task_id, body, provider+model (optional model override).\n" +
-				"- fork: branch current session as new agent thread, or wake existing at same task_id. Fields: agent (optional), task_id, body, provider+model (optional model override).\n" +
-				"- session: wake another session's AI. The body becomes that session's wake message, processed by ITS AI (own agent/persona/history) — it is NOT delivered verbatim to that session's human user; the target AI decides what, if anything, to forward (typically via its own dispatch(to=user)). Two addressing forms: (1) session_key — exact key of an EXISTING session (validation fails if it does not exist); (2) channel + user_id — address a channel endpoint directly, creating the session if missing. Use form 2 to initiate contact with a user who may never have talked to the bot. Either way, the target's dispatch(to=caller:session) routes back to YOUR session (ping-pong recurses until one side halts).\n\n" +
+				"- user: message YOUR user — the human on this session's own channel. Only valid for user-facing sessions. Use this when a non-user source (cron/heartbeat/another session) woke you and you want to proactively message your user INSTEAD OF replying to the waker. Takes only to/body: the destination is this session itself, so params stays empty.\n" +
+				"- subagent: spawn a new subagent thread, or wake existing at same task_id. Takes to/body plus params: task_id (required), agent?, provider?+model? (optional model override).\n" +
+				"- fork: branch current session as new agent thread, or wake existing at same task_id. Takes to/body plus the same params as subagent.\n" +
+				"- session: wake ANOTHER session's AI. The body becomes that session's wake message, processed by ITS AI (own agent/persona/history) — it is NOT delivered verbatim to that session's human user; the target AI decides what, if anything, to forward (typically via its own dispatch(to=user)). Takes to/body plus params in one of two mutually exclusive forms: (1) session_key — exact key of an EXISTING session (validation fails if it does not exist); (2) channel + user_id — address a channel endpoint directly, creating the session if missing. Use form 2 to initiate contact with a user who may never have talked to the bot. Either way, the target's dispatch(to=caller:session) routes back to YOUR session (ping-pong recurses until one side halts).\n\n" +
 				"Which caller form to pick: read `caller_session_key` in the wake YAML frontmatter. Present → to=caller:session; absent AND this session is user-facing → to=caller:user; system sources (cron/heartbeat/compression) have no usable caller form, use dispatch({}) or to=user instead. " +
 				"Empty sends — dispatch({}) — is silent turn termination; nothing delivered, history recorded. Only use when you genuinely have nothing to say AND the caller does not need to know you finished. If you received a cross-session wake you believe was mis-routed, dispatch(to=caller:session) with an explanation — do NOT silently drop it via dispatch({}) (the caller never learns). " +
 				"IMPORTANT: when calling dispatch, the assistant message's content field MUST be empty. dispatch only delivers each send's `body`; any text written in content alongside this tool_call has no defined recipient and will be rejected. Either put all user-facing text into a send body, or skip dispatch entirely and let default delivery route your assistant content to the caller. " +
@@ -245,34 +272,12 @@ func (t *DispatchTool) Def() provider.ToolDef {
 									"type":        "string",
 									"description": "Message body delivered to the target. For to=session it is a wake instruction processed by the target's AI — write it as a directive to that AI, NOT as verbatim text for that session's human.",
 								},
-								"agent": map[string]any{
-									"type":        "string",
-									"description": "Agent template name for subagent/fork. Optional — omit it, or pass an empty string, to use the session default. Do NOT invent a placeholder such as \"default\" or \"none\": any non-empty value is looked up as a real template name and fails if no such template exists.",
-								},
-								"task_id": map[string]any{
-									"type":        "string",
-									"description": "Task id for subagent/fork. Must match [a-z0-9_-]+. Reusing the same task_id targets the existing session.",
-								},
-								"provider": map[string]any{
-									"type":        "string",
-									"description": "Optional model override for subagent/fork: provider name. Pins the spawned thread to a specific model for this wake, overriding all normal session/agent/specialty routing. Must be paired with `model`. Use only when you deliberately need a particular model by identity (e.g. a cross-model ensemble) — list valid provider/model pairs first via `set-model --list-fallback`. Omit for both fields to use normal routing; not accepted by other targets.",
-								},
-								"model": map[string]any{
-									"type":        "string",
-									"description": "Optional model override for subagent/fork: model name (must be in the provider's whitelist). Paired with `provider`. Validation fails if the provider has no configured key or the model is not supported by it.",
-								},
-								"session_key": map[string]any{
-									"type":        "string",
-									"description": "Session key for to=session (key form). The session must already exist; to contact someone with no session yet use channel+user_id instead.",
-								},
-								"channel": map[string]any{
-									"type":        "string",
-									"enum":        endpointChannels,
-									"description": "Channel name for to=session (endpoint form). Pair with user_id; mutually exclusive with session_key.",
-								},
-								"user_id": map[string]any{
-									"type":        "string",
-									"description": "Channel-native recipient id for to=session (endpoint form): wecom userid, telegram chat id, discord channel id, feishu openID. Groups use the channel's own convention (e.g. wecom \"group:<chatid>\"). The session is created if it does not exist yet.",
+								"params": map[string]any{
+									"type": "object",
+									"description": "Target-specific options dictionary (string values). Write ONLY the keys your target needs; leave the whole dictionary empty for user and caller:*, which already know their destination. " +
+										"For to=subagent/fork — task_id: required, [a-z0-9_-]+, reusing the same task_id targets the existing thread; agent: template name, empty for the session default (never invent placeholders like \"default\"); provider+model: optional model override, must be set together, list valid pairs via `set-model --list-fallback`. " +
+										"For to=session — EITHER session_key: exact key of an existing session, OR channel+user_id: channel one of discord/feishu/telegram/wecom, user_id the channel-native recipient id (wecom userid, telegram chat id, discord channel id, feishu openID; groups per channel convention, e.g. wecom \"group:<chatid>\"), session created if missing.",
+									"additionalProperties": map[string]any{"type": "string"},
 								},
 							},
 							"required": []string{"to", "body"},
@@ -461,13 +466,13 @@ func (t *DispatchTool) validateOne(send DispatchSend, currentSession string) str
 	if strings.TrimSpace(send.Body) == "" {
 		return "body is required"
 	}
-	// Field admission is a whitelist keyed by target; an unknown target has no
+	// Key admission is a whitelist keyed by target; an unknown target has no
 	// entry, which makes this lookup the unknown-to check as well.
 	accepted, known := acceptedFields[send.To]
 	if !known {
 		return fmt.Sprintf("unknown to: %q (must be one of caller:user/caller:session/user/subagent/fork/session)", send.To)
 	}
-	if detail := rejectUnacceptedFields(send, accepted); detail != "" {
+	if detail := rejectBadParams(send, accepted); detail != "" {
 		return detail
 	}
 
@@ -503,38 +508,40 @@ func (t *DispatchTool) validateOne(send DispatchSend, currentSession string) str
 			return "current session is not user-facing — to=user is only valid for telegram/discord/cli/web/feishu/wecom sessions"
 		}
 	case TargetSubagent, TargetFork:
-		if send.TaskID == "" {
-			return "task_id is required"
+		taskID := send.Params["task_id"]
+		if taskID == "" {
+			return "params.task_id is required"
 		}
-		if !taskIDRegex.MatchString(send.TaskID) {
-			return "task_id must match [a-z0-9_-]+"
+		if !taskIDRegex.MatchString(taskID) {
+			return "params.task_id must match [a-z0-9_-]+"
 		}
-		if send.Agent != "" && !t.host.AgentExists(send.Agent) {
-			return fmt.Sprintf("agent %q not found — omit agent (or pass an empty string) to use the session default", send.Agent)
+		if agent := send.Params["agent"]; agent != "" && !t.host.AgentExists(agent) {
+			return fmt.Sprintf("agent %q not found — leave params.agent out to use the session default", agent)
 		}
-		if p, m := send.Provider, send.Model; p != "" || m != "" {
+		if p, m := send.Params["provider"], send.Params["model"]; p != "" || m != "" {
 			if p == "" || m == "" {
-				return "provider and model must be set together for a model override"
+				return "params.provider and params.model must be set together for a model override"
 			}
 			if err := t.host.ValidateModelOverride(p, m); err != nil {
 				return err.Error()
 			}
 		}
 	case TargetSession:
-		hasKey := send.SessionKey != ""
-		hasEndpoint := send.Channel != "" || send.UserID != ""
+		key := send.Params["session_key"]
+		hasKey := key != ""
+		hasEndpoint := send.Params["channel"] != "" || send.Params["user_id"] != ""
 		switch {
 		case hasKey && hasEndpoint:
 			return "session accepts either session_key OR channel+user_id, not both"
 		case hasKey:
-			if send.SessionKey == currentSession {
-				return "session_key cannot be the current session (self-reference not allowed)"
+			if key == currentSession {
+				return fmt.Sprintf("session_key is the current session (self-reference not allowed). To message THIS session's own user, resend exactly: %s", correctedSendJSON(TargetUser, send.Body))
 			}
-			if !t.host.SessionExists(send.SessionKey) {
-				return fmt.Sprintf("session %q not found — the session_key form requires an existing session. To contact a channel user who may have no session yet, use channel+user_id instead", send.SessionKey)
+			if !t.host.SessionExists(key) {
+				return fmt.Sprintf("session %q not found — the session_key form requires an existing session. To contact a channel user who may have no session yet, use channel+user_id instead", key)
 			}
 		case hasEndpoint:
-			ch, uid := send.Channel, send.UserID
+			ch, uid := send.Params["channel"], send.Params["user_id"]
 			if ch == "" || uid == "" {
 				return "channel and user_id must both be set"
 			}
@@ -548,10 +555,10 @@ func (t *DispatchTool) validateOne(send DispatchSend, currentSession string) str
 				return "user_id cannot address subagent/fork sessions"
 			}
 			if ch+":"+uid == currentSession {
-				return "channel+user_id resolves to the current session (self-reference not allowed)"
+				return fmt.Sprintf("channel+user_id resolves to the current session (self-reference not allowed). To message THIS session's own user, resend exactly: %s", correctedSendJSON(TargetUser, send.Body))
 			}
 		default:
-			return "session requires either session_key (existing session) or channel+user_id (created if missing)"
+			return "session requires params: either session_key (existing session) or channel+user_id (created if missing)"
 		}
 	}
 	return ""
@@ -565,9 +572,9 @@ func targetKey(send DispatchSend, currentSession string) string {
 	case TargetUser:
 		return "user" // at most one user per batch
 	case TargetSubagent:
-		return currentSession + ":threads:" + send.TaskID
+		return currentSession + ":threads:" + send.Params["task_id"]
 	case TargetFork:
-		return currentSession + ":fork:" + send.TaskID
+		return currentSession + ":fork:" + send.Params["task_id"]
 	case TargetSession:
 		return resolvedSessionKey(send)
 	}
@@ -593,13 +600,15 @@ func (t *DispatchTool) execute(ctx context.Context, send DispatchSend) (Executed
 		}
 		return ExecutedItem{To: TargetUser, SessionKey: t.host.CurrentSessionKey()}, nil
 	case TargetSubagent:
-		key, note, err := t.host.CreateOrWakeSubagent(ctx, send.Agent, send.TaskID, send.Body, send.Provider, send.Model)
+		p := send.Params
+		key, note, err := t.host.CreateOrWakeSubagent(ctx, p["agent"], p["task_id"], send.Body, p["provider"], p["model"])
 		if err != nil {
 			return ExecutedItem{}, err
 		}
 		return ExecutedItem{To: TargetSubagent, SessionKey: key, Note: note}, nil
 	case TargetFork:
-		key, note, err := t.host.CreateOrWakeFork(ctx, send.Agent, send.TaskID, send.Body, send.Provider, send.Model)
+		p := send.Params
+		key, note, err := t.host.CreateOrWakeFork(ctx, p["agent"], p["task_id"], send.Body, p["provider"], p["model"])
 		if err != nil {
 			return ExecutedItem{}, err
 		}
@@ -607,7 +616,7 @@ func (t *DispatchTool) execute(ctx context.Context, send DispatchSend) (Executed
 	case TargetSession:
 		key := resolvedSessionKey(send)
 		note := ""
-		if strings.TrimSpace(send.SessionKey) == "" && !t.host.SessionExists(key) {
+		if send.Params["session_key"] == "" && !t.host.SessionExists(key) {
 			note = "created"
 		}
 		if err := t.host.WakeSession(ctx, key, send.Body); err != nil {

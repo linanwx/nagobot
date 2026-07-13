@@ -58,13 +58,13 @@ Then:
 - **Use when**: cross-session notification ("ping telegram:12345 that the report is ready").
 - **Self-reference is rejected**: `session_key` cannot equal current session.
 - **Recursion**: target's `dispatch(to=caller:session)` routes back to YOU, not to its channel user. Two sessions can ping-pong until one halts.
-- **Fields**: `session_key`, `body`.
+- **Fields**: `body` + `params`: either `{session_key}` (existing session) or `{channel, user_id}` (channel endpoint, created if missing).
 
 ### `subagent` — spawn (or wake existing) child thread
 - **Use when**: parallel subtasks, delegation to specialty agents (`imagereader` / `audioreader` / `researcher`).
 - **Key shape**: `{current}:threads:{task_id}`. Reusing `task_id` wakes the existing child (result note: `resumed`).
 - **Async**: child runs independently; on completion it wakes you with `source: child_completed`.
-- **Fields**: `task_id` (required, `[a-z0-9_-]+`), `agent` (optional — falls back to session default), `body`.
+- **Fields**: `body` + `params`: `task_id` (required, `[a-z0-9_-]+`), `agent` (optional — falls back to session default), `provider`+`model` (optional model override).
 
 ### `fork` — branch current session as new agent thread
 - **Use when**: child must reason over the current conversation (reflection, summarization, scheduling against context).
@@ -82,7 +82,7 @@ Then:
 
 The full round-trip:
 
-1. **You ask** → `dispatch(to=session, session_key="<peer>", body="<your question>")`. Your turn ends.
+1. **You ask** → `dispatch(to=session, params={session_key: "<peer>"}, body="<your question>")`. Your turn ends.
 2. **Peer wakes** with `source: WakeSession` and `caller_session_key: <you>` in the YAML. From their side you are "another session" — they reply with `dispatch(to=caller:session, body="<answer>")`.
 3. **You wake** with `source: WakeSession` and `caller_session_key: <peer>`. The peer's answer is the wake body. Now you handle it like any other turn — read body, decide, dispatch.
 
@@ -98,7 +98,7 @@ Patterns:
 
 ```
 # Ask peer for material on a topic
-dispatch(sends=[{to: "session", session_key: "telegram:42",
+dispatch(sends=[{to: "session", params: {session_key: "telegram:42"},
                   body: "Do you have notes on the Q3 launch timeline? Share what you know."}])
 
 # (later, you wake with caller_session_key=telegram:42 and the peer's answer)
@@ -106,7 +106,7 @@ dispatch(sends=[{to: "session", session_key: "telegram:42",
 dispatch(sends=[{to: "user", body: "Got the timeline from peer: ..."}])
 
 # Follow-up question to the same peer
-dispatch(sends=[{to: "session", session_key: "telegram:42",
+dispatch(sends=[{to: "session", params: {session_key: "telegram:42"},
                   body: "Thanks. One more — do you have the launch checklist too?"}])
 ```
 
@@ -122,7 +122,7 @@ This is a normal wake — your turn runs as usual, and you must end with dispatc
 2. Decide what to do with it:
    - **Forward to the user who triggered the original task** → `dispatch(to=user, body="...")` (proactive — the channel user wasn't the caller of *this* turn, the child was).
    - **Use the result internally and continue working** → call other tools, then dispatch as appropriate at end of turn.
-   - **Spawn a follow-up** → `dispatch(to=subagent, task_id="...", body="...")`.
+   - **Spawn a follow-up** → `dispatch(to=subagent, params={task_id: "..."}, body="...")`.
    - **Result was useless / nothing to forward** → `dispatch({})` to end silently.
 3. **Do NOT use `caller:user`** here — caller is the child session, not the user; that assertion fails validation.
 4. **Don't accidentally `dispatch(to=caller:session)` back to the child** unless you genuinely want to send it more work — that re-wakes the child and may cause a ping-pong.
@@ -195,8 +195,9 @@ dispatch validates the entire batch before executing anything. On validation err
 | `to=caller:user but actual caller is another session` | wake YAML has `caller_session_key`; switch to `caller:session` |
 | `to=caller:* but actual caller is system` | cron/heartbeat/compression wake; use `dispatch({})` or `to=user` |
 | `current session is not user-facing — to=user is only valid for telegram/...` | this is a subagent/fork/cron session; reply via `caller:*` or `dispatch({})` |
-| `task_id is required` / `task_id must match [a-z0-9_-]+` | subagent/fork needs a kebab/snake-case id |
-| `session_key cannot be the current session` | `to=session` doesn't self-loop; use `caller:session` if you mean reply, or `fork` for a branch |
+| `params.task_id is required` / `params.task_id must match [a-z0-9_-]+` | subagent/fork needs a kebab/snake-case id in `params` |
+| `session_key is the current session (self-reference not allowed)` | `to=session` doesn't self-loop; use `to=user` to message this session's own user, `caller:session` to reply, or `fork` for a branch |
+| `unknown params key(s)` / `does not accept params` | a params key landed on the wrong target — the error names where it belongs and, for user/caller:*, the exact JSON to resend |
 | `duplicate target in batch` | two sends resolve to the same target; merge bodies or pick distinct task_ids |
 | Validation error mentioning non-empty assistant content | move all user-facing text into a send body, or drop the dispatch call |
 | Result outcome `partial-failure` | some sends delivered, others failed at execution time. Already-delivered messages cannot be unsent — read the executed/failed lists, then on next turn act on what's still pending. |
@@ -217,19 +218,19 @@ dispatch(sends=[{to: "user", body: "Reminder: meeting in 30 min"}])
 dispatch(sends=[{to: "caller:session", body: "Yes — see attached..."}])
 
 # Delegate research, follow up later
-dispatch(sends=[{to: "subagent", agent: "researcher", task_id: "find-x", body: "Find X"}])
+dispatch(sends=[{to: "subagent", params: {agent: "researcher", task_id: "find-x"}, body: "Find X"}])
 
 # Reflect on current conversation
-dispatch(sends=[{to: "fork", agent: "reflector", task_id: "reflect-1", body: "Summarize what we decided"}])
+dispatch(sends=[{to: "fork", params: {agent: "reflector", task_id: "reflect-1"}, body: "Summarize what we decided"}])
 
 # Notify another channel
-dispatch(sends=[{to: "session", session_key: "telegram:99", body: "Build finished"}])
+dispatch(sends=[{to: "session", params: {session_key: "telegram:99"}, body: "Build finished"}])
 
 # Parent receiving child_completed — forward result to user
 dispatch(sends=[{to: "user", body: "Research done — summary: ..."}])
 
 # Parent receiving child_completed — follow up on the same child (reuse task_id)
-dispatch(sends=[{to: "subagent", task_id: "find-x", body: "Good start — also check Y angle"}])
+dispatch(sends=[{to: "subagent", params: {task_id: "find-x"}, body: "Good start — also check Y angle"}])
 
 # Child reporting result back to parent (parent is caller:session from child's POV)
 dispatch(sends=[{to: "caller:session", body: "Done. Findings: ..."}])
@@ -237,7 +238,7 @@ dispatch(sends=[{to: "caller:session", body: "Done. Findings: ..."}])
 # Reply + spawn in one batch
 dispatch(sends=[
   {to: "caller:user", body: "On it — checking now."},
-  {to: "subagent", agent: "search", task_id: "news-a", body: "Search topic A"}
+  {to: "subagent", params: {agent: "search", task_id: "news-a"}, body: "Search topic A"}
 ])
 
 # Parallel fan-out — batch investigation across multiple subagents
@@ -247,9 +248,9 @@ dispatch(sends=[
 # and dispatch(to=user) when the last child arrives.
 dispatch(sends=[
   {to: "caller:user", body: "Investigating across 4 angles — will report when complete."},
-  {to: "subagent", agent: "researcher", task_id: "angle-pricing",  body: "Investigate pricing landscape for X"},
-  {to: "subagent", agent: "researcher", task_id: "angle-competitors", body: "List top 5 competitors and their positioning"},
-  {to: "subagent", agent: "researcher", task_id: "angle-regulation",  body: "Summarize regulatory constraints in EU/US"},
-  {to: "subagent", agent: "researcher", task_id: "angle-tech",        body: "Compare available tech stacks"}
+  {to: "subagent", params: {agent: "researcher", task_id: "angle-pricing"},  body: "Investigate pricing landscape for X"},
+  {to: "subagent", params: {agent: "researcher", task_id: "angle-competitors"}, body: "List top 5 competitors and their positioning"},
+  {to: "subagent", params: {agent: "researcher", task_id: "angle-regulation"},  body: "Summarize regulatory constraints in EU/US"},
+  {to: "subagent", params: {agent: "researcher", task_id: "angle-tech"},        body: "Compare available tech stacks"}
 ])
 ```

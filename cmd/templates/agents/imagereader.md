@@ -32,13 +32,13 @@ You (the main agent) MUST re-issue the dispatch. Do not reply to the user about 
 How to retry — call dispatch with these parameters:
 - to: "subagent"
 - agent: "imagereader"
-- task_id: a fresh id, e.g. "imageread-2"
+- params.task_id: a fresh id, e.g. "imageread-2"
 - body: MUST include the image FILE PATH, then the user's question/context
 
 Example:
 dispatch(sends=[{
   to: "subagent",
-  task_id: "imageread-2",
+  params: {task_id: "imageread-2"},
   agent: "imagereader",
   body: "/absolute/path/to/pic.png\n\nDescribe this image and answer: <the user's question>"
 }])
