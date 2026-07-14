@@ -271,7 +271,17 @@ func (r *Runner) RunWithMessages(ctx context.Context, messages []provider.Messag
 				result = r.tools.Run(toolCtx, tc.Function.Name, json.RawMessage(tc.Function.Arguments))
 			}
 			if tools.IsToolError(result) {
-				logger.Error("tool error", "tool", tc.Function.Name, "err", result)
+				// Same msg= key at every level so existing log queries still
+				// match; only the level moves. Nothing is dropped — the error
+				// still goes back to the model either way.
+				switch tools.ToolErrorSeverity(result) {
+				case tools.SeverityInfo:
+					logger.Info("tool error", "tool", tc.Function.Name, "err", result)
+				case tools.SeverityWarn:
+					logger.Warn("tool error", "tool", tc.Function.Name, "err", result)
+				default:
+					logger.Error("tool error", "tool", tc.Function.Name, "err", result)
+				}
 			}
 			toolMsg := provider.ToolResultMessage(tc.ID, tc.Function.Name, result)
 			if yamlBlock, _, ok := SplitFrontmatter(result); ok && ExtractFrontmatterValue(yamlBlock, "skip_trim") == "true" {

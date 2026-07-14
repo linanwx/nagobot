@@ -61,6 +61,12 @@ func (p *DirectFetchProvider) Fetch(ctx context.Context, rawURL string) (string,
 }
 
 // HTTPError represents a non-200 HTTP response.
+//
+// Every fetch provider must report a non-200 as an HTTPError (wrapping with %w
+// is fine — the source prefix stays in the message). Classification depends on
+// it: a provider that formats the status into a bare string instead is invisible
+// to errors.As and its 403s get logged as our defect. jina and kimi did exactly
+// that until they were wrapped.
 type HTTPError struct {
 	StatusCode int
 	Status     string
@@ -69,6 +75,17 @@ type HTTPError struct {
 func (e *HTTPError) Error() string {
 	return fmt.Sprintf("HTTP %d %s", e.StatusCode, e.Status)
 }
+
+// ContentError means the page was retrieved fine (HTTP 200) but its content
+// could not be extracted — go-readability finding no article body, a render or
+// markdown-conversion failure. The remote host behaved; the extractor did not
+// cope with the page. Distinct from HTTPError so it can be graded separately.
+type ContentError struct {
+	Err error
+}
+
+func (e *ContentError) Error() string { return e.Err.Error() }
+func (e *ContentError) Unwrap() error { return e.Err }
 
 // ---------- jina ----------
 
@@ -106,7 +123,7 @@ func (p *JinaFetchProvider) Fetch(ctx context.Context, rawURL string) (string, e
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
-		return "", fmt.Errorf("jina reader: HTTP %d %s", resp.StatusCode, resp.Status)
+		return "", fmt.Errorf("jina reader: %w", &HTTPError{StatusCode: resp.StatusCode, Status: resp.Status})
 	}
 
 	body, err := io.ReadAll(io.LimitReader(resp.Body, webFetchMaxReadBytes))

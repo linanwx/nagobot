@@ -3,6 +3,7 @@ package tools
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/url"
 	"strings"
@@ -153,7 +154,7 @@ func (t *WebSearchTool) sourceGuide() string {
 }
 
 func (t *WebSearchTool) searchError(source, query string, err error) string {
-	return buildToolError("web_search", fmt.Sprintf("Error: search on %q failed: %v", source, err), t.healthChecker, webSearchGuideSkill)
+	return buildToolError("web_search", fmt.Sprintf("Error: search on %q failed: %v", source, err), remoteErrorSeverity(err), t.healthChecker, webSearchGuideSkill)
 }
 
 func (t *WebSearchTool) emptyResults(source, query string) string {
@@ -304,7 +305,9 @@ func (t *WebFetchTool) Run(ctx context.Context, args json.RawMessage) string {
 		offset = 0
 	}
 	if offset >= totalChars {
-		return toolError("web_fetch", fmt.Sprintf("offset %d is beyond end of content (total: %d chars)", offset, totalChars))
+		// The model paginated past the end — it asked for more of a page it had
+		// already consumed. Recoverable and self-inflicted, not a defect here.
+		return toolErrorSev("web_fetch", SeverityWarn, fmt.Sprintf("offset %d is beyond end of content (total: %d chars)", offset, totalChars))
 	}
 
 	end := offset + limit
@@ -353,7 +356,7 @@ func (t *WebFetchTool) fetchSourceGuide() string {
 }
 
 func (t *WebFetchTool) fetchError(source, fetchURL string, err error) string {
-	return buildToolError("web_fetch", fmt.Sprintf("Error: fetch %q via %s failed: %v", fetchURL, source, err), t.healthChecker, webFetchGuideSkill)
+	return buildToolError("web_fetch", fmt.Sprintf("Error: fetch %q via %s failed: %v", fetchURL, source, err), remoteErrorSeverity(err), t.healthChecker, webFetchGuideSkill)
 }
 
 func webFetchCacheLookup(key string) (string, bool) {
@@ -426,7 +429,7 @@ func buildSourceError(msg string, hc *SearchHealthChecker, guideSkill string) st
 }
 
 // buildToolError builds a tool error with health status and a guide skill hint.
-func buildToolError(toolName, errMsg string, hc *SearchHealthChecker, guideSkill string) string {
+func buildToolError(toolName, errMsg string, sev ErrorSeverity, hc *SearchHealthChecker, guideSkill string) string {
 	var sb strings.Builder
 	sb.WriteString(errMsg)
 	sb.WriteString("\n\nTry a different source.\n")
@@ -434,7 +437,26 @@ func buildToolError(toolName, errMsg string, hc *SearchHealthChecker, guideSkill
 		sb.WriteString(hc.DetailedStatus())
 	}
 	appendGuideSkillHint(&sb, guideSkill)
-	return toolError(toolName, sb.String())
+	return toolErrorSev(toolName, sev, sb.String())
+}
+
+// remoteErrorSeverity grades a fetch/search failure by WHOSE fault it is.
+// Only the two shapes we can positively identify are downgraded; everything
+// else — DNS, TLS, connection resets, timeouts, anything unrecognized — stays
+// SeverityError, because a failure we cannot explain is one we should look at.
+func remoteErrorSeverity(err error) ErrorSeverity {
+	var httpErr *HTTPError
+	if errors.As(err, &httpErr) && httpErr.StatusCode >= 400 && httpErr.StatusCode < 600 {
+		// A third-party host refused us (403 anti-bot, 404, 429, 5xx). Constant,
+		// expected, and nothing in this program can fix it.
+		return SeverityInfo
+	}
+	var contentErr *ContentError
+	if errors.As(err, &contentErr) {
+		// Fetched fine, could not extract. Recoverable by trying another source.
+		return SeverityWarn
+	}
+	return SeverityError
 }
 
 // appendGuideSkillHint appends a one-line pointer to the source-selection guide

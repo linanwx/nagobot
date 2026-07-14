@@ -53,7 +53,7 @@ func (p *KimiFetchProvider) Fetch(ctx context.Context, rawURL string) (string, e
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
-		return "", fmt.Errorf("kimi fetch: HTTP %d %s", resp.StatusCode, resp.Status)
+		return "", fmt.Errorf("kimi fetch: %w", &HTTPError{StatusCode: resp.StatusCode, Status: resp.Status})
 	}
 
 	respBody, err := io.ReadAll(io.LimitReader(resp.Body, webFetchMaxReadBytes))

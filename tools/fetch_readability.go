@@ -45,7 +45,10 @@ func (p *ReadabilityFetchProvider) Fetch(ctx context.Context, rawURL string) (st
 	parsedURL, _ := url.Parse(rawURL)
 	article, err := readability.FromReader(body, parsedURL)
 	if err != nil {
-		return "", err
+		// HTTP 200, but no article could be extracted (the library reports
+		// "the Node field is nil" for pages it cannot find a body in). The host
+		// is fine; the page is just not readable this way.
+		return "", &ContentError{Err: err}
 	}
 
 	// Render extracted content to HTML, then convert to Markdown.
@@ -54,7 +57,7 @@ func (p *ReadabilityFetchProvider) Fetch(ctx context.Context, rawURL string) (st
 		// Fallback to plain text.
 		var textBuf bytes.Buffer
 		if err := article.RenderText(&textBuf); err != nil {
-			return "", err
+			return "", &ContentError{Err: err}
 		}
 		return textBuf.String(), nil
 	}

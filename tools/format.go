@@ -35,13 +35,46 @@ func toolResult(tool string, fields map[string]any, body string) string {
 	return msg.BuildFrontmatter(mapping, bodyText)
 }
 
-// toolError builds a YAML frontmatter error result.
+// ErrorSeverity grades a tool failure for LOGGING ONLY. It never changes what
+// the model sees: the result still carries `status: error` and an "Error: "
+// body, is still fed back into the conversation, and is still counted by
+// IsToolError. Nothing is suppressed — only the log level moves.
+//
+// It exists because a single `logger.Error` for every failure made the log
+// useless: measured over four months, 1225 anti-bot 403s and 143 upstream 404s
+// drowned the ~170 genuine argument bugs, all at identical severity. "Reddit
+// blocked us again" is not an error condition of this program.
+type ErrorSeverity string
+
+const (
+	// SeverityError is our own defect: bad arguments, malformed payloads, a
+	// broken invariant. Someone has to change code. This is the default —
+	// an unclassified failure is an error until proven otherwise.
+	SeverityError ErrorSeverity = "error"
+	// SeverityWarn is recoverable and usually model-driven: a page fetched
+	// fine but could not be parsed, a pagination offset past the end. Worth
+	// noticing in aggregate, not worth waking anyone up.
+	SeverityWarn ErrorSeverity = "warn"
+	// SeverityInfo is the outside world saying no: any 4xx/5xx from a
+	// third-party host. Expected, unactionable, and constant.
+	SeverityInfo ErrorSeverity = "info"
+)
+
+// toolError builds a YAML frontmatter error result at the default severity.
 // Body starts with "Error: " for backward compatibility with legacy detection.
 func toolError(tool, message string) string {
-	mapping, err := msg.SortedFieldsMapping(
-		[][2]string{{"tool", tool}, {"status", "error"}, {"time", nowStamp()}},
-		nil,
-	)
+	return toolErrorSev(tool, SeverityError, message)
+}
+
+// toolErrorSev is toolError with an explicit severity. The severity rides in
+// the frontmatter so the runner — which only ever sees the result string — can
+// pick a log level without re-parsing the message text.
+func toolErrorSev(tool string, sev ErrorSeverity, message string) string {
+	fields := [][2]string{{"tool", tool}, {"status", "error"}, {"time", nowStamp()}}
+	if sev != SeverityError {
+		fields = append(fields, [2]string{"severity", string(sev)})
+	}
+	mapping, err := msg.SortedFieldsMapping(fields, nil)
 	if err != nil {
 		return ""
 	}
@@ -55,6 +88,20 @@ func IsToolError(result string) bool {
 		return true
 	}
 	return msg.HasFrontmatterKeyValue(result, "status", "error")
+}
+
+// ToolErrorSeverity reports how a tool error should be logged. Anything without
+// an explicit severity — including every legacy bare "Error: ..." string — is
+// SeverityError, so a tool that has not opted in keeps its old log level.
+func ToolErrorSeverity(result string) ErrorSeverity {
+	switch {
+	case msg.HasFrontmatterKeyValue(result, "severity", string(SeverityInfo)):
+		return SeverityInfo
+	case msg.HasFrontmatterKeyValue(result, "severity", string(SeverityWarn)):
+		return SeverityWarn
+	default:
+		return SeverityError
+	}
 }
 
 // CmdResult builds a YAML frontmatter string for CLI command output.
