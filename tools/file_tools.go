@@ -358,7 +358,7 @@ func (t *EditFileTool) Def() provider.ToolDef {
 		Type: "function",
 		Function: provider.FunctionDef{
 			Name:        "edit_file",
-			Description: "Edit a file with one or more exact-text replacements in a single call. Relative paths are resolved from workspace root. Each old_text must match exactly (trailing whitespace, smart quotes, Unicode dashes/spaces, BOM, and CRLF/LF differences are tolerated) and must be unique in the file; include enough surrounding context to make it unique. All edits are matched against the original file (not applied one after another) and must not overlap.",
+			Description: "Replace one exact block of text in a file. Relative paths are resolved from workspace root. old_text must match the file exactly (trailing whitespace, smart quotes, Unicode dashes/spaces, BOM, and CRLF/LF differences are tolerated) and must be unique in the file; include enough surrounding context to make it unique. One replacement per call — to make several changes, call edit_file once per change.",
 			Parameters: map[string]any{
 				"type": "object",
 				"properties": map[string]any{
@@ -366,117 +366,57 @@ func (t *EditFileTool) Def() provider.ToolDef {
 						"type":        "string",
 						"description": "The path to the file to edit.",
 					},
-					"edits": map[string]any{
-						"type":        "array",
-						"description": "One or more replacements applied in a single call. Each old_text must be unique in the file and the edits must not overlap.",
-						"items": map[string]any{
-							"type": "object",
-							"properties": map[string]any{
-								"old_text": map[string]any{
-									"type":        "string",
-									"description": "The exact text to find and replace. Must be unique in the file.",
-								},
-								"new_text": map[string]any{
-									"type":        "string",
-									"description": "The text to replace with (may be empty to delete the matched text).",
-								},
-							},
-							"required": []string{"old_text", "new_text"},
-						},
+					"old_text": map[string]any{
+						"type":        "string",
+						"description": "The exact text to find and replace. Must be unique in the file.",
+					},
+					"new_text": map[string]any{
+						"type":        "string",
+						"description": "The text to replace it with. Empty deletes the matched text.",
 					},
 				},
-				"required": []string{"path", "edits"},
+				"required": []string{"path", "old_text", "new_text"},
 			},
 		},
 	}
 }
 
-// editEntry is one replacement within an edit_file call. It accepts snake_case
-// (old_text/new_text), camelCase (oldText/newText), and *_string aliases so
-// edits authored by different models all parse.
+// editFileArgs are the arguments for edit_file: exactly one replacement.
 //
-// The aliases are declared as struct tags rather than hand-rolled in a custom
-// UnmarshalJSON, and that is deliberate: a type that decodes itself is opaque
-// to reflection, so parseArgs' recursive normalizer cannot see inside it and
-// every unknown key within an edit — notably `replace_all`, which models
-// trained on other agent harnesses emit routinely — would be silently dropped.
-// Declared this way, the normalizer rewrites the aliases AND rejects unknown
-// keys with a path (`edits[0].replace_all`), so the model learns the flag is
-// unsupported instead of retrying against a confusing uniqueness error.
-type editEntry struct {
-	OldText string `json:"old_text" alias:"oldText,old_string"`
-	NewText string `json:"new_text" alias:"newText,new_string"`
-}
-
-// editFileArgs are the arguments for edit_file.
+// The tool briefly exposed an edits[] array (one call, N disjoint
+// replacements). It was reverted: batching multiplied both failure modes.
+// Malformed-JSON rejections went from 1 in the 107 days before to 87 in the 16
+// days after — a nested array of long CJK strings with escaped quotes is simply
+// harder to emit than a flat pair, and one stray full-width quote kills the
+// whole call before parseArgs even runs. And because the engine matches every
+// old_text against the ORIGINAL file (all-or-nothing, by design — see
+// applyEditsToNormalizedContent), one stale old_text out of N discards the N-1
+// that would have applied, so the per-call failure rate compounds as
+// 1-(1-p)^n. Observed old_text mismatches roughly doubled per day too. One
+// replacement per call keeps the model's payload flat and the blast radius at
+// one edit.
+//
+// The engine still takes []editPair and keeps its multi-edit semantics; only
+// this tool boundary is single. Do NOT reintroduce edits[] here without
+// re-reading the numbers above.
+//
+// Aliases (oldText/old_string) are declared as struct tags rather than a
+// hand-rolled UnmarshalJSON, and that is deliberate: a type that decodes itself
+// is opaque to reflection, so parseArgs' recursive normalizer could not see
+// inside it and unknown keys — notably `replace_all`, which models trained on
+// other agent harnesses emit routinely — would be silently dropped. Declared
+// this way, the normalizer rewrites the aliases AND rejects unknown keys by
+// name, so the model learns the flag is unsupported instead of retrying against
+// a confusing uniqueness error.
+//
+// NewText is a *string, not a string, for the reason write_file.Content is:
+// `required:"true"` means present AND non-empty, but "" is the legitimate way
+// to delete the matched text. As a plain string, a dropped new_text key would
+// pass as "" and silently delete old_text instead of failing.
 type editFileArgs struct {
-	Path  string      `json:"path" required:"true"`
-	Edits []editEntry `json:"edits" required:"true"`
-}
-
-// prepareEditArguments normalizes inbound arguments into the canonical
-// {path, edits:[...]} shape before strict parsing, mirroring pi-mono's
-// prepareArguments. It parses edits sent as a JSON string, and folds a legacy
-// single-edit form (top-level old_text/new_text, including aliases) into edits,
-// dropping those legacy keys so the strict parser does not reject them.
-func prepareEditArguments(args json.RawMessage) json.RawMessage {
-	var m map[string]json.RawMessage
-	if err := json.Unmarshal(args, &m); err != nil {
-		return args // let parseArgs surface the malformed-JSON error
-	}
-
-	// Some models send edits as a JSON-encoded string instead of an array.
-	if raw, ok := m["edits"]; ok {
-		var s string
-		if json.Unmarshal(raw, &s) == nil {
-			var arr []json.RawMessage
-			if json.Unmarshal([]byte(s), &arr) == nil {
-				if b, err := json.Marshal(arr); err == nil {
-					m["edits"] = b
-				}
-			}
-		}
-	}
-
-	hasEdits := false
-	if raw, ok := m["edits"]; ok {
-		var arr []json.RawMessage
-		if json.Unmarshal(raw, &arr) == nil && len(arr) > 0 {
-			hasEdits = true
-		}
-	}
-
-	// Fold a legacy single-edit form into edits[].
-	if legacyOld := firstPresent(m, "old_text", "oldText", "old_string"); !hasEdits && legacyOld != nil {
-		entry := map[string]json.RawMessage{"old_text": legacyOld}
-		if legacyNew := firstPresent(m, "new_text", "newText", "new_string"); legacyNew != nil {
-			entry["new_text"] = legacyNew
-		} else {
-			entry["new_text"] = json.RawMessage(`""`)
-		}
-		if eb, err := json.Marshal([]map[string]json.RawMessage{entry}); err == nil {
-			m["edits"] = eb
-		}
-	}
-
-	// Drop folded legacy keys so the strict parser accepts the payload.
-	for _, k := range []string{"old_text", "oldText", "old_string", "new_text", "newText", "new_string"} {
-		delete(m, k)
-	}
-
-	if b, err := json.Marshal(m); err == nil {
-		return b
-	}
-	return args
-}
-
-func firstPresent(m map[string]json.RawMessage, keys ...string) json.RawMessage {
-	for _, k := range keys {
-		if v, ok := m[k]; ok {
-			return v
-		}
-	}
-	return nil
+	Path    string  `json:"path" required:"true"`
+	OldText string  `json:"old_text" alias:"oldText,old_string" required:"true"`
+	NewText *string `json:"new_text" alias:"newText,new_string" required:"true"`
 }
 
 // Run executes the tool.
@@ -488,7 +428,7 @@ func (t *EditFileTool) Run(ctx context.Context, args json.RawMessage) string {
 
 func (t *EditFileTool) run(ctx context.Context, args json.RawMessage) string {
 	var a editFileArgs
-	if errMsg := parseArgs(prepareEditArguments(args), &a); errMsg != "" {
+	if errMsg := parseArgs(args, &a); errMsg != "" {
 		return errMsg
 	}
 
@@ -510,10 +450,7 @@ func (t *EditFileTool) run(ctx context.Context, args json.RawMessage) string {
 	ending := detectLineEnding(body)
 	normalized := normalizeToLF(body)
 
-	edits := make([]editPair, len(a.Edits))
-	for i, e := range a.Edits {
-		edits[i] = editPair{oldText: e.OldText, newText: e.NewText}
-	}
+	edits := []editPair{{oldText: a.OldText, newText: *a.NewText}}
 
 	newBody, usedFuzzy, err := applyEditsToNormalizedContent(normalized, edits, displayPath)
 	if err != nil {
@@ -529,8 +466,7 @@ func (t *EditFileTool) run(ctx context.Context, args json.RawMessage) string {
 	}
 
 	return toolResult("edit_file", map[string]any{
-		"path":         displayPath,
-		"replacements": len(a.Edits),
-		"fuzzy":        usedFuzzy,
+		"path":  displayPath,
+		"fuzzy": usedFuzzy,
 	}, "")
 }
