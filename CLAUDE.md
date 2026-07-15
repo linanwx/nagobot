@@ -57,6 +57,7 @@ Five of the ten fields survived; the other five were deleted:
 | `search` | regex gates → embedding prototype → regex fallback | |
 | `destructive` | precision gates → regex ∪ embedding, **reads recent chat** | "执行吧" is only dangerous because of the turn above it |
 | `skills` | embedding retrieval over skill descriptions | Cannot hallucinate a slug that doesn't exist |
+| `coder` | regex ∪ embedding | **No LLM ancestor** — added 2026-07 to route code-production requests ("写个脚本/网页", "fix this bug") to the coder subagent. Precision-biased: a false positive dispatches the most expensive routed model, a miss just writes the code inline. Margin swept on a held-out set (`TestCoderMarginSweep`), knee at -0.03 |
 | ~~`tone`~~ | deleted | 83% constant, copied from USER.md |
 | ~~`is_multi_step`~~ | deleted | The LLM's verdict was effectively `len(msg) > 160`; an embedding classifier scored *below* an always-false baseline |
 | ~~`hallucination`~~ ~~`needs_verification`~~ ~~`confusing_terminology`~~ | deleted | By decision |
@@ -91,7 +92,7 @@ Every step **cascades**: a declared-but-unconfigured entry (e.g. `source_special
 
 Agent `specialty` is an **array** (`specialty: [cron, toolcall]`); parsing is lenient (`agent.StringList` accepts a scalar `specialty: pdf` as `[pdf]`, so hand-edited agent files don't silently mis-route). The cron-runner agents (session-summary/memory-summary/tidyup) carry a leading `cron` specialty so a `type:specialty name:cron` rule can route them.
 
-Agent `source_specialty` is a **map** of wake source → specialty list (`source_specialty: {heartbeat: [lowcost]}`); parsed in `agent.AgentDef.SourceSpecialties`, applied in `resolvedModelConfig` via `t.lastWakeSource`. `soul` ships with `heartbeat: [lowcost]` so heartbeat turns (dream / session-reflect) can route to a value model (e.g. `lowcost` → openai-oauth/gpt-5.5, which is free) without changing the user-facing model. Note: `session-stats`'s `resolveModelChain` has no live wake source, so it shows the **non-source** chain only — source-specialty routing is not reflected there.
+Agent `source_specialty` is a **map** of wake source → specialty list (`source_specialty: {heartbeat: [lowcost]}`); parsed in `agent.AgentDef.SourceSpecialties`, applied in `resolvedModelConfig` via `t.lastWakeSource`. `soul` ships with `heartbeat: [lowcost]` so heartbeat turns (dream / session-reflect) can route to a value model (e.g. `lowcost` → openai-oauth/gpt-5.6-luna, the cheapest mainline Codex model — see the Codex rate card: Luna 25/2.5/150 credits per 1M input/cached/output vs gpt-5.5 at 125/12.5/750, same rate as Sol; nothing on the plan is free) without changing the user-facing model. Note: `session-stats`'s `resolveModelChain` has no live wake source, so it shows the **non-source** chain only — source-specialty routing is not reflected there.
 
 CLI writers: `set-model --type X --provider P --model M` upserts a `specialty` rule; `set-agent --session S --provider P --model M` upserts a `session` rule (and `--agent A` independently writes meta.json — session→model and session→agent are separate). Bare `set-agent --session S` clears both. `cmd/session_stats.go:resolveModelChain` mirrors this resolution for `nagobot session-stats`.
 

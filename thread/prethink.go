@@ -33,6 +33,11 @@ import (
 // What is left costs single-digit milliseconds instead of seconds, and two of the
 // five (has_web_url, and skills, which cannot hallucinate a slug that does not
 // exist) are strictly more accurate than the model they replaced.
+//
+// <coder> is a sixth field with no LLM ancestor: added later (2026-07) to route
+// code-production requests toward the coder subagent, which is bound to a
+// code-specialized model. Same architecture as <search>: regex fallback plus an
+// embedding prototype classifier, run under the shared budget.
 const (
 	// preThinkChatEntries is how much recent conversation <destructive> gets to see.
 	// It needs it: "执行吧" carries no danger in itself, only in the turn it answers.
@@ -84,13 +89,14 @@ func localPreThink(userMsg, recentChat string, cands []skillCandidate) (string, 
 	// unconfirmed.
 	destructive := isDestructiveRegex(userMsg, recentChat)
 	search := needsSearchRegex(userMsg)
+	coder := needsCoderRegex(userMsg)
 	var slugs []string // no regex fallback exists; skills is embedding-only
 
-	// One context for the three classifiers, cancelled when the budget expires OR
-	// as soon as all three have answered. Without it the goroutines below would
+	// One context for the four classifiers, cancelled when the budget expires OR
+	// as soon as all four have answered. Without it the goroutines below would
 	// outlive the turn they were started for: each classifier's own timeouts are
 	// five seconds, so against a slow Ollama we would give up here at two seconds,
-	// answer from the regexes, and leave three HTTP requests running for three more
+	// answer from the regexes, and leave four HTTP requests running for three more
 	// — and then do it again on the next message, and the one after that, until the
 	// classifier mutexes are a queue of embeddings nobody will ever read.
 	//
@@ -105,15 +111,16 @@ func localPreThink(userMsg, recentChat string, cands []skillCandidate) (string, 
 		flag  bool
 		slugs []string
 	}
-	results := make(chan result, 3)
+	results := make(chan result, 4)
 	go func() { results <- result{field: "destructive", flag: isDestructive(ctx, userMsg, recentChat)} }()
 	go func() { results <- result{field: "search", flag: needsSearch(ctx, userMsg)} }()
+	go func() { results <- result{field: "coder", flag: needsCoder(ctx, userMsg)} }()
 	go func() {
 		s, _ := relatedSkillsEmbed(ctx, userMsg, cands)
 		results <- result{field: "skills", slugs: s}
 	}()
 
-	for pending := 3; pending > 0; {
+	for pending := 4; pending > 0; {
 		select {
 		case r := <-results:
 			pending--
@@ -122,6 +129,8 @@ func localPreThink(userMsg, recentChat string, cands []skillCandidate) (string, 
 				destructive = r.flag
 			case "search":
 				search = r.flag
+			case "coder":
+				coder = r.flag
 			case "skills":
 				slugs = r.slugs
 			}
@@ -132,12 +141,13 @@ func localPreThink(userMsg, recentChat string, cands []skillCandidate) (string, 
 		}
 	}
 
-	hint := composePreThinkHint(destructive, search,
+	hint := composePreThinkHint(destructive, search, coder,
 		isIncludeInvestigator(userMsg), hasWebURL(userMsg), slugs)
 
 	logger.Debug("pre-think signals",
 		"destructive", destructive,
 		"search", search,
+		"coder", coder,
 		"skills", slugs,
 	)
 	return hint, time.Since(start)
@@ -147,7 +157,7 @@ func localPreThink(userMsg, recentChat string, cands []skillCandidate) (string, 
 // wording is carried over verbatim from the old XML-parsing path: the main model's
 // behaviour is tuned against these exact sentences, so changing the classifier
 // underneath is a big enough change on its own.
-func composePreThinkHint(destructive, search, investigator, webURL bool, slugs []string) string {
+func composePreThinkHint(destructive, search, coder, investigator, webURL bool, slugs []string) string {
 	var parts []string
 
 	if destructive {
@@ -155,6 +165,9 @@ func composePreThinkHint(destructive, search, investigator, webURL bool, slugs [
 	}
 	if search {
 		parts = append(parts, "Search: there is a meaningful chance (>10%) a relevant fact has changed since the model's training cutoff or needs an authoritative source. Consider dispatching a search subagent.")
+	}
+	if coder {
+		parts = append(parts, "Code task: this asks for code to be written, debugged, or refactored (a script, program, or web page). Consider dispatching the coder subagent — it runs on a code-specialized model and keeps the coding loop out of this session.")
 	}
 	if investigator {
 		parts = append(parts, "Investigator: you must call dispatch to fan out an investigator subagent before responding to the user.")
@@ -208,7 +221,7 @@ func skillCandidatesFrom(reg *skills.Registry) []skillCandidate {
 	return cands
 }
 
-// WarmLocalPreThink builds the three embedding indexes ahead of the first user
+// WarmLocalPreThink builds the four embedding indexes ahead of the first user
 // message, in the background.
 //
 // Without it the first message of a fresh process pays ~1.5s to embed the anchor
@@ -228,10 +241,10 @@ func WarmLocalPreThink(reg *skills.Registry) {
 	}()
 }
 
-// warmPreThinkIndexes builds the three indexes, one at a time, with no deadline.
+// warmPreThinkIndexes builds the four indexes, one at a time, with no deadline.
 //
 // It deliberately does NOT go through localPreThink. That path runs the classifiers
-// concurrently under preThinkBudget, and a cold build of all three takes about two
+// concurrently under preThinkBudget, and a cold build of all of them takes about two
 // seconds — right at the budget, so the warm-up would time out on itself and then
 // claim in the log that it had finished. The builds would still complete in their
 // own goroutines, but the first real message would race them and pay the remainder.
@@ -245,5 +258,6 @@ func warmPreThinkIndexes(cands []skillCandidate) bool {
 	}
 	_, _ = classifySearchEmbed(ctx, "warm")
 	_, _ = classifyDestructiveEmbed(ctx, "warm")
+	_, _ = classifyCoderEmbed(ctx, "warm")
 	return true
 }

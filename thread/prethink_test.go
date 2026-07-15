@@ -18,6 +18,7 @@ func TestComposePreThinkHint(t *testing.T) {
 		name        string
 		destructive bool
 		search      bool
+		coder       bool
 		invest      bool
 		webURL      bool
 		slugs       []string
@@ -26,7 +27,7 @@ func TestComposePreThinkHint(t *testing.T) {
 	}{
 		{
 			name:     "nothing fires",
-			wantNone: []string{"Destructive", "Search", "Investigator", "Web URL", "skill"},
+			wantNone: []string{"Destructive", "Search", "Code task", "Investigator", "Web URL", "skill"},
 		},
 		{
 			name:        "destructive",
@@ -40,6 +41,11 @@ func TestComposePreThinkHint(t *testing.T) {
 			name:    "search",
 			search:  true,
 			wantAll: []string{"Consider dispatching a search subagent."},
+		},
+		{
+			name:    "coder",
+			coder:   true,
+			wantAll: []string{"Code task:", "Consider dispatching the coder subagent"},
 		},
 		{
 			name:    "investigator",
@@ -74,7 +80,7 @@ func TestComposePreThinkHint(t *testing.T) {
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			got := composePreThinkHint(tc.destructive, tc.search, tc.invest, tc.webURL, tc.slugs)
+			got := composePreThinkHint(tc.destructive, tc.search, tc.coder, tc.invest, tc.webURL, tc.slugs)
 			for _, w := range tc.wantAll {
 				if !strings.Contains(got, w) {
 					t.Errorf("hint missing %q\ngot: %s", w, got)
@@ -100,7 +106,7 @@ func TestComposePreThinkHint(t *testing.T) {
 // here means one crept back in — most likely by someone reviving the old prompt
 // rather than by deliberate decision.
 func TestPreThinkDroppedFields(t *testing.T) {
-	hint := composePreThinkHint(true, true, true, true, []string{"image"})
+	hint := composePreThinkHint(true, true, true, true, true, []string{"image"})
 	for _, gone := range []string{
 		"Multi-step task",        // reproduced by len(msg) > 160; not worth a model
 		"Tone:",                  // 83% constant, copied from USER.md

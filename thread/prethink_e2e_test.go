@@ -63,6 +63,16 @@ func TestLocalPreThink_EndToEnd(t *testing.T) {
 			wantAll: []string{"Related skill", "manage-cron"},
 		},
 		{
+			name:    "a code production request dispatches the coder",
+			msg:     "帮我写一个 Python 脚本，把这个目录下的图片都压缩一遍",
+			wantAll: []string{"Code task:", "coder subagent"},
+		},
+		{
+			name:     "a concept question about code stays inline",
+			msg:      "解释一下什么是依赖注入",
+			wantNone: []string{"Code task:"},
+		},
+		{
 			// The old prompt always said SOMETHING — a tone, a padded skill list. Silence
 			// is now a real answer, and it is the common one.
 			name:     "small talk produces no hint at all",
@@ -98,8 +108,8 @@ func TestLocalPreThink_EndToEnd(t *testing.T) {
 // TestLocalPreThink_Latency is the number that justifies the whole exercise: the
 // call it replaced blocked the user's turn for up to ten seconds.
 //
-// The first call pays for building three anchor indexes; every call after that is
-// three concurrent embeddings of one short message over localhost.
+// The first call pays for building four anchor indexes; every call after that is
+// four concurrent embeddings of one short message over localhost.
 func TestLocalPreThink_Latency(t *testing.T) {
 	cands := loadRealSkills(t)
 	if _, ok := relatedSkillsEmbed(context.Background(), "probe", cands); !ok {
@@ -115,7 +125,7 @@ func TestLocalPreThink_Latency(t *testing.T) {
 	if !warmPreThinkIndexes(cands) {
 		t.Skip("no local ollama embedding model")
 	}
-	t.Logf("cold: %v to build all three indexes — paid at daemon start by WarmLocalPreThink, not by a user",
+	t.Logf("cold: %v to build all four indexes — paid at daemon start by WarmLocalPreThink, not by a user",
 		time.Since(coldStart).Round(time.Millisecond))
 
 	msgs := []string{
@@ -148,11 +158,12 @@ func TestLocalPreThink_Latency(t *testing.T) {
 // answer rather than no answer. The one thing that must NOT happen is a hang: the
 // classifiers report unavailable rather than waiting.
 func TestLocalPreThink_NoOllama(t *testing.T) {
-	origD, origS := classifyDestructiveEmbedFn, classifySearchEmbedFn
+	origD, origS, origC := classifyDestructiveEmbedFn, classifySearchEmbedFn, classifyCoderEmbedFn
 	classifyDestructiveEmbedFn = func(context.Context, string) (bool, bool) { return false, false }
 	classifySearchEmbedFn = func(context.Context, string) (bool, bool) { return false, false }
+	classifyCoderEmbedFn = func(context.Context, string) (bool, bool) { return false, false }
 	defer func() {
-		classifyDestructiveEmbedFn, classifySearchEmbedFn = origD, origS
+		classifyDestructiveEmbedFn, classifySearchEmbedFn, classifyCoderEmbedFn = origD, origS, origC
 	}()
 
 	// The verb table still knows this one, and an explicit search request is pure
@@ -221,6 +232,10 @@ func resetPreThinkIndexes() {
 	destructiveEmbed.mu.lock(ctx)
 	destructiveEmbed.model, destructiveEmbed.pos, destructiveEmbed.neg, destructiveEmbed.lastTry = "", nil, nil, time.Time{}
 	destructiveEmbed.mu.unlock()
+
+	coderEmbed.mu.lock(ctx)
+	coderEmbed.model, coderEmbed.pos, coderEmbed.neg, coderEmbed.lastTry = "", nil, nil, time.Time{}
+	coderEmbed.mu.unlock()
 
 	skillIndex.mu.lock(ctx)
 	skillIndex.key, skillIndex.groups, skillIndex.noneVecs, skillIndex.lastTry = "", nil, nil, time.Time{}
