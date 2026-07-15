@@ -78,23 +78,25 @@ func (s *Scheduler) Start() {
 	}
 }
 
-// AddJob persists a new job and schedules it immediately.
-func (s *Scheduler) AddJob(job Job) error {
+// AddJob persists a new job and schedules it immediately. Returns whether an
+// existing job with the same ID was replaced.
+func (s *Scheduler) AddJob(job Job) (updated bool, err error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
 	job = Normalize(job)
 	ok, _ := ValidateStored(job, time.Now().UTC())
 	if !ok {
-		return fmt.Errorf("invalid job: id=%q kind=%q", job.ID, job.Kind)
+		return false, fmt.Errorf("invalid job: id=%q kind=%q", job.ID, job.Kind)
 	}
 
 	cancel, err := s.scheduleLocked(job)
 	if err != nil {
-		return fmt.Errorf("schedule job %q: %w", job.ID, err)
+		return false, fmt.Errorf("schedule job %q: %w", job.ID, err)
 	}
 
 	// Unschedule any previous job with the same ID.
+	_, updated = s.jobs[job.ID]
 	s.unscheduleLocked(job.ID)
 
 	s.jobs[job.ID] = job
@@ -102,10 +104,29 @@ func (s *Scheduler) AddJob(job Job) error {
 		s.cancels[job.ID] = cancel
 	}
 	if err := s.saveLocked(); err != nil {
-		return fmt.Errorf("persist job %q: %w", job.ID, err)
+		return updated, fmt.Errorf("persist job %q: %w", job.ID, err)
 	}
 	logger.Info("job added", "id", job.ID, "kind", job.Kind)
-	return nil
+	return updated, nil
+}
+
+// RemoveJob unschedules and unpersists the job with the given ID. Returns
+// false if no stored job had that ID (seed jobs are not removable — they are
+// re-seeded from config on every Load).
+func (s *Scheduler) RemoveJob(id string) (bool, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	if _, ok := s.jobs[id]; !ok {
+		return false, nil
+	}
+	s.unscheduleLocked(id)
+	delete(s.jobs, id)
+	if err := s.saveLocked(); err != nil {
+		return true, fmt.Errorf("persist after removing job %q: %w", id, err)
+	}
+	logger.Info("job removed", "id", id)
+	return true, nil
 }
 
 // FindJob returns the job with the given ID from the persisted store or seed jobs.

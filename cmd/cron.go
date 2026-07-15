@@ -1,6 +1,7 @@
 package cmd
 
 import (
+	"encoding/json"
 	"fmt"
 	"path/filepath"
 	"strings"
@@ -141,44 +142,34 @@ func init() {
 }
 
 func runCronRemove(_ *cobra.Command, args []string) error {
-	storePath, err := cronStorePath()
-	if err != nil {
-		return err
-	}
-	jobs, err := cronsvc.ReadJobs(storePath)
-	if err != nil {
-		return fmt.Errorf("failed to read cron store: %w", err)
-	}
-
-	removeSet := make(map[string]bool, len(args))
+	ids := make([]string, 0, len(args))
 	for _, id := range args {
-		removeSet[strings.TrimSpace(id)] = true
+		ids = append(ids, strings.TrimSpace(id))
 	}
 
-	var kept []cronsvc.Job
-	removed := make(map[string]bool)
-	for _, job := range jobs {
-		if removeSet[job.ID] {
-			removed[job.ID] = true
-		} else {
-			kept = append(kept, job)
-		}
+	raw, err := rpcCall("cron.remove", cronRemoveParams{IDs: ids})
+	if err != nil {
+		return fmt.Errorf("cron write requires a running daemon: %w", err)
+	}
+	var resp cronRemoveResponse
+	if err := json.Unmarshal(raw, &resp); err != nil {
+		return fmt.Errorf("parse cron.remove response: %w", err)
 	}
 
-	if len(removed) > 0 {
-		if err := cronsvc.WriteJobs(storePath, kept); err != nil {
-			return fmt.Errorf("failed to write cron store: %w", err)
+	removedCount := 0
+	for _, ok := range resp.Removed {
+		if ok {
+			removedCount++
 		}
 	}
 
 	fmt.Print(tools.CmdOutput([][2]string{
 		{"command", "cron remove"}, {"status", "ok"},
-		{"removed", fmt.Sprintf("%d", len(removed))},
-		{"requested", fmt.Sprintf("%d", len(args))},
+		{"removed", fmt.Sprintf("%d", removedCount)},
+		{"requested", fmt.Sprintf("%d", len(ids))},
 	}, "") + "\n")
-	for _, id := range args {
-		id = strings.TrimSpace(id)
-		if removed[id] {
+	for _, id := range ids {
+		if resp.Removed[id] {
 			fmt.Printf("removed: %s\n", id)
 		} else {
 			fmt.Printf("not_found: %s\n", id)
@@ -282,7 +273,26 @@ func cronStorePath() (string, error) {
 	return filepath.Join(workspace, "system", "cron.jsonl"), nil
 }
 
-// upsertJob writes a job to the store. Returns true if an existing job was updated.
+// RPC payloads shared between the cron CLI (client) and serve.go (handler).
+type cronUpsertResponse struct {
+	Updated bool `json:"updated"`
+}
+
+type cronRemoveParams struct {
+	IDs []string `json:"ids"`
+}
+
+type cronRemoveResponse struct {
+	Removed map[string]bool `json:"removed"`
+}
+
+// upsertJob sends the job to the running daemon, whose scheduler is the single
+// writer of cron.jsonl. The CLI must NOT write the store file itself: a
+// read-modify-write from a separate process races other writers, and on
+// 2026-07-15 two dreams running set-at in the same second silently erased one
+// job that way. Going through the daemon also schedules the job immediately
+// instead of waiting for the next minute reload. Returns true if an existing
+// job was updated.
 func upsertJob(job cronsvc.Job) (updated bool, err error) {
 	job = cronsvc.Normalize(job)
 	ok, _ := cronsvc.ValidateStored(job, time.Now())
@@ -290,29 +300,13 @@ func upsertJob(job cronsvc.Job) (updated bool, err error) {
 		return false, fmt.Errorf("invalid job: check id, task, and schedule fields")
 	}
 
-	storePath, err := cronStorePath()
+	raw, err := rpcCall("cron.upsert", job)
 	if err != nil {
-		return false, err
+		return false, fmt.Errorf("cron write requires a running daemon: %w", err)
 	}
-	existing, err := cronsvc.ReadJobs(storePath)
-	if err != nil {
-		return false, fmt.Errorf("failed to read cron store: %w", err)
+	var resp cronUpsertResponse
+	if err := json.Unmarshal(raw, &resp); err != nil {
+		return false, fmt.Errorf("parse cron.upsert response: %w", err)
 	}
-
-	// Upsert: replace if same ID exists, otherwise append.
-	for i, j := range existing {
-		if j.ID == job.ID {
-			existing[i] = job
-			if err := cronsvc.WriteJobs(storePath, existing); err != nil {
-				return false, fmt.Errorf("failed to write cron store: %w", err)
-			}
-			return true, nil
-		}
-	}
-
-	existing = append(existing, job)
-	if err := cronsvc.WriteJobs(storePath, existing); err != nil {
-		return false, fmt.Errorf("failed to write cron store: %w", err)
-	}
-	return false, nil
+	return resp.Updated, nil
 }

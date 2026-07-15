@@ -104,9 +104,40 @@ func runServe(cmd *cobra.Command, args []string) error {
 	// Updater for RPC-driven self-update.
 	srvUpdater := &updater{}
 
+	// Cron channel (created early so RPC can reference it). All cron store
+	// WRITES go through this scheduler via RPC — CLI processes must not write
+	// cron.jsonl directly, because concurrent read-modify-writes clobber each
+	// other (two dreams running set-at in the same second silently erased one
+	// job on 2026-07-15). The scheduler mutex is the single writer.
+	cronCh := channel.NewCronChannel(cfg)
+
 	// Wire RPC handler so CLI commands can query the running serve process.
 	socketCh.SetRPCHandler(func(method string, params json.RawMessage) (any, error) {
 		switch method {
+		case "cron.upsert":
+			var job cronpkg.Job
+			if err := json.Unmarshal(params, &job); err != nil {
+				return nil, fmt.Errorf("parse params: %w", err)
+			}
+			updated, err := cronCh.AddJob(job)
+			if err != nil {
+				return nil, err
+			}
+			return cronUpsertResponse{Updated: updated}, nil
+		case "cron.remove":
+			var p cronRemoveParams
+			if err := json.Unmarshal(params, &p); err != nil {
+				return nil, fmt.Errorf("parse params: %w", err)
+			}
+			resp := cronRemoveResponse{Removed: map[string]bool{}}
+			for _, id := range p.IDs {
+				removed, err := cronCh.RemoveJob(id)
+				if err != nil {
+					return nil, err
+				}
+				resp.Removed[id] = removed
+			}
+			return resp, nil
 		case "update.start":
 			var p updateStartParams
 			_ = json.Unmarshal(params, &p)
@@ -179,7 +210,6 @@ func runServe(cmd *cobra.Command, args []string) error {
 	if targets.wecom {
 		chManager.Register(channel.NewWeComChannel(cfg))
 	}
-	cronCh := channel.NewCronChannel(cfg)
 	chManager.Register(cronCh)
 
 	ctx, cancel := context.WithCancel(context.Background())

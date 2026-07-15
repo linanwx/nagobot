@@ -70,12 +70,21 @@ func (c *CronChannel) FindJob(id string) (cronpkg.Job, bool) {
 	return c.scheduler.FindJob(id)
 }
 
-// AddJob delegates to the underlying scheduler.
-func (c *CronChannel) AddJob(job cronpkg.Job) error {
+// AddJob delegates to the underlying scheduler. Returns whether an existing
+// job with the same ID was replaced.
+func (c *CronChannel) AddJob(job cronpkg.Job) (bool, error) {
 	if c.scheduler == nil {
-		return fmt.Errorf("cron scheduler not started")
+		return false, fmt.Errorf("cron scheduler not started")
 	}
 	return c.scheduler.AddJob(job)
+}
+
+// RemoveJob delegates to the underlying scheduler.
+func (c *CronChannel) RemoveJob(id string) (bool, error) {
+	if c.scheduler == nil {
+		return false, fmt.Errorf("cron scheduler not started")
+	}
+	return c.scheduler.RemoveJob(id)
 }
 
 func (c *CronChannel) Start(ctx context.Context) error {
