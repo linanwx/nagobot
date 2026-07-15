@@ -98,6 +98,9 @@ func (t *UseSkillTool) run(ctx context.Context, args json.RawMessage) string {
 	if strings.TrimSpace(rt.SessionDir) != "" {
 		prompt = strings.ReplaceAll(prompt, "{{SESSIONDIR}}", rt.SessionDir)
 	}
+	if strings.TrimSpace(rt.SessionKey) != "" {
+		prompt = strings.ReplaceAll(prompt, "{{SESSIONKEY}}", rt.SessionKey)
+	}
 	if strings.TrimSpace(dir) != "" {
 		prompt = strings.ReplaceAll(prompt, "{{SKILLDIR}}", dir)
 	}

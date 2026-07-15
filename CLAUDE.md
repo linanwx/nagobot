@@ -164,7 +164,7 @@ Conversation history persisted as `{sessionsDir}/{sessionKey}/session.jsonl`. Au
 
 ## Heartbeat System (`cmd/heartbeat_scheduler.go`)
 
-The heartbeat runs background maintenance between user interactions. It does NOT message the user proactively — current behavior is limited to two background writes (USER.md via session-reflect, dream.md via dream) plus silent no-op pulses.
+The heartbeat runs background maintenance between user interactions. Heartbeat turns themselves never message the user — output is limited to two background writes (USER.md via session-reflect, dream.md via dream) plus silent no-op pulses. The one indirect exception: dream may schedule a single next-day follow-up (`cron set-at --direct-wake` into its own session, high-suitability candidates only); when that wake fires the next day, the session decides to send the follow-up via `dispatch(to=user)` or silently drop it if the moment has passed.
 
 ### Architecture
 
