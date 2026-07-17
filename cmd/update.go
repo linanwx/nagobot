@@ -22,7 +22,10 @@ import (
 	"github.com/spf13/cobra"
 )
 
-var updatePre bool
+var (
+	updatePre  bool
+	updateFrom string
+)
 
 var updateCmd = &cobra.Command{
 	Use:   "update",
@@ -32,6 +35,9 @@ var updateCmd = &cobra.Command{
 By default only stable (non-pre-release) versions are considered.
 Use --pre to include pre-release versions.
 
+Use --from <file> to install a locally built binary instead of downloading
+from GitHub (run it via the NEW binary: ./nagobot update --from ./nagobot).
+
 When a serve process is running, the update is delegated to it via RPC.
 Otherwise the CLI performs the update directly.`,
 	RunE: runUpdate,
@@ -39,6 +45,7 @@ Otherwise the CLI performs the update directly.`,
 
 func init() {
 	updateCmd.Flags().BoolVar(&updatePre, "pre", false, "Include pre-release versions")
+	updateCmd.Flags().StringVar(&updateFrom, "from", "", "Install this local binary file instead of downloading from GitHub")
 	rootCmd.AddCommand(updateCmd)
 }
 
@@ -100,6 +107,13 @@ func fetchLatestVersion(pre bool) (string, error) {
 
 func runUpdate(cmd *cobra.Command, args []string) error {
 	fmt.Printf("Current version: %s\n", Version)
+
+	// Local-file install: never delegated over RPC — the running daemon is
+	// the OLD binary and doesn't know this flow. The NEW binary (the one
+	// carrying --from) orchestrates its own install.
+	if updateFrom != "" {
+		return runUpdateFromFile(updateFrom)
+	}
 
 	// Try RPC mode: delegate to running serve process.
 	result, err := rpcCallWithTimeout("update.start", updateStartParams{Pre: updatePre}, 5*time.Second)
@@ -264,6 +278,101 @@ func runUpdateDirect() error {
 		fmt.Println("    Service restarted.")
 	}
 
+	return nil
+}
+
+// ---------------------------------------------------------------------------
+// runUpdateFromFile: install a locally built binary (update --from <file>).
+// ---------------------------------------------------------------------------
+
+func runUpdateFromFile(fromPath string) error {
+	srcPath, err := filepath.Abs(fromPath)
+	if err != nil {
+		return fmt.Errorf("cannot resolve %s: %w", fromPath, err)
+	}
+	info, err := os.Stat(srcPath)
+	if err != nil {
+		return fmt.Errorf("cannot read %s: %w", srcPath, err)
+	}
+	if !info.Mode().IsRegular() || info.Size() == 0 {
+		return fmt.Errorf("%s is not a regular non-empty file", srcPath)
+	}
+
+	installDir := service.DefaultInstallDir()
+	binName := service.DefaultBinName()
+	installPath := filepath.Join(installDir, binName)
+	if srcPath == installPath {
+		return fmt.Errorf("source is the installed binary itself (%s); build to a different path first", installPath)
+	}
+
+	// Sanity-run the candidate before touching the install: catches a wrong
+	// GOOS/GOARCH build or a truncated file, and shows what we're installing.
+	verCmd := exec.Command(srcPath, "--version")
+	out, err := verCmd.CombinedOutput()
+	if err != nil {
+		return fmt.Errorf("candidate binary failed to run (%v): %s", err, strings.TrimSpace(string(out)))
+	}
+	fmt.Printf("Installing local build: %s (%s)\n", strings.TrimSpace(string(out)), formatBytes(info.Size()))
+
+	if err := os.MkdirAll(installDir, 0755); err != nil {
+		return fmt.Errorf("cannot create directory %s: %w", installDir, err)
+	}
+
+	// Stage a copy inside installDir so the final replace is a same-filesystem
+	// rename (an atomic mv — never overwrite a running binary with cp).
+	tmpFile, err := os.CreateTemp(installDir, "nagobot-update-*")
+	if err != nil {
+		return fmt.Errorf("cannot create temp file: %w", err)
+	}
+	tmpPath := tmpFile.Name()
+	defer os.Remove(tmpPath)
+
+	src, err := os.Open(srcPath)
+	if err != nil {
+		tmpFile.Close()
+		return fmt.Errorf("cannot open %s: %w", srcPath, err)
+	}
+	_, err = io.Copy(tmpFile, src)
+	src.Close()
+	tmpFile.Close()
+	if err != nil {
+		return fmt.Errorf("copy failed: %w", err)
+	}
+
+	if err := os.Chmod(tmpPath, 0755); err != nil {
+		return fmt.Errorf("chmod failed: %w", err)
+	}
+	if runtime.GOOS == "darwin" {
+		removeQuarantine(tmpPath)
+	}
+
+	os.Remove(installPath)
+	if err := os.Rename(tmpPath, installPath); err != nil {
+		return fmt.Errorf("cannot replace binary: %w", err)
+	}
+	fmt.Printf("Installed at %s\n", installPath)
+
+	// Sync templates using the newly installed binary.
+	fmt.Println("Syncing templates...")
+	syncCmd := exec.Command(installPath, "onboard", "--sync")
+	syncCmd.Stdout = os.Stdout
+	syncCmd.Stderr = os.Stderr
+	if err := syncCmd.Run(); err != nil {
+		fmt.Printf("Warning: failed to sync templates: %v\n", err)
+	}
+
+	// Gracefully stop the running (old) process, then restart the service so
+	// launchd/systemd relaunches with the new binary.
+	stopRunningProcess()
+
+	fmt.Println("Restarting service...")
+	mgr := service.New()
+	if err := mgr.Restart(); err != nil {
+		fmt.Printf("    Warning: service restart failed: %v\n", err)
+		fmt.Println("    You may need to restart manually.")
+	} else {
+		fmt.Println("    Service restarted.")
+	}
 	return nil
 }
 
