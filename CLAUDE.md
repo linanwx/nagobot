@@ -44,6 +44,8 @@ Wake payloads use YAML frontmatter + markdown body with per-source sender:
 
 Action hints for system sources explicitly tell the AI to include content in its response.
 
+Media attachments ride the frontmatter, not the body: `media` carries the channel's resource summary (`[Media: photo] image_path: …`) and `media_preview` the upfront image description / audio transcription, both flattened to one line (`oneLine`). The body stays pure user speech. `tryMerge` folds media fields from merged messages with `|` — a merged turn renders ONE header, so unfolded fields would vanish. Both fields survive Tier-1 wake trimming (`wakeTrimKeys` is a blocklist and deliberately excludes them — transcripts are content, paths feed later `read_file`).
+
 ### Pre-Think (`thread/prethink*.go`, `embedding/`)
 
 Every user message is analyzed before the main model sees it, producing the **action hint** in the wake payload. This used to be a blocking LLM call (a `fast` model, 10s timeout, 10 XML fields) into a `{sessionKey}:prethink` sibling session. **It is now local: regex + a local Ollama embedding model. No LLM call, no sibling session.** Warm cost is ~150ms.

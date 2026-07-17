@@ -66,13 +66,15 @@ func extOf(path string) string {
 	return ""
 }
 
-// FormatPreviewTag formats a preview result for injection into the wake payload.
+// FormatPreviewTag formats a preview result for the `media_preview` wake
+// frontmatter field. The label names the media type, not the field — the
+// field name already says "preview".
 func FormatPreviewTag(description string, mediaType MediaType) string {
 	switch mediaType {
 	case MediaTypeAudio:
-		return fmt.Sprintf("[audio_preview (for reference only — use read_file for detailed analysis): %s]", description)
+		return fmt.Sprintf("[audio transcription (for reference only — use read_file for detailed analysis): %s]", description)
 	default:
-		return fmt.Sprintf("[media_preview (for reference only — use read_file for detailed analysis): %s]", description)
+		return fmt.Sprintf("[image (for reference only — use read_file for detailed analysis): %s]", description)
 	}
 }
 

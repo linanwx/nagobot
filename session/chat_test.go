@@ -23,7 +23,7 @@ func TestReadRecentChat(t *testing.T) {
 		if i%2 == 1 {
 			role = ChatRoleAssistant
 		}
-		if err := AppendChat(dir, role, body, now.Add(time.Duration(i)*time.Second)); err != nil {
+		if err := AppendChat(dir, role, "", body, now.Add(time.Duration(i)*time.Second)); err != nil {
 			t.Fatalf("seed %d: %v", i, err)
 		}
 	}
@@ -100,17 +100,17 @@ func TestReadRecentChatSince(t *testing.T) {
 	now := time.Now()
 
 	// Seed entries at varying ages: old (48h), recent (2h, 1h), plus one with no ts.
-	if err := AppendChat(dir, ChatRoleUser, "old message", now.Add(-48*time.Hour)); err != nil {
+	if err := AppendChat(dir, ChatRoleUser, "", "old message", now.Add(-48*time.Hour)); err != nil {
 		t.Fatal(err)
 	}
-	if err := AppendChat(dir, ChatRoleAssistant, "recent\nreply", now.Add(-2*time.Hour)); err != nil {
+	if err := AppendChat(dir, ChatRoleAssistant, "", "recent\nreply", now.Add(-2*time.Hour)); err != nil {
 		t.Fatal(err)
 	}
-	if err := AppendChat(dir, ChatRoleUser, strings.Repeat("X", 500), now.Add(-1*time.Hour)); err != nil {
+	if err := AppendChat(dir, ChatRoleUser, "", strings.Repeat("X", 500), now.Add(-1*time.Hour)); err != nil {
 		t.Fatal(err)
 	}
 	// Entry with zero ts (legacy) — must be skipped by the time filter.
-	if err := AppendChat(dir, ChatRoleUser, "no timestamp", time.Time{}); err != nil {
+	if err := AppendChat(dir, ChatRoleUser, "", "no timestamp", time.Time{}); err != nil {
 		t.Fatal(err)
 	}
 
@@ -146,7 +146,7 @@ func TestReadRecentChat_NoMarkerWhenNotTruncated(t *testing.T) {
 	dir := t.TempDir()
 	now := time.Now()
 	for i, body := range []string{"a", "b", "c"} {
-		if err := AppendChat(dir, ChatRoleUser, body, now.Add(time.Duration(i)*time.Second)); err != nil {
+		if err := AppendChat(dir, ChatRoleUser, "", body, now.Add(time.Duration(i)*time.Second)); err != nil {
 			t.Fatalf("seed %d: %v", i, err)
 		}
 	}

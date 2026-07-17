@@ -136,3 +136,163 @@ func mustWrite(t *testing.T, path, content string) {
 		t.Fatal(err)
 	}
 }
+
+func TestHandleSessionChat(t *testing.T) {
+	ch := newTestWebChannelWithSession(t, "discord:42")
+	sessDir := filepath.Join(ch.workspace, sessionsDirName, "discord", "42")
+	chatLines := `{"role":"user","content":"[Nansen]: hello","ts":"2026-07-16T10:00:00Z"}` + "\n" +
+		`{"role":"assistant","content":"hi there","ts":"2026-07-16T10:00:05Z"}` + "\n"
+	if err := os.WriteFile(filepath.Join(sessDir, "chat.jsonl"), []byte(chatLines), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	rw := httptest.NewRecorder()
+	ch.handleSessionChat(rw, "discord:42")
+	if rw.Code != http.StatusOK {
+		t.Fatalf("status = %d, body = %s", rw.Code, rw.Body.String())
+	}
+	var resp sessionChatResponse
+	if err := json.Unmarshal(rw.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if resp.Key != "discord:42" || len(resp.Messages) != 2 {
+		t.Fatalf("key=%q messages=%d, want discord:42 / 2", resp.Key, len(resp.Messages))
+	}
+	if resp.Messages[0].Role != "user" || resp.Messages[0].Content != "[Nansen]: hello" {
+		t.Fatalf("unexpected first message: %+v", resp.Messages[0])
+	}
+	if resp.Messages[1].Ts.IsZero() {
+		t.Fatal("assistant ts not parsed")
+	}
+}
+
+func TestHandleSessionChat_NoChatLog(t *testing.T) {
+	ch := newTestWebChannelWithSession(t, "cron:job1")
+
+	rw := httptest.NewRecorder()
+	ch.handleSessionChat(rw, "cron:job1")
+	if rw.Code != http.StatusNotFound {
+		t.Fatalf("status = %d, want 404; body = %s", rw.Code, rw.Body.String())
+	}
+}
+
+func TestHandleSessionChat_RouteSuffix(t *testing.T) {
+	ch := newTestWebChannelWithSession(t, "discord:42")
+	sessDir := filepath.Join(ch.workspace, sessionsDirName, "discord", "42")
+	if err := os.WriteFile(filepath.Join(sessDir, "chat.jsonl"),
+		[]byte(`{"role":"assistant","content":"x","ts":"2026-07-16T10:00:00Z"}`+"\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	req := httptest.NewRequest(http.MethodGet, "/api/sessions/discord/42/chat", nil)
+	rw := httptest.NewRecorder()
+	ch.handleSessionMessages(rw, req)
+	if rw.Code != http.StatusOK {
+		t.Fatalf("status = %d, body = %s", rw.Code, rw.Body.String())
+	}
+	if !strings.Contains(rw.Body.String(), `"messages"`) {
+		t.Fatalf("unexpected body: %s", rw.Body.String())
+	}
+}
+
+func TestHandlePrompts_ListAndRead(t *testing.T) {
+	ch := newTestWebChannelWithSession(t, "web:prompts")
+	sysDir := filepath.Join(ch.workspace, "system")
+	if err := os.MkdirAll(sysDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(sysDir, "GLOBAL.md"), []byte("# persona"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Join(sysDir, "sections"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(sysDir, "sections", "tools.md"), []byte("# tools"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	// Present on disk but NOT whitelisted — must not be listed or readable.
+	if err := os.WriteFile(filepath.Join(sysDir, "CORE_MECHANISM.md"), []byte("legacy"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	// List: whitelisted files that exist, with labels, in whitelist order.
+	rw := httptest.NewRecorder()
+	ch.handlePrompts(rw, httptest.NewRequest(http.MethodGet, "/api/prompts", nil))
+	if rw.Code != http.StatusOK {
+		t.Fatalf("list status = %d, body = %s", rw.Code, rw.Body.String())
+	}
+	var list struct {
+		Files []struct{ Name, Label string } `json:"files"`
+	}
+	if err := json.Unmarshal(rw.Body.Bytes(), &list); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if len(list.Files) != 2 || list.Files[0].Name != "GLOBAL.md" || list.Files[1].Name != "sections/tools.md" {
+		t.Fatalf("expected [GLOBAL.md sections/tools.md], got %+v", list.Files)
+	}
+	if list.Files[0].Label != "Global persona" {
+		t.Fatalf("expected label, got %+v", list.Files[0])
+	}
+
+	// Read: content round-trips.
+	rw = httptest.NewRecorder()
+	ch.handlePromptFile(rw, httptest.NewRequest(http.MethodGet, "/api/prompts/GLOBAL.md", nil))
+	if rw.Code != http.StatusOK {
+		t.Fatalf("read status = %d, body = %s", rw.Code, rw.Body.String())
+	}
+	var file map[string]string
+	if err := json.Unmarshal(rw.Body.Bytes(), &file); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if file["content"] != "# persona" {
+		t.Fatalf("content = %q", file["content"])
+	}
+}
+
+func TestHandlePromptFile_RejectsTraversal(t *testing.T) {
+	ch := newTestWebChannelWithSession(t, "web:prompts2")
+	for _, path := range []string{
+		"/api/prompts/../config.yaml",
+		"/api/prompts/..%2Fconfig.yaml",
+		"/api/prompts/notes.txt",
+		"/api/prompts/.hidden.md",
+		"/api/prompts/CORE_MECHANISM.md", // on disk but not whitelisted
+	} {
+		rw := httptest.NewRecorder()
+		ch.handlePromptFile(rw, httptest.NewRequest(http.MethodGet, path, nil))
+		if rw.Code != http.StatusBadRequest {
+			t.Errorf("%s: status = %d, want 400", path, rw.Code)
+		}
+	}
+}
+
+func TestRedactTree_CoversNestedAndMapSecrets(t *testing.T) {
+	tree := map[string]any{
+		"providers": map[string]any{
+			"siliconflowCN": map[string]any{"apiKey": "sk-live", "modelType": "glm"},
+			"mimo":          map[string]any{"apiKey": "tp-live"},
+			"openaiOAuth":   map[string]any{"accessToken": "at", "refreshToken": "rt", "tokenType": "Bearer"},
+		},
+		"r2":  map[string]any{"accessKeyId": "AKIA", "secretAccessKey": "shh", "bucket": "media"},
+		"env": map[string]any{"HASS_TOKEN": "eyJ", "HA_URL": "http://ha.local"},
+		"tools": map[string]any{
+			"web": map[string]any{"search": map[string]any{"keys": map[string]any{"google": "g-key"}}},
+		},
+		"thread": map[string]any{"provider": "deepseek", "modelType": "deepseek-v4-flash"},
+	}
+	redactTree(tree, false)
+
+	leaks := []string{"sk-live", "tp-live", "at", "rt", "AKIA", "shh", "eyJ", "http://ha.local", "g-key"}
+	blob, _ := json.Marshal(tree)
+	for _, leak := range leaks {
+		if strings.Contains(string(blob), `"`+leak+`"`) {
+			t.Errorf("secret %q survived redaction: %s", leak, blob)
+		}
+	}
+	// Non-secret display data stays readable.
+	for _, keep := range []string{"deepseek-v4-flash", "media", "glm"} {
+		if !strings.Contains(string(blob), keep) {
+			t.Errorf("non-secret %q was over-redacted: %s", keep, blob)
+		}
+	}
+}

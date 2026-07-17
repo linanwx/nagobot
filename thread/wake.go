@@ -71,6 +71,10 @@ func (t *Thread) tryMerge(first *WakeMessage) *WakeMessage {
 			if canMerge(first, next) {
 				first.Message += "\n" + next.Message
 				first.Sink = next.Sink
+				// The merged turn renders ONE frontmatter header, so media
+				// fields from later messages must fold in or they vanish.
+				first.MediaInfo = joinNonEmpty(first.MediaInfo, next.MediaInfo)
+				first.MediaPreview = joinNonEmpty(first.MediaPreview, next.MediaPreview)
 				merged++
 			} else {
 				deferred = append(deferred, next)
@@ -219,7 +223,7 @@ func (t *Thread) RunOnce(ctx context.Context) {
 	if sysmsg.IsUserVisibleSource(msg.Source) {
 		actionOverride = preThinkAction(t, msg.Message)
 	}
-	userMessage := buildWakePayload(msg.Source, msg.Message, t.id, t.sessionKey, sessionDir, deliveryLabel, modelLabel, agentName, loc, sender, msg.CallerSessionKey, msg.EnqueuedAt, actionOverride, msg.RecentChat)
+	userMessage := buildWakePayload(msg.Source, msg.Message, t.id, t.sessionKey, sessionDir, deliveryLabel, modelLabel, agentName, loc, sender, msg.SenderName, msg.MediaInfo, msg.MediaPreview, msg.CallerSessionKey, msg.EnqueuedAt, actionOverride, msg.RecentChat)
 
 	// Build injection function: between tool iterations, drain inbox for
 	// mergeable user messages and inject them into the LLM conversation.
@@ -248,7 +252,7 @@ func (t *Thread) RunOnce(ctx context.Context) {
 			select {
 			case next := <-t.inbox:
 				if canMerge(msg, next) {
-					payload := buildWakePayload(next.Source, next.Message, t.id, t.sessionKey, sessionDir, deliveryLabel, modelLabel, agentName, loc, senderOrDefault(next.Sender, next.Source), next.CallerSessionKey, next.EnqueuedAt, "", next.RecentChat)
+					payload := buildWakePayload(next.Source, next.Message, t.id, t.sessionKey, sessionDir, deliveryLabel, modelLabel, agentName, loc, senderOrDefault(next.Sender, next.Source), next.SenderName, next.MediaInfo, next.MediaPreview, next.CallerSessionKey, next.EnqueuedAt, "", next.RecentChat)
 					if payload != "" {
 						payload = markInjected(payload)
 						injected = append(injected, provider.UserMessage(payload))
@@ -312,7 +316,7 @@ func (t *Thread) RunOnce(ctx context.Context) {
 // actionOverride, when non-empty, replaces the default wakeActionHint for this
 // payload (used by pre-think). recentChat is rendered into the markdown body
 // (not YAML frontmatter) so long chat history stays out of metadata.
-func buildWakePayload(source WakeSource, message, threadID, sessionKey, sessionDir, deliveryLabel, model, agent string, loc *time.Location, sender, callerSessionKey string, enqueuedAt time.Time, actionOverride, recentChat string) string {
+func buildWakePayload(source WakeSource, message, threadID, sessionKey, sessionDir, deliveryLabel, model, agent string, loc *time.Location, sender, senderName, mediaInfo, mediaPreview, callerSessionKey string, enqueuedAt time.Time, actionOverride, recentChat string) string {
 	message = strings.TrimSpace(message)
 	if message == "" {
 		return ""
@@ -341,6 +345,9 @@ func buildWakePayload(source WakeSource, message, threadID, sessionKey, sessionD
 		Agent:            agent,
 		Delivery:         delivery,
 		Sender:           sender,
+		SenderName:       senderName,
+		Media:            oneLine(mediaInfo),
+		MediaPreview:     oneLine(mediaPreview),
 		CallerSessionKey: callerSessionKey,
 	}
 	hint := ""
@@ -413,11 +420,32 @@ type wakeHeader struct {
 	Agent            string `yaml:"agent,omitempty"`
 	Delivery         string `yaml:"delivery"`
 	Sender           string `yaml:"sender"`
+	SenderName       string `yaml:"sender_name,omitempty"`
+	Media            string `yaml:"media,omitempty"`
+	MediaPreview     string `yaml:"media_preview,omitempty"`
 	CallerSessionKey string `yaml:"caller_session_key,omitempty"`
 	Action           string `yaml:"action,omitempty"`
 	SupportsVision   *bool  `yaml:"supports_vision,omitempty"`
 	SupportsAudio    *bool  `yaml:"supports_audio,omitempty"`
 	SupportsPDF      *bool  `yaml:"supports_pdf,omitempty"`
+}
+
+// oneLine collapses every run of whitespace (including newlines) into a single
+// space, so multi-line channel media summaries and previews fit a one-line
+// frontmatter value.
+func oneLine(s string) string {
+	return strings.Join(strings.Fields(s), " ")
+}
+
+// joinNonEmpty joins two optional values with a separator, skipping empties.
+func joinNonEmpty(a, b string) string {
+	if a == "" {
+		return b
+	}
+	if b == "" {
+		return a
+	}
+	return a + " | " + b
 }
 
 // formatWakeTime renders a timestamp in the format used by wake frontmatter

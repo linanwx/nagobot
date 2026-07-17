@@ -22,8 +22,15 @@ const (
 )
 
 // ChatEntry is one line in chat.jsonl.
+// Sender is the structured attribution for the entry: for user entries the
+// human speaker's display name (e.g. a group-chat username, also present as a
+// "[Name]: " content prefix for the LLM); for assistant entries the origin
+// that drove a bot-initiated message (a caller session key like
+// "cron:dublin-weekend-sunny-check", or a wake source like "cron"). Empty for
+// plain replies and for entries written before the field existed.
 type ChatEntry struct {
 	Role    string    `json:"role"`
+	Sender  string    `json:"sender,omitempty"`
 	Content string    `json:"content"`
 	Ts      time.Time `json:"ts"`
 }
@@ -42,9 +49,10 @@ func chatMutexFor(dir string) *sync.Mutex {
 }
 
 // AppendChat appends a single entry to {sessionDir}/chat.jsonl. Empty content
-// is skipped. Callers should pass a non-zero ts; errors are returned for
-// logging — chat-log failures must not fail the main flow.
-func AppendChat(sessionDir, role, content string, ts time.Time) error {
+// is skipped. sender may be empty (see ChatEntry.Sender). Callers should pass
+// a non-zero ts; errors are returned for logging — chat-log failures must not
+// fail the main flow.
+func AppendChat(sessionDir, role, sender, content string, ts time.Time) error {
 	if sessionDir == "" {
 		return fmt.Errorf("chat: empty sessionDir")
 	}
@@ -52,7 +60,7 @@ func AppendChat(sessionDir, role, content string, ts time.Time) error {
 		return nil
 	}
 
-	data, err := json.Marshal(ChatEntry{Role: role, Content: content, Ts: ts})
+	data, err := json.Marshal(ChatEntry{Role: role, Sender: sender, Content: content, Ts: ts})
 	if err != nil {
 		return fmt.Errorf("chat: marshal entry: %w", err)
 	}
@@ -74,6 +82,44 @@ func AppendChat(sessionDir, role, content string, ts time.Time) error {
 		return fmt.Errorf("chat: write %s: %w", path, err)
 	}
 	return nil
+}
+
+// ReadChatEntries returns up to limit most-recent parsed chat.jsonl entries
+// from sessionDir, oldest first (limit <= 0 means all). Returns os.ErrNotExist
+// (wrapped) when the session has no chat.jsonl, so callers can distinguish
+// "no user-facing chat log" from an empty one. Malformed lines are skipped.
+func ReadChatEntries(sessionDir string, limit int) ([]ChatEntry, error) {
+	if sessionDir == "" {
+		return nil, fmt.Errorf("chat: empty sessionDir")
+	}
+	path := filepath.Join(sessionDir, chatFileName)
+	f, err := os.Open(path)
+	if err != nil {
+		return nil, err
+	}
+	defer f.Close()
+
+	var entries []ChatEntry
+	scanner := bufio.NewScanner(f)
+	scanner.Buffer(make([]byte, 64*1024), 1024*1024)
+	for scanner.Scan() {
+		line := strings.TrimSpace(scanner.Text())
+		if line == "" {
+			continue
+		}
+		var e ChatEntry
+		if err := json.Unmarshal([]byte(line), &e); err != nil {
+			continue
+		}
+		entries = append(entries, e)
+	}
+	if err := scanner.Err(); err != nil {
+		return nil, fmt.Errorf("chat: scan %s: %w", path, err)
+	}
+	if limit > 0 && len(entries) > limit {
+		entries = entries[len(entries)-limit:]
+	}
+	return entries, nil
 }
 
 // Per-entry preview keeps the head AND tail of the content: the opening shows

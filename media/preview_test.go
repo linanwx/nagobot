@@ -8,8 +8,8 @@ import (
 
 func TestFormatPreviewTag_Image(t *testing.T) {
 	tag := FormatPreviewTag("A screenshot of code with Python error", MediaTypeImage)
-	if !strings.Contains(tag, "media_preview") {
-		t.Errorf("image preview tag should contain 'media_preview', got: %s", tag)
+	if !strings.Contains(tag, "[image") {
+		t.Errorf("image preview tag should contain '[image', got: %s", tag)
 	}
 	if !strings.Contains(tag, "for reference only") {
 		t.Errorf("image preview tag should contain 'for reference only', got: %s", tag)
@@ -21,8 +21,8 @@ func TestFormatPreviewTag_Image(t *testing.T) {
 
 func TestFormatPreviewTag_Audio(t *testing.T) {
 	tag := FormatPreviewTag("User says: help me debug this", MediaTypeAudio)
-	if !strings.Contains(tag, "audio_preview") {
-		t.Errorf("audio preview tag should contain 'audio_preview', got: %s", tag)
+	if !strings.Contains(tag, "audio transcription") {
+		t.Errorf("audio preview tag should contain 'audio transcription', got: %s", tag)
 	}
 	if !strings.Contains(tag, "for reference only") {
 		t.Errorf("audio preview tag should contain 'for reference only', got: %s", tag)

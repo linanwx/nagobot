@@ -12,6 +12,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"regexp"
 	"sort"
 	"strings"
 	"sync"
@@ -133,6 +134,8 @@ func (w *WebChannel) Start(ctx context.Context) error {
 	mux.Handle("/api/sessions/", http.HandlerFunc(w.handleSessionMessages))
 	mux.Handle("/api/sessions", http.HandlerFunc(w.handleSessions))
 	mux.Handle("/api/config", http.HandlerFunc(w.handleConfig))
+	mux.Handle("/api/prompts/", http.HandlerFunc(w.handlePromptFile))
+	mux.Handle("/api/prompts", http.HandlerFunc(w.handlePrompts))
 	mux.Handle("/api/heartbeat/", http.HandlerFunc(w.handleHeartbeat))
 	mux.Handle("/", http.FileServer(http.FS(frontendFS)))
 
@@ -622,6 +625,12 @@ func (w *WebChannel) handleSessionMessages(rw http.ResponseWriter, r *http.Reque
 		return
 	}
 
+	// Route: /api/sessions/{key...}/chat
+	if key, ok := strings.CutSuffix(raw, ":chat"); ok {
+		w.handleSessionChat(rw, key)
+		return
+	}
+
 	// Route: /api/sessions/{key...}/files
 	if key, ok := strings.CutSuffix(raw, ":files"); ok {
 		w.handleSessionFiles(rw, key)
@@ -665,6 +674,45 @@ func (w *WebChannel) handleSessionMessages(rw http.ResponseWriter, r *http.Reque
 		CreatedAt: s.CreatedAt,
 		UpdatedAt: s.UpdatedAt,
 	})
+}
+
+// --- GET /api/sessions/{key...}/chat ---
+
+// chatLogLimit caps how many chat.jsonl entries a single request returns; old
+// sessions accumulate thousands and the chat view only renders the tail.
+const chatLogLimit = 500
+
+type sessionChatResponse struct {
+	Key      string              `json:"key"`
+	Messages []session.ChatEntry `json:"messages"`
+}
+
+// handleSessionChat serves the session's chat.jsonl — the clean user-facing
+// conversation log (delivered assistant replies included, wake frontmatter and
+// tool traffic excluded). Sessions without a chat log (e.g. cron runners)
+// return 404 so clients can fall back to rendering session.jsonl.
+func (w *WebChannel) handleSessionChat(rw http.ResponseWriter, key string) {
+	marker := w.resolveSessionFile(key, session.SessionFileName)
+	if marker == "" {
+		http.Error(rw, "invalid session key", http.StatusBadRequest)
+		return
+	}
+
+	entries, err := session.ReadChatEntries(filepath.Dir(marker), chatLogLimit)
+	if err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			http.Error(rw, "no chat log for session", http.StatusNotFound)
+			return
+		}
+		http.Error(rw, fmt.Sprintf("failed to read chat log: %v", err), http.StatusInternalServerError)
+		return
+	}
+	if entries == nil {
+		entries = []session.ChatEntry{}
+	}
+
+	rw.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(rw).Encode(sessionChatResponse{Key: key, Messages: entries})
 }
 
 // --- GET /api/sessions/{key...}/system-prompt ---
@@ -858,66 +906,155 @@ func (w *WebChannel) handleConfig(rw http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	redactConfig(cfg)
+	// Round-trip through a generic map so redaction can walk every field by
+	// name instead of relying on a hand-maintained per-provider list (which
+	// silently leaked each newly added provider's key).
+	raw, err := json.Marshal(cfg)
+	if err != nil {
+		http.Error(rw, fmt.Sprintf("failed to encode config: %v", err), http.StatusInternalServerError)
+		return
+	}
+	var tree any
+	if err := json.Unmarshal(raw, &tree); err != nil {
+		http.Error(rw, fmt.Sprintf("failed to decode config: %v", err), http.StatusInternalServerError)
+		return
+	}
+	redactTree(tree, false)
 
 	rw.Header().Set("Content-Type", "application/json")
-	_ = json.NewEncoder(rw).Encode(cfg)
+	_ = json.NewEncoder(rw).Encode(tree)
 }
 
 const redactedValue = "***configured***"
 
-// redactConfig replaces sensitive fields with a placeholder.
-func redactConfig(cfg *config.Config) {
-	redactProvider := func(pc *config.ProviderConfig) {
-		if pc != nil && pc.APIKey != "" {
-			pc.APIKey = redactedValue
-		}
-	}
-	redactProvider(cfg.Providers.OpenRouter)
-	redactProvider(cfg.Providers.Anthropic)
-	redactProvider(cfg.Providers.DeepSeek)
-	redactProvider(cfg.Providers.MoonshotCN)
-	redactProvider(cfg.Providers.MoonshotGlobal)
-	redactProvider(cfg.Providers.ZhipuCN)
-	redactProvider(cfg.Providers.ZhipuGlobal)
-	redactProvider(cfg.Providers.MinimaxCN)
-	redactProvider(cfg.Providers.MinimaxGlobal)
-	redactProvider(cfg.Providers.OpenAI)
-	redactProvider(cfg.Providers.Gemini)
+// secretKeyRe matches field names that carry credentials. Substring match on
+// the lowercased name: apiKey, jinaKey, accessKeyId, secretAccessKey,
+// accessToken, refreshToken, appSecret, password, … "env" is included because
+// env vars routinely hold tokens (HASS_TOKEN et al).
+var secretKeyRe = regexp.MustCompile(`key|token|secret|password|credential|env`)
 
-	if cfg.Providers.OpenAIOAuth != nil {
-		if cfg.Providers.OpenAIOAuth.AccessToken != "" {
-			cfg.Providers.OpenAIOAuth.AccessToken = redactedValue
-		}
-		if cfg.Providers.OpenAIOAuth.RefreshToken != "" {
-			cfg.Providers.OpenAIOAuth.RefreshToken = redactedValue
-		}
-	}
-
-	// Redact channel tokens.
-	if cfg.Channels != nil {
-		if cfg.Channels.Telegram != nil && cfg.Channels.Telegram.Token != "" {
-			cfg.Channels.Telegram.Token = redactedValue
-		}
-		if cfg.Channels.Discord != nil && cfg.Channels.Discord.Token != "" {
-			cfg.Channels.Discord.Token = redactedValue
-		}
-		if cfg.Channels.Feishu != nil {
-			if cfg.Channels.Feishu.AppSecret != "" {
-				cfg.Channels.Feishu.AppSecret = redactedValue
+// redactTree walks a decoded JSON tree and blanks every non-empty string
+// whose own field name — or any ancestor's — looks secret-bearing. Ancestor
+// propagation is what catches map values under a secret-named parent
+// ("search.keys.google", every "env" entry) whose leaf names are innocent.
+// False positives (e.g. "tokenType": "Bearer") are accepted: over-redacting
+// display data is safe, leaking one real key is not.
+func redactTree(node any, secretScope bool) {
+	switch v := node.(type) {
+	case map[string]any:
+		for k, child := range v {
+			inScope := secretScope || secretKeyRe.MatchString(strings.ToLower(k))
+			if s, ok := child.(string); ok {
+				if inScope && s != "" {
+					v[k] = redactedValue
+				}
+				continue
 			}
+			redactTree(child, inScope)
+		}
+	case []any:
+		for i, child := range v {
+			if s, ok := child.(string); ok {
+				if secretScope && s != "" {
+					v[i] = redactedValue
+				}
+				continue
+			}
+			redactTree(child, secretScope)
 		}
 	}
+}
 
-	// Redact tool keys.
-	if cfg.Tools.Web.Fetch.JinaKey != "" {
-		cfg.Tools.Web.Fetch.JinaKey = redactedValue
+// --- GET /api/prompts ---
+//
+// Lists the global prompt files under {workspace}/system that the runtime
+// actually injects into agent prompts: GLOBAL.md / world_knowledge.md /
+// people_knowledge.md (agent.Build injections) and the system-prompt sections
+// in system/sections (agent.SectionRegistry). Curated whitelist, not a
+// directory scan — legacy leftovers (CORE_MECHANISM.md, WEB_*_GUIDE.md) have
+// no runtime consumer and are deliberately absent. Read-only.
+
+type promptFileEntry struct {
+	Name        string `json:"name"`
+	Label       string `json:"label"`
+	Description string `json:"description"`
+	Size        int64  `json:"size"`
+	Modified    string `json:"modified"`
+}
+
+// globalPromptFiles is the whitelist, in display order. Name is the path
+// relative to {workspace}/system and doubles as the /api/prompts/{name} key.
+var globalPromptFiles = []promptFileEntry{
+	{Name: "GLOBAL.md", Label: "Global persona", Description: "Role and persona instructions injected into every user-facing agent."},
+	{Name: "world_knowledge.md", Label: "World knowledge", Description: "Recent world events beyond the model training cutoff; rewritten nightly by the world-knowledge cron."},
+	{Name: "people_knowledge.md", Label: "People knowledge", Description: "Cross-session knowledge about people, with dated facts and confidence."},
+	{Name: "sections/how-nagobot-works.md", Label: "How nagobot works", Description: "System-prompt section: the runtime model every agent is briefed with."},
+	{Name: "sections/context.md", Label: "Context", Description: "System-prompt section: date, session, and environment placeholders."},
+	{Name: "sections/tools.md", Label: "Tools", Description: "System-prompt section: tool list injection."},
+	{Name: "sections/skills.md", Label: "Skills", Description: "System-prompt section: skill list injection."},
+	{Name: "sections/agent-definitions.md", Label: "Agent definitions", Description: "System-prompt section: available agent names."},
+	{Name: "sections/active-sessions.md", Label: "Active sessions", Description: "System-prompt section: cross-session awareness summary."},
+}
+
+func (w *WebChannel) handlePrompts(rw http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(rw, "method not allowed", http.StatusMethodNotAllowed)
+		return
 	}
-	for k, v := range cfg.Tools.Web.Search.Keys {
-		if v != "" {
-			cfg.Tools.Web.Search.Keys[k] = redactedValue
+	if w.workspace == "" {
+		http.Error(rw, "workspace is not configured", http.StatusInternalServerError)
+		return
+	}
+	files := []promptFileEntry{}
+	for _, spec := range globalPromptFiles {
+		info, err := os.Stat(filepath.Join(w.workspace, "system", filepath.FromSlash(spec.Name)))
+		if err != nil {
+			continue // not present in this workspace — skip, keep order
+		}
+		entry := spec
+		entry.Size = info.Size()
+		entry.Modified = info.ModTime().Format(time.RFC3339)
+		files = append(files, entry)
+	}
+	rw.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(rw).Encode(map[string]any{"files": files})
+}
+
+// --- GET /api/prompts/{name} ---
+
+func (w *WebChannel) handlePromptFile(rw http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(rw, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	if w.workspace == "" {
+		http.Error(rw, "workspace is not configured", http.StatusInternalServerError)
+		return
+	}
+	name := strings.TrimPrefix(r.URL.Path, "/api/prompts/")
+	// Exact whitelist match — the only paths this handler can ever read.
+	allowed := false
+	for _, spec := range globalPromptFiles {
+		if spec.Name == name {
+			allowed = true
+			break
 		}
 	}
+	if !allowed {
+		http.Error(rw, "unknown prompt file", http.StatusBadRequest)
+		return
+	}
+	data, err := os.ReadFile(filepath.Join(w.workspace, "system", filepath.FromSlash(name)))
+	if err != nil {
+		if os.IsNotExist(err) {
+			http.Error(rw, "prompt file not found", http.StatusNotFound)
+			return
+		}
+		http.Error(rw, fmt.Sprintf("failed to read prompt file: %v", err), http.StatusInternalServerError)
+		return
+	}
+	rw.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(rw).Encode(map[string]string{"name": name, "content": string(data)})
 }
 
 // --- GET /api/heartbeat/{key...} ---

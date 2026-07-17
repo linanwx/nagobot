@@ -90,21 +90,33 @@ func (d *Dispatcher) dispatch(ctx context.Context, ch channel.Channel, msg *chan
 	}
 	sink := d.buildSink(ch, msg, sessionKey)
 	agentName, vars := d.resolveAgentName(sessionKey, msg)
-	userMessage := d.preprocessMessage(sessionKey, msg)
+	userMessage := d.preprocessMessage(msg)
 	source := d.wakeSource(ch)
+	senderName := senderDisplayName(msg)
+
+	// Media summary + upfront preview ride the wake frontmatter (`media` /
+	// `media_preview`), keeping the markdown body pure user speech.
+	mediaInfo := msg.Metadata["media_summary"]
+	mediaPreview := ""
+	if mediaInfo != "" {
+		mediaPreview = d.generateMediaPreviews(sessionKey, mediaInfo)
+	}
 
 	if sysmsg.IsUserVisibleSource(source) {
-		if err := session.AppendChat(d.threads.SessionDir(sessionKey), session.ChatRoleUser, userMessage, time.Now()); err != nil {
+		if err := session.AppendChat(d.threads.SessionDir(sessionKey), session.ChatRoleUser, senderName, userMessage, time.Now()); err != nil {
 			logger.Warn("chat.jsonl user-write failed", "sessionKey", sessionKey, "err", err)
 		}
 	}
 
 	d.threads.Wake(sessionKey, &thread.WakeMessage{
-		Source:    source,
-		Message:   userMessage,
-		Sink:      sink,
-		AgentName: agentName,
-		Vars:      vars,
+		Source:       source,
+		Message:      userMessage,
+		Sink:         sink,
+		AgentName:    agentName,
+		Vars:         vars,
+		SenderName:   senderName,
+		MediaInfo:    mediaInfo,
+		MediaPreview: mediaPreview,
 	})
 }
 
@@ -250,7 +262,7 @@ func (d *Dispatcher) buildSink(ch channel.Channel, msg *channel.Message, session
 			if strings.TrimSpace(content) == "" {
 				return nil
 			}
-			if err := session.AppendChat(sessionDir, session.ChatRoleAssistant, content, time.Now()); err != nil {
+			if err := session.AppendChat(sessionDir, session.ChatRoleAssistant, "", content, time.Now()); err != nil {
 				logger.Warn("chat.jsonl assistant-write failed", "sessionKey", sessionKey, "err", err)
 			}
 			return nil
@@ -367,20 +379,12 @@ func (d *Dispatcher) resolveAgentName(sessionKey string, msg *channel.Message) (
 	return agentName, vars
 }
 
-// preprocessMessage prepends media summary, previews, and sender name to the user message.
-func (d *Dispatcher) preprocessMessage(sessionKey string, msg *channel.Message) string {
+// preprocessMessage prepends reply context, sender name, and thread header to
+// the user message. Media summary and previews are NOT inlined here — they
+// travel as WakeMessage.MediaInfo / MediaPreview and render as `media` /
+// `media_preview` in the wake frontmatter.
+func (d *Dispatcher) preprocessMessage(msg *channel.Message) string {
 	text := msg.Text
-
-	mediaSummary := msg.Metadata["media_summary"]
-	if mediaSummary != "" {
-		// Generate fast media previews for downloaded media files.
-		previews := d.generateMediaPreviews(sessionKey, mediaSummary)
-		if previews != "" {
-			text = previews + "\n\n" + mediaSummary + "\n\n" + text
-		} else {
-			text = mediaSummary + "\n\n" + text
-		}
-	}
 
 	// Prepend quoted reply context so the AI knows what message was replied to.
 	if rc := msg.Metadata["reply_context"]; rc != "" {
@@ -388,13 +392,12 @@ func (d *Dispatcher) preprocessMessage(sessionKey string, msg *channel.Message) 
 	}
 
 	// For group chats, prepend sender name so the AI can distinguish players.
+	// The name is also carried structurally as `sender_name` in the wake
+	// frontmatter and chat.jsonl; the inline prefix stays because merged wake
+	// bodies need per-message attribution.
 	chatType := strings.TrimSpace(msg.Metadata["chat_type"])
 	if chatType == "group" || chatType == "supergroup" {
-		sender := strings.TrimSpace(msg.Username)
-		if sender == "" {
-			sender = strings.TrimSpace(msg.Metadata["first_name"])
-		}
-		if sender != "" {
+		if sender := senderDisplayName(msg); sender != "" {
 			text = "[" + sender + "]: " + text
 		}
 	}
@@ -406,6 +409,19 @@ func (d *Dispatcher) preprocessMessage(sessionKey string, msg *channel.Message) 
 	}
 
 	return text
+}
+
+// senderDisplayName returns the human display name of a message's sender
+// (username, falling back to first_name metadata). Empty when the channel
+// provides neither (e.g. cron / CLI messages).
+func senderDisplayName(msg *channel.Message) string {
+	if msg == nil {
+		return ""
+	}
+	if s := strings.TrimSpace(msg.Username); s != "" {
+		return s
+	}
+	return strings.TrimSpace(msg.Metadata["first_name"])
 }
 
 // threadHeader formats a one-line context header for Discord thread / forum

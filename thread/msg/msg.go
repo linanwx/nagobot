@@ -210,6 +210,9 @@ type WakeMessage struct {
 	OverrideModel    string                // Optional model override (subagent/fork dispatch only): model type. Set together with OverrideProvider.
 	Vars             map[string]string     // Optional vars override for this wake.
 	Sender           string                // Optional sender override.
+	SenderName       string                // Optional human sender display name (e.g. group-chat username). Rendered as `sender_name` in the wake frontmatter.
+	MediaInfo        string                // Optional media resource summary from the channel ("[Media: photo] image_path: …"). Rendered one-line as `media` in the wake frontmatter.
+	MediaPreview     string                // Optional upfront media preview (image description / audio transcription). Rendered one-line as `media_preview` in the wake frontmatter.
 	CallerSessionKey string                // For Source=WakeSession: the session that woke us. Empty otherwise.
 	RecentChat       string                // Optional recent chat history (rendered into the wake payload markdown body).
 	OnComplete       func(response string) // Called after the turn completes with the full response text.

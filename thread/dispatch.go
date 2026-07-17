@@ -204,6 +204,10 @@ func (t *Thread) SendToUser(ctx context.Context, body string) error {
 	}
 	t.mu.Lock()
 	sink := t.defaultSink
+	origin := t.currentCallerKey
+	if origin == "" && !msg.IsUserVisibleSource(t.lastWakeSource) {
+		origin = string(t.lastWakeSource)
+	}
 	t.mu.Unlock()
 	if sink.IsZero() {
 		return fmt.Errorf("session %q defaultSink is unset", t.sessionKey)
@@ -215,10 +219,12 @@ func (t *Thread) SendToUser(ctx context.Context, body string) error {
 	// it delivers via defaultSink, which bypasses the per-wake chat.jsonl sink.
 	// Record the assistant message here so the clean chat log — and thus
 	// pre-think's recent-chat context — stays aware of messages the bot
-	// initiated on its own.
+	// initiated on its own. The sender field records what drove the turn (the
+	// caller session key, or a non-user wake source like "cron") so readers can
+	// tell a bot-initiated message from a plain reply.
 	if t.mgr != nil {
 		if dir := t.mgr.SessionDir(t.sessionKey); dir != "" {
-			if err := session.AppendChat(dir, session.ChatRoleAssistant, body, time.Now()); err != nil {
+			if err := session.AppendChat(dir, session.ChatRoleAssistant, origin, body, time.Now()); err != nil {
 				logger.Warn("chat.jsonl to=user write failed", "sessionKey", t.sessionKey, "err", err)
 			}
 		}

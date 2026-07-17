@@ -65,7 +65,7 @@ func TestPreprocessMessage_ForumPostHeader(t *testing.T) {
 			"applied_tags": "Bug",
 		},
 	}
-	got := d.preprocessMessage("", msg)
+	got := d.preprocessMessage(msg)
 	// header line first, then sender + text on next line
 	headerIdx := strings.Index(got, "[Forum post")
 	senderIdx := strings.Index(got, "[Nansen]: I'm stuck")
@@ -90,7 +90,7 @@ func TestPreprocessMessage_NoThreadHeader(t *testing.T) {
 		Username: "Alice",
 		Metadata: map[string]string{"chat_type": "group"},
 	}
-	got := d.preprocessMessage("", msg)
+	got := d.preprocessMessage(msg)
 	if strings.Contains(got, "[Forum post") || strings.Contains(got, "[Thread ") {
 		t.Errorf("unexpected thread header: %s", got)
 	}
@@ -104,7 +104,7 @@ func TestPreprocessMessage_ReplyContext(t *testing.T) {
 			"reply_context": "[Reply to Alice]: Original message here",
 		},
 	}
-	got := d.preprocessMessage("", msg)
+	got := d.preprocessMessage(msg)
 	if !strings.Contains(got, "[Reply to Alice]: Original message here") {
 		t.Errorf("reply context not found in output: %s", got)
 	}
@@ -128,7 +128,7 @@ func TestPreprocessMessage_ReplyContextTruncated(t *testing.T) {
 			"reply_context": longContent,
 		},
 	}
-	got := d.preprocessMessage("", msg)
+	got := d.preprocessMessage(msg)
 	if strings.Contains(got, longContent) {
 		t.Errorf("reply context should have been truncated")
 	}
@@ -143,7 +143,7 @@ func TestPreprocessMessage_NoReplyContext(t *testing.T) {
 		Text:     "Hello",
 		Metadata: map[string]string{},
 	}
-	got := d.preprocessMessage("", msg)
+	got := d.preprocessMessage(msg)
 	if got != "Hello" {
 		t.Errorf("expected plain text, got %q", got)
 	}
@@ -159,7 +159,7 @@ func TestPreprocessMessage_ReplyWithGroupSender(t *testing.T) {
 			"chat_type":     "group",
 		},
 	}
-	got := d.preprocessMessage("", msg)
+	got := d.preprocessMessage(msg)
 	if !strings.Contains(got, "[Reply to Alice]: Some point") {
 		t.Errorf("missing reply context: %s", got)
 	}
@@ -243,24 +243,22 @@ func TestGenerateMediaPreviews_NoMediaPaths(t *testing.T) {
 	}
 }
 
-// TestPreprocessMessage_MediaSummaryOrdering verifies that with no preview
-// generated (manager unconfigured), the media_summary still precedes the user
-// text in the assembled message.
-func TestPreprocessMessage_MediaSummaryOrdering(t *testing.T) {
-	d := &Dispatcher{} // d.threads == nil → no preview tag
+// TestPreprocessMessage_MediaStaysOutOfBody verifies the media summary is NOT
+// inlined into the message text — it travels as WakeMessage.MediaInfo and
+// renders as the `media` frontmatter field instead.
+func TestPreprocessMessage_MediaStaysOutOfBody(t *testing.T) {
+	d := &Dispatcher{}
 	msg := &channel.Message{
 		Text: "What's this?",
 		Metadata: map[string]string{
 			"media_summary": "[Media: photo]\nimage_path: /tmp/media/img.jpg",
 		},
 	}
-	got := d.preprocessMessage("", msg)
-	summaryIdx := strings.Index(got, "[Media: photo]")
-	textIdx := strings.Index(got, "What's this?")
-	if summaryIdx < 0 || textIdx < 0 {
-		t.Fatalf("missing expected content: %s", got)
+	got := d.preprocessMessage(msg)
+	if strings.Contains(got, "[Media: photo]") {
+		t.Errorf("media_summary must not be inlined into the body:\n%s", got)
 	}
-	if summaryIdx >= textIdx {
-		t.Errorf("media_summary should come before user text:\n%s", got)
+	if !strings.Contains(got, "What's this?") {
+		t.Fatalf("missing user text: %s", got)
 	}
 }

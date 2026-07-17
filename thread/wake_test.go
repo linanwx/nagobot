@@ -17,7 +17,7 @@ func TestBuildWakePayload_SupportsVisionAudio(t *testing.T) {
 		"Hello with image",
 		"thread-1", "telegram:123", "/tmp/sessions/telegram:123",
 		"telegram delivery", "gemini/gemini-3.5-flash", "soul",
-		loc, "user", "", time.Time{}, "", "",
+		loc, "user", "", "", "", "", time.Time{}, "", "",
 	)
 
 	if !strings.Contains(payload, "supports_vision: true") {
@@ -25,6 +25,32 @@ func TestBuildWakePayload_SupportsVisionAudio(t *testing.T) {
 	}
 	if !strings.Contains(payload, "supports_audio: true") {
 		t.Errorf("expected supports_audio: true for gemini, got:\n%s", payload)
+	}
+}
+
+func TestBuildWakePayload_MediaFields_OneLine(t *testing.T) {
+	loc := time.FixedZone("UTC+8", 8*3600)
+
+	payload := buildWakePayload(
+		WakeTelegram,
+		"What's this?",
+		"thread-1", "telegram:123", "/tmp/sessions/telegram:123",
+		"telegram delivery", "", "soul",
+		loc, "user", "",
+		"[Media: photo]\nimage_path: /tmp/media/img.jpg\ncaption: hi",
+		"[image preview: a cat\nsitting on\r\na table]",
+		"", time.Time{}, "", "",
+	)
+
+	if !strings.Contains(payload, "media: '[Media: photo] image_path: /tmp/media/img.jpg caption: hi'") {
+		t.Errorf("expected one-line media field, got:\n%s", payload)
+	}
+	if !strings.Contains(payload, "media_preview: '[image preview: a cat sitting on a table]'") {
+		t.Errorf("expected one-line media_preview field, got:\n%s", payload)
+	}
+	// The body must stay pure user speech.
+	if strings.Contains(payload, "\n[Media: photo]") {
+		t.Errorf("media summary leaked into body:\n%s", payload)
 	}
 }
 
@@ -37,7 +63,7 @@ func TestBuildWakePayload_SystemSource_WithCapabilities(t *testing.T) {
 		"Heartbeat pulse",
 		"thread-1", "telegram:123", "/tmp/sessions/telegram:123",
 		"", "gemini/gemini-3.5-flash", "soul",
-		loc, "system", "", time.Time{}, "", "",
+		loc, "system", "", "", "", "", time.Time{}, "", "",
 	)
 
 	if !strings.Contains(payload, "supports_vision: true") {
@@ -54,7 +80,7 @@ func TestBuildWakePayload_NoModel_NoMultimodalInfo(t *testing.T) {
 		"Hello",
 		"thread-1", "telegram:123", "/tmp/sessions/telegram:123",
 		"telegram delivery", "", "soul",
-		loc, "", "", time.Time{}, "", "",
+		loc, "", "", "", "", "", time.Time{}, "", "",
 	)
 
 	if strings.Contains(payload, "supports_vision") {
@@ -72,7 +98,7 @@ func TestBuildWakePayload_FalseCapabilities_Omitted(t *testing.T) {
 		"Hello",
 		"thread-1", "telegram:123", "/tmp/sessions/telegram:123",
 		"telegram delivery", "openrouter/z-ai/glm-5.2", "soul",
-		loc, "", "", time.Time{}, "", "",
+		loc, "", "", "", "", "", time.Time{}, "", "",
 	)
 
 	if strings.Contains(payload, "supports_vision") {
@@ -88,7 +114,7 @@ func TestBuildWakePayload_FalseCapabilities_Omitted(t *testing.T) {
 func TestMarkInjected_Basic(t *testing.T) {
 	loc := time.UTC
 	payload := buildWakePayload(
-		WakeTelegram, "Hi", "t-1", "telegram:1", "", "telegram delivery", "", "soul", loc, "user", "", time.Time{}, "", "",
+		WakeTelegram, "Hi", "t-1", "telegram:1", "", "telegram delivery", "", "soul", loc, "user", "", "", "", "", time.Time{}, "", "",
 	)
 	out := markInjected(payload)
 	if !strings.Contains(out, "injected: true") {
@@ -106,7 +132,7 @@ func TestMarkInjected_PreservesMultiLineActionScalar(t *testing.T) {
 		"the body content",
 		"t-1", "discord:s1", "/sessions/discord/s1",
 		"reply forwarded to caller", "", "soul",
-		loc, "system", "discord:s1:threads:foo", time.Time{}, "", "",
+		loc, "system", "", "", "", "discord:s1:threads:foo", time.Time{}, "", "",
 	)
 	if !strings.Contains(payload, "action: |") {
 		// Wake action hint may not always be a block scalar depending on
@@ -159,7 +185,7 @@ func TestBuildWakePayload_RecentChatInMarkdownBody(t *testing.T) {
 		"What now?",
 		"t-1", "discord:1:imagepreview", "/sessions/discord/1/imagepreview",
 		"imagepreview delivery", "openrouter/google/gemini-3.1-flash-lite", "imagereader",
-		loc, "system", "", time.Time{}, "Custom instruction.", "user: earlier\nassistant: reply",
+		loc, "system", "", "", "", "", time.Time{}, "Custom instruction.", "user: earlier\nassistant: reply",
 	)
 
 	mapping, body, ok := sysmsg.ParseFrontmatter(payload)
@@ -189,7 +215,7 @@ func TestBuildWakePayload_UsesEnqueuedAt(t *testing.T) {
 		WakeTelegram, "hi",
 		"t-1", "telegram:1", "",
 		"telegram delivery", "", "soul",
-		loc, "user", "", enqueued, "", "",
+		loc, "user", "", "", "", "", enqueued, "", "",
 	)
 
 	if !strings.Contains(payload, "time: 2026-05-09T12:05:06+08:00") {
@@ -204,7 +230,7 @@ func TestBuildWakePayload_ZeroEnqueuedAtFallsBackToNow(t *testing.T) {
 		WakeTelegram, "hi",
 		"t-1", "telegram:1", "",
 		"telegram delivery", "", "soul",
-		loc, "user", "", time.Time{}, "", "",
+		loc, "user", "", "", "", "", time.Time{}, "", "",
 	)
 
 	if !strings.Contains(payload, "time: ") {
