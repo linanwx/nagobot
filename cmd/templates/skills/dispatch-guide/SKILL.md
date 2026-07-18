@@ -7,6 +7,8 @@ description: Use when about to call the `dispatch` tool and unsure which `to` fo
 
 `dispatch` is the only turn-terminating routing primitive. Every turn ends with either an explicit `dispatch(...)` call or implicit default-sink delivery. This skill is the decision tree for picking the right `to` value.
 
+**Solo rule**: dispatch terminates the turn ONLY when it is the sole tool call in your message. Batched alongside other tool calls, every send still delivers but the turn continues — you see the other tools' results and keep working. This is the progress-note pattern: `dispatch(to=caller:user, "Searching, back in a minute...")` + `web_search(...)` in one message delivers the note, runs the search, and returns you the results to keep reasoning. Deliveries in a batched dispatch are real — never resend them in the final dispatch.
+
 ## The 30-second decision
 
 Look at the wake YAML frontmatter of the current turn. Three fields determine the answer:
@@ -75,6 +77,7 @@ Then:
 ### `dispatch({})` — silent turn termination
 - **Use when**: heartbeat/cron pulse where no action is warranted; truly nothing to say AND caller doesn't need to know you finished.
 - **Don't use when**: you received a cross-session wake you suspect was misrouted (use `caller:session` to inform the peer). Or when caller is the user and you have nothing to add — let default sink delivery handle the empty case, or send a brief acknowledgement.
+- **Solo rule applies**: batched with other tool calls, `dispatch({})` is a no-op (nothing sent, turn continues). To actually end the turn silently it must be the only tool call in the message.
 
 ## Asking another lifeform (cross-session Q&A)
 
@@ -136,7 +139,7 @@ If you spawned multiple subagents in parallel (`task_id: news-a`, `news-b`), eac
 `dispatch` runs the batch in two phases:
 
 1. **Validation** (whole batch, atomic): static checks, caller-kind assertions, target existence, dedup. If any send fails validation, **NO sends are executed** — the turn continues, you can fix and re-call.
-2. **Execution** (sequential, per-send): each validated send is dispatched in declaration order. If a send fails at execution (e.g. sink broken, peer session disappeared mid-call), already-executed sends in this batch **cannot be rolled back** — the turn ends in `partial-failure` outcome with both delivered and failed lists in the result.
+2. **Execution** (sequential, per-send): each validated send is dispatched in declaration order. If a send fails at execution (e.g. sink broken, peer session disappeared mid-call), already-executed sends in this batch **cannot be rolled back** — the result carries `partial-failure` outcome with both delivered and failed lists (the turn ends only if dispatch was the sole tool call; see the solo rule).
 
 Implication: validation errors are cheap retries; execution errors after partial delivery are observable side-effects you can't undo. Order your batch so the riskiest send is last, if order matters.
 
@@ -201,6 +204,8 @@ dispatch validates the entire batch before executing anything. On validation err
 | `duplicate target in batch` | two sends resolve to the same target; merge bodies or pick distinct task_ids |
 | Validation error mentioning non-empty assistant content | move all user-facing text into a send body, or drop the dispatch call |
 | Result outcome `partial-failure` | some sends delivered, others failed at execution time. Already-delivered messages cannot be unsent — read the executed/failed lists, then on next turn act on what's still pending. |
+| Result outcome `delivered-turn-continues` | sends delivered but the turn did NOT end — dispatch was batched with other tool calls (solo rule). Keep working; do not resend the delivered bodies. |
+| Result outcome `no-op` | `dispatch({})` was batched with other tool calls, so nothing terminated. Call it alone to end the turn silently. |
 
 ## Examples
 

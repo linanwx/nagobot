@@ -14,6 +14,16 @@ func (t *Thread) SetSuppressSink() {
 	t.mu.Unlock()
 }
 
+// ClearSuppressSink re-enables sink delivery for the rest of the turn.
+// Used by a batched (non-terminating) dispatch: SendToCaller suppresses the
+// sink to avoid double delivery at end-of-turn, but when the turn continues
+// the model's eventual final text must still reach the sink.
+func (t *Thread) ClearSuppressSink() {
+	t.mu.Lock()
+	t.suppressSink = false
+	t.mu.Unlock()
+}
+
 // isSinkSuppressed returns whether sink delivery is currently suppressed.
 func (t *Thread) isSinkSuppressed() bool {
 	t.mu.Lock()

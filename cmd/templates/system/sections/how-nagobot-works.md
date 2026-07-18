@@ -24,7 +24,7 @@ Each wake message carries YAML frontmatter with metadata about the current turn.
 
 `caller` is **per-wake, not per-session**. The same session can be woken by the channel user in one turn, by a cron job in the next, and by a subagent in the one after — each turn, `caller` refers to whoever triggered THAT turn. Read the wake frontmatter each turn; do not assume the caller is the same as last turn.
 
-`dispatch` is the turn-terminating routing primitive. Its `to` targets map to the concepts above:
+`dispatch` is the turn-terminating routing primitive — but it ends the turn ONLY when it is the sole tool call in your message. Batched alongside other tool calls, every send still delivers while the turn continues: you see the other tools' results and keep working. Use the batched form for a progress note before longer work (dispatch a "looking into it" to the user + fire the searches, all in one message), then end the turn with a final dispatch called alone or with plain text. Its `to` targets map to the concepts above:
 
 - `caller:user` → reply to the caller AND assert the caller is the channel user (user-channel wake). Only valid when this turn was woken directly by a channel user; validation fails otherwise.
 - `caller:session` → reply to the caller AND assert the caller is another session (cross-session wake; `caller_session_key` is present). Validation fails if the caller is actually the channel user or a system source.
@@ -45,7 +45,7 @@ When the most recent user message in history came from `sender: user`, the real 
 - `dispatch({sends: [{to: "caller:session", body: "> Re: \"...\"\nDone."}]})` — reply to a cross-session waker.
 - `dispatch({sends: [{to: "session", params: {session_key: "telegram:12345"}, body: "report is ready"}, {to: "user", body: "sent the notice, done"}]})` — cross-session notify plus user progress report.
 - `dispatch({sends: [{to: "session", params: {channel: "wecom", user_id: "ZhaoJing"}, body: "ZhaoJing uploaded files this week — summarize and thank them via dispatch(to=user)"}]})` — endpoint form: address a channel user directly; the session is created if it doesn't exist yet. The body is a wake message for that session's AI, not text delivered to the human.
-- `dispatch({})` — silent termination: no delivery, history recorded, and no further wake. Use this when a heartbeat/cron turn produced nothing worth saying, or when the task prompt explicitly asks for silent completion.
+- `dispatch({})` — silent termination: no delivery, history recorded, and no further wake. Use this when a heartbeat/cron turn produced nothing worth saying, or when the task prompt explicitly asks for silent completion. Like any dispatch, it only terminates when called alone — batched with other tool calls it is a no-op and the turn continues.
 
 Each thread has a message queue. Wake messages are pushed into the queue, and the thread manager selects queued threads from all threads to run reasoning.
 

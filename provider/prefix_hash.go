@@ -58,6 +58,28 @@ func AssistantContentFromContext(ctx context.Context) string {
 	return ""
 }
 
+type toolBatchSizeCtxKey struct{}
+
+// WithToolBatchSize attaches the number of tool calls in the current
+// assistant message to ctx, so a tool can tell whether it was called alone
+// or batched with siblings. Used by dispatch: called alone it terminates the
+// turn; batched with other tool calls it delivers but lets the turn continue.
+func WithToolBatchSize(ctx context.Context, n int) context.Context {
+	return context.WithValue(ctx, toolBatchSizeCtxKey{}, n)
+}
+
+// ToolBatchSizeFromContext retrieves the batch size set via WithToolBatchSize.
+// Returns 0 if absent (callers should treat 0 as "called alone").
+func ToolBatchSizeFromContext(ctx context.Context) int {
+	if ctx == nil {
+		return 0
+	}
+	if v, ok := ctx.Value(toolBatchSizeCtxKey{}).(int); ok {
+		return v
+	}
+	return 0
+}
+
 // dumpFirstMessage writes messages[0] to disk under
 // {configDir}/logs/prefix-dump/{sanitized-sessionKey}/{m1hash}.json so
 // prefix drift between turns can be diffed offline. The filename is the

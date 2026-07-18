@@ -12,21 +12,22 @@ import (
 )
 
 type mockDispatchHost struct {
-	currentKey    string
-	callerKind    msg.CallerKind // "user" / "session" / "system" / "" (none)
-	callerKey     string         // non-empty only when callerKind == "session"
-	sinkLabel     string
-	userFacing    bool
-	agents        map[string]bool
-	sessions      map[string]bool
-	halted        bool
-	sentToCaller  string
-	sentToUser    string
-	subagentCalls []subagentCall
-	forkCalls     []subagentCall
-	wokeSessions  []wakeCall
-	failAgent     string          // when non-empty, create/wake of this agent returns error
-	validModels   map[string]bool // "provider:model" pairs accepted by ValidateModelOverride; nil → all accepted
+	currentKey      string
+	callerKind      msg.CallerKind // "user" / "session" / "system" / "" (none)
+	callerKey       string         // non-empty only when callerKind == "session"
+	sinkLabel       string
+	userFacing      bool
+	agents          map[string]bool
+	sessions        map[string]bool
+	halted          bool
+	suppressCleared bool
+	sentToCaller    string
+	sentToUser      string
+	subagentCalls   []subagentCall
+	forkCalls       []subagentCall
+	wokeSessions    []wakeCall
+	failAgent       string          // when non-empty, create/wake of this agent returns error
+	validModels     map[string]bool // "provider:model" pairs accepted by ValidateModelOverride; nil → all accepted
 }
 
 type subagentCall struct {
@@ -95,6 +96,9 @@ func (m *mockDispatchHost) WakeSession(_ context.Context, sessionKey, body strin
 	return nil
 }
 func (m *mockDispatchHost) SignalHalt() { m.halted = true }
+func (m *mockDispatchHost) ClearSuppressSink() {
+	m.suppressCleared = true
+}
 
 // runDispatch is a test helper that invokes the tool and returns the parsed
 // outcome field plus the full result string for assertions.
@@ -1176,5 +1180,73 @@ func TestDispatch_SelfReferenceGuidesToUser(t *testing.T) {
 		`{"sends": [{"to": "session", "params": {"channel": "discord", "user_id": "123"}, "body": "ping"}]}`)
 	if !strings.Contains(res, "self-reference") || !strings.Contains(res, `{"sends":[{"body":"ping","to":"user"}]}`) {
 		t.Errorf("expected self-reference error with to=user corrected JSON, got: %s", res)
+	}
+}
+
+// --- Solo rule: dispatch only terminates when it is the sole tool call ---
+
+// runDispatchBatched invokes the tool with a ctx that declares the assistant
+// message carried batchSize tool calls in total.
+func runDispatchBatched(t *testing.T, host *mockDispatchHost, argsJSON string, batchSize int) (outcome, result string) {
+	t.Helper()
+	tool := NewDispatchTool(host)
+	ctx := provider.WithToolBatchSize(context.Background(), batchSize)
+	result = tool.Run(ctx, json.RawMessage(argsJSON))
+	for _, line := range strings.Split(result, "\n") {
+		if rest, ok := strings.CutPrefix(line, "outcome:"); ok {
+			outcome = strings.TrimSpace(rest)
+			break
+		}
+	}
+	return outcome, result
+}
+
+func TestDispatch_BatchedSend_DeliversWithoutHalting(t *testing.T) {
+	host := &mockDispatchHost{
+		currentKey: "telegram:123",
+		callerKind: "user",
+		userFacing: true,
+	}
+	outcome, res := runDispatchBatched(t, host, `{"sends": [{"to": "caller:user", "body": "searching..."}]}`, 3)
+	if outcome != "delivered-turn-continues" {
+		t.Fatalf("outcome=%q; %s", outcome, res)
+	}
+	if host.sentToCaller != "searching..." {
+		t.Errorf("expected delivery, got %q", host.sentToCaller)
+	}
+	if host.halted {
+		t.Fatal("batched dispatch must NOT halt the turn")
+	}
+	if !host.suppressCleared {
+		t.Fatal("batched dispatch must re-enable sink delivery (SendToCaller suppressed it)")
+	}
+	if !strings.Contains(res, "Turn continues") {
+		t.Errorf("result must say the turn continues: %s", res)
+	}
+}
+
+func TestDispatch_BatchedEmpty_IsNoOp(t *testing.T) {
+	host := &mockDispatchHost{currentKey: "cli", callerKind: "user"}
+	outcome, res := runDispatchBatched(t, host, `{"sends": []}`, 2)
+	if outcome != "no-op" {
+		t.Fatalf("outcome=%q; %s", outcome, res)
+	}
+	if host.halted {
+		t.Fatal("batched dispatch({}) must NOT halt the turn")
+	}
+}
+
+func TestDispatch_ExplicitBatchSizeOne_StillTerminates(t *testing.T) {
+	host := &mockDispatchHost{
+		currentKey: "telegram:123",
+		callerKind: "user",
+		userFacing: true,
+	}
+	outcome, _ := runDispatchBatched(t, host, `{"sends": [{"to": "caller:user", "body": "done"}]}`, 1)
+	if outcome != "turn-terminated" {
+		t.Fatalf("outcome=%q", outcome)
+	}
+	if !host.halted {
+		t.Fatal("solo dispatch must halt")
 	}
 }

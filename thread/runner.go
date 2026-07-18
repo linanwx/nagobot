@@ -268,6 +268,7 @@ func (r *Runner) RunWithMessages(ctx context.Context, messages []provider.Messag
 				result = fmt.Sprintf("Error: malformed tool call arguments (invalid JSON).\nOriginal: %s\nExpected: valid JSON object for %s.", orig, tc.Function.Name)
 			} else {
 				toolCtx := provider.WithAssistantContent(ctx, resp.Content)
+				toolCtx = provider.WithToolBatchSize(toolCtx, len(resp.ToolCalls))
 				result = r.tools.Run(toolCtx, tc.Function.Name, json.RawMessage(tc.Function.Arguments))
 			}
 			if tools.IsToolError(result) {

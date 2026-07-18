@@ -222,6 +222,11 @@ type DispatchHost interface {
 	ValidateModelOverride(provider, model string) error
 	WakeSession(ctx context.Context, sessionKey, body string) error
 	SignalHalt()
+	// ClearSuppressSink re-enables end-of-turn sink delivery. Called after a
+	// batched (non-terminating) dispatch: SendToCaller suppresses the sink to
+	// prevent double delivery, but a continuing turn must still deliver its
+	// eventual final text.
+	ClearSuppressSink()
 }
 
 // DispatchTool is the unified turn-terminating routing primitive.
@@ -241,6 +246,7 @@ func (t *DispatchTool) Def() provider.ToolDef {
 		Function: provider.FunctionDef{
 			Name: "dispatch",
 			Description: "Turn-terminating routing primitive. Call this at the end of every turn to declare where output goes. " +
+				"dispatch ends the turn ONLY when it is the sole tool call in your message. Batched alongside other tool calls, every send still delivers but the turn CONTINUES — you will see the other tools' results and keep working. Use that batched form deliberately to give the user a brief progress note while kicking off longer work (e.g. dispatch(to=caller:user, \"Searching...\") + web_search in one message), then end the turn later with a final dispatch called alone or with plain text.\n" +
 				"Each entry in `sends` has a `to` field selecting the target:\n" +
 				"- caller:user — reply to whoever woke THIS turn AND assert the caller is the channel user (user-channel wake: telegram/discord/cli/web/feishu/wecom). Fails validation if the actual caller is another session or a system source.\n" +
 				"- caller:session — reply to the caller AND assert the caller is another session (cross-session wake; `caller_session_key` is present in wake YAML). Fails validation if the actual caller is the channel user or system.\n" +
@@ -252,7 +258,7 @@ func (t *DispatchTool) Def() provider.ToolDef {
 				"Empty sends — dispatch({}) — is silent turn termination; nothing delivered, history recorded. Only use when you genuinely have nothing to say AND the caller does not need to know you finished. If you received a cross-session wake you believe was mis-routed, dispatch(to=caller:session) with an explanation — do NOT silently drop it via dispatch({}) (the caller never learns). " +
 				"IMPORTANT: when calling dispatch, the assistant message's content field MUST be empty. dispatch only delivers each send's `body`; any text written in content alongside this tool_call has no defined recipient and will be rejected. Either put all user-facing text into a send body, or skip dispatch entirely and let default delivery route your assistant content to the caller. " +
 				"Common mistakes to avoid: (a) do NOT use to=session to reply to whoever woke you — that is to=caller:session; to=session wakes a DIFFERENT session. (b) Do NOT use to=user to answer a cross-session caller — that messages your own human, not the caller; use to=caller:session. (c) On a user-facing session, a dispatch with none of to=user / to=caller:user means the human sees NOTHING this turn, even if subagents ran. " +
-				"On success the turn ends. On validation error the turn continues — fix and re-call. " +
+				"On success the turn ends (if dispatch was the sole tool call). On validation error the turn continues — fix and re-call. " +
 				"dispatch fires NOW — it has no delay/schedule parameter. For any future or delayed wake (including a delayed self-wake), use the manage-cron skill, not dispatch.",
 			Parameters: map[string]any{
 				"type": "object",
@@ -369,10 +375,22 @@ func (t *DispatchTool) run(ctx context.Context, args json.RawMessage) string {
 			"Re-issue the turn with the text moved into the send body.")
 	}
 
+	// Solo = dispatch is the only tool call in this assistant message.
+	// Batched with other tool calls, sends still deliver but the turn
+	// continues: halting here would discard the sibling tools' results and
+	// cut off the model's reasoning mid-work. Batch size 0 means the caller
+	// didn't plumb the context (tests, direct invocation) — treat as solo.
+	solo := provider.ToolBatchSizeFromContext(ctx) <= 1
+
 	// HIGHEST PRIORITY: dispatch({}) is ALWAYS a valid silent termination,
 	// regardless of session kind, caller kind, or any other rule. The model
 	// explicitly chose to say nothing — respect it and end the turn.
 	if len(a.Sends) == 0 {
+		if !solo {
+			return toolResult("dispatch", map[string]any{
+				"outcome": "no-op",
+			}, "Nothing sent and the turn was NOT terminated: dispatch only ends the turn when it is the sole tool call in your message, and this call was batched with other tool calls. Continue working with their results; when finished, call dispatch({}) alone to end the turn silently.")
+		}
 		t.host.SignalHalt()
 		return toolResult("dispatch", map[string]any{
 			"outcome": "turn-terminated-silent",
@@ -407,7 +425,8 @@ func (t *DispatchTool) run(ctx context.Context, args json.RawMessage) string {
 		return buildUserDispatchRequiredResult(a.Sends)
 	}
 
-	// Execute. Partial failure possible — SignalHalt either way.
+	// Execute. Partial failure possible — the halt decision (solo only) is
+	// the same either way: executed deliveries cannot be unrolled.
 	executed := make([]ExecutedItem, 0, len(a.Sends))
 	var execErrs []DispatchError
 	for i, send := range a.Sends {
@@ -424,12 +443,16 @@ func (t *DispatchTool) run(ctx context.Context, args json.RawMessage) string {
 		executed = append(executed, item)
 	}
 
-	t.host.SignalHalt()
+	if solo {
+		t.host.SignalHalt()
+	} else {
+		t.host.ClearSuppressSink()
+	}
 	isUserFacing := t.host.IsUserFacing()
 	if len(execErrs) > 0 {
-		return buildDispatchMixedResult(executed, execErrs, isUserFacing)
+		return buildDispatchMixedResult(executed, execErrs, isUserFacing, solo)
 	}
-	return buildDispatchSuccessResult(executed, isUserFacing)
+	return buildDispatchSuccessResult(executed, isUserFacing, solo)
 }
 
 // validateAll performs all static, existence, and dedup checks.
@@ -728,28 +751,48 @@ func buildDispatchErrorResult(errs []DispatchError) string {
 	}, strings.TrimRight(sb.String(), "\n"))
 }
 
-func buildDispatchSuccessResult(executed []ExecutedItem, isUserFacing bool) string {
+// turnContinuesNote explains a batched dispatch's non-terminating result.
+// Deliveries above it in the result are real — the model must not resend.
+const turnContinuesNote = "Turn NOT terminated: this dispatch was batched with other tool calls, and dispatch only ends the turn when it is the sole tool call in your message. The deliveries above are already sent — do NOT resend them. Continue working with the other tools' results; then end the turn with a final dispatch called alone, or with plain text (default delivery)."
+
+func buildDispatchSuccessResult(executed []ExecutedItem, isUserFacing, solo bool) string {
 	var sb strings.Builder
+	ending := "Turn ended."
+	if !solo {
+		ending = "Turn continues."
+	}
 	if len(executed) == 1 {
-		sb.WriteString("Executed 1 send. Turn ended.\n\n")
+		fmt.Fprintf(&sb, "Executed 1 send. %s\n\n", ending)
 	} else {
-		fmt.Fprintf(&sb, "Executed %d sends. Turn ended.\n\n", len(executed))
+		fmt.Fprintf(&sb, "Executed %d sends. %s\n\n", len(executed), ending)
 	}
 	for i, ex := range executed {
 		fmt.Fprintf(&sb, "  %d. %s\n", i+1, describeExecuted(ex))
+	}
+	if !solo {
+		sb.WriteString("\n")
+		sb.WriteString(turnContinuesNote)
 	}
 	if isUserFacing && !hasReachedUser(executed) {
 		sb.WriteString("\n")
 		sb.WriteString(noUserReminder)
 	}
+	outcome := "turn-terminated"
+	if !solo {
+		outcome = "delivered-turn-continues"
+	}
 	return toolResult("dispatch", map[string]any{
-		"outcome": "turn-terminated",
+		"outcome": outcome,
 	}, strings.TrimRight(sb.String(), "\n"))
 }
 
-func buildDispatchMixedResult(executed []ExecutedItem, errs []DispatchError, isUserFacing bool) string {
+func buildDispatchMixedResult(executed []ExecutedItem, errs []DispatchError, isUserFacing, solo bool) string {
 	var sb strings.Builder
-	fmt.Fprintf(&sb, "Partial failure: %d send(s) executed, %d failed. Turn ended — executed deliveries cannot be unrolled.\n", len(executed), len(errs))
+	ending := "Turn ended"
+	if !solo {
+		ending = "Turn continues"
+	}
+	fmt.Fprintf(&sb, "Partial failure: %d send(s) executed, %d failed. %s — executed deliveries cannot be unrolled.\n", len(executed), len(errs), ending)
 	if len(executed) > 0 {
 		sb.WriteString("\nExecuted:\n")
 		for i, ex := range executed {
@@ -765,6 +808,10 @@ func buildDispatchMixedResult(executed []ExecutedItem, errs []DispatchError, isU
 				fmt.Fprintf(&sb, "  - send #%d: %s\n", e.Index, e.Detail)
 			}
 		}
+	}
+	if !solo {
+		sb.WriteString("\n")
+		sb.WriteString(turnContinuesNote)
 	}
 	if isUserFacing && !hasReachedUser(executed) {
 		sb.WriteString("\n")
