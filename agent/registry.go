@@ -8,7 +8,9 @@ import (
 	"strings"
 	"sync"
 
+	"github.com/linanwx/nagobot/config"
 	"github.com/linanwx/nagobot/logger"
+	"github.com/linanwx/nagobot/provider"
 )
 
 // AgentDef represents an agent template file under workspace/agents.
@@ -213,7 +215,58 @@ func (r *AgentRegistry) New(name string) (*Agent, error) {
 	return newAgent(explicit, r.workspace), nil
 }
 
-// BuildPromptSection renders a concise list of callable agents.
+// specialtyCapability maps a specialty tag to the media capability its agents
+// exist for. Used to flag routing gaps: an agent whose specialty demands a
+// capability the resolved model lacks is broken until a rule is configured.
+var specialtyCapability = map[string]string{
+	"image": "vision",
+	"audio": "audio",
+}
+
+// agentRoute is the statically resolved model routing for one agent
+// (agent rule → specialty rules left-to-right → default). It mirrors
+// thread.resolvedModelConfig minus the per-turn session/source steps.
+type agentRoute struct {
+	Provider string
+	Model    string
+	Via      string // "agent rule" | "specialty <name>" | "default"
+	Gap      string // non-empty: capability the resolved model lacks ("vision"/"audio")
+}
+
+func resolveAgentRoute(def *AgentDef, rules []config.ModelRule, defProvider, defModel string) agentRoute {
+	route := agentRoute{Provider: defProvider, Model: defModel, Via: "default"}
+	if rule := config.FindModelRule(rules, "agent", def.Name); rule != nil {
+		route = agentRoute{Provider: rule.Provider, Model: rule.ModelType, Via: "agent rule"}
+	} else {
+		for _, s := range def.Specialties {
+			if rule := config.FindModelRule(rules, "specialty", s); rule != nil {
+				route = agentRoute{Provider: rule.Provider, Model: rule.ModelType, Via: "specialty " + s}
+				break
+			}
+		}
+	}
+	for _, s := range def.Specialties {
+		capability, ok := specialtyCapability[s]
+		if !ok {
+			continue
+		}
+		var met bool
+		switch capability {
+		case "vision":
+			met = provider.SupportsVision(route.Provider, route.Model)
+		case "audio":
+			met = provider.SupportsAudio(route.Provider, route.Model)
+		}
+		if !met {
+			route.Gap = capability
+			break
+		}
+	}
+	return route
+}
+
+// BuildPromptSection renders the callable agents with their statically
+// resolved model routing, flagging capability gaps that need configuration.
 func (r *AgentRegistry) BuildPromptSection() string {
 	r.mu.RLock()
 	defs := make([]*AgentDef, 0, len(r.agents))
@@ -225,6 +278,20 @@ func (r *AgentRegistry) BuildPromptSection() string {
 	}
 	r.mu.RUnlock()
 
+	var rules []config.ModelRule
+	var defProvider, defModel string
+	if cfg, err := config.Load(); err == nil {
+		rules = cfg.Thread.Models
+		defProvider = cfg.Thread.Provider
+		defModel = cfg.Thread.ModelType
+	}
+	return buildAgentsPrompt(defs, rules, defProvider, defModel, r.workspace)
+}
+
+// buildAgentsPrompt is the pure renderer behind BuildPromptSection.
+// Output must be deterministic (sorted agents, stable phrasing): this text
+// lands in every system prompt and participates in prefix caching.
+func buildAgentsPrompt(defs []*AgentDef, rules []config.ModelRule, defProvider, defModel, workspace string) string {
 	if len(defs) == 0 {
 		return ""
 	}
@@ -233,15 +300,51 @@ func (r *AgentRegistry) BuildPromptSection() string {
 		return strings.ToLower(defs[i].Name) < strings.ToLower(defs[j].Name)
 	})
 
+	cli := filepath.Join(workspace, "bin", "nagobot")
+
 	var sb strings.Builder
-	sb.WriteString("Available agents (use with dispatch to=subagent|fork, agent=<name>):\n")
+	fmt.Fprintf(&sb, "Available agents (use with dispatch to=subagent|fork, agent=<name>). Each entry shows its model routing, resolved as agent rule → specialty rules → default (%s/%s):\n", defProvider, defModel)
+	var gaps []*AgentDef
+	gapRoutes := map[string]agentRoute{}
 	for _, def := range defs {
 		if def.Description != "" {
-			sb.WriteString(fmt.Sprintf("- %s: %s\n", def.Name, def.Description))
-			continue
+			fmt.Fprintf(&sb, "- %s: %s\n", def.Name, def.Description)
+		} else {
+			fmt.Fprintf(&sb, "- %s\n", def.Name)
 		}
-		sb.WriteString(fmt.Sprintf("- %s\n", def.Name))
+		route := resolveAgentRoute(def, rules, defProvider, defModel)
+		if route.Via == "default" {
+			if len(def.Specialties) > 0 {
+				fmt.Fprintf(&sb, "  routing: default (no rule for specialty %s)\n", strings.Join(def.Specialties, "/"))
+			} else {
+				sb.WriteString("  routing: default\n")
+			}
+		} else {
+			fmt.Fprintf(&sb, "  routing: %s/%s (via %s)\n", route.Provider, route.Model, route.Via)
+		}
+		if route.Gap != "" {
+			fmt.Fprintf(&sb, "  ⚠ requires a %s-capable model; the resolved model has no %s support — this agent is BROKEN until configured\n", route.Gap, route.Gap)
+			gaps = append(gaps, def)
+			gapRoutes[def.Name] = route
+		}
 	}
+
+	sb.WriteString("\n")
+	if len(gaps) > 0 {
+		sb.WriteString("Routing gaps needing configuration (surface this to the user when it blocks a request, e.g. an image or voice message arrives):\n")
+		for _, def := range gaps {
+			route := gapRoutes[def.Name]
+			specialty := ""
+			for _, s := range def.Specialties {
+				if specialtyCapability[s] == route.Gap {
+					specialty = s
+					break
+				}
+			}
+			fmt.Fprintf(&sb, "- %s: fix via exec: %s set-model --type %s --provider <provider> --model <%s-capable model>\n", def.Name, cli, specialty, route.Gap)
+		}
+	}
+	fmt.Fprintf(&sb, "Routing is adjustable at runtime via exec: %s set-model --list (inspect) / set-model --type <specialty> --provider <p> --model <m> (upsert). Agents without capability requirements work fine on the default model.", cli)
 	return strings.TrimSpace(sb.String())
 }
 
