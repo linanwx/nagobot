@@ -20,9 +20,10 @@ const (
 
 func init() {
 	RegisterProvider("moonshot-cn", ProviderRegistration{
-		Models:       []string{"kimi-k2.6"},
-		VisionModels: []string{"kimi-k2.6"},
+		Models:       []string{"kimi-k3", "kimi-k2.6"},
+		VisionModels: []string{"kimi-k3", "kimi-k2.6"},
 		ContextWindows: map[string]int{
+			"kimi-k3":   1048576,
 			"kimi-k2.6": 262144,
 		},
 		EnvKey:  "MOONSHOT_API_KEY",
@@ -33,9 +34,10 @@ func init() {
 	})
 
 	RegisterProvider("moonshot-global", ProviderRegistration{
-		Models:       []string{"kimi-k2.6"},
-		VisionModels: []string{"kimi-k2.6"},
+		Models:       []string{"kimi-k3", "kimi-k2.6"},
+		VisionModels: []string{"kimi-k3", "kimi-k2.6"},
 		ContextWindows: map[string]int{
+			"kimi-k3":   1048576,
 			"kimi-k2.6": 262144,
 		},
 		EnvKey:  "MOONSHOT_GLOBAL_API_KEY",
@@ -59,10 +61,27 @@ type MoonshotProvider struct {
 }
 
 func moonshotRequestTemperature(modelType string, configured float64) (float64, bool) {
-	if strings.TrimSpace(modelType) == "kimi-k2.6" {
+	switch strings.TrimSpace(modelType) {
+	case "kimi-k3":
+		// K3 fixes sampling server-side (temperature 1.0, top_p 0.95) and the
+		// parameters must be omitted from the request entirely. Returning 0
+		// makes the caller skip setting Temperature.
+		return 0, true
+	case "kimi-k2.6":
 		return 1, true
 	}
 	return configured, false
+}
+
+// moonshotReasoningEffort returns the top-level reasoning_effort value for
+// the model, or "" when the parameter must not be sent. kimi-k3 has reasoning
+// permanently on and accepts exactly one value, "max"; the K2.x
+// chat_template_kwargs.thinking flag must NOT be sent to it.
+func moonshotReasoningEffort(modelType string) string {
+	if strings.TrimSpace(modelType) == "kimi-k3" {
+		return "max"
+	}
+	return ""
 }
 
 // newMoonshotProvider creates a new Moonshot provider.
@@ -113,6 +132,12 @@ func (p *MoonshotProvider) Chat(ctx context.Context, req *Request) (ChatResult, 
 		Model:    shared.ChatModel(p.modelName),
 		Messages: messages,
 		Tools:    toOpenAIChatTools(req.Tools),
+		// K2.x emits usage on the final stream chunk unprompted; kimi-k3 only
+		// does so when explicitly asked. Without this the whole K3 turn
+		// records zero tokens (breaking cache metrics and estimator ratios).
+		StreamOptions: openai.ChatCompletionStreamOptionsParam{
+			IncludeUsage: openai.Bool(true),
+		},
 	}
 	if p.maxTokens > 0 {
 		chatReq.MaxTokens = openai.Int(int64(p.maxTokens))
@@ -129,6 +154,10 @@ func (p *MoonshotProvider) Chat(ctx context.Context, req *Request) (ChatResult, 
 			"configuredTemperature", p.temperature,
 			"requestTemperature", requestTemp,
 		)
+	}
+
+	if effort := moonshotReasoningEffort(p.modelType); effort != "" {
+		chatReq.ReasoningEffort = shared.ReasoningEffort(effort)
 	}
 
 	var requestOpts []oaioption.RequestOption
