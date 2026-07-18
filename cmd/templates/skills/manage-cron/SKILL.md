@@ -64,7 +64,7 @@ Independent mode — daily summary, reports to cli:
 ```
 {{WORKSPACE}}/bin/nagobot cron set-cron --id daily-summary --expr "0 9 * * *" \
     --task "Review overnight activity and produce a daily briefing." \
-    --agent session-summary --wake-session cli
+    --agent general --wake-session cli
 ```
 
 Independent mode — silent background tidyup (no report):

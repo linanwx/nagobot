@@ -56,11 +56,20 @@ func runSetSummary(_ *cobra.Command, args []string) error {
 		SummaryAt: time.Now(),
 	}
 
-	// Cleanup entries whose session hasn't been active in 7+ days.
+	// Cleanup entries whose session hasn't been active in 7+ days, plus
+	// internal sibling sessions (prethink/media-preview) and child threads:
+	// they render into every agent's system prompt but carry no standalone
+	// conversation. They stay "active" daily, so the age rule alone never
+	// removes entries written before the need-summary filter excluded them.
 	sessionsDir := filepath.Join(workspace, "sessions")
 	cutoff := time.Now().AddDate(0, 0, -7)
 	var cleaned []string
 	for k := range summaries {
+		if session.IsInternalSiblingSession(k) || strings.Contains(k, ":threads:") {
+			cleaned = append(cleaned, k)
+			delete(summaries, k)
+			continue
+		}
 		sessionPath := filepath.Join(sessionsDir, filepath.FromSlash(strings.ReplaceAll(k, ":", "/")), session.SessionFileName)
 		ts, readErr := session.ReadUpdatedAt(sessionPath)
 		if readErr != nil || ts.IsZero() || ts.Before(cutoff) {
