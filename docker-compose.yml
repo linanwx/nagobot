@@ -1,0 +1,55 @@
+# nagobot container deployment.
+#
+# Minimal start: put at least one provider key in .env (e.g.
+# DEEPSEEK_API_KEY=sk-...) and run `docker compose up -d`. Config and all
+# session data persist in the nagobot-data volume; updating = pull a new
+# image, never in-place self-update.
+#
+# The ollama sidecar is REQUIRED for the pre-think `destructive` detector
+# (falls back to a near-useless verb table without it); every other feature
+# degrades gracefully if you remove it.
+
+services:
+  nagobot:
+    image: ghcr.io/linanwx/nagobot:latest
+    restart: unless-stopped
+    ports:
+      - "8080:8080"
+    volumes:
+      - nagobot-data:/root/.nagobot
+    environment:
+      # First-boot config bootstrap (ignored once config.yaml exists):
+      - NAGOBOT_PROVIDER=${NAGOBOT_PROVIDER:-deepseek}
+      - NAGOBOT_MODEL=${NAGOBOT_MODEL:-deepseek-v4-flash}
+      # Provider keys / channel tokens — read live from env, set what you have:
+      - DEEPSEEK_API_KEY=${DEEPSEEK_API_KEY:-}
+      - OPENAI_API_KEY=${OPENAI_API_KEY:-}
+      - OPENROUTER_API_KEY=${OPENROUTER_API_KEY:-}
+      - MOONSHOT_API_KEY=${MOONSHOT_API_KEY:-}
+      - TELEGRAM_BOT_TOKEN=${TELEGRAM_BOT_TOKEN:-}
+      - DISCORD_BOT_TOKEN=${DISCORD_BOT_TOKEN:-}
+      # Local embedding for pre-think:
+      - OLLAMA_HOST=http://ollama:11434
+    depends_on:
+      - ollama
+
+  ollama:
+    image: ollama/ollama
+    restart: unless-stopped
+    volumes:
+      - ollama-data:/root/.ollama
+
+  # One-shot: pulls the pinned embedding model into the ollama volume, then
+  # exits. Safe to re-run; no-op when the model is already present.
+  ollama-init:
+    image: ollama/ollama
+    depends_on:
+      - ollama
+    environment:
+      - OLLAMA_HOST=http://ollama:11434
+    entrypoint: ["/bin/sh", "-c", "sleep 3 && ollama pull qwen3-embedding:0.6b"]
+    restart: "no"
+
+volumes:
+  nagobot-data:
+  ollama-data:

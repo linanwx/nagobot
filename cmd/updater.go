@@ -63,6 +63,9 @@ type updater struct {
 
 // Start begins a background update. Returns false if one is already running.
 func (u *updater) Start(pre bool) (bool, string) {
+	if os.Getenv("NAGOBOT_CONTAINER") != "" {
+		return false, "running in a container — self-update is disabled; update with: docker compose pull && docker compose up -d"
+	}
 	u.mu.Lock()
 	defer u.mu.Unlock()
 	if u.running {

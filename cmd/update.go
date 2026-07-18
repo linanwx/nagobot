@@ -106,6 +106,13 @@ func fetchLatestVersion(pre bool) (string, error) {
 // ---------------------------------------------------------------------------
 
 func runUpdate(cmd *cobra.Command, args []string) error {
+	// In-place self-update makes no sense inside a container: the filesystem
+	// is disposable and there is no service manager to restart. Updating a
+	// container deployment means pulling a new image.
+	if os.Getenv("NAGOBOT_CONTAINER") != "" {
+		return fmt.Errorf("running in a container — self-update is disabled; update with: docker compose pull && docker compose up -d")
+	}
+
 	fmt.Printf("Current version: %s\n", Version)
 
 	// Local-file install: never delegated over RPC — the running daemon is

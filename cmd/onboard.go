@@ -1011,6 +1011,12 @@ func copyEmbeddedDir(embeddedRoot, dest string) error {
 	if err != nil {
 		return fmt.Errorf("read embedded dir %s: %w", embeddedRoot, err)
 	}
+	// The top-level dest may not exist yet on a fresh workspace (subdirs are
+	// created in the walk below, but the root was the caller's problem —
+	// which every caller forgot on first boot).
+	if err := os.MkdirAll(dest, 0755); err != nil {
+		return err
+	}
 	for _, entry := range entries {
 		srcPath := embeddedRoot + "/" + entry.Name()
 		dstPath := filepath.Join(dest, entry.Name())
