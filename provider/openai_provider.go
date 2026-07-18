@@ -81,48 +81,79 @@ var (
 // the model's native capacity anywhere.
 const gpt56ContextWindow = 272000
 
+// reasoningEfforts are the official Responses API reasoning.effort levels,
+// selectable per model via a bracket suffix: "gpt-5.6-sol[low]".
+var reasoningEfforts = []string{"low", "medium", "high", "xhigh"}
+
+// parseModelEffort splits a bracketed model name ("gpt-5.6-sol[low]") into
+// the base API model ("gpt-5.6-sol") and the reasoning effort ("low"). Names
+// without a bracket return effort "" (the provider default applies).
+func parseModelEffort(name string) (base, effort string) {
+	open := strings.IndexByte(name, '[')
+	if open == -1 || !strings.HasSuffix(name, "]") {
+		return name, ""
+	}
+	return name[:open], name[open+1 : len(name)-1]
+}
+
+// withEffortVariants appends "model[effort]" entries for every base model,
+// so the whitelist / vision / context-window registries treat each effort
+// tier as a first-class model type.
+func withEffortVariants(models []string, base ...string) []string {
+	for _, m := range base {
+		for _, e := range reasoningEfforts {
+			models = append(models, m+"["+e+"]")
+		}
+	}
+	return models
+}
+
 func init() {
+	base56 := []string{"gpt-5.6-sol", "gpt-5.6-terra", "gpt-5.6-luna"}
 	models := []string{"gpt-5.6-sol", "gpt-5.6-terra", "gpt-5.6-luna", "gpt-5.5", "gpt-5.4", "gpt-5.4-mini", "gpt-5.4-nano"}
+	models = withEffortVariants(models, base56...)
 	constructor := func(apiKey, apiBase, modelType, modelName string, maxTokens int, temperature float64) Provider {
 		return newOpenAIProvider(apiKey, apiBase, modelType, modelName, maxTokens, temperature)
+	}
+
+	// Every gpt-5.6 entry — base and effort variants — shares the same
+	// price-break window (see gpt56ContextWindow).
+	windowsFor := func(gpt55, gpt54, mini, nano int) map[string]int {
+		w := map[string]int{
+			"gpt-5.5":      gpt55,
+			"gpt-5.4":      gpt54,
+			"gpt-5.4-mini": mini,
+			"gpt-5.4-nano": nano,
+		}
+		for _, m := range base56 {
+			w[m] = gpt56ContextWindow
+			for _, e := range reasoningEfforts {
+				w[m+"["+e+"]"] = gpt56ContextWindow
+			}
+		}
+		return w
 	}
 
 	// "openai" — API key auth, hits api.openai.com directly. Context windows
 	// reflect the model's full API capacity, except for gpt-5.6: see
 	// gpt56ContextWindow below.
 	RegisterProvider("openai", ProviderRegistration{
-		Models:       models,
-		VisionModels: models,
-		ContextWindows: map[string]int{
-			"gpt-5.6-sol":   gpt56ContextWindow,
-			"gpt-5.6-terra": gpt56ContextWindow,
-			"gpt-5.6-luna":  gpt56ContextWindow,
-			"gpt-5.5":       1048576,
-			"gpt-5.4":       1048576,
-			"gpt-5.4-mini":  400000,
-			"gpt-5.4-nano":  200000,
-		},
-		EnvKey:      "OPENAI_API_KEY",
-		EnvBase:     "OPENAI_API_BASE",
-		Constructor: constructor,
+		Models:         models,
+		VisionModels:   models,
+		ContextWindows: windowsFor(1048576, 1048576, 400000, 200000),
+		EnvKey:         "OPENAI_API_KEY",
+		EnvBase:        "OPENAI_API_BASE",
+		Constructor:    constructor,
 	})
 
 	// "openai-oauth" — OAuth token auth via the ChatGPT codex backend
 	// (chatgpt.com/backend-api/codex). Context limits are sourced from
 	// GET /backend-api/codex/models?client_version=1.0.0.
 	RegisterProvider("openai-oauth", ProviderRegistration{
-		Models:       models,
-		VisionModels: models,
-		ContextWindows: map[string]int{
-			"gpt-5.6-sol":   gpt56ContextWindow,
-			"gpt-5.6-terra": gpt56ContextWindow,
-			"gpt-5.6-luna":  gpt56ContextWindow,
-			"gpt-5.5":       272000,
-			"gpt-5.4":       272000,
-			"gpt-5.4-mini":  272000,
-			"gpt-5.4-nano":  272000,
-		},
-		Constructor: constructor,
+		Models:         models,
+		VisionModels:   models,
+		ContextWindows: windowsFor(272000, 272000, 272000, 272000),
+		Constructor:    constructor,
 	})
 }
 
@@ -1018,14 +1049,19 @@ func (p *OpenAIProvider) buildRequestBody(ctx context.Context, req *Request, for
 		}
 	}
 
-	// gpt-5.6-sol burns tokens too fast at high effort for everyday use.
-	effort := "high"
-	if p.modelName == "gpt-5.6-sol" {
-		effort = "medium"
+	// A bracket suffix on the model name ("gpt-5.6-sol[low]") selects the
+	// reasoning effort explicitly. Without one, default to high — except
+	// gpt-5.6-sol, which burns tokens too fast at high effort for everyday use.
+	apiModel, effort := parseModelEffort(p.modelName)
+	if effort == "" {
+		effort = "high"
+		if apiModel == "gpt-5.6-sol" {
+			effort = "medium"
+		}
 	}
 
 	body := map[string]any{
-		"model":   p.modelName,
+		"model":   apiModel,
 		"input":   input,
 		"stream":  true,
 		"store":   false,
@@ -1041,7 +1077,7 @@ func (p *OpenAIProvider) buildRequestBody(ctx context.Context, req *Request, for
 	if cacheKey := sessionCacheKey(ctx); cacheKey != "" {
 		body["prompt_cache_key"] = cacheKey
 	}
-	if p.modelName == "gpt-5.4" || p.modelName == "gpt-5.5" {
+	if apiModel == "gpt-5.4" || apiModel == "gpt-5.5" {
 		body["text"] = map[string]any{"verbosity": "low"}
 	}
 	if joinedInstructions != "" {
@@ -1053,7 +1089,7 @@ func (p *OpenAIProvider) buildRequestBody(ctx context.Context, req *Request, for
 	}
 	// ChatGPT backend does not support max_output_tokens or temperature.
 	// Mini/nano models do not support temperature.
-	noTemp := p.accountID != "" || p.modelName == "gpt-5.4-mini" || p.modelName == "gpt-5.4-nano"
+	noTemp := p.accountID != "" || apiModel == "gpt-5.4-mini" || apiModel == "gpt-5.4-nano"
 	if p.accountID == "" {
 		if p.maxTokens > 0 {
 			body["max_output_tokens"] = p.maxTokens

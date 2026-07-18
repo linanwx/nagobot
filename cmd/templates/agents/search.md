@@ -1,7 +1,7 @@
 ---
 name: search
 description: Use this agent when you need to search something. If you are the soul agent, prefer delegating search tasks to this agent to move the search process to a background/child thread and reduce the load on the main session/thread
-specialty: [toolcall]
+specialty: [search, toolcall]
 sections:
   - user_memory_section
   - memory_index_section
