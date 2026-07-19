@@ -15,13 +15,19 @@
 # is remote), playwright's chromium (~800MB, a runtime third-party-skill-setup
 # concern), ffmpeg (transcription is provider-side via audio-capable models;
 # add it only if media manipulation demand shows up).
-FROM golang:1.24 AS build
+# --platform=$BUILDPLATFORM: the Go build always runs on the runner's native
+# arch and CROSS-compiles to $TARGETARCH. Without this, the arm64 leg of the
+# multi-arch build compiles Go under QEMU emulation — by far the slowest step
+# of the release pipeline. Only the runtime stage below (apt/pip layers, which
+# are source-independent and gha-cached) runs emulated.
+FROM --platform=$BUILDPLATFORM golang:1.24 AS build
 ARG VERSION=dev
+ARG TARGETOS TARGETARCH
 WORKDIR /src
 COPY go.mod go.sum ./
 RUN go mod download
 COPY . .
-RUN CGO_ENABLED=0 go build \
+RUN CGO_ENABLED=0 GOOS=$TARGETOS GOARCH=$TARGETARCH go build \
     -ldflags="-s -w -X github.com/linanwx/nagobot/cmd.Version=${VERSION}" \
     -o /nagobot .
 
