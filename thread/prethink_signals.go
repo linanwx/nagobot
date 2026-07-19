@@ -239,9 +239,9 @@ var (
 // pre-think <search> field.
 //
 // Spec-explicit negatives are decided by the cheap deterministic masks. For
-// everything else the embedding classifier (local Ollama, see prethink_embed.go)
+// everything else the embedding classifier (remote backend, see prethink_embed.go)
 // has the first word — it is the only layer that survives word-sense collisions.
-// Without Ollama the keyword path below is the fallback.
+// Without a backend the keyword path below is the fallback.
 // ctx bounds the embedding round-trip; when it expires the classifier reports
 // itself unavailable and the keyword path answers.
 func needsSearch(ctx context.Context, msg string) bool {
@@ -250,13 +250,13 @@ func needsSearch(ctx context.Context, msg string) bool {
 
 // needsSearchRegex is the same detector with the embedding layer taken away. It
 // exists because preThinkAction runs the embedding classifiers under a wall-clock
-// budget: when Ollama is slow enough to blow it, the turn still needs an answer,
+// budget: when the backend is slow enough to blow it, the turn still needs an answer,
 // and the honest answer is the one the regex alone can give rather than a silent
 // false. See preThinkAction in prethink.go.
 func needsSearchRegex(msg string) bool { return needsSearchWith(context.Background(), msg, noEmbed) }
 
 // embedClassifier is a detector's window onto the embedding layer. Returning
-// ok=false means "unavailable", which is what a missing Ollama, an overrun
+// ok=false means "unavailable", which is what a missing backend, an overrun
 // budget, and a cancelled context all amount to.
 type embedClassifier func(context.Context, string) (bool, bool)
 

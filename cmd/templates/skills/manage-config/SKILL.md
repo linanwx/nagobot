@@ -1,6 +1,11 @@
 ---
 name: manage-config
 description: Change nagobot's configuration — set or replace LLM provider API keys, switch which model a session or agent runs on, and set up web search providers. This is the WRITE path — add a key, rotate an expired key, change the model, fix a misconfigured provider. Use when the user wants to configure, change, or troubleshoot provider/model/search settings. To only READ balances or usage, use monitoring instead.
+examples:
+  - rotate an expired provider API key
+  - 把机器人的默认模型换成另一家的
+  - update the OpenRouter key in the config
+  - 帮我更新一下配置里的 API 密钥
 ---
 # Manage Configuration
 

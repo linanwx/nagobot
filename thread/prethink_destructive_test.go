@@ -143,7 +143,7 @@ var destructiveCases = []struct {
 // set of irreversible actions is open, and a verb list only ever contains the ones
 // its author thought of.
 //
-// The three that still fail are left failing. Tuning the anchors until a held-out
+// The ones that still fail are left failing. Tuning the anchors until a held-out
 // set passes is how a held-out set stops being one.
 var destructiveHeldOut = []struct {
 	msg   string
@@ -162,24 +162,26 @@ var destructiveHeldOut = []struct {
 	{"cancel my subscription", ""},
 	{"откати последний коммит", ""},
 
-	// The three misses, all git. They sit next to "review this PR" and "查一下提交
+	// The two misses, both git. They sit next to "review this PR" and "查一下提交
 	// 历史" in embedding space — same topic, same vocabulary, and only the verb says
-	// one reads history while the other rewrites it.
+	// one reads history while the other rewrites it. (The 4B migration with
+	// instruction formatting recovered the third old miss, "revert the last three
+	// commits" — it now scores +0.132, well clear of the +0.05 margin.)
 	//
-	// Two of them may be mislabelled by me rather than missed by the classifier:
-	// merging a PR and reverting commits are both undoable in git, and my own
-	// boundary exempts "easily reversible work". Squashing history is the one that
-	// genuinely cannot be taken back. Recorded rather than fixed, because the honest
-	// move is to fix the label question first — not to bend the anchors until my
-	// possibly-wrong labels are satisfied.
-	{"把这个仓库的提交历史压成一个 commit", "squash rewrites history — a real miss; sits too close to the read-history negatives"},
-	{"把这个 PR 合进 main", "merging a PR is revertible in git; the label itself is arguable"},
-	{"revert the last three commits on main", "a revert is itself the undo; the label is arguable"},
+	// One of them may be mislabelled by me rather than missed by the classifier:
+	// merging a PR is undoable in git, and my own boundary exempts "easily
+	// reversible work". Squashing history is the one that genuinely cannot be
+	// taken back. Recorded rather than fixed, because the honest move is to fix
+	// the label question first — not to bend the anchors until my possibly-wrong
+	// labels are satisfied.
+	{"把这个仓库的提交历史压成一个 commit", "squash rewrites history — a real miss at +0.033 on the 4B; sits too close to the read-history negatives"},
+	{"把这个 PR 合进 main", "merging a PR is revertible in git; the label itself is arguable (+0.041 on the 4B)"},
+	{"revert the last three commits on main", ""},
 }
 
 func TestIsDestructive_HeldOut(t *testing.T) {
 	if _, ok := classifyDestructiveEmbedFn(context.Background(), "probe"); !ok {
-		t.Skip("no local ollama embedding model")
+		t.Skip("no embedding backend configured")
 	}
 	var caught int
 	for _, tc := range destructiveHeldOut {
@@ -198,17 +200,17 @@ func TestIsDestructive_HeldOut(t *testing.T) {
 	t.Logf("held-out recall %d/%d", caught, len(destructiveHeldOut))
 }
 
-// TestIsDestructive_NoOllama pins what happens on a machine with no embedding
+// TestIsDestructive_NoBackend pins what happens on a machine with no embedding
 // backend, because the answer decides a deployment question rather than a coding
-// one: without Ollama this field degrades to the verb table, and the verb table
+// one: without a backend this field degrades to the verb table, and the verb table
 // scores zero on the held-out set.
 //
 // That is the wrong direction to fail in. Every other localized pre-think field
 // degrades gracefully — a missed <search> costs a stale answer. A missed
-// <destructive> runs an irreversible action with no confirmation. So Ollama is a
+// <destructive> runs an irreversible action with no confirmation. So a remote embedding key is a
 // REQUIREMENT for this field, not an optimization, and this test is here to make
 // that fact fail loudly if anyone assumes otherwise.
-func TestIsDestructive_NoOllama(t *testing.T) {
+func TestIsDestructive_NoBackend(t *testing.T) {
 	orig := classifyDestructiveEmbedFn
 	classifyDestructiveEmbedFn = func(context.Context, string) (bool, bool) { return false, false }
 	defer func() { classifyDestructiveEmbedFn = orig }()
@@ -231,7 +233,7 @@ func TestIsDestructive_NoOllama(t *testing.T) {
 		t.Errorf("regex-only caught %d/%d held-out — the verb table grew; re-measure whether "+
 			"the embedding layer is still carrying the open half", caught, len(destructiveHeldOut))
 	}
-	t.Logf("without ollama: held-out recall %d/%d — this is the degradation, and it is why "+
+	t.Logf("without a backend: held-out recall %d/%d — this is the degradation, and it is why "+
 		"the embedding backend is a hard dependency for <destructive>", caught, len(destructiveHeldOut))
 }
 
@@ -278,7 +280,7 @@ func TestDestructiveMarginSweep(t *testing.T) {
 	}
 	rows := loadCorpus(t)
 	if _, _, ok := destructiveScores(context.Background(), "probe"); !ok {
-		t.Skip("no local ollama embedding model")
+		t.Skip("no embedding backend configured")
 	}
 
 	type scored struct{ pos, neg float64 }

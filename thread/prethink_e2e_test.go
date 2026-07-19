@@ -7,17 +7,17 @@ import (
 	"time"
 )
 
-// The whole local pre-think, end to end: real Ollama, the real skill pool, the
+// The whole local pre-think, end to end: the real remote backend, the real skill pool, the
 // real concurrency and the real budget. Everything else in this package tests one
 // detector at a time against a fixed input; this is the only place the pieces have
 // to work together under a clock.
 //
-// It skips without a local Ollama, because without one it would be testing the
-// fallback path, which TestLocalPreThink_NoOllama already covers on purpose.
+// It skips without a configured backend, because without one it would be testing the
+// fallback path, which TestLocalPreThink_NoBackend already covers on purpose.
 func TestLocalPreThink_EndToEnd(t *testing.T) {
 	cands := loadRealSkills(t)
 	if _, ok := relatedSkillsEmbed(context.Background(), "probe", cands); !ok {
-		t.Skip("no local ollama embedding model")
+		t.Skip("no embedding backend configured")
 	}
 
 	tests := []struct {
@@ -113,7 +113,7 @@ func TestLocalPreThink_EndToEnd(t *testing.T) {
 func TestLocalPreThink_Latency(t *testing.T) {
 	cands := loadRealSkills(t)
 	if _, ok := relatedSkillsEmbed(context.Background(), "probe", cands); !ok {
-		t.Skip("no local ollama embedding model")
+		t.Skip("no embedding backend configured")
 	}
 
 	// The indexes are package-level and any earlier test in this process has already
@@ -123,7 +123,7 @@ func TestLocalPreThink_Latency(t *testing.T) {
 	resetPreThinkIndexes()
 	coldStart := time.Now()
 	if !warmPreThinkIndexes(cands) {
-		t.Skip("no local ollama embedding model")
+		t.Skip("no embedding backend configured")
 	}
 	t.Logf("cold: %v to build all four indexes — paid at daemon start by WarmLocalPreThink, not by a user",
 		time.Since(coldStart).Round(time.Millisecond))
@@ -153,11 +153,11 @@ func TestLocalPreThink_Latency(t *testing.T) {
 	}
 }
 
-// TestLocalPreThink_NoOllama pins the degradation. Without an embedding backend the
+// TestLocalPreThink_NoBackend pins the degradation. Without an embedding backend the
 // analysis still runs — it just falls back to the regex verdicts, which is a weaker
 // answer rather than no answer. The one thing that must NOT happen is a hang: the
 // classifiers report unavailable rather than waiting.
-func TestLocalPreThink_NoOllama(t *testing.T) {
+func TestLocalPreThink_NoBackend(t *testing.T) {
 	origD, origS, origC := classifyDestructiveEmbedFn, classifySearchEmbedFn, classifyCoderEmbedFn
 	classifyDestructiveEmbedFn = func(context.Context, string) (bool, bool) { return false, false }
 	classifySearchEmbedFn = func(context.Context, string) (bool, bool) { return false, false }
@@ -181,15 +181,15 @@ func TestLocalPreThink_NoOllama(t *testing.T) {
 // worth. localPreThink gives up after preThinkBudget and answers from the regex
 // verdicts — but giving up on the ANSWER is not the same as giving up on the WORK.
 // The classifiers serialize on their indexes, and a cold build against a slow
-// Ollama holds one for seconds; on a plain sync.Mutex every message arriving
+// backend holds one for seconds; on a plain sync.Mutex every message arriving
 // meanwhile parked a goroutine behind it, for a turn that was already over. Under
 // sustained traffic that queue only grows.
 //
 // So a classifier whose caller has run out of time must leave, not wait. It then
-// reports itself unavailable, which is exactly the "no local Ollama" path — the
+// reports itself unavailable, which is exactly the "no backend" path — the
 // regex verdict stands.
 //
-// No Ollama needed: contention is resolved before the index is ever touched.
+// No backend needed: contention is resolved before the index is ever touched.
 func TestPreThinkBudget_CallerLeavesWithItsDeadline(t *testing.T) {
 	held, release, done := make(chan struct{}), make(chan struct{}), make(chan struct{})
 	go func() { // stands in for a cold index build holding the lock

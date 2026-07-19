@@ -100,6 +100,14 @@ func neverCallDirectly(desc string) bool {
 // to the kind of message that needs none?
 var skillNoneAnchors = []string{
 	"casual greeting, small talk, or thanking the assistant",
+	// Doc-shaped reinforcements for the category above, added with the 4B
+	// migration: manage-skills scored 0.69–0.74 on bare greetings and thanks,
+	// above the single abstract line (0.61–0.66). Concrete greeting INSTANCES
+	// do not work here — the query side carries the retrieval instruction and
+	// lands in description-space, so a rival anchor must read like a skill
+	// description too, one whose "capability" is that nothing is requested.
+	"greet the user back or acknowledge their thanks — the message asks for no capability, no tool, and no skill",
+	"reply to hello, hi, 你好, are-you-there pings, and thank-you messages in plain conversation",
 	"a general knowledge question the assistant answers from what it already knows",
 	"translate, rewrite, summarize or proofread text the user pasted",
 	"write code, debug a program, or explain a programming concept",
@@ -117,7 +125,7 @@ var skillNoneAnchors = []string{
 const qwen3Instruct = "Instruct: Given a user request to an AI assistant, retrieve the skill whose description says it should handle this request.\nQuery: "
 
 func skillQueryText(model, msg string) string {
-	if strings.Contains(model, "qwen3-embedding") {
+	if strings.Contains(strings.ToLower(model), "qwen3-embedding") {
 		return qwen3Instruct + msg
 	}
 	return msg
@@ -176,7 +184,7 @@ func (s *skillIndexState) ensure(cands []skillCandidate) bool {
 
 	model, ok := searchEmbed.client.Model(ctx)
 	if !ok {
-		return false // no local Ollama — caller falls back
+		return false // no embedding backend — caller falls back
 	}
 
 	usable := make([]skillCandidate, 0, len(cands))
@@ -242,8 +250,8 @@ type scoredSkill struct {
 
 // rankSkills scores every eligible skill against the message, best first, and
 // returns the bar it has to clear: the best "none" anchor plus the margin.
-// ok=false means the classifier is unavailable (no local Ollama), or that ctx
-// ran out before it could answer.
+// ok=false means the classifier is unavailable (no embedding backend), or that
+// ctx ran out before it could answer.
 func rankSkills(ctx context.Context, msg string, cands []skillCandidate) (ranked []scoredSkill, bar float64, ok bool) {
 	if strings.TrimSpace(msg) == "" || len(cands) == 0 {
 		return nil, 0, false

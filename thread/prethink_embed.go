@@ -4,6 +4,7 @@ import (
 	"context"
 	"math"
 	"sort"
+	"strings"
 	"time"
 
 	"github.com/linanwx/nagobot/embedding"
@@ -14,10 +15,11 @@ import (
 // the failures are word-sense collisions (评价 the essay verb vs 评价 the product
 // review, "version" of a story vs of a package) and keyword-free positives
 // ("is winrm timeout in seconds or milliseconds"). Those need meaning, not
-// morphemes — so when a local Ollama with an embedding model is present, the
-// verdict comes from prototype classification: the message is compared against
-// hand-written positive/negative anchor sentences in embedding space, and the
-// closer side wins. No Ollama → callers fall back to the regex path.
+// morphemes — so when a remote embedding backend is configured (see
+// prethink_backend.go), the verdict comes from prototype classification: the
+// message is compared against hand-written positive/negative anchor sentences
+// in embedding space, and the closer side wins. No backend → callers fall back
+// to the regex path.
 //
 // The anchors are deliberately DISJOINT from the test cases in
 // prethink_signals_test.go — those stay held out. Several negatives are
@@ -126,6 +128,14 @@ var searchNegAnchors = []string{
 	"我和女朋友吵架了，我该怎么办",
 }
 
+// searchEmbedTask is the instruction the search classifier embeds its anchors
+// and queries under (see qwen3Instructed). Both-sides instruction was compared
+// against query-side-only on the 4B: both score 50/52 on the hand set with a
+// different pair of borderline misses; both-sides is kept for symmetry with
+// destructive and because its worst miss is nearer the threshold (-0.0035 vs
+// -0.0029 on a different case, -0.041 vs -0.019 on the shared one).
+const searchEmbedTask = "Given a user message to an AI assistant, retrieve reference messages that request the same kind of action"
+
 const (
 	searchEmbedTopK = 6
 	// Decision threshold on (posScore - negScore), calibrated against the
@@ -145,12 +155,27 @@ const (
 // classifySearchEmbedFn is indirected so tests can pin the regex-only path.
 var classifySearchEmbedFn = classifySearchEmbed
 
-var searchEmbed = &searchEmbedState{client: embedding.NewLocal(), mu: newCtxMutex()}
+var searchEmbed = &searchEmbedState{client: embedding.NewChain(resolveEmbeddingBackend), mu: newCtxMutex()}
+
+// qwen3Instructed wraps text in the instruction format Qwen3-Embedding is
+// trained with. It is worth real points: on the destructive set, the raw-text
+// 4B scores 2 misses / 13∕15 held-out, the instructed 4B 0 misses / 15∕15.
+// Which SIDES get the prefix is measured per classifier, not assumed —
+// destructive and search instruct both sides, coder instructs the query only
+// (see coderEmbedTask for the numbers), and skill retrieval is query-side-only
+// by construction (see qwen3Instruct). Non-qwen3 models get the bare text: a
+// prefix they were not trained on is just noise.
+func qwen3Instructed(model, task, text string) string {
+	if !strings.Contains(strings.ToLower(model), "qwen3-embedding") {
+		return text
+	}
+	return "Instruct: " + task + "\nQuery: " + text
+}
 
 // ctxMutex is a mutex you are allowed to give up on.
 //
 // Each classifier serializes on its own index, and building one against a cold
-// or wedged Ollama holds the lock for seconds. With a plain sync.Mutex every
+// or wedged backend holds the lock for seconds. With a plain sync.Mutex every
 // message arriving in that window parks a goroutine behind it — goroutines
 // nobody is waiting for any more, because localPreThink gave up at preThinkBudget
 // and already answered from the regex verdicts. They wake up much later, embed a
@@ -192,7 +217,7 @@ type searchEmbedState struct {
 // ready. It must be called with s.mu held.
 //
 // It deliberately does NOT take the caller's context. Building the index is a
-// one-time cost that a cold Ollama can stretch to several seconds — past
+// one-time cost that a cold or slow backend can stretch to several seconds — past
 // preThinkBudget — and binding it to the request would mean it gets cancelled
 // every time, then declines to retry for a minute (lastTry), then gets cancelled
 // again: the index would never finish and the embedding layer would stay off
@@ -205,7 +230,7 @@ func (s *searchEmbedState) ensure() bool {
 
 	model, ok := s.client.Model(ctx)
 	if !ok {
-		return false // no local Ollama — feature off, not an error
+		return false // no backend configured — feature off, not an error
 	}
 	if model == s.model && s.pos != nil {
 		return true
@@ -215,7 +240,11 @@ func (s *searchEmbedState) ensure() bool {
 	}
 	s.lastTry = time.Now()
 
-	vecs, err := s.client.Embed(ctx, append(append([]string{}, searchPosAnchors...), searchNegAnchors...))
+	texts := make([]string, 0, len(searchPosAnchors)+len(searchNegAnchors))
+	for _, a := range append(append([]string{}, searchPosAnchors...), searchNegAnchors...) {
+		texts = append(texts, qwen3Instructed(model, searchEmbedTask, a))
+	}
+	vecs, err := s.client.Embed(ctx, texts)
 	if err != nil {
 		logger.Warn("pre-think search classifier: anchor embedding failed", "model", model, "err", err)
 		return false
@@ -237,8 +266,7 @@ func (s *searchEmbedState) ensure() bool {
 //
 // Unlike the index build, the per-message embedding IS bound by ctx: it is work
 // done for one turn and worthless once that turn has moved on, so when the budget
-// blows the HTTP request is cancelled rather than left running against an Ollama
-// that is already struggling.
+// blows the HTTP request is cancelled rather than left running against a backend // that is already struggling.
 func (s *searchEmbedState) score(ctx context.Context, msg string) (pos, neg float64, ok bool) {
 	if !s.mu.lock(ctx) {
 		return 0, 0, false
@@ -254,7 +282,7 @@ func (s *searchEmbedState) score(ctx context.Context, msg string) (pos, neg floa
 	}
 	callCtx, cancelCall := context.WithTimeout(ctx, searchEmbedCallTimeout)
 	defer cancelCall()
-	vecs, err := s.client.Embed(callCtx, []string{msg})
+	vecs, err := s.client.Embed(callCtx, []string{qwen3Instructed(s.model, searchEmbedTask, msg)})
 	if err != nil {
 		logger.Warn("pre-think search classifier: message embedding failed", "err", err)
 		return 0, 0, false

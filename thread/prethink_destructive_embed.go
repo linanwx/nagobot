@@ -135,29 +135,51 @@ var destructiveNegAnchors = []string{
 	"你好，在吗",
 	"帮我起个项目名字",
 	"写一首关于秋天的诗",
+	// Added with the 4B migration. The instruction format pulls topically-close
+	// texts together harder than the raw 0.6b did, which pushed two categories
+	// of mention-not-use over every viable margin: asking how a dangerous
+	// command works (怎么用 rm 命令 scored +0.103), and writing code that talks
+	// about deletion (the SQL-dedup case scored +0.072). These five give the
+	// rival class its own examples of both; with them, hand false alarms drop
+	// to 0 at every margin from +0.02 up, and held-out recall is untouched.
+	"how does the rm command actually work",
+	"was macht der Befehl DROP TABLE genau",
+	"実行中のプロセスを kill するコマンドの使い方は？",
+	"напиши SQL запрос, который удаляет дубликаты из таблицы",
+	"implement a function that removes expired entries from a cache",
 }
+
+// destructiveEmbedTask is the instruction the destructive classifier embeds
+// its anchors and queries under (see qwen3Instructed). Validated in the 4B
+// migration bench: raw-text 4B scored 2 misses / 13∕15 held-out, instructed 4B
+// 0 misses / 15∕15.
+const destructiveEmbedTask = "Given a user message to an AI assistant, retrieve reference messages that request the same kind of action"
 
 const (
 	destructiveEmbedTopK = 5
 	// Swept, not guessed — and the first guess was badly wrong. A margin of -0.02,
 	// chosen to "bias toward recall", fired on 48% of real corpus traffic: every
 	// other message would have stopped to ask the user for confirmation, which is
-	// not caution, it is a broken assistant. The sweep (TestDestructiveMarginSweep)
-	// shows the frontier sits well into positive territory:
+	// not caution, it is a broken assistant.
 	//
-	//	margin   held-out recall   corpus fire rate
-	//	-0.02        16/16              48.0%
-	//	+0.00        15/16              29.0%
-	//	+0.02        14/16              10.5%
-	//	+0.06        13/16               0.6%
-	//	+0.10        10/16               0.2%
+	// Re-swept for the Qwen3-Embedding-4B remote backend with instruction
+	// formatting, against the hand set, the held-out set, and 400 real user
+	// messages sampled from this deployment's own session logs:
 	//
-	// +0.06 is the knee: three quarters of the recall the permissive end buys, at
-	// one eightieth of the interruptions. The three it gives up are recorded as
-	// known misses in the test rather than tuned away, because buying them back
-	// costs an order of magnitude more false alarms — and a confirmation prompt the
+	//	margin   held-out recall   hand FA   real-traffic fire rate
+	//	+0.02        15/15            0            12.8%
+	//	+0.03        15/15            0             8.8%
+	//	+0.04        14/15            0             3.8%
+	//	+0.05        13/15            0             1.8%
+	//	+0.06        13/15            0             1.2%
+	//
+	// +0.05 is the knee: the two it gives up are exactly the two held-out cases
+	// whose LABELS the test already flags as arguable (squashing history at
+	// +0.033, merging a PR at +0.041 — both sit next to read-history negatives),
+	// and the third old known miss (revert) now passes at +0.132. Below +0.05
+	// the fire rate doubles per hundredth of margin; a confirmation prompt the
 	// user learns to click through protects no one.
-	destructiveEmbedMargin = 0.06
+	destructiveEmbedMargin = 0.05
 
 	destructiveEmbedMaxRunes = 600
 	destructiveInitTimeout   = 30 * time.Second
@@ -187,8 +209,8 @@ func (s *destructiveEmbedState) ensure() bool {
 	ctx, cancel := context.WithTimeout(context.Background(), destructiveInitTimeout)
 	defer cancel()
 
-	// Shares the Ollama client with the search classifier — same host, same model
-	// probe, one connection-refused per minute on a machine without Ollama.
+	// Shares the remote client (and thus the resolved backend) with the search
+	// classifier.
 	model, ok := searchEmbed.client.Model(ctx)
 	if !ok {
 		return false
@@ -201,7 +223,10 @@ func (s *destructiveEmbedState) ensure() bool {
 	}
 	s.lastTry = time.Now()
 
-	all := append(append([]string{}, destructivePosAnchors...), destructiveNegAnchors...)
+	all := make([]string, 0, len(destructivePosAnchors)+len(destructiveNegAnchors))
+	for _, a := range append(append([]string{}, destructivePosAnchors...), destructiveNegAnchors...) {
+		all = append(all, qwen3Instructed(model, destructiveEmbedTask, a))
+	}
 	vecs, err := searchEmbed.client.Embed(ctx, all)
 	if err != nil {
 		logger.Warn("pre-think destructive classifier: anchor embedding failed", "model", model, "err", err)
@@ -234,7 +259,8 @@ func destructiveScores(ctx context.Context, msg string) (pos, neg float64, ok bo
 	}
 	callCtx, cancelCall := context.WithTimeout(ctx, destructiveCallTimeout)
 	defer cancelCall()
-	vecs, err := searchEmbed.client.Embed(callCtx, []string{msg})
+	vecs, err := searchEmbed.client.Embed(callCtx,
+		[]string{qwen3Instructed(destructiveEmbed.model, destructiveEmbedTask, msg)})
 	if err != nil {
 		logger.Warn("pre-think destructive classifier: message embedding failed", "err", err)
 		return 0, 0, false
@@ -246,8 +272,9 @@ func destructiveScores(ctx context.Context, msg string) (pos, neg float64, ok bo
 }
 
 // classifyDestructiveEmbed answers "would doing this be irreversible?" by
-// prototype vote. ok=false means no local Ollama, and the caller keeps whatever
-// the regex decided — which fails toward MORE confirmations, never fewer.
+// prototype vote. ok=false means no embedding backend, and the caller keeps
+// whatever the regex decided — which fails toward MORE confirmations, never
+// fewer.
 func classifyDestructiveEmbed(ctx context.Context, msg string) (verdict bool, ok bool) {
 	pos, neg, ok := destructiveScores(ctx, msg)
 	if !ok {

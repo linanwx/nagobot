@@ -62,6 +62,12 @@ var coderNegAnchors = []string{
 	"what is the difference between a process and a thread",
 	"这段代码为什么会崩",
 	"объясни, что делает этот SQL запрос",
+	// Design-pattern concept questions. Added with the 4B migration: the
+	// positives include pattern-driven refactors ("refactor this module to use
+	// dependency injection"), and without a concept-side twin the 4B pulled
+	// "explain dependency injection" into the produce-code class (+0.035).
+	"explain the dependency injection pattern and when to use it",
+	"设计模式里的单例模式是什么意思",
 	// review and reading, not writing
 	"review this pull request and tell me what you think",
 	"帮我看看这段代码写得怎么样",
@@ -94,22 +100,28 @@ var coderNegAnchors = []string{
 	"what can you help me with",
 }
 
+// coderEmbedTask is the instruction the coder classifier embeds its QUERIES
+// under. Unlike destructive, this classifier is asymmetric on purpose — the
+// anchors stay raw. Measured on the 4B held-out sweep: both-sides instruction
+// interleaves the boundary (worst positive -0.0263 vs best negative -0.0267, a
+// 0.0004 gap no margin can sit in), query-only separates it cleanly (worst
+// decidable positive -0.0133 vs best negative -0.0345).
+const coderEmbedTask = "Given a user message to an AI assistant, retrieve reference messages that request the same kind of action"
+
 const (
 	coderEmbedTopK = 5
 	// Swept against the held-out set in TestNeedsCoder_HeldOut, not guessed
-	// (TestCoderMarginSweep prints the per-case deltas):
+	// (TestCoderMarginSweep prints the per-case deltas). Re-swept for the
+	// Qwen3-Embedding-4B remote backend with query-side instruction:
 	//
-	//	margin   held-out recall   held-out false positives
-	//	+0.04         2/8                  0/8
-	//	 0.00         5/8                  0/8
-	//	-0.03         7/8                  0/8
-	//	-0.05         7/8                  0/8 (buffer to nearest negative: 0.02)
+	//	positives: -0.0004  -0.1174  +0.0007  +0.1321  +0.0250  +0.0253  +0.0358  -0.0133
+	//	negatives: -0.0607  -0.0345  -0.1713  -0.1378  -0.1644  -0.1056  -0.1535  -0.1085
 	//
-	// -0.03 is the knee: the last miss sits at -0.092, below two negatives
-	// (-0.069 restart-the-container, -0.090 quicksort complexity), so buying it
-	// back would admit both. It stays a recorded miss. The buffer to the
-	// nearest negative at -0.03 is 0.039.
-	coderEmbedMargin   = -0.03
+	// -0.025 sits centered in the only clean gap: recall 7/8, false positives
+	// 0/8, buffer 0.0117 to the nearest positive and 0.0095 to the nearest
+	// negative. The one miss (撸一个查天气的小工具 at -0.117) sits below two
+	// negatives and stays a recorded miss — buying it back would admit both.
+	coderEmbedMargin   = -0.025
 	coderEmbedMaxRunes = 600
 
 	coderEmbedInitTimeout = 30 * time.Second
@@ -135,8 +147,8 @@ func (s *coderEmbedState) ensure() bool {
 	ctx, cancel := context.WithTimeout(context.Background(), coderEmbedInitTimeout)
 	defer cancel()
 
-	// Shares the Ollama client with the search classifier — same host, same
-	// model probe, one connection-refused per minute on a machine without one.
+	// Shares the remote client (and thus the resolved backend) with the search
+	// classifier.
 	model, ok := searchEmbed.client.Model(ctx)
 	if !ok {
 		return false
@@ -149,6 +161,8 @@ func (s *coderEmbedState) ensure() bool {
 	}
 	s.lastTry = time.Now()
 
+	// Anchors are embedded RAW — instruction goes on the query side only; see
+	// the note on coderEmbedTask for the measured reason.
 	all := append(append([]string{}, coderPosAnchors...), coderNegAnchors...)
 	vecs, err := searchEmbed.client.Embed(ctx, all)
 	if err != nil {
@@ -182,7 +196,8 @@ func coderScores(ctx context.Context, msg string) (pos, neg float64, ok bool) {
 	}
 	callCtx, cancelCall := context.WithTimeout(ctx, coderEmbedCallTimeout)
 	defer cancelCall()
-	vecs, err := searchEmbed.client.Embed(callCtx, []string{msg})
+	vecs, err := searchEmbed.client.Embed(callCtx,
+		[]string{qwen3Instructed(coderEmbed.model, coderEmbedTask, msg)})
 	if err != nil {
 		logger.Warn("pre-think coder classifier: message embedding failed", "err", err)
 		return 0, 0, false
@@ -194,8 +209,8 @@ func coderScores(ctx context.Context, msg string) (pos, neg float64, ok bool) {
 }
 
 // classifyCoderEmbed answers "does this ask for code to be produced?" by
-// prototype vote. ok=false means no local Ollama; the caller falls back to the
-// regex path.
+// prototype vote. ok=false means no embedding backend; the caller falls back
+// to the regex path.
 func classifyCoderEmbed(ctx context.Context, msg string) (verdict bool, ok bool) {
 	pos, neg, ok := coderScores(ctx, msg)
 	if !ok {

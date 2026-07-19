@@ -244,9 +244,9 @@ func destructiveIntent(ctx context.Context, s string, classify embedClassifier) 
 	// prethink_destructive_embed.go: the table missed 16 of 16 held-out phrasings,
 	// so this is not a garnish on the regex, it is the half that generalizes.
 	//
-	// No local Ollama → ok=false → we keep the regex verdict. That fails toward
+	// No embedding backend → ok=false → we keep the regex verdict. That fails toward
 	// fewer confirmations, which is the wrong direction for this field and is the
-	// reason Ollama is a hard requirement here rather than an optimization.
+	// reason an embedding backend is a hard requirement here rather than an optimization.
 	if verdict, ok := classify(ctx, s); ok {
 		return verdict
 	}

@@ -144,7 +144,7 @@ var skillCases = []struct {
 func TestRelatedSkills(t *testing.T) {
 	cands := loadRealSkills(t)
 	if _, ok := relatedSkillsEmbed(context.Background(), "probe", cands); !ok {
-		t.Skip("no local ollama embedding model")
+		t.Skip("no embedding backend configured")
 	}
 
 	var hit, cleanNeg, totalSlugs int
@@ -195,7 +195,7 @@ func TestRelatedSkills_Calibration(t *testing.T) {
 	}
 	cands := loadRealSkills(t)
 	if _, ok := relatedSkillsEmbed(context.Background(), "probe", cands); !ok {
-		t.Skip("no local ollama embedding model")
+		t.Skip("no embedding backend configured")
 	}
 
 	for _, tc := range skillCases {

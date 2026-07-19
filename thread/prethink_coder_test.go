@@ -65,11 +65,11 @@ func TestNeedsCoder_PasteWithFixIntent(t *testing.T) {
 // Held-out phrasings, DISJOINT from both the anchors and the regex table above.
 // This is the set the embedding layer is paid to win: production requests worded
 // outside the verb table, and explanation/search/ops lookalikes that share its
-// vocabulary. Skips without a local Ollama.
+// vocabulary. Skips without a configured embedding backend.
 func TestNeedsCoder_HeldOut(t *testing.T) {
 	ctx := context.Background()
 	if _, ok := classifyCoderEmbed(ctx, "probe"); !ok {
-		t.Skip("no local ollama embedding model")
+		t.Skip("no embedding backend configured")
 	}
 
 	positives := []string{
@@ -132,7 +132,7 @@ func TestNeedsCoder_HeldOut(t *testing.T) {
 func TestCoderMarginSweep(t *testing.T) {
 	ctx := context.Background()
 	if _, ok := classifyCoderEmbed(ctx, "probe"); !ok {
-		t.Skip("no local ollama embedding model")
+		t.Skip("no embedding backend configured")
 	}
 
 	cases := []struct {

@@ -44,14 +44,21 @@ const (
 	preThinkChatEntries = 16
 
 	// preThinkBudget caps the whole local analysis. The embedding classifiers talk
-	// to Ollama over localhost and normally answer in tens of milliseconds, but a
-	// wedged or cold Ollama must never become the user's latency: whatever has not
+	// to the remote backend and normally answer well inside the budget, but a
+	// slow or wedged endpoint must never become the user's latency: whatever has not
 	// answered by the deadline falls back to its regex verdict and the turn goes on.
 	//
-	// The three classifiers run CONCURRENTLY, which is what makes one budget enough.
-	// Run serially their individual timeouts would add up to fifteen seconds — worse
+	// The four classifiers run CONCURRENTLY, which is what makes one budget enough.
+	// Run serially their individual timeouts would add up to twenty seconds — worse
 	// than the LLM call this replaces.
-	preThinkBudget = 2 * time.Second
+	//
+	// 3s, not the 2s the local-Ollama era used: the budget must cover the p90 of
+	// one remote round-trip from the WORST deployed host, or the semantic layer
+	// silently degrades to regex exactly where it is needed. Measured warm p50 to
+	// SiliconFlow: ~170ms from a CN VPS, but ~1.5s from a Mac whose route to .cn
+	// goes the long way — at a 2s budget that host lost the destructive
+	// classifier on a coin flip.
+	preThinkBudget = 3 * time.Second
 )
 
 // preThinkAction computes the action hint for a user message. No model call.
@@ -76,7 +83,7 @@ func preThinkAction(t *Thread, userMsg string) string {
 }
 
 // localPreThink is preThinkAction without the Thread — the whole analysis, taking
-// only what it reads. Split out so it can be exercised against a real Ollama and
+// only what it reads. Split out so it can be exercised against a real backend and
 // the real skill pool in a test, which is the only place the concurrency, the
 // budget, and the embedding round-trip are actually load-bearing.
 func localPreThink(userMsg, recentChat string, cands []skillCandidate) (string, time.Duration) {
@@ -95,7 +102,7 @@ func localPreThink(userMsg, recentChat string, cands []skillCandidate) (string, 
 	// One context for the four classifiers, cancelled when the budget expires OR
 	// as soon as all four have answered. Without it the goroutines below would
 	// outlive the turn they were started for: each classifier's own timeouts are
-	// five seconds, so against a slow Ollama we would give up here at two seconds,
+	// five seconds, so against a slow backend we would give up here at two seconds,
 	// answer from the regexes, and leave four HTTP requests running for three more
 	// — and then do it again on the next message, and the one after that, until the
 	// classifier mutexes are a queue of embeddings nobody will ever read.
@@ -227,14 +234,14 @@ func skillCandidatesFrom(reg *skills.Registry) []skillCandidate {
 // Without it the first message of a fresh process pays ~1.5s to embed the anchor
 // sets and the skill descriptions — inside the budget, but a visible stall on
 // exactly the turn a user is most likely to be watching. Warming costs nothing on
-// a machine without Ollama: the model probe fails fast and every classifier simply
+// a machine without a configured backend: resolution fails fast and every classifier simply
 // reports itself unavailable.
 func WarmLocalPreThink(reg *skills.Registry) {
 	go func() {
 		start := time.Now()
 		if !warmPreThinkIndexes(skillCandidatesFrom(reg)) {
-			logger.Info("pre-think: no local embedding model, running on regex only",
-				"note", "<destructive> loses its semantic layer without one")
+			logger.Warn("pre-think: no embedding backend configured, running on regex only",
+				"note", "<destructive> loses its semantic layer without one; configure a siliconflow or openrouter key")
 			return
 		}
 		logger.Info("pre-think: local indexes warm", "took", time.Since(start).Round(time.Millisecond))
