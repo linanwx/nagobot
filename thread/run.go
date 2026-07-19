@@ -50,8 +50,14 @@ func (t *Thread) run(ctx context.Context, userMessage string, media []string, si
 		}
 	}
 
-	// Set up execution metrics for observability by other threads.
-	metrics := &ExecMetrics{TurnStart: time.Now()}
+	// Set up execution metrics for observability by other threads. The wake
+	// body (frontmatter stripped) is kept so the progress scanner can hand the
+	// summarizer the original request alongside the tool trace.
+	originBody := userMessage
+	if _, body, ok := SplitFrontmatter(userMessage); ok {
+		originBody = strings.TrimSpace(body)
+	}
+	metrics := &ExecMetrics{TurnStart: time.Now(), OriginRequest: truncateStr(originBody, progressOriginCap)}
 	metrics.Media = CollectMediaBreakdown(messages)
 	t.mu.Lock()
 	t.execMetrics = metrics
@@ -394,6 +400,11 @@ func parentSessionKey(key string) string {
 	}
 	if strings.HasSuffix(key, session.ImagePreviewSessionSuffix) {
 		return strings.TrimSuffix(key, session.ImagePreviewSessionSuffix)
+	}
+	if strings.HasSuffix(key, session.ProgressSummarySessionSuffix) {
+		// Recurse: a child thread's progress sibling ({p}:threads:{id}:progresssummary)
+		// must still resolve through the :threads: strip below.
+		return parentSessionKey(strings.TrimSuffix(key, session.ProgressSummarySessionSuffix))
 	}
 	if idx := strings.Index(key, session.ForkSessionInfix); idx > 0 {
 		return key[:idx]

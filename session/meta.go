@@ -26,14 +26,20 @@ const AudioPreviewSessionSuffix = ":audiopreview"
 // sessions (upfront description of incoming images).
 const ImagePreviewSessionSuffix = ":imagepreview"
 
+// ProgressSummarySessionSuffix is the session key suffix for progress-summary
+// sibling sessions (summarizing a running turn's tool activity into a note).
+const ProgressSummarySessionSuffix = ":progresssummary"
+
 // IsInternalSiblingSession reports whether the key is an internal helper sibling
-// session (pre-think / media-preview). These run auxiliary agents on behalf of a
-// parent session and carry no standalone conversation, so they must be excluded
-// from session-summary and other "real session" enumerations.
+// session (pre-think / media-preview / progress-summary). These run auxiliary
+// agents on behalf of a parent session and carry no standalone conversation, so
+// they must be excluded from session-summary and other "real session"
+// enumerations.
 func IsInternalSiblingSession(key string) bool {
 	return strings.HasSuffix(key, PreThinkSessionSuffix) ||
 		strings.HasSuffix(key, AudioPreviewSessionSuffix) ||
-		strings.HasSuffix(key, ImagePreviewSessionSuffix)
+		strings.HasSuffix(key, ImagePreviewSessionSuffix) ||
+		strings.HasSuffix(key, ProgressSummarySessionSuffix)
 }
 
 // ForkSessionInfix is the infix used in fork session keys: {parent}:fork:{purpose}.

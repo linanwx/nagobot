@@ -76,6 +76,15 @@ Five of the ten fields survived; the other five were deleted:
 
 **Anchor tuning is measured, never guessed.** `scratchpad/label_prethink.py` labels a corpus with the real pre-think prompt to get ground truth; `thread/prethink_labeled_corpus_test.go` scores each detector against it. **Agreement with the LLM is not correctness** — that file's header documents two cases where the detector is right and the LLM's label is wrong. Real-traffic fire rates can be re-measured without that corpus: sample user messages straight from `{workspace}/sessions/**/session.jsonl` (strip the wake frontmatter, filter to real user sources).
 
+### Progress Reporting (`thread/progress_scanner.go`)
+
+While a turn runs long, the person waiting gets an AI-written progress note about once a minute. The `ProgressScanner` goroutine (started in `cmd/serve.go`) sweeps `Manager.ListThreads()` every 30s; a thread is eligible after 60s elapsed with ≥1 tool call. For each eligible thread it snapshots the live `ExecMetrics` — the turn's origin request (wake body, frontmatter stripped, ≤2000 runes, captured in `run()`) plus the tool trace (args/results each ≤500 runes at record time, `toolTraceFieldRunes`; last 40 calls per report) — and wakes the **`progress-summary` sibling agent** (`{key}:progresssummary`: tools disabled, stateless, `specialty: [lowcost]`, same pattern as media previews) to turn it into a 1–3 sentence note. Delivery splits by who is waiting:
+
+- **Main user-facing session** → the note goes straight out the thread's `defaultSink` to the channel user (plus a `chat.jsonl` append with origin `progress`), bypassing the busy thread. Gated on the turn's wake source being user-visible — heartbeat/cron/compression/cross-session turns on a user-facing key never message the user.
+- **Subagent/fork child** → the note rides a `WakeProgress` wake to the user-facing ancestor, whose LLM decides `dispatch(to=user)` or `dispatch({})`. These turns must terminate via dispatch (`progressMaxDispatchNudges` in run.go caps the corrective re-iterations). Child turns report only for `session`/`resume` wake sources.
+
+The monitored thread is never touched. If the observed turn ends before the summary returns (checked via `Manager.runningTurnThread` — `ExecMetrics.TurnStart` identifies the turn), the note is dropped. Internal sibling sessions are excluded from monitoring (recursion guard). Without the `progress-summary` agent template the scanner does nothing — there is no mechanical fallback; the old scanner that pasted the raw tool trace to the ancestor was replaced by this system.
+
 ### Agent Templates (`agent/`)
 
 Agents are markdown templates in `{workspace}/agents/{name}.md` with `{{PLACEHOLDER}}` syntax. Variables set via `agent.Set(key, value)` before `Build()`. Runtime vars (TOOLS, SKILLS, USER) are set per-turn in `thread/run.go`. `{{DATE}}` and `{{CALENDAR}}` are auto-resolved in `agent.Build()` at day-level granularity (no minutes/seconds).

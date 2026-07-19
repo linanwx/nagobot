@@ -53,6 +53,7 @@ const (
 	WakeAudioPreview = msg.WakeAudioPreview
 	WakeImagePreview = msg.WakeImagePreview
 	WakeProgress     = msg.WakeProgress
+	WakeProgressSum  = msg.WakeProgressSum
 )
 
 // threadState represents the runtime state of a thread.
@@ -160,6 +161,7 @@ type ToolCallRecord = msg.ToolCallRecord
 type ExecMetrics struct {
 	mu             sync.Mutex
 	TurnStart      time.Time
+	OriginRequest  string // trimmed wake body that started the turn (frontmatter stripped); immutable after creation
 	Iterations     int
 	TotalToolCalls int
 	CurrentTool    string // empty when not executing a tool

@@ -388,6 +388,25 @@ func (m *Manager) SessionStatus(sessionKey string) tools.SessionStatusInfo {
 	return info
 }
 
+// runningTurnThread returns the thread for key only if it is still running the
+// same turn identified by turnStart (the ExecMetrics.TurnStart captured when a
+// progress snapshot was taken). The progress scanner uses this to avoid
+// delivering a note after the observed turn has ended (or a new turn started).
+func (m *Manager) runningTurnThread(key string, turnStart time.Time) *Thread {
+	m.mu.Lock()
+	t := m.threads[key]
+	m.mu.Unlock()
+	if t == nil {
+		return nil
+	}
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	if t.execMetrics == nil || !t.execMetrics.TurnStart.Equal(turnStart) {
+		return nil
+	}
+	return t
+}
+
 // ListThreads returns a summary of all active threads.
 func (m *Manager) ListThreads() []tools.ThreadInfo {
 	m.mu.Lock()
@@ -423,7 +442,10 @@ func threadInfo(t *Thread) tools.ThreadInfo {
 		info.CurrentTool = t.execMetrics.CurrentTool
 		info.ElapsedSec = int(time.Since(t.execMetrics.TurnStart).Seconds())
 		info.ToolTrace = append([]ToolCallRecord(nil), t.execMetrics.ToolCalls...)
+		info.TurnStart = t.execMetrics.TurnStart
+		info.OriginRequest = t.execMetrics.OriginRequest
 		t.execMetrics.mu.Unlock()
+		info.TurnWakeSource = string(t.lastWakeSource)
 	}
 	t.mu.Unlock()
 

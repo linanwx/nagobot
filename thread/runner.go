@@ -296,7 +296,7 @@ func (r *Runner) RunWithMessages(ctx context.Context, messages []provider.Messag
 			if r.metrics != nil {
 				r.metrics.RecordToolCall(ToolCallRecord{
 					Name:          tc.Function.Name,
-					ArgsSummary:   truncateStr(tc.Function.Arguments, 200),
+					ArgsSummary:   truncateStr(tc.Function.Arguments, toolTraceFieldRunes),
 					ResultPreview: resultPreview(result),
 					DurationMs:    time.Since(start).Milliseconds(),
 					Error:         tools.IsToolError(result),
@@ -684,7 +684,12 @@ func (r *Runner) logEstimationAccuracy(messages []provider.Message, resp *provid
 	logger.Info("token_estimate", fields...)
 }
 
-// resultPreview returns a ≤200-char preview of a tool result, skipping any
+// toolTraceFieldRunes caps each ToolCallRecord args/result field. 500 runes is
+// the trim the progress summarizer consumes; the web UI thread view shows the
+// same records.
+const toolTraceFieldRunes = 500
+
+// resultPreview returns a rune-capped preview of a tool result, skipping any
 // leading YAML frontmatter so the preview shows actual content rather than the
 // metadata header (status/time/source) most tool results lead with.
 func resultPreview(result string) string {
@@ -692,15 +697,24 @@ func resultPreview(result string) string {
 	if _, body, ok := SplitFrontmatter(result); ok {
 		src = strings.TrimSpace(body)
 	}
-	return truncateStr(src, 200)
+	return truncateStr(src, toolTraceFieldRunes)
 }
 
-// truncateStr returns the first n characters of s, appending "..." if truncated.
+// truncateStr returns the first n runes of s, appending "..." if truncated.
+// Rune-based so a cut never splits a UTF-8 sequence (tool args/results are
+// frequently CJK).
 func truncateStr(s string, n int) string {
-	if len(s) <= n {
+	if len(s) <= n { // bytes ≤ n implies runes ≤ n
 		return s
 	}
-	return s[:n] + "..."
+	count := 0
+	for i := range s {
+		if count == n {
+			return s[:i] + "..."
+		}
+		count++
+	}
+	return s
 }
 
 // repetitionDetector tracks streaming text and detects infinite repetition.

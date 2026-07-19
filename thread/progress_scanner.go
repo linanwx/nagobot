@@ -4,43 +4,69 @@ import (
 	"context"
 	"fmt"
 	"strings"
+	"sync"
 	"time"
-	"unicode/utf8"
 
 	"github.com/linanwx/nagobot/logger"
+	"github.com/linanwx/nagobot/session"
 	"github.com/linanwx/nagobot/thread/msg"
 )
 
 const (
 	progressScanInterval = 30 * time.Second // how often the scanner sweeps active threads
-	progressMinElapsed   = 60               // seconds a child must have run before its first report
-	progressInterval     = 60 * time.Second // minimum gap between reports for one child
-	progressWindow       = 3                // number of recent tool calls included in a report
-	// Safety cap on the report body (rune-safe). Each line shows full
-	// ArgsSummary + ResultPreview (≤200 chars each upstream), so 3 lines fit
-	// comfortably; this only guards against pathological input.
-	progressMaxBytes = 2000
-	// progressMaxDispatchNudges caps how many times a single progress turn is
+	progressMinElapsed   = 60               // seconds a turn must have run before its first report
+	progressInterval     = 60 * time.Second // minimum gap between reports for one thread
+	// progressOriginCap bounds the origin-request runes kept in ExecMetrics and
+	// fed to the summarizer (rune-safe via truncateStr).
+	progressOriginCap = 2000
+	// progressMaxCalls bounds how many recent tool calls feed one summary
+	// request. Each record's args/result are already ≤toolTraceFieldRunes (500)
+	// upstream, so the request stays ≲45K runes even at the cap.
+	progressMaxCalls = 40
+	// progressSummaryTimeout bounds one summarizer sibling turn. The summarizer
+	// is a small text-only turn on a value model; well past this something is
+	// wrong and the report is skipped.
+	progressSummaryTimeout = 45 * time.Second
+	// progressSummaryAgent is the tools-disabled stateless sibling agent
+	// (specialty: [lowcost]) that turns a tool trace into a progress note.
+	progressSummaryAgent = "progress-summary"
+	// progressMaxDispatchNudges caps how many times a single WakeProgress turn is
 	// re-prompted to use dispatch before the runner gives up and ends it silently
 	// (the plain text is dropped regardless). Keeps a non-complying model from
 	// burning the whole maxIterations budget on a low-value progress turn.
 	progressMaxDispatchNudges = 2
 )
 
-// ProgressScanner periodically reports a long-running child session's progress
-// to its user-facing ancestor (the "main thread"). The child is never touched:
-// the scanner reads the live ExecMetrics snapshot via Manager.ListThreads and
-// synthesizes the report mechanically (no LLM, no interruption). The report is
-// delivered as a WakeProgress wake so the ancestor's LLM can decide whether to
-// surface it to the user, ignore it, or stop the child.
+// ProgressScanner periodically reports long-running turns to the person waiting
+// on them. Every progressInterval per thread it snapshots the live ExecMetrics
+// (origin request + trimmed tool trace) via Manager.ListThreads, asks the
+// progress-summary sibling agent (tools disabled, lowcost specialty) for a
+// short note, and delivers it:
+//
+//   - main user-facing session (user-visible turn source): the note goes
+//     straight out the thread's defaultSink to the channel user.
+//   - subagent/fork child of a user-facing ancestor: the note rides a
+//     WakeProgress wake to that ancestor, whose LLM decides whether to surface
+//     it (dispatch to=user) or drop it (dispatch({})).
+//
+// The monitored thread is never touched — no interruption, no injected
+// messages. If the observed turn ends before the summary arrives, the note is
+// dropped.
 type ProgressScanner struct {
-	mgr        *Manager
-	lastReport map[string]time.Time // child session key -> last report time
+	mgr *Manager
+
+	mu         sync.Mutex
+	lastReport map[string]time.Time // monitored session key -> last report kickoff
+	inFlight   map[string]bool      // monitored session keys with a summary in progress
 }
 
 // NewProgressScanner creates a scanner bound to the given manager.
 func NewProgressScanner(mgr *Manager) *ProgressScanner {
-	return &ProgressScanner{mgr: mgr, lastReport: make(map[string]time.Time)}
+	return &ProgressScanner{
+		mgr:        mgr,
+		lastReport: make(map[string]time.Time),
+		inFlight:   make(map[string]bool),
+	}
 }
 
 // Run sweeps active threads on a ticker until ctx is cancelled.
@@ -52,110 +78,253 @@ func (p *ProgressScanner) Run(ctx context.Context) {
 		case <-ctx.Done():
 			return
 		case <-ticker.C:
-			p.scanOnce()
+			p.scanOnce(ctx)
 		}
 	}
 }
 
-// scanOnce reports every eligible running child once per progressInterval.
-func (p *ProgressScanner) scanOnce() {
-	now := time.Now()
+// reportJob is one progress report selected by a scan: the thread snapshot and
+// the delivery target (== info.SessionKey for main-session direct-to-user).
+type reportJob struct {
+	info   msg.ThreadInfo
+	target string
+}
+
+// scanOnce kicks off one report per eligible running thread, at most once per
+// progressInterval per thread. Reports run in goroutines (the summarizer is an
+// LLM call) guarded by inFlight so a slow summary never stacks a second one.
+func (p *ProgressScanner) scanOnce(ctx context.Context) {
+	if !p.summarizerConfigured() {
+		return
+	}
+	for _, job := range p.selectReports(time.Now()) {
+		go func(job reportJob) {
+			defer func() {
+				p.mu.Lock()
+				delete(p.inFlight, job.info.SessionKey)
+				p.mu.Unlock()
+			}()
+			p.report(ctx, job.info, job.target)
+		}(job)
+	}
+}
+
+// selectReports returns the reports due this scan and updates throttle state
+// (lastReport stamped, inFlight marked — the caller's goroutine must clear it).
+// Also prunes throttle state for threads no longer running.
+func (p *ProgressScanner) selectReports(now time.Time) []reportJob {
 	threads := p.mgr.ListThreads()
 	seen := make(map[string]bool, len(threads))
+	var jobs []reportJob
 
 	for _, info := range threads {
 		key := info.SessionKey
-		ancestor, ok := progressEligible(info)
+		target, ok := progressEligible(info)
 		if !ok {
 			continue
 		}
-
 		seen[key] = true
-		if last, had := p.lastReport[key]; had && now.Sub(last) < progressInterval {
+
+		p.mu.Lock()
+		last, had := p.lastReport[key]
+		busy := p.inFlight[key]
+		if busy || (had && now.Sub(last) < progressInterval) {
+			p.mu.Unlock()
 			continue
 		}
-
-		body := formatProgress(key, info)
-		target := ancestor
-		dropSink := Sink{
-			Label: "Caller is progress monitor — reply to caller is dropped",
-			Send: func(_ context.Context, response string) error {
-				if strings.TrimSpace(response) != "" {
-					logger.Debug("progress: caller output dropped", "session", target, "bytes", len(response))
-				}
-				return nil
-			},
-		}
-		p.mgr.Wake(target, &WakeMessage{
-			Source:  WakeProgress,
-			Message: body,
-			Sender:  "system",
-			Sink:    dropSink,
-		})
 		p.lastReport[key] = now
-		logger.Info("progress report sent",
-			"child", key, "ancestor", target,
-			"elapsedSec", info.ElapsedSec, "steps", info.TotalToolCalls)
+		p.inFlight[key] = true
+		p.mu.Unlock()
+
+		jobs = append(jobs, reportJob{info: info, target: target})
 	}
 
-	// Prune state for children that are no longer running (thread finished/GC'd).
+	// Prune throttle state for threads that are no longer running.
+	p.mu.Lock()
 	for key := range p.lastReport {
-		if !seen[key] {
+		if !seen[key] && !p.inFlight[key] {
 			delete(p.lastReport, key)
 		}
 	}
+	p.mu.Unlock()
+	return jobs
 }
 
-// progressEligible reports whether a thread is a running child of a user-facing
-// session that has run long enough to report, returning the ancestor key to
-// report to. ancestor == info.SessionKey would mean the key is not a child, so
-// that case returns ok=false.
-func progressEligible(info msg.ThreadInfo) (ancestor string, ok bool) {
-	if info.State != "running" || info.ElapsedSec < progressMinElapsed {
+// summarizerConfigured reports whether the progress-summary agent template is
+// loaded. Without it (workspace not synced yet) the scanner does nothing.
+func (p *ProgressScanner) summarizerConfigured() bool {
+	cfg := p.mgr.cfg
+	return cfg != nil && cfg.Agents != nil && cfg.Agents.Def(progressSummaryAgent) != nil
+}
+
+// progressEligible reports whether a running thread should be progress-reported,
+// returning the delivery target session key (== info.SessionKey for a main
+// session reporting straight to its user; a user-facing ancestor for a child).
+//
+// Gating beyond "running long enough with tool activity":
+//   - internal helper siblings (prethink / previews / progress-summary itself)
+//     are never reported — recursion guard.
+//   - a main session reports only turns woken by a real user message. Heartbeat,
+//     cron, compression, and cross-session turns on a user-facing key must never
+//     message the user.
+//   - a child reports only delegated-work turns (session wake from its parent,
+//     or a resume of one).
+func progressEligible(info msg.ThreadInfo) (target string, ok bool) {
+	if info.State != "running" || info.ElapsedSec < progressMinElapsed || info.TotalToolCalls == 0 {
+		return "", false
+	}
+	if session.IsInternalSiblingSession(info.SessionKey) {
 		return "", false
 	}
 	anc, userFacing := userFacingAncestor(info.SessionKey)
-	if !userFacing || anc == info.SessionKey {
+	if !userFacing {
+		return "", false
+	}
+	src := msg.WakeSource(info.TurnWakeSource)
+	if anc == info.SessionKey {
+		if !msg.IsUserVisibleSource(src) {
+			return "", false
+		}
+	} else if src != msg.WakeSession && src != msg.WakeResume {
 		return "", false
 	}
 	return anc, true
 }
 
-// formatProgress builds a mechanical, byte-capped progress snapshot for a child.
-// The child session key is included verbatim so the ancestor can stop it.
-func formatProgress(childKey string, info msg.ThreadInfo) string {
+// report summarizes one running turn via the progress-summary sibling and
+// delivers the note. Blocking (called in its own goroutine).
+func (p *ProgressScanner) report(ctx context.Context, info msg.ThreadInfo, target string) {
+	key := info.SessionKey
+	summary := p.summarize(ctx, info)
+	if summary == "" {
+		return
+	}
+	// Drop the note if the observed turn already ended — a progress note
+	// arriving after the final answer reads as noise (for a child, the parent
+	// gets the real completion wake anyway).
+	th := p.mgr.runningTurnThread(key, info.TurnStart)
+	if th == nil {
+		logger.Info("progress note dropped, turn ended", "session", key)
+		return
+	}
+
+	if target == key {
+		p.deliverToUser(ctx, th, summary)
+	} else {
+		p.deliverToAncestor(key, target, info, summary)
+	}
+	logger.Info("progress report sent",
+		"session", key, "target", target,
+		"elapsedSec", info.ElapsedSec, "steps", info.TotalToolCalls)
+}
+
+// summarize runs one progress-summary sibling turn and returns the note ("" on
+// timeout/failure/empty).
+func (p *ProgressScanner) summarize(ctx context.Context, info msg.ThreadInfo) string {
+	ch := make(chan string, 1)
+	key := info.SessionKey + session.ProgressSummarySessionSuffix
+	p.mgr.Wake(key, &WakeMessage{
+		Source:    WakeProgressSum,
+		Message:   buildSummaryRequest(info),
+		AgentName: progressSummaryAgent,
+		Sink: Sink{
+			Label: "progress-summary session — result returns via callback, never delivered to a channel",
+			Send:  func(context.Context, string) error { return nil },
+		},
+		OnComplete: func(response string) { ch <- response },
+	})
+
+	select {
+	case result := <-ch:
+		return strings.TrimSpace(result)
+	case <-time.After(progressSummaryTimeout):
+		logger.Warn("progress summary timeout", "session", info.SessionKey)
+		return ""
+	case <-ctx.Done():
+		return ""
+	}
+}
+
+// buildSummaryRequest renders the summarizer's wake body: the origin request
+// plus the trimmed tool trace. Field-level trimming already happened at record
+// time (toolTraceFieldRunes); this only windows the call count.
+func buildSummaryRequest(info msg.ThreadInfo) string {
 	var sb strings.Builder
-	fmt.Fprintf(&sb, "🔍 subagent %s · running %s · %d steps\n", childKey, humanizeDuration(info.ElapsedSec), info.TotalToolCalls)
+	fmt.Fprintf(&sb, "Original request (the turn below is working on this):\n%s\n\n", info.OriginRequest)
 
 	trace := info.ToolTrace
-	if n := len(trace); n > progressWindow {
-		trace = trace[n-progressWindow:]
+	dropped := 0
+	if n := len(trace); n > progressMaxCalls {
+		dropped = n - progressMaxCalls
+		trace = trace[dropped:]
 	}
-	if len(trace) > 0 {
-		sb.WriteString("recent:\n")
-		for i := range trace {
-			rec := trace[i]
-			marker := "✓"
-			if rec.Error {
-				marker = "✗"
-			}
-			// ArgsSummary / ResultPreview are already capped at 200 chars upstream
-			// (in RecordToolCall); show them in full, with newlines flattened so
-			// each call stays on one line.
-			args := flattenWS(rec.ArgsSummary)
-			result := flattenWS(rec.ResultPreview)
-			if result != "" {
-				fmt.Fprintf(&sb, "- %s(%s) → %s %s\n", rec.Name, args, result, marker)
-			} else {
-				fmt.Fprintf(&sb, "- %s(%s) %s\n", rec.Name, args, marker)
-			}
+	fmt.Fprintf(&sb, "Tool activity so far (%d calls total", info.TotalToolCalls)
+	if dropped > 0 {
+		fmt.Fprintf(&sb, "; oldest %d omitted", dropped)
+	}
+	sb.WriteString("; oldest first; args and results truncated):\n")
+	for i := range trace {
+		rec := trace[i]
+		marker := ""
+		if rec.Error {
+			marker = " [FAILED]"
+		}
+		fmt.Fprintf(&sb, "- %s(%s)%s\n", rec.Name, rec.ArgsSummary, marker)
+		if rec.ResultPreview != "" {
+			fmt.Fprintf(&sb, "  → %s\n", rec.ResultPreview)
 		}
 	}
 	if info.CurrentTool != "" {
-		fmt.Fprintf(&sb, "current: %s ⏳\n", info.CurrentTool)
+		fmt.Fprintf(&sb, "\nCurrently executing: %s\n", info.CurrentTool)
 	}
+	fmt.Fprintf(&sb, "\nElapsed: %s\n", humanizeDuration(info.ElapsedSec))
+	return sb.String()
+}
 
-	return capBytes(sb.String(), progressMaxBytes)
+// deliverToUser sends a main session's progress note straight out its
+// defaultSink (the channel user), bypassing the busy thread. Mirrors
+// SendToUser's chat.jsonl bookkeeping so pre-think's recent-chat context sees
+// the note.
+func (p *ProgressScanner) deliverToUser(ctx context.Context, th *Thread, summary string) {
+	th.mu.Lock()
+	key := th.sessionKey
+	sink := th.defaultSink
+	th.mu.Unlock()
+	if sink.IsZero() {
+		logger.Warn("progress note undeliverable, no default sink", "session", key)
+		return
+	}
+	if err := sink.Send(ctx, summary); err != nil {
+		logger.Warn("progress note delivery failed", "session", key, "err", err)
+		return
+	}
+	if dir := p.mgr.SessionDir(key); dir != "" {
+		if err := session.AppendChat(dir, session.ChatRoleAssistant, "progress", summary, time.Now()); err != nil {
+			logger.Warn("chat.jsonl progress write failed", "session", key, "err", err)
+		}
+	}
+}
+
+// deliverToAncestor wakes the user-facing ancestor with the child's summary as
+// a WakeProgress wake. The ancestor's LLM decides whether to surface it
+// (dispatch to=user) or drop it (dispatch({})); its reply-to-caller is dropped.
+func (p *ProgressScanner) deliverToAncestor(childKey, ancestor string, info msg.ThreadInfo, summary string) {
+	body := fmt.Sprintf("🔍 subagent %s · running %s · %d steps\n\n%s",
+		childKey, humanizeDuration(info.ElapsedSec), info.TotalToolCalls, summary)
+	p.mgr.Wake(ancestor, &WakeMessage{
+		Source:  WakeProgress,
+		Message: body,
+		Sender:  "system",
+		Sink: Sink{
+			Label: "Caller is progress monitor — reply to caller is dropped",
+			Send: func(_ context.Context, response string) error {
+				if strings.TrimSpace(response) != "" {
+					logger.Debug("progress: caller output dropped", "session", ancestor, "bytes", len(response))
+				}
+				return nil
+			},
+		},
+	})
 }
 
 // humanizeDuration renders a second count as "45s" / "6m12s" / "1h03m".
@@ -170,23 +339,4 @@ func humanizeDuration(sec int) string {
 	h := m / 60
 	m = m % 60
 	return fmt.Sprintf("%dh%02dm", h, m)
-}
-
-// flattenWS collapses all runs of whitespace (incl. newlines) to single spaces,
-// keeping a multi-line args/result preview on one progress line.
-func flattenWS(s string) string {
-	return strings.Join(strings.Fields(s), " ")
-}
-
-// capBytes hard-caps s to maxBytes without splitting a UTF-8 rune.
-func capBytes(s string, maxBytes int) string {
-	if len(s) <= maxBytes {
-		return s
-	}
-	b := []byte(s)
-	cut := maxBytes
-	for cut > 0 && !utf8.RuneStart(b[cut]) {
-		cut--
-	}
-	return string(b[:cut]) + "…"
 }

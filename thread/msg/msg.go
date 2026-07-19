@@ -108,8 +108,8 @@ func (s Sink) WithRetry(maxAttempts int) Sink {
 // ToolCallRecord records a single tool invocation during a turn.
 type ToolCallRecord struct {
 	Name          string `json:"name"`
-	ArgsSummary   string `json:"args"`       // first 200 chars of arguments JSON
-	ResultPreview string `json:"result"`     // first 200 chars of tool result
+	ArgsSummary   string `json:"args"`       // first 500 runes of arguments JSON
+	ResultPreview string `json:"result"`     // first 500 runes of tool result
 	DurationMs    int64  `json:"durationMs"` // execution time in milliseconds
 	Error         bool   `json:"error,omitempty"`
 }
@@ -127,6 +127,10 @@ type ThreadInfo struct {
 	ElapsedSec       int              `json:"elapsedSec,omitempty"`
 	ToolTrace        []ToolCallRecord `json:"toolTrace,omitempty"`
 	LastUserActiveAt time.Time        `json:"lastUserActiveAt,omitempty"`
+	// Progress-reporting context (only populated when state=running).
+	TurnWakeSource string    `json:"turnWakeSource,omitempty"` // wake source of the currently running turn
+	OriginRequest  string    `json:"originRequest,omitempty"`  // trimmed wake body of the running turn (frontmatter stripped)
+	TurnStart      time.Time `json:"turnStart,omitzero"`       // start time of the running turn (identifies the turn across scans)
 }
 
 // WakeSource identifies how a thread was woken.
@@ -146,7 +150,8 @@ const (
 	WakeResume       WakeSource = "resume"
 	WakeAudioPreview WakeSource = "audiopreview"
 	WakeImagePreview WakeSource = "imagepreview"
-	WakeProgress     WakeSource = "progress" // external scanner reporting a long-running child's progress to its parent
+	WakeProgress     WakeSource = "progress"        // progress scanner delivering a running child's AI-generated progress summary to its user-facing ancestor
+	WakeProgressSum  WakeSource = "progresssummary" // progress scanner asking the progress-summary sibling agent to summarize a running turn's tool activity
 )
 
 // IsUserVisibleSource reports whether the given source represents a real

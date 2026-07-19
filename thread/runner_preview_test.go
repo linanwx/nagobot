@@ -22,9 +22,25 @@ func TestResultPreview_SkipsFrontmatter(t *testing.T) {
 		t.Errorf("plain result altered: %q", got)
 	}
 
-	// Truncates to 200 chars.
-	long := "---\ntool: x\n---\n\n" + strings.Repeat("a", 500)
-	if got := resultPreview(long); len(got) > 203 { // 200 + "..."
-		t.Errorf("not truncated to 200: %d chars", len(got))
+	// Truncates to toolTraceFieldRunes runes.
+	long := "---\ntool: x\n---\n\n" + strings.Repeat("a", toolTraceFieldRunes+300)
+	if got := resultPreview(long); len(got) > toolTraceFieldRunes+3 { // cap + "..."
+		t.Errorf("not truncated to %d: %d chars", toolTraceFieldRunes, len(got))
+	}
+}
+
+func TestTruncateStr_RuneSafe(t *testing.T) {
+	// 10 CJK chars = 30 bytes. A 5-rune cap must cut on a rune boundary.
+	s := strings.Repeat("中", 10)
+	got := truncateStr(s, 5)
+	if got != strings.Repeat("中", 5)+"..." {
+		t.Errorf("rune cut wrong: %q", got)
+	}
+	// At or under the cap → unchanged.
+	if truncateStr("abcde", 5) != "abcde" {
+		t.Error("string at cap should be unchanged")
+	}
+	if truncateStr(strings.Repeat("中", 5), 5) != strings.Repeat("中", 5) {
+		t.Error("CJK string at cap should be unchanged")
 	}
 }
