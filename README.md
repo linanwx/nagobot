@@ -22,6 +22,21 @@
 
 ## Install
 
+### Docker (recommended for servers)
+
+```bash
+mkdir nagobot && cd nagobot
+curl -fsSLO https://raw.githubusercontent.com/linanwx/nagobot/main/docker-compose.yml
+echo "DEEPSEEK_API_KEY=sk-..." > .env   # any provider key you have
+docker compose up -d
+```
+
+Web UI on port 8080. All data (config, sessions, memory) lives in `./data` on the host — back it up with tar/rsync, migrate a bare-metal install by unpacking `~/.nagobot` into it. Update with `docker compose pull && docker compose up -d`.
+
+The image (`ghcr.io/linanwx/nagobot`, amd64/arm64) ships python3 with document libs, poppler, node, and ripgrep, so the agent's exec tool is fully capable in the container. Add a `SILICONFLOW_API_KEY` or `OPENROUTER_API_KEY` to enable semantic pre-think (recommended — it powers destructive-action detection).
+
+### Native (macOS / Linux)
+
 ```bash
 curl -fsSL https://nagobot.com/install.sh | bash
 ```

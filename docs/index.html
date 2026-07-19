@@ -400,7 +400,28 @@ footer{
   <div class="term">
     <div class="term-bar">
       <span class="dot"></span><span class="dot"></span><span class="dot"></span>
-      <span class="term-title">terminal</span>
+      <span class="term-title">docker &mdash; recommended</span>
+    </div>
+    <div class="term-body">
+      <div class="tl">
+        <span><span class="pr">$</span> <span class="cm">curl <span class="fl">-fsSLO</span> <span class="ur">https://raw.githubusercontent.com/linanwx/nagobot/main/docker-compose.yml</span></span></span>
+        <button type="button" class="cpb" aria-label="Copy compose download command" onclick="cc('curl -fsSLO https://raw.githubusercontent.com/linanwx/nagobot/main/docker-compose.yml',this)">copy</button>
+      </div>
+      <div class="tl">
+        <span><span class="pr">$</span> <span class="cm">echo <span class="ur">"DEEPSEEK_API_KEY=sk-..."</span> &gt; .env</span></span>
+        <button type="button" class="cpb" aria-label="Copy env command" onclick="cc('echo &quot;DEEPSEEK_API_KEY=sk-...&quot; > .env',this)">copy</button>
+      </div>
+      <div class="tl">
+        <span><span class="pr">$</span> <span class="cm">docker compose up <span class="fl">-d</span></span></span>
+        <button type="button" class="cpb" aria-label="Copy compose up command" onclick="cc('docker compose up -d',this)">copy</button>
+      </div>
+      <div class="tout"><span class="ok">&#10003;</span> Bot running on :8080 &ensp;<span class="ok">&#10003;</span> Data in ./data &ensp;<span class="ok">&#10003;</span> Update: docker compose pull</div>
+    </div>
+  </div>
+  <div class="term" style="margin-top:22px">
+    <div class="term-bar">
+      <span class="dot"></span><span class="dot"></span><span class="dot"></span>
+      <span class="term-title">native install</span>
     </div>
     <div class="term-body">
       <div class="tl">
