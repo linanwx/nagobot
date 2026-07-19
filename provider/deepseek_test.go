@@ -2,6 +2,7 @@ package provider
 
 import (
 	"encoding/json"
+	"slices"
 	"strings"
 	"testing"
 )
@@ -141,6 +142,9 @@ func TestDeepSeekInstantSuffix(t *testing.T) {
 	}
 	for _, tc := range tests {
 		p := newDeepSeekProvider("k", "", tc.modelType, tc.modelType, 0, 0)
+		if p.effort != "" {
+			t.Errorf("%s: effort = %q, want empty (server default)", tc.modelType, p.effort)
+		}
 		if p.modelName != tc.wantWire {
 			t.Errorf("%s: wire modelName = %q, want %q", tc.modelType, p.modelName, tc.wantWire)
 		}
@@ -157,6 +161,69 @@ func TestDeepSeekInstantSuffix(t *testing.T) {
 		}
 		if r.Thinking.Type != tc.wantWireType {
 			t.Errorf("%s: thinking.type = %q, want %q", tc.modelType, r.Thinking.Type, tc.wantWireType)
+		}
+	}
+}
+
+// A [bracket] suffix on the model name selects DeepSeek's reasoning depth:
+// the bracket is stripped from the wire model and re-emitted as
+// thinking.reasoning_effort. Bare aliases send no effort field at all so the
+// server applies its own default — writing "high" explicitly would be the same
+// value today but would silently pin us if DeepSeek moves that default.
+func TestDeepSeekReasoningEffortSuffix(t *testing.T) {
+	tests := []struct {
+		modelType  string
+		wantWire   string
+		wantEffort string
+	}{
+		{"deepseek-v4-pro[high]", "deepseek-v4-pro", "high"},
+		{"deepseek-v4-pro[max]", "deepseek-v4-pro", "max"},
+		{"deepseek-v4-flash[high]", "deepseek-v4-flash", "high"},
+		{"deepseek-v4-flash[max]", "deepseek-v4-flash", "max"},
+		{"deepseek-v4-pro", "deepseek-v4-pro", ""},
+		// Unregistered tiers borrowed from other providers must not reach the
+		// wire — DeepSeek 400s on anything outside high/max.
+		{"deepseek-v4-pro[low]", "deepseek-v4-pro", ""},
+		{"deepseek-v4-pro[xhigh]", "deepseek-v4-pro", ""},
+	}
+	for _, tc := range tests {
+		p := newDeepSeekProvider("k", "", tc.modelType, tc.modelType, 0, 0)
+		if p.modelName != tc.wantWire {
+			t.Errorf("%s: wire modelName = %q, want %q", tc.modelType, p.modelName, tc.wantWire)
+		}
+		if !p.thinking {
+			t.Errorf("%s: thinking must stay on for effort variants", tc.modelType)
+		}
+		r := p.buildRequest(&Request{Messages: []Message{{Role: "user", Content: "q"}}}, p.thinking, true)
+		if r.Thinking == nil || r.Thinking.Type != "enabled" {
+			t.Fatalf("%s: thinking = %+v, want type=enabled", tc.modelType, r.Thinking)
+		}
+		if r.Thinking.ReasoningEffort != tc.wantEffort {
+			t.Errorf("%s: reasoning_effort = %q, want %q", tc.modelType, r.Thinking.ReasoningEffort, tc.wantEffort)
+		}
+		body, _ := json.Marshal(r.Thinking)
+		if tc.wantEffort == "" && strings.Contains(string(body), "reasoning_effort") {
+			t.Errorf("%s: reasoning_effort must be omitted from the wire: %s", tc.modelType, body)
+		}
+	}
+}
+
+// Every registered effort variant must be a first-class model type: whitelisted
+// and carrying a context window, or resolveProvider rejects it at config time.
+func TestDeepSeekEffortVariantsRegistered(t *testing.T) {
+	reg, ok := GetProviderRegistration("deepseek")
+	if !ok {
+		t.Fatal("deepseek not registered")
+	}
+	for _, base := range []string{"deepseek-v4-pro", "deepseek-v4-flash"} {
+		for _, e := range dsReasoningEfforts {
+			name := base + "[" + e + "]"
+			if !slices.Contains(reg.Models, name) {
+				t.Errorf("%s missing from Models whitelist", name)
+			}
+			if reg.ContextWindows[name] == 0 {
+				t.Errorf("%s missing a context window", name)
+			}
 		}
 	}
 }

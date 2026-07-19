@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"slices"
 	"strings"
 	"time"
 
@@ -20,18 +21,41 @@ const deepSeekAPIBase = "https://api.deepseek.com"
 // E.g. "deepseek-v4-flash-instant" wires to "deepseek-v4-flash" with thinking off.
 const instantSuffix = "-instant"
 
+// dsReasoningEfforts are the only two thinking depths DeepSeek accepts. They
+// are selectable per model via a bracket suffix ("deepseek-v4-pro[max]"), the
+// same shape openai uses (see parseModelEffort). "high" is the server-side
+// default; "max" is for the hardest math / planning / multi-step agent work
+// and produces much longer chains of thought.
+var dsReasoningEfforts = []string{"high", "max"}
+
+// dsWithEffortVariants appends "model[effort]" entries for every base model so
+// the whitelist and context-window registries treat each tier as a first-class
+// model type. -instant aliases get none: thinking is off, so effort is moot.
+func dsWithEffortVariants(models []string, base ...string) []string {
+	for _, m := range base {
+		for _, e := range dsReasoningEfforts {
+			models = append(models, m+"["+e+"]")
+		}
+	}
+	return models
+}
+
 func init() {
+	baseV4 := []string{"deepseek-v4-pro", "deepseek-v4-flash"}
+	models := []string{
+		"deepseek-v4-pro", "deepseek-v4-flash",
+		"deepseek-v4-pro-instant", "deepseek-v4-flash-instant",
+	}
+	models = dsWithEffortVariants(models, baseV4...)
+
+	windows := map[string]int{}
+	for _, m := range models {
+		windows[m] = 1000000
+	}
+
 	RegisterProvider("deepseek", ProviderRegistration{
-		Models: []string{
-			"deepseek-v4-pro", "deepseek-v4-flash",
-			"deepseek-v4-pro-instant", "deepseek-v4-flash-instant",
-		},
-		ContextWindows: map[string]int{
-			"deepseek-v4-pro":           1000000,
-			"deepseek-v4-flash":         1000000,
-			"deepseek-v4-pro-instant":   1000000,
-			"deepseek-v4-flash-instant": 1000000,
-		},
+		Models:         models,
+		ContextWindows: windows,
 		EnvKey:  "DEEPSEEK_API_KEY",
 		EnvBase: "DEEPSEEK_API_BASE",
 		Constructor: func(apiKey, apiBase, modelType, modelName string, maxTokens int, temperature float64) Provider {
@@ -58,7 +82,8 @@ type dsStreamOpts struct {
 }
 
 type dsThinking struct {
-	Type string `json:"type"` // "enabled"
+	Type            string `json:"type"`                       // "enabled" | "disabled"
+	ReasoningEffort string `json:"reasoning_effort,omitempty"` // "high" | "max"; omitted = server default (high)
 }
 
 type dsMessage struct {
@@ -151,7 +176,8 @@ type DeepSeekProvider struct {
 	modelType   string // nagobot-facing alias (may carry -instant suffix)
 	maxTokens   int
 	temperature float64
-	thinking    bool // false for -instant aliases; suppresses thinking mode
+	thinking    bool   // false for -instant aliases; suppresses thinking mode
+	effort      string // "high"/"max" from a [bracket] suffix; "" = server default
 	client      *http.Client
 }
 
@@ -159,8 +185,16 @@ func newDeepSeekProvider(apiKey, apiBase, modelType, modelName string, maxTokens
 	if modelName == "" {
 		modelName = modelType
 	}
-	thinking := !strings.HasSuffix(modelType, instantSuffix)
+	// Strip the [effort] bracket before the -instant check: the two suffixes are
+	// mutually exclusive by registration, but parsing in this order keeps a
+	// hand-written "deepseek-v4-pro-instant[max]" from silently thinking.
+	modelName, effort := parseModelEffort(modelName)
+	baseType, _ := parseModelEffort(modelType)
+	thinking := !strings.HasSuffix(baseType, instantSuffix)
 	modelName = strings.TrimSuffix(modelName, instantSuffix)
+	if !slices.Contains(dsReasoningEfforts, effort) {
+		effort = "" // unknown tier: fall through to DeepSeek's own default
+	}
 	if apiBase == "" {
 		apiBase = deepSeekAPIBase
 	}
@@ -176,6 +210,7 @@ func newDeepSeekProvider(apiKey, apiBase, modelType, modelName string, maxTokens
 		maxTokens:   maxTokens,
 		temperature: temperature,
 		thinking:    thinking,
+		effort:      effort,
 		client:      &http.Client{},
 	}
 }
@@ -188,8 +223,9 @@ func (p *DeepSeekProvider) endpoint() string {
 func (p *DeepSeekProvider) Chat(ctx context.Context, req *Request) (ChatResult, error) {
 	start := time.Now()
 	inputChars := inputChars(req.Messages)
-	// Thinking mode is off only for -instant aliases; the default v4-pro/v4-flash
-	// always run with reasoning_effort=high on DeepSeek's side.
+	// Thinking mode is off only for -instant aliases. Effort comes from a
+	// [bracket] suffix; without one the bare v4-pro/v4-flash aliases send no
+	// reasoning_effort and DeepSeek applies its own default (high).
 	thinkingEnabled := p.thinking
 
 	logger.Info(
@@ -198,6 +234,7 @@ func (p *DeepSeekProvider) Chat(ctx context.Context, req *Request) (ChatResult, 
 		"modelType", p.modelType,
 		"modelName", p.modelName,
 		"thinkingEnabled", thinkingEnabled,
+		"reasoningEffort", p.effort,
 		"streaming", true,
 		"toolCount", len(req.Tools),
 		"inputChars", inputChars,
@@ -222,7 +259,7 @@ func (p *DeepSeekProvider) buildRequest(req *Request, thinkingEnabled, streaming
 		r.Temperature = &t
 	}
 	if thinkingEnabled {
-		r.Thinking = &dsThinking{Type: "enabled"}
+		r.Thinking = &dsThinking{Type: "enabled", ReasoningEffort: p.effort}
 	} else {
 		r.Thinking = &dsThinking{Type: "disabled"}
 	}
