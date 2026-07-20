@@ -25,15 +25,14 @@
 ### Docker (recommended for servers)
 
 ```bash
-mkdir nagobot && cd nagobot
-curl -fsSLO https://raw.githubusercontent.com/linanwx/nagobot/main/docker-compose.yml
-echo "DEEPSEEK_API_KEY=sk-..." > .env   # any provider key you have
-docker compose up -d
+curl -fsSL https://nagobot.com/docker_install.sh | bash
 ```
 
-Web UI on port 8080. All data (config, sessions, memory) lives in `./data` on the host — back it up with tar/rsync, migrate a bare-metal install by unpacking `~/.nagobot` into it. Update with `docker compose pull && docker compose up -d`.
+One command: it writes `~/.nagobot/docker-compose.yml`, asks for a provider API key (or takes one non-interactively: `DEEPSEEK_API_KEY=sk-... curl -fsSL https://nagobot.com/docker_install.sh | bash`), and starts the container. Web UI on port 8080.
 
-The image (`ghcr.io/linanwx/nagobot`, amd64/arm64) ships python3 with document libs, poppler, node, and ripgrep, so the agent's exec tool is fully capable in the container. Add a `SILICONFLOW_API_KEY` or `OPENROUTER_API_KEY` to enable semantic pre-think (recommended — it powers destructive-action detection).
+Everything lives in `~/.nagobot` — config, sessions, memory, plus the compose file and `.env` — the same layout as a native install, so migrating between native and container is zero-copy and backup/uninstall is one directory. Update by re-running the script, or `docker compose -f ~/.nagobot/docker-compose.yml pull && docker compose -f ~/.nagobot/docker-compose.yml up -d`.
+
+The image (`ghcr.io/linanwx/nagobot`, amd64/arm64) ships python3 with document libs, poppler, node, and ripgrep, so the agent's exec tool is fully capable in the container. Add a `SILICONFLOW_API_KEY` or `OPENROUTER_API_KEY` to `~/.nagobot/.env` to enable semantic pre-think (recommended — it powers destructive-action detection).
 
 ### Native (macOS / Linux)
 
