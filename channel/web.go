@@ -65,7 +65,8 @@ type WebChannel struct {
 type wsClient struct {
 	conn         *websocket.Conn
 	mu           sync.Mutex
-	boundSession string // session key this client is bound to
+	boundSession string        // session key this client is bound to
+	person       *auth.Person  // authenticated person, nil on exempt/disabled-auth connections
 }
 
 type webInboundMessage struct {
@@ -152,6 +153,7 @@ func (w *WebChannel) Start(ctx context.Context) error {
 	mux.Handle("/api/prompts/", w.protected(w.handlePromptFile))
 	mux.Handle("/api/prompts", w.protected(w.handlePrompts))
 	mux.Handle("/api/heartbeat/", w.protected(w.handleHeartbeat))
+	mux.Handle("/api/media/", w.protected(w.handleMedia))
 	mux.Handle("/", http.FileServer(http.FS(frontendFS)))
 
 	w.server = &http.Server{
@@ -246,12 +248,16 @@ func (w *WebChannel) Send(ctx context.Context, resp *Response) error {
 func (w *WebChannel) Messages() <-chan *Message { return w.messages }
 
 func (w *WebChannel) handleWS(rw http.ResponseWriter, r *http.Request) {
+	// The protected() wrapper already gated access; re-resolve to learn WHO
+	// this is (nil on exempt-IP connections) for message attribution.
+	person, _ := w.authorize(r)
+
 	conn, err := websocket.Accept(rw, r, nil)
 	if err != nil {
 		return
 	}
 
-	client := &wsClient{conn: conn, boundSession: webMainSessionID}
+	client := &wsClient{conn: conn, boundSession: webMainSessionID, person: person}
 	w.registerPeer(client)
 	w.bindClient(webMainSessionID, client)
 
@@ -311,15 +317,23 @@ func (w *WebChannel) handleWS(rw http.ResponseWriter, r *http.Request) {
 				}
 			}
 
+			username := "web-user"
+			metadata := map[string]string{
+				"chat_id": sessionID,
+			}
+			if client.person != nil {
+				// Attribute the message to the logged-in person so rendering
+				// can align it with their channel identities.
+				username = client.person.Username
+				metadata["person_id"] = client.person.ID
+			}
 			msg := &Message{
 				ID:        fmt.Sprintf("web-%d", atomic.AddInt64(&w.msgID, 1)),
 				ChannelID: channelID,
 				UserID:    sessionID,
-				Username:  "web-user",
+				Username:  username,
 				Text:      text,
-				Metadata: map[string]string{
-					"chat_id": sessionID,
-				},
+				Metadata:  metadata,
 			}
 
 			select {

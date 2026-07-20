@@ -28,6 +28,11 @@ export type ApiMessage = {
   tool_calls?: ApiToolCall[];
   // On role:"tool" results, the id of the tool call this answers.
   tool_call_id?: string;
+  // Native media markers ("<<media:image/jpeg:/abs/path>>") on user messages.
+  media?: string[];
+  // Tier-1 compressed replacement of the content — presence marks the
+  // message as compressed.
+  compressed?: string;
   tokens?: number;
   compressed_tokens?: number;
 };
@@ -55,30 +60,6 @@ export async function fetchSession(key: string): Promise<SessionDetail> {
   const res = await fetch(`/api/sessions/${sessionPath(key)}`);
   if (!res.ok) throw new Error(`GET /api/sessions/${key}: ${res.status}`);
   return res.json();
-}
-
-// --- chat.jsonl (the clean user-facing conversation log) ---
-
-export type ChatLogEntry = {
-  role: string;
-  // Structured attribution: the human speaker's name on user entries; on
-  // assistant entries, the origin that drove a bot-initiated message (a
-  // caller session key or wake source like "cron"). Absent on old entries.
-  sender?: string;
-  content: string;
-  ts?: string;
-};
-
-// fetchChat returns null when the session has no chat.jsonl (server responds
-// 404) or when the daemon predates the /chat endpoint (an HTML/404 fallback);
-// callers then fall back to the session.jsonl mapping.
-export async function fetchChat(key: string): Promise<ChatLogEntry[] | null> {
-  const res = await fetch(`/api/sessions/${sessionPath(key)}/chat`);
-  if (res.status === 404) return null;
-  if (!res.ok) throw new Error(`GET /api/sessions/${key}/chat: ${res.status}`);
-  const data = await res.json();
-  if (!data || !Array.isArray(data.messages)) return null;
-  return data.messages as ChatLogEntry[];
 }
 
 // --- daemon configuration (read-only, secrets redacted server-side) ---
@@ -128,8 +109,15 @@ export type WakeInfo = {
   sender?: string;
   // Human speaker display name (group-chat username) — `sender_name`.
   senderName?: string;
+  // Stable sender identity — `sender_id` ("discord:1480..." or
+  // "person:p_xxx" for authenticated web users). The UI aligns "me" with it.
+  senderID?: string;
   // The session that sent us this message — `caller_session_key`.
   caller?: string;
+  // Channel media summary — `media` ("[Media: photo] image_path: … caption: …").
+  media?: string;
+  // Upfront image description / audio transcription — `media_preview`.
+  mediaPreview?: string;
   type?: string;
 };
 
@@ -152,14 +140,81 @@ export function parseWakePayload(content: string): WakeInfo {
     return m?.[1]?.trim();
   };
 
+  // Frontmatter string values may be single-quoted (YAML) — strip the quotes
+  // for display.
+  const unquote = (v: string | undefined): string | undefined => {
+    if (v && v.length >= 2 && v.startsWith("'") && v.endsWith("'")) {
+      return v.slice(1, -1).replace(/''/g, "'");
+    }
+    return v;
+  };
+
   return {
     body: body.trim(),
     source: field("source"),
     sender: field("sender"),
-    senderName: field("sender_name"),
+    senderName: unquote(field("sender_name")),
+    senderID: unquote(field("sender_id")),
     caller: field("caller_session_key"),
+    media: unquote(field("media")),
+    mediaPreview: unquote(field("media_preview")),
     type: field("type"),
   };
+}
+
+// --- media attachments ---
+
+export type MediaRef = {
+  // Basename served at /api/media/{name}.
+  name: string;
+  kind: "image" | "audio" | "file";
+};
+
+function mediaKindFromMime(mime: string): MediaRef["kind"] {
+  if (mime.startsWith("image/")) return "image";
+  if (mime.startsWith("audio/")) return "audio";
+  return "file";
+}
+
+function mediaKindFromKey(key: string): MediaRef["kind"] {
+  if (key === "image_path") return "image";
+  if (key === "audio_path" || key === "voice_path") return "audio";
+  return "file";
+}
+
+// extractMediaRefs collects the message's attachments from both carriers:
+// native media markers ("<<media:image/jpeg:/abs/path>>") and the wake
+// frontmatter `media` summary ("[Media: photo] image_path: /abs/path …",
+// possibly several folded with " | "). Deduped by basename — a vision-capable
+// model gets the same file in both places.
+export function extractMediaRefs(
+  markers: string[] | undefined,
+  mediaField: string | undefined,
+): MediaRef[] {
+  const out: MediaRef[] = [];
+  const seen = new Set<string>();
+  const push = (path: string, kind: MediaRef["kind"]) => {
+    const name = path.split("/").pop() ?? "";
+    if (name === "" || seen.has(name)) return;
+    seen.add(name);
+    out.push({ name, kind });
+  };
+  for (const marker of markers ?? []) {
+    const m = marker.match(/^<<media:([^:]+):(.+)>>$/);
+    if (m) push(m[2], mediaKindFromMime(m[1]));
+  }
+  if (mediaField) {
+    for (const m of mediaField.matchAll(
+      /(image_path|audio_path|voice_path|file_path|document_path):\s*([^\s|]+)/g,
+    )) {
+      push(m[2], mediaKindFromKey(m[1]));
+    }
+  }
+  return out;
+}
+
+export function mediaURL(name: string): string {
+  return `/api/media/${encodeURIComponent(name)}`;
 }
 
 // splitSpeakerPrefix extracts the legacy "[Name]: " speaker prefix that group

@@ -216,6 +216,7 @@ type WakeMessage struct {
 	Vars             map[string]string     // Optional vars override for this wake.
 	Sender           string                // Optional sender override.
 	SenderName       string                // Optional human sender display name (e.g. group-chat username). Rendered as `sender_name` in the wake frontmatter.
+	SenderID         string                // Optional stable sender identity ("discord:1480..." or "person:p_xxx" for authenticated web users). Rendered as `sender_id` in the wake frontmatter; the web UI aligns "me" messages with it.
 	MediaInfo        string                // Optional media resource summary from the channel ("[Media: photo] image_path: …"). Rendered one-line as `media` in the wake frontmatter.
 	MediaPreview     string                // Optional upfront media preview (image description / audio transcription). Rendered one-line as `media_preview` in the wake frontmatter.
 	CallerSessionKey string                // For Source=WakeSession: the session that woke us. Empty otherwise.

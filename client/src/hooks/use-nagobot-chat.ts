@@ -3,15 +3,16 @@ import {
   type AppendMessage,
   type ThreadMessageLike,
 } from "@assistant-ui/react";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useAuth } from "@/components/auth-gate";
 import {
-  fetchChat,
+  extractMediaRefs,
   fetchSession,
   parseWakePayload,
   splitSpeakerPrefix,
   type ApiMessage,
   type ApiToolCall,
-  type ChatLogEntry,
+  type MediaRef,
 } from "@/lib/api";
 import { NagobotSocket, type SocketStatus } from "@/lib/ws";
 
@@ -21,29 +22,50 @@ export type ChatMessage = {
   text: string;
   createdAt?: Date;
   source?: string;
-  // "event" renders as a centered system notice instead of a chat bubble
-  // (wake payloads, inter-session traffic, provider errors).
-  kind?: "chat" | "event";
-  // Human speaker display name (multi-user channels).
+  // "chat"  — a conversation bubble (human or assistant speech)
+  // "event" — a system frame (wake payloads, cross-session traffic, errors)
+  // "tool"  — a single tool invocation, rendered as a collapsible card
+  kind?: "chat" | "event" | "tool";
+  // Human speaker display name (multi-user channels / web usernames).
   senderName?: string;
+  // Whether this user message was sent by the logged-in viewer ("me" aligns
+  // right, other humans align left).
+  isMe?: boolean;
   // Which session sent us this message (incoming cross-session traffic).
   caller?: string;
   // Where this session sent a message (outgoing dispatch).
   target?: string;
+  // kind:"tool" payload.
+  toolName?: string;
+  argsText?: string;
+  resultText?: string;
+  // Attachments (served via /api/media/{name}).
+  media?: MediaRef[];
+  // Upfront media description / transcription from the wake frontmatter.
+  mediaPreview?: string;
+  // Tier-1 compression replaced this content with a shorter version.
+  compressed?: boolean;
 };
 
 // MessageMeta is the metadata.custom payload handed to the thread components.
 export type MessageMeta = {
-  kind?: "event";
+  kind?: "event" | "tool";
   source?: string;
   caller?: string;
   target?: string;
   senderName?: string;
+  isMe?: boolean;
+  toolName?: string;
+  argsText?: string;
+  resultText?: string;
+  media?: MediaRef[];
+  mediaPreview?: string;
+  compressed?: boolean;
 };
 
 // Cap rendered history: the Thread view is not virtualized, and old sessions
 // can hold thousands of entries.
-const historyLimit = 200;
+const historyLimit = 300;
 
 // A turn with no response frame (e.g. a silent dispatch({}) end) would leave
 // the spinner on forever without this.
@@ -53,22 +75,6 @@ let nextLocalID = 0;
 function localID(prefix: string): string {
   nextLocalID += 1;
   return `${prefix}-${nextLocalID}`;
-}
-
-// formatDuration renders a tool-activity span compactly: "42s", "3m", "1h05m".
-function formatDuration(ms: number): string {
-  const s = Math.round(ms / 1000);
-  if (s < 60) return `${s}s`;
-  const m = Math.round(s / 60);
-  if (m < 60) return `${m}m`;
-  return `${Math.floor(m / 60)}h${String(m % 60).padStart(2, "0")}m`;
-}
-
-// Maintenance turns are conversation-invisible: heartbeat pulses and
-// compression runs are daemon internals, not chat.
-function isMaintenanceSource(source: string | undefined): boolean {
-  if (!source) return false;
-  return source.startsWith("heartbeat") || source === "compression";
 }
 
 // stripSpeaker resolves the speaker name for a user message: prefer the
@@ -84,62 +90,17 @@ function stripSpeaker(
   return { name, text: name ? rest : text };
 }
 
-// chatLogToChatMessages maps chat.jsonl — the authoritative user-facing log —
-// into the message store. Assistant entries that are wake-style system frames
-// (e.g. provider errors) render as events.
-export function chatLogToChatMessages(entries: ChatLogEntry[]): ChatMessage[] {
-  const out: ChatMessage[] = [];
-  for (const e of entries) {
-    if (e.role !== "user" && e.role !== "assistant") continue;
-    const raw = e.content ?? "";
-    if (raw.trim() === "") continue;
-
-    let text = raw;
-    let kind: ChatMessage["kind"] = "chat";
-    let source: string | undefined;
-    let senderName: string | undefined;
-    let caller: string | undefined;
-    if (raw.startsWith("---\n")) {
-      const wake = parseWakePayload(raw);
-      if (wake.sender === "system") {
-        kind = "event";
-        source = wake.source ?? wake.type;
-        caller = wake.caller;
-        text = wake.body;
-      }
-    }
-    if (kind === "chat") {
-      if (e.role === "user") {
-        const s = stripSpeaker(text, e.sender);
-        senderName = s.name || undefined;
-        text = s.text;
-      } else if (e.sender) {
-        // Assistant entry with an origin: a bot-initiated message driven by a
-        // cron/session wake rather than a direct user turn.
-        caller = e.sender;
-      }
-    }
-    if (text === "") continue;
-
-    out.push({
-      id: localID("chat"),
-      role: e.role,
-      text,
-      createdAt: e.ts ? new Date(e.ts) : undefined,
-      source,
-      kind,
-      senderName,
-      caller,
-    });
-  }
-  return out.slice(-historyLimit);
-}
+// IsMeFn decides whether a user message belongs to the logged-in viewer.
+export type IsMeFn = (
+  senderID: string | undefined,
+  senderName: string | undefined,
+) => boolean;
 
 // dispatchSendsToMessages parses a dispatch tool call's sends into messages:
-// to=user deliveries become assistant chat bubbles (that text reached the
-// user), everything else becomes an outgoing event card with its target.
-// lastCaller resolves the "caller:*" targets to the session that most
-// recently woke us. Returns [] for dispatch({}) (silent turn end).
+// to=user / to=caller:user deliveries become assistant chat bubbles (that
+// text reached the user), everything else becomes an outgoing event card
+// with its target. lastCaller resolves the "caller:*" targets to the session
+// that most recently woke us. Returns [] for dispatch({}) (silent turn end).
 //
 // result is the paired tool-result content: a rejected call (the model then
 // retries, so rendering it would duplicate the retry's sends) is skipped
@@ -229,114 +190,109 @@ function dispatchSendsToMessages(
   return out;
 }
 
-// historyToChatMessages is the fallback for sessions without a chat.jsonl
-// (e.g. cron runners): map session.jsonl, showing system-sender wakes as
-// events rather than human speech, and dispatch tool calls as the outgoing
-// messages they delivered.
-export function historyToChatMessages(api: ApiMessage[]): ChatMessage[] {
+// prettyArgs re-serializes a tool call's JSON arguments for display —
+// multi-line, unescaped — falling back to the raw string on parse failure.
+function prettyArgs(raw: string | undefined): string {
+  const s = (raw ?? "").trim();
+  if (s === "" || s === "{}") return "";
+  try {
+    return JSON.stringify(JSON.parse(s), null, 2);
+  } catch {
+    return s;
+  }
+}
+
+// sessionToChatMessages maps session.jsonl — the sole UI history source —
+// into the message store. Every entry surfaces somewhere:
+//   - assistant content and dispatch(to=user | caller:user) sends → bubbles
+//     (the only two outlets that ever reach a human)
+//   - other tool calls (with their paired results) → collapsible tool cards
+//   - system-sender wakes (cron / heartbeat / compression / cross-session)
+//     → subdued event cards, never mistaken for human speech
+//   - human wakes → user bubbles, "me" resolved via sender_id
+export function sessionToChatMessages(
+  api: ApiMessage[],
+  isMe: IsMeFn,
+): ChatMessage[] {
   const out: ChatMessage[] = [];
   let lastCaller = "";
-  // Tool results, keyed by the tool call they answer — used to drop dispatch
-  // calls the daemon rejected (the model retries those, so rendering both
-  // would duplicate every send). Result timestamps bound the end of a tool
-  // activity span (the call's own timestamp is when it was issued).
-  const toolResults = new Map<string, string>();
-  const toolResultAt = new Map<string, Date>();
+  // Tool results, keyed by the tool call they answer — dispatch uses them to
+  // drop rejected calls (the model retries those, so rendering both would
+  // duplicate every send); tool cards show them as the call's output.
+  const toolResults = new Map<string, ApiMessage>();
   for (const m of api) {
     if (m.role === "tool" && m.tool_call_id) {
-      toolResults.set(m.tool_call_id, m.content ?? "");
-      if (m.timestamp) toolResultAt.set(m.tool_call_id, new Date(m.timestamp));
+      toolResults.set(m.tool_call_id, m);
     }
   }
 
-  // Non-dispatch tool calls accumulate across consecutive tool-only turns and
-  // flush as ONE compact activity line ("web_search ×5 · web_fetch ×2") before
-  // the next visible message — the user perceives the work without the raw
-  // call payloads.
-  let pendingTools = new Map<string, number>();
-  let pendingToolsAt: Date | undefined;
-  let pendingToolsEnd: Date | undefined;
-  const flushTools = () => {
-    if (pendingTools.size === 0) return;
-    let text =
-      "⚙ " +
-      [...pendingTools.entries()]
-        .map(([name, count]) => (count > 1 ? `${name} ×${count}` : name))
-        .join(" · ");
-    // A visible span tells the reader this was a long-running stretch of
-    // work, not an instant lookup; sub-5s spans are noise.
-    if (pendingToolsAt && pendingToolsEnd) {
-      const span = pendingToolsEnd.getTime() - pendingToolsAt.getTime();
-      if (span >= 5_000) text += ` · ${formatDuration(span)}`;
-    }
-    out.push({
-      id: localID("tools"),
-      role: "assistant",
-      text,
-      createdAt: pendingToolsAt,
-      kind: "event",
-      source: "tools",
-    });
-    pendingTools = new Map();
-    pendingToolsAt = undefined;
-    pendingToolsEnd = undefined;
-  };
-
   for (const m of api) {
     if (m.role !== "user" && m.role !== "assistant") continue;
-    if (isMaintenanceSource(m.source)) continue;
     const createdAt = m.timestamp ? new Date(m.timestamp) : undefined;
     const raw = m.content ?? "";
+    const compressed = Boolean(m.compressed);
 
     if (m.role === "assistant") {
+      if (m.reasoning_content && m.reasoning_content.trim() !== "") {
+        out.push({
+          id: localID("think"),
+          role: "assistant",
+          text: "",
+          createdAt,
+          kind: "tool",
+          toolName: "thinking",
+          resultText: m.reasoning_content,
+        });
+      }
       if (raw.trim() !== "") {
-        flushTools();
         out.push({
           id: m.id || localID("hist"),
           role: "assistant",
           text: raw,
           createdAt,
+          compressed,
         });
       }
-      let hasDispatch = false;
       for (const tc of m.tool_calls ?? []) {
         const name = tc.function?.name;
         if (!name) continue;
+        const result = tc.id ? toolResults.get(tc.id) : undefined;
         if (name === "dispatch") {
-          hasDispatch = true;
+          out.push(
+            ...dispatchSendsToMessages(
+              tc,
+              createdAt,
+              lastCaller,
+              result?.content,
+            ),
+          );
           continue;
         }
-        pendingTools.set(name, (pendingTools.get(name) ?? 0) + 1);
-        pendingToolsAt ??= createdAt;
-        const end = (tc.id && toolResultAt.get(tc.id)) || createdAt;
-        if (end && (!pendingToolsEnd || end > pendingToolsEnd)) {
-          pendingToolsEnd = end;
-        }
-      }
-      if (hasDispatch) {
-        // This turn's tools ran before its dispatch delivered.
-        flushTools();
-        for (const tc of m.tool_calls ?? []) {
-          if (tc.function?.name !== "dispatch") continue;
-          const result = tc.id ? toolResults.get(tc.id) : undefined;
-          out.push(
-            ...dispatchSendsToMessages(tc, createdAt, lastCaller, result),
-          );
-        }
+        out.push({
+          id: tc.id || localID("tool"),
+          role: "assistant",
+          text: "",
+          createdAt,
+          kind: "tool",
+          toolName: name,
+          argsText: prettyArgs(tc.function?.arguments),
+          resultText: result?.content ?? "",
+          compressed: Boolean(result?.compressed),
+        });
       }
       continue;
     }
 
-    flushTools();
-
-    if (raw.trim() === "") continue;
+    // role === "user": a wake payload — human speech, or a system frame.
     const wake = parseWakePayload(raw);
-    if (wake.body === "") continue;
+    const media = extractMediaRefs(m.media, wake.media);
+    if (wake.body === "" && media.length === 0) continue;
     let text = wake.body;
     const source = wake.source ?? m.source;
     let kind: ChatMessage["kind"] = "chat";
     let senderName: string | undefined;
     let caller: string | undefined;
+    let me: boolean | undefined;
     if (wake.caller) lastCaller = wake.caller;
     if (wake.sender && wake.sender !== "user") {
       kind = "event";
@@ -345,6 +301,7 @@ export function historyToChatMessages(api: ApiMessage[]): ChatMessage[] {
       const s = stripSpeaker(text, wake.senderName);
       senderName = s.name || undefined;
       text = s.text;
+      me = isMe(wake.senderID, senderName);
     }
 
     out.push({
@@ -355,20 +312,30 @@ export function historyToChatMessages(api: ApiMessage[]): ChatMessage[] {
       source,
       kind,
       senderName,
+      isMe: me,
       caller,
+      media: media.length > 0 ? media : undefined,
+      mediaPreview: wake.mediaPreview,
+      compressed,
     });
   }
-  flushTools();
   return out.slice(-historyLimit);
 }
 
 const convertMessage = (m: ChatMessage): ThreadMessageLike => {
   const custom: MessageMeta = {};
-  if (m.kind === "event") custom.kind = "event";
+  if (m.kind === "event" || m.kind === "tool") custom.kind = m.kind;
   if (m.source) custom.source = m.source;
   if (m.caller) custom.caller = m.caller;
   if (m.target) custom.target = m.target;
   if (m.senderName) custom.senderName = m.senderName;
+  if (m.isMe !== undefined) custom.isMe = m.isMe;
+  if (m.toolName) custom.toolName = m.toolName;
+  if (m.argsText) custom.argsText = m.argsText;
+  if (m.resultText) custom.resultText = m.resultText;
+  if (m.media) custom.media = m.media;
+  if (m.mediaPreview) custom.mediaPreview = m.mediaPreview;
+  if (m.compressed) custom.compressed = true;
   return {
     id: m.id,
     role: m.role,
@@ -386,6 +353,18 @@ export function useNagobotChat(sessionKey: string) {
   // True until the history fetch settles — the pane shows a spinner instead
   // of a misleading empty-thread welcome.
   const [historyLoading, setHistoryLoading] = useState(true);
+
+  // The viewer's identity keys: their person ID plus every channel identity
+  // bound to them. A history message is "mine" when its sender_id matches.
+  const { me } = useAuth();
+  const meKeys = useMemo(() => {
+    const keys = new Set<string>();
+    if (me?.person_id) keys.add(`person:${me.person_id}`);
+    for (const id of me?.identities ?? []) keys.add(id);
+    return keys;
+  }, [me]);
+  const meKeysRef = useRef(meKeys);
+  meKeysRef.current = meKeys;
 
   const socketRef = useRef<NagobotSocket | null>(null);
   const runningTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -440,16 +419,19 @@ export function useNagobotChat(sessionKey: string) {
     let cancelled = false;
     setHistoryError(null);
     setHistoryLoading(true);
-    // chat.jsonl first (the user-facing log, including dispatch-delivered
-    // replies); sessions without one fall back to the session.jsonl mapping.
-    fetchChat(sessionKey)
-      .then(async (chat) => {
-        if (chat !== null) return chatLogToChatMessages(chat);
-        const detail = await fetchSession(sessionKey);
-        return historyToChatMessages(detail.messages);
-      })
-      .then((msgs) => {
-        if (!cancelled) setMessages(msgs);
+    // isMe: with a known sender_id, match against the viewer's identity keys.
+    // Without one (data predating sender_id, or auth disabled), fall back to
+    // the shape of the data: single-user messages carry no sender_name and
+    // read as the viewer's own; named group-chat speakers stay "others".
+    const isMe: IsMeFn = (senderID, senderName) => {
+      if (senderID) return meKeysRef.current.has(senderID);
+      return !senderName;
+    };
+    fetchSession(sessionKey)
+      .then((detail) => {
+        if (!cancelled) {
+          setMessages(sessionToChatMessages(detail.messages, isMe));
+        }
       })
       .catch((err: unknown) => {
         // A brand-new session has no file yet; an empty thread is correct.
@@ -480,7 +462,13 @@ export function useNagobotChat(sessionKey: string) {
       const sent = socketRef.current?.send(text) ?? false;
       setMessages((prev) => [
         ...prev,
-        { id: localID("user"), role: "user", text, createdAt: new Date() },
+        {
+          id: localID("user"),
+          role: "user",
+          text,
+          createdAt: new Date(),
+          isMe: true,
+        },
         ...(sent
           ? []
           : [

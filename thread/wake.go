@@ -75,6 +75,11 @@ func (t *Thread) tryMerge(first *WakeMessage) *WakeMessage {
 				// fields from later messages must fold in or they vanish.
 				first.MediaInfo = joinNonEmpty(first.MediaInfo, next.MediaInfo)
 				first.MediaPreview = joinNonEmpty(first.MediaPreview, next.MediaPreview)
+				// A merged turn from different speakers has no single sender —
+				// blank the id rather than mis-attribute the whole turn.
+				if first.SenderID != next.SenderID {
+					first.SenderID = ""
+				}
 				merged++
 			} else {
 				deferred = append(deferred, next)
@@ -223,7 +228,7 @@ func (t *Thread) RunOnce(ctx context.Context) {
 	if sysmsg.IsUserVisibleSource(msg.Source) {
 		actionOverride = preThinkAction(t, msg.Message)
 	}
-	userMessage := buildWakePayload(msg.Source, msg.Message, t.id, t.sessionKey, sessionDir, deliveryLabel, modelLabel, agentName, loc, sender, msg.SenderName, msg.MediaInfo, msg.MediaPreview, msg.CallerSessionKey, msg.EnqueuedAt, actionOverride, msg.RecentChat)
+	userMessage := buildWakePayload(msg.Source, msg.Message, t.id, t.sessionKey, sessionDir, deliveryLabel, modelLabel, agentName, loc, sender, msg.SenderName, msg.SenderID, msg.MediaInfo, msg.MediaPreview, msg.CallerSessionKey, msg.EnqueuedAt, actionOverride, msg.RecentChat)
 
 	// Build injection function: between tool iterations, drain inbox for
 	// mergeable user messages and inject them into the LLM conversation.
@@ -252,7 +257,7 @@ func (t *Thread) RunOnce(ctx context.Context) {
 			select {
 			case next := <-t.inbox:
 				if canMerge(msg, next) {
-					payload := buildWakePayload(next.Source, next.Message, t.id, t.sessionKey, sessionDir, deliveryLabel, modelLabel, agentName, loc, senderOrDefault(next.Sender, next.Source), next.SenderName, next.MediaInfo, next.MediaPreview, next.CallerSessionKey, next.EnqueuedAt, "", next.RecentChat)
+					payload := buildWakePayload(next.Source, next.Message, t.id, t.sessionKey, sessionDir, deliveryLabel, modelLabel, agentName, loc, senderOrDefault(next.Sender, next.Source), next.SenderName, next.SenderID, next.MediaInfo, next.MediaPreview, next.CallerSessionKey, next.EnqueuedAt, "", next.RecentChat)
 					if payload != "" {
 						payload = markInjected(payload)
 						injected = append(injected, provider.UserMessage(payload))
@@ -316,7 +321,7 @@ func (t *Thread) RunOnce(ctx context.Context) {
 // actionOverride, when non-empty, replaces the default wakeActionHint for this
 // payload (used by pre-think). recentChat is rendered into the markdown body
 // (not YAML frontmatter) so long chat history stays out of metadata.
-func buildWakePayload(source WakeSource, message, threadID, sessionKey, sessionDir, deliveryLabel, model, agent string, loc *time.Location, sender, senderName, mediaInfo, mediaPreview, callerSessionKey string, enqueuedAt time.Time, actionOverride, recentChat string) string {
+func buildWakePayload(source WakeSource, message, threadID, sessionKey, sessionDir, deliveryLabel, model, agent string, loc *time.Location, sender, senderName, senderID, mediaInfo, mediaPreview, callerSessionKey string, enqueuedAt time.Time, actionOverride, recentChat string) string {
 	message = strings.TrimSpace(message)
 	if message == "" {
 		return ""
@@ -346,6 +351,7 @@ func buildWakePayload(source WakeSource, message, threadID, sessionKey, sessionD
 		Delivery:         delivery,
 		Sender:           sender,
 		SenderName:       senderName,
+		SenderID:         senderID,
 		Media:            oneLine(mediaInfo),
 		MediaPreview:     oneLine(mediaPreview),
 		CallerSessionKey: callerSessionKey,
@@ -421,6 +427,7 @@ type wakeHeader struct {
 	Delivery         string `yaml:"delivery"`
 	Sender           string `yaml:"sender"`
 	SenderName       string `yaml:"sender_name,omitempty"`
+	SenderID         string `yaml:"sender_id,omitempty"`
 	Media            string `yaml:"media,omitempty"`
 	MediaPreview     string `yaml:"media_preview,omitempty"`
 	CallerSessionKey string `yaml:"caller_session_key,omitempty"`

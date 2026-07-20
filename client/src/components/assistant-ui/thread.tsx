@@ -24,6 +24,7 @@ import { TooltipIconButton } from "@/components/assistant-ui/tooltip-icon-button
 import { Button } from "@/components/ui/button";
 import { useCoarsePointer } from "@/hooks/use-coarse-pointer";
 import type { MessageMeta } from "@/hooks/use-nagobot-chat";
+import { mediaURL } from "@/lib/api";
 import { formatMessageTime } from "@/lib/sessions";
 import { cn } from "@/lib/utils";
 import {
@@ -206,10 +207,136 @@ const ThreadMessage: FC = () => {
   );
 
   if (customKind === "event") return <EventMessage />;
+  if (customKind === "tool") return <ToolCardMessage />;
   if (isEditing) return <EditComposer />;
   if (role === "user") return <UserMessage />;
   return <AssistantMessageComponent />;
 };
+
+// CompressedChip marks content whose original was replaced by Tier-1
+// compression — what's shown is the compressed version, not the full text.
+const CompressedChip: FC = () => (
+  <span className="rounded bg-violet-500/15 px-1 py-px text-[10px] tracking-wide text-violet-700 uppercase dark:text-violet-300">
+    compressed
+  </span>
+);
+
+// Tool card bodies (args / result) get a hard cap so a huge read_file result
+// can't take over the thread even when expanded.
+const toolBodyMaxChars = 6000;
+
+function capText(text: string): string {
+  if (text.length <= toolBodyMaxChars) return text;
+  return text.slice(0, toolBodyMaxChars) + `\n… (${text.length} chars total)`;
+}
+
+// oneLinePreview compacts a text into a single header-line preview.
+function oneLinePreview(text: string, max: number): string {
+  const line = text.replace(/\s+/g, " ").trim();
+  return line.length > max ? line.slice(0, max) + "…" : line;
+}
+
+// ToolCardMessage renders a single tool invocation as a collapsed one-line
+// card — name plus an args preview — expanding to the full arguments and the
+// paired result. This is the "everything else" bucket: any assistant activity
+// that is not speech (and not a dispatch delivery) is a tool call, so the
+// full trace stays visible without drowning the conversation.
+const ToolCardMessage: FC = () => {
+  const meta = useMessageMeta();
+  const [expanded, setExpanded] = useState(false);
+  const thinking = meta.toolName === "thinking";
+  const preview = oneLinePreview(
+    thinking ? (meta.resultText ?? "") : (meta.argsText ?? ""),
+    100,
+  );
+  return (
+    <MessagePrimitive.Root
+      data-slot="aui_tool-card-root"
+      className="px-2 py-0.5"
+      data-role="tool"
+    >
+      <div className="border-border/25 text-muted-foreground w-full rounded-md border bg-transparent px-3 py-1.5 text-xs opacity-80">
+        <button
+          type="button"
+          onClick={() => setExpanded((v) => !v)}
+          className="flex w-full items-center gap-2 text-start"
+        >
+          <span className="shrink-0">{thinking ? "💭" : "⚙"}</span>
+          <span className="shrink-0 font-mono font-medium">
+            {meta.toolName}
+          </span>
+          {meta.compressed ? <CompressedChip /> : null}
+          <span className="text-muted-foreground/60 min-w-0 flex-1 truncate font-mono text-[11px]">
+            {preview}
+          </span>
+          <MessageTimestamp />
+          <span className="text-muted-foreground/60 shrink-0 text-[10px]">
+            {expanded ? "▲" : "▼"}
+          </span>
+        </button>
+        {expanded && (
+          <div className="mt-1.5 flex flex-col gap-1.5">
+            {meta.argsText ? (
+              <pre className="bg-muted/60 max-h-60 overflow-auto rounded p-2 font-mono text-[11px] whitespace-pre-wrap">
+                {capText(meta.argsText)}
+              </pre>
+            ) : null}
+            {meta.resultText ? (
+              <pre className="border-border/40 max-h-80 overflow-auto rounded border p-2 font-mono text-[11px] whitespace-pre-wrap">
+                {capText(meta.resultText)}
+              </pre>
+            ) : null}
+            {!meta.argsText && !meta.resultText ? (
+              <span className="text-muted-foreground/60 text-[11px] italic">
+                no arguments, no recorded result
+              </span>
+            ) : null}
+          </div>
+        )}
+      </div>
+    </MessagePrimitive.Root>
+  );
+};
+
+// MediaAttachments renders a user message's attachments from the protected
+// /api/media route: images inline, audio as a player, anything else as a
+// download link. mediaPreview (the upfront AI description/transcription)
+// renders as a dim caption.
+const MediaAttachments: FC<{
+  media: NonNullable<MessageMeta["media"]>;
+  preview?: string | undefined;
+}> = ({ media, preview }) => (
+  <div className="flex flex-col items-end gap-1.5">
+    {media.map((m) =>
+      m.kind === "image" ? (
+        <img
+          key={m.name}
+          src={mediaURL(m.name)}
+          alt={m.name}
+          loading="lazy"
+          className="max-h-72 max-w-full rounded-xl border object-contain"
+        />
+      ) : m.kind === "audio" ? (
+        <audio key={m.name} src={mediaURL(m.name)} controls className="max-w-full" />
+      ) : (
+        <a
+          key={m.name}
+          href={mediaURL(m.name)}
+          target="_blank"
+          rel="noreferrer"
+          className="bg-muted text-foreground flex items-center gap-1.5 rounded-lg border px-3 py-1.5 text-xs underline-offset-2 hover:underline"
+        >
+          📎 {m.name}
+        </a>
+      ),
+    )}
+    {preview ? (
+      <span className="text-muted-foreground/70 max-w-full text-[11px] italic">
+        {preview}
+      </span>
+    ) : null}
+  </div>
+);
 
 // Event bodies longer than this collapse by default. Text-length heuristic on
 // purpose: it is stable before layout, so cards never resize after mount.
@@ -229,6 +356,8 @@ function eventBadgeClass(source: string | undefined): string {
       return "bg-emerald-500/15 text-emerald-700 dark:text-emerald-300";
     case "cron":
       return "bg-amber-500/15 text-amber-700 dark:text-amber-300";
+    case "compression":
+      return "bg-violet-500/15 text-violet-700 dark:text-violet-300";
     case "error":
       return "bg-red-500/15 text-red-700 dark:text-red-300";
     default:
@@ -236,11 +365,16 @@ function eventBadgeClass(source: string | undefined): string {
   }
 }
 
-// Quiet sources are operational traces (subagent progress snapshots, tool-use
-// summaries), not conversation: their card is dimmed and collapses to the
-// one-line summary.
+// Quiet sources are operational traces (subagent progress snapshots,
+// heartbeat pulses, compression runs), not conversation: their card is
+// dimmed and collapses to the one-line summary.
 function isQuietEventSource(source: string | undefined): boolean {
-  return source === "progress" || source === "tools";
+  return (
+    source === "progress" ||
+    source === "tools" ||
+    source === "compression" ||
+    (source?.startsWith("heartbeat") ?? false)
+  );
 }
 
 // Sources whose body is LLM-authored message text and therefore markdown;
@@ -605,7 +739,7 @@ const AssistantMessage: FC = () => {
       data-role="assistant"
       className="fade-in slide-in-from-bottom-1 animate-in relative -mb-7.5 pb-7.5 duration-150"
     >
-      {meta.caller || createdAt ? (
+      {meta.caller || meta.compressed || createdAt ? (
         <div
           data-slot="aui_assistant-message-header"
           className="flex items-baseline gap-2 px-2 pb-0.5"
@@ -615,6 +749,7 @@ const AssistantMessage: FC = () => {
               via {meta.caller}
             </span>
           ) : null}
+          {meta.compressed ? <CompressedChip /> : null}
           <MessageTimestamp />
         </div>
       ) : null}
@@ -745,36 +880,68 @@ const AssistantActionBar: FC = () => {
   );
 };
 
+// UserMessage renders human speech. The logged-in viewer's own messages
+// (sender_id matches an identity of theirs) align right in the accent bubble;
+// other humans align left with their name — a group chat with the assistant
+// and other users on the left, "me" on the right.
 const UserMessage: FC = () => {
   const meta = useMessageMeta();
   const createdAt = useAuiState(
     (s) => s.message.createdAt as Date | undefined,
   );
+  // History messages carry an explicit isMe verdict; live-composed messages
+  // and legacy paths without one default to "me" (the composer is the
+  // viewer).
+  const isMe = meta.isMe !== false;
   return (
     <MessagePrimitive.Root
       data-slot="aui_user-message-root"
-      className="fade-in slide-in-from-bottom-1 animate-in grid auto-rows-auto grid-cols-[minmax(72px,1fr)_auto] content-start gap-y-2 px-2 duration-150 [&:where(>*)]:col-start-2"
+      className={cn(
+        "fade-in slide-in-from-bottom-1 animate-in grid auto-rows-auto content-start gap-y-2 px-2 duration-150",
+        isMe
+          ? "grid-cols-[minmax(72px,1fr)_auto] [&:where(>*)]:col-start-2"
+          : "grid-cols-[auto_minmax(72px,1fr)] [&:where(>*)]:col-start-1",
+      )}
       data-role="user"
     >
       <UserMessageAttachments />
 
-      <div className="aui-user-message-content-wrapper relative col-start-2 min-w-0">
+      <div
+        className={cn(
+          "aui-user-message-content-wrapper relative min-w-0",
+          isMe ? "col-start-2" : "col-start-1",
+        )}
+      >
         {/* Inside the bubble wrapper so it always stacks directly above the
             bubble — as a grid child it would land in the spacer column. */}
-        {meta.senderName || createdAt ? (
+        {meta.senderName || meta.compressed || createdAt ? (
           <div
             data-slot="aui_user-message-header"
-            className="mb-0.5 flex items-baseline justify-end gap-2 px-1"
+            className={cn(
+              "mb-0.5 flex items-baseline gap-2 px-1",
+              isMe ? "justify-end" : "justify-start",
+            )}
           >
             {meta.senderName ? (
               <span className="text-muted-foreground text-xs font-medium">
                 {meta.senderName}
               </span>
             ) : null}
+            {meta.compressed ? <CompressedChip /> : null}
             <MessageTimestamp />
           </div>
         ) : null}
-        <div className="aui-user-message-content peer bg-muted text-foreground rounded-xl px-4 py-2 wrap-break-word empty:hidden">
+        {meta.media ? (
+          <div className={cn("mb-1.5", !isMe && "[&>div]:items-start")}>
+            <MediaAttachments media={meta.media} preview={meta.mediaPreview} />
+          </div>
+        ) : null}
+        <div
+          className={cn(
+            "aui-user-message-content peer text-foreground rounded-xl px-4 py-2 wrap-break-word empty:hidden",
+            isMe ? "bg-muted" : "bg-background border",
+          )}
+        >
           {/* NOTE: do not swap Text for MarkdownText here — the registry
               MarkdownText renders empty outside assistant messages. */}
           <MessagePrimitive.Parts />

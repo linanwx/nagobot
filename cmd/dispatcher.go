@@ -96,6 +96,19 @@ func (d *Dispatcher) dispatch(ctx context.Context, ch channel.Channel, msg *chan
 	source := d.wakeSource(ch)
 	senderName := senderDisplayName(msg)
 
+	// Stable sender identity for rendering attribution. Chat channels use
+	// channel:userID (matches the identity dictionary / person bindings);
+	// authenticated web users are attributed to their person. Exempt web
+	// connections and channels without user IDs stay unattributed.
+	senderID := ""
+	if ch.Name() == "web" {
+		if pid := msg.Metadata["person_id"]; pid != "" {
+			senderID = "person:" + pid
+		}
+	} else if msg.UserID != "" {
+		senderID = ch.Name() + ":" + msg.UserID
+	}
+
 	// Media summary + upfront preview ride the wake frontmatter (`media` /
 	// `media_preview`), keeping the markdown body pure user speech.
 	mediaInfo := msg.Metadata["media_summary"]
@@ -125,6 +138,7 @@ func (d *Dispatcher) dispatch(ctx context.Context, ch channel.Channel, msg *chan
 		AgentName:    agentName,
 		Vars:         vars,
 		SenderName:   senderName,
+		SenderID:     senderID,
 		MediaInfo:    mediaInfo,
 		MediaPreview: mediaPreview,
 	})
