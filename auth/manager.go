@@ -125,8 +125,10 @@ func webPort(addr string) string {
 func (m *Manager) Enabled() bool { return m != nil && !m.disabled }
 
 // ExemptIP reports whether a request source IP skips auth. Only the direct
-// RemoteAddr counts; forwarding headers are never consulted. Loopback is
-// always exempt.
+// RemoteAddr counts; forwarding headers are never consulted. There is no
+// implicit exemption — not even loopback: a browser on the host machine must
+// log in like any other. Deployments that want unauthenticated local tooling
+// opt in explicitly with exemptCidrs: ["127.0.0.0/8"].
 func (m *Manager) ExemptIP(remoteAddr string) bool {
 	host, _, err := net.SplitHostPort(remoteAddr)
 	if err != nil {
@@ -135,9 +137,6 @@ func (m *Manager) ExemptIP(remoteAddr string) bool {
 	ip := net.ParseIP(host)
 	if ip == nil {
 		return false
-	}
-	if ip.IsLoopback() {
-		return true
 	}
 	for _, n := range m.exemptNets {
 		if n.Contains(ip) {

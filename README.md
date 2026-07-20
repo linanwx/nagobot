@@ -28,7 +28,7 @@
 curl -fsSL https://nagobot.com/docker_install.sh | bash
 ```
 
-One command: it writes `~/.nagobot/docker-compose.yml`, asks for a provider API key (or takes one non-interactively: `DEEPSEEK_API_KEY=sk-... curl -fsSL https://nagobot.com/docker_install.sh | bash`), and starts the container. Web UI on port 8080.
+One command: it writes `~/.nagobot/docker-compose.yml`, asks for a provider API key (or takes one non-interactively: `DEEPSEEK_API_KEY=sk-... curl -fsSL https://nagobot.com/docker_install.sh | bash`), and starts the container. Web UI on port 8080 — login-gated: mint a one-time login link with `nagobot login-link` (in Docker: `docker compose -f ~/.nagobot/docker-compose.yml exec nagobot nagobot login-link`), open it, and register a passkey.
 
 Everything lives in `~/.nagobot` — config, sessions, memory, plus the compose file and `.env` — the same layout as a native install, so migrating between native and container is zero-copy and backup/uninstall is one directory. Update by re-running the script, or `docker compose -f ~/.nagobot/docker-compose.yml pull && docker compose -f ~/.nagobot/docker-compose.yml up -d`.
 

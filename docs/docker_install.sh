@@ -171,6 +171,8 @@ docker compose -f "$COMPOSE_FILE" up -d
 say ""
 say "nagobot is running."
 say "  Web UI:   http://localhost:8080"
+say "            First visit requires a login link — mint one with:"
+say "            docker compose -f $COMPOSE_FILE exec nagobot nagobot login-link"
 say "  Data:     $NAGOBOT_HOME (config.yaml, sessions, memory)"
 say "  Logs:     docker compose -f $COMPOSE_FILE logs -f"
 say "  Update:   re-run this script, or: docker compose -f $COMPOSE_FILE pull && docker compose -f $COMPOSE_FILE up -d"

@@ -177,8 +177,8 @@ func TestExemptIP(t *testing.T) {
 		t.Fatal(err)
 	}
 	cases := map[string]bool{
-		"127.0.0.1:5432":     true,  // loopback always exempt
-		"[::1]:5432":         true,  // v6 loopback
+		"127.0.0.1:5432":     false, // loopback has NO implicit exemption
+		"[::1]:5432":         false, // v6 loopback neither
 		"100.117.211.46:1":   true,  // tailscale CGNAT range from config
 		"172.17.0.1:9":       true,  // docker bridge from config
 		"192.168.1.5:1":      false, // LAN not in list
@@ -189,6 +189,22 @@ func TestExemptIP(t *testing.T) {
 		if got := m.ExemptIP(addr); got != want {
 			t.Errorf("ExemptIP(%q) = %v, want %v", addr, got, want)
 		}
+	}
+
+	// Explicit loopback opt-in works.
+	cfg.Channels.Web.Auth.ExemptCIDRs = append(cfg.Channels.Web.Auth.ExemptCIDRs, "127.0.0.0/8")
+	m2, err := NewManager(t.TempDir(), cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !m2.ExemptIP("127.0.0.1:5432") {
+		t.Error("configured 127.0.0.0/8 should exempt loopback")
+	}
+
+	// Default manager (no exemptCidrs at all): nothing is exempt.
+	m3 := newTestManager(t)
+	if m3.ExemptIP("127.0.0.1:1") || m3.ExemptIP("8.8.8.8:1") {
+		t.Error("default config must exempt nothing")
 	}
 }
 

@@ -14,9 +14,9 @@ const (
 	setupCookieName   = "nagobot_setup"
 )
 
-// authorize resolves the request to an access decision. Exempt IPs (loopback
-// + configured CIDRs) and disabled auth pass without a person; otherwise a
-// valid device-session cookie is required.
+// authorize resolves the request to an access decision. Exempt IPs
+// (configured CIDRs only — loopback has no implicit pass) and disabled auth
+// pass without a person; otherwise a valid device-session cookie is required.
 func (w *WebChannel) authorize(r *http.Request) (person *auth.Person, allowed bool) {
 	if w.authMgr == nil || !w.authMgr.Enabled() {
 		return nil, true

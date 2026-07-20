@@ -330,8 +330,8 @@ type WebChannelConfig struct {
 
 // WebAuthConfig controls web login. Auth is ON by default: browsers must
 // bootstrap via a one-time login link (`nagobot login-link`) and then hold a
-// passkey. Requests from exempt CIDRs (loopback by default) skip auth
-// entirely — that is the CLI/tooling escape hatch.
+// passkey. There is no implicit exemption, loopback included — local
+// tooling that needs unauthenticated API access opts in via ExemptCIDRs.
 type WebAuthConfig struct {
 	Disabled bool `json:"disabled,omitempty" yaml:"disabled,omitempty"`
 	// RPID is the WebAuthn relying-party ID (a registrable domain, not an
@@ -343,7 +343,8 @@ type WebAuthConfig struct {
 	// derived from Addr.
 	Origins []string `json:"origins,omitempty" yaml:"origins,omitempty"`
 	// ExemptCIDRs skip auth by source IP (RemoteAddr only, proxy headers are
-	// never trusted). Loopback is always exempt in addition to this list.
+	// never trusted). Empty by default — add "127.0.0.0/8" to exempt local
+	// curl/tooling if a deployment wants that.
 	ExemptCIDRs []string `json:"exemptCidrs,omitempty" yaml:"exemptCidrs,omitempty"`
 	// PublicURL is the externally reachable base URL used when printing
 	// login links, e.g. "https://bot.example.ts.net". Defaults to
