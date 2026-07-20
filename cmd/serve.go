@@ -12,6 +12,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/linanwx/nagobot/auth"
 	"github.com/linanwx/nagobot/channel"
 	"github.com/linanwx/nagobot/config"
 	cronpkg "github.com/linanwx/nagobot/cron"
@@ -81,6 +82,15 @@ func runServe(cmd *cobra.Command, args []string) error {
 	if err != nil {
 		return err
 	}
+
+	// Web auth manager: person registry, login codes, passkeys, and the
+	// channel-identity dictionary the dispatcher feeds. Fail-fast: a broken
+	// store must not silently disable auth.
+	authMgr, err := auth.NewManager(filepath.Join(workspace, "system"), cfg)
+	if err != nil {
+		return fmt.Errorf("failed to init web auth: %w", err)
+	}
+
 	chManager := channel.NewManager()
 	chManager.WorkspaceFn = func() string { return workspace }
 
@@ -163,6 +173,9 @@ func runServe(cmd *cobra.Command, args []string) error {
 			return output, nil
 		case "heartbeat.status":
 			return hbScheduler.Status(), nil
+		case "auth.loginlink":
+			link, expires := authMgr.MintLoginLink()
+			return loginLinkResponse{Link: link, Expires: expires}, nil
 		case "session.stop":
 			var p sessionStopParams
 			if err := json.Unmarshal(params, &p); err != nil {
@@ -196,7 +209,7 @@ func runServe(cmd *cobra.Command, args []string) error {
 	}
 
 	if targets.web {
-		chManager.Register(channel.NewWebChannel(cfg))
+		chManager.Register(channel.NewWebChannel(cfg, authMgr))
 	}
 	if targets.telegram {
 		chManager.Register(channel.NewTelegramChannel(cfg))
@@ -306,6 +319,7 @@ func runServe(cmd *cobra.Command, args []string) error {
 
 	// Dispatcher reads from channels and dispatches to threads.
 	dispatcher := NewDispatcher(chManager, threadMgr, cfg)
+	dispatcher.authMgr = authMgr
 
 	// Hot-reload: periodically check config for new/removed channel tokens.
 	go refreshChannelsLoop(ctx, chManager, dispatcher)

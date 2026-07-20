@@ -324,7 +324,31 @@ type DiscordChannelConfig struct {
 
 // WebChannelConfig contains Web chat configuration.
 type WebChannelConfig struct {
-	Addr string `json:"addr,omitempty" yaml:"addr,omitempty"` // default: 127.0.0.1:18080
+	Addr string         `json:"addr,omitempty" yaml:"addr,omitempty"` // default: 127.0.0.1:18080
+	Auth *WebAuthConfig `json:"auth,omitempty" yaml:"auth,omitempty"`
+}
+
+// WebAuthConfig controls web login. Auth is ON by default: browsers must
+// bootstrap via a one-time login link (`nagobot login-link`) and then hold a
+// passkey. Requests from exempt CIDRs (loopback by default) skip auth
+// entirely — that is the CLI/tooling escape hatch.
+type WebAuthConfig struct {
+	Disabled bool `json:"disabled,omitempty" yaml:"disabled,omitempty"`
+	// RPID is the WebAuthn relying-party ID (a registrable domain, not an
+	// IP). Defaults to "localhost". Passkeys are bound to this domain —
+	// changing it strands existing credentials.
+	RPID string `json:"rpId,omitempty" yaml:"rpId,omitempty"`
+	// Origins are the exact browser origins allowed in WebAuthn ceremonies,
+	// e.g. ["https://bot.example.ts.net"]. Defaults to localhost variants
+	// derived from Addr.
+	Origins []string `json:"origins,omitempty" yaml:"origins,omitempty"`
+	// ExemptCIDRs skip auth by source IP (RemoteAddr only, proxy headers are
+	// never trusted). Loopback is always exempt in addition to this list.
+	ExemptCIDRs []string `json:"exemptCidrs,omitempty" yaml:"exemptCidrs,omitempty"`
+	// PublicURL is the externally reachable base URL used when printing
+	// login links, e.g. "https://bot.example.ts.net". Defaults to
+	// http://localhost:{port}.
+	PublicURL string `json:"publicUrl,omitempty" yaml:"publicUrl,omitempty"`
 }
 
 // WeComChannelConfig contains WeCom (WeChat Work) AI Bot configuration.

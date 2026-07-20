@@ -34,7 +34,7 @@ func newTestWebChannelWithSession(t *testing.T, sessionKey string) *WebChannel {
 	}
 
 	cfg := config.DefaultConfig()
-	ch := NewWebChannel(cfg).(*WebChannel)
+	ch := NewWebChannel(cfg, nil).(*WebChannel)
 	ch.workspace = workspace
 	ch.SetContextBudgetFn(func(key string) (int, int, bool) {
 		if key == sessionKey {

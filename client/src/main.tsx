@@ -2,6 +2,7 @@ import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
 import "./index.css";
 import App from "./App.tsx";
+import { AuthGate } from "./components/auth-gate.tsx";
 
 // Follow the system color scheme; shadcn theming keys off the .dark class.
 const darkQuery = window.matchMedia("(prefers-color-scheme: dark)");
@@ -13,6 +14,8 @@ darkQuery.addEventListener("change", applyTheme);
 
 createRoot(document.getElementById("root")!).render(
   <StrictMode>
-    <App />
+    <AuthGate>
+      <App />
+    </AuthGate>
   </StrictMode>,
 );

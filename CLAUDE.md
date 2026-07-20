@@ -170,6 +170,17 @@ Audio recognition follows the same pattern as vision: `AudioModels` registered p
 
 Conversation history persisted as `{sessionsDir}/{sessionKey}/session.jsonl`. Auto-sanitized on save. Context pressure hooks trigger compression when token budget is exceeded.
 
+### Web Auth (`auth/`, `channel/web_auth.go`)
+
+The web UI is login-gated. The credential model has exactly two stages and no passwords: a **one-time login link** (`nagobot login-link`, 30 min, single use, minted via RPC — deliberately a hard CLI command, never an LLM tool) bootstraps a browser, and a **passkey** (WebAuthn, `go-webauthn` server-side, `@simplewebauthn/browser` client-side) is the durable login. Opening a link offers create-new-user or associate-existing-user (with second confirmation), then registers a passkey; lost passkey = new link + associate back to your username. Without a link, the page offers only "Sign in with passkey"; a spent/expired link shows invalid (HTTP 410, indistinguishable by design).
+
+- **Person registry** (`{workspace}/system/persons.json`): one human across channels — `{id, username, identities: ["discord:1480..."], credentials}`. An identity belongs to at most one person; rebinding moves it. Trust model: all users are trusted (no channel-side verification of identity claims), the UI double-confirms.
+- **Channel-identity dictionary** (`system/identities.json`): the Dispatcher records `channel:userID → display name` per real user message (`RecordIdentity` in `dispatch()`, user-visible sources only) so the associate flow can list "discord: Nansen". Name-only display; the stable platform user ID is the key.
+- **Device sessions** (`system/web_sessions.json`): SHA-256 token hashes → person, 90-day TTL, sliding LastSeen persisted at ≥1h granularity. Cookie is HttpOnly SameSite=Lax. Login codes live in memory only — restart voids outstanding links.
+- **IP exemption**: loopback is ALWAYS exempt (CLI/tooling escape hatch); `channels.web.auth.exemptCidrs` adds more (only `RemoteAddr` is consulted, forwarding headers never). Docker port-mapping NATs host requests to the bridge IP — a containerized deployment that wants host-curl exemption must add the bridge CIDR (e.g. `172.16.0.0/12`) or log in. `auth.disabled: true` turns the gate off.
+- **WebAuthn constraints**: RP ID must be a domain (default `localhost`), origins default to `http://localhost:{port}` + `127.0.0.1`. Passkeys only exist in secure contexts — remote deployments need HTTPS on a real hostname (e.g. `tailscale serve`) and matching `auth.rpId`/`auth.origins`/`auth.publicUrl`. Registration requires resident keys so login is usernameless (`FinishDiscoverableLogin` maps the user handle = person ID).
+- All auth endpoints under `/api/auth/*` are public (they are the door); everything else — `/api/*` and `/ws` — goes through `protected()`.
+
 ## Session vs Thread — Critical Distinction
 
 **Session** = persistent on-disk data (`session.jsonl`, `heartbeat.md`). Survives restarts, lives indefinitely.

@@ -10,6 +10,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/linanwx/nagobot/auth"
 	"github.com/linanwx/nagobot/channel"
 	"github.com/linanwx/nagobot/config"
 	"github.com/linanwx/nagobot/logger"
@@ -26,6 +27,7 @@ type Dispatcher struct {
 	threads  *thread.Manager
 	cfg      *config.Config
 	ctx      context.Context
+	authMgr  *auth.Manager // records channel identities; nil in tests
 }
 
 // NewDispatcher creates a new dispatcher.
@@ -103,6 +105,9 @@ func (d *Dispatcher) dispatch(ctx context.Context, ch channel.Channel, msg *chan
 	}
 
 	if sysmsg.IsUserVisibleSource(source) {
+		// Feed the channel-identity dictionary (web login "associate with
+		// discord:Nansen" flow) — only real user speech counts.
+		d.authMgr.RecordIdentity(ch.Name(), msg.UserID, senderName)
 		if err := session.AppendChat(d.threads.SessionDir(sessionKey), session.ChatRoleUser, senderName, userMessage, time.Now()); err != nil {
 			logger.Warn("chat.jsonl user-write failed", "sessionKey", sessionKey, "err", err)
 		}

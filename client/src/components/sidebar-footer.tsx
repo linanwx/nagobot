@@ -1,7 +1,8 @@
-import { BookText, Settings } from "lucide-react";
+import { BookText, LogOut, Settings } from "lucide-react";
 import { useEffect, useState } from "react";
 import ReactMarkdown, { type Components } from "react-markdown";
 import remarkGfm from "remark-gfm";
+import { useAuth } from "@/components/auth-gate";
 import { ConfigView } from "@/components/config-view";
 import { Button } from "@/components/ui/button";
 import {
@@ -230,12 +231,31 @@ function PromptsDialog() {
 }
 
 // SidebarFooter is the strip at the bottom of the session list: daemon
-// configuration and the global prompt files, both read-only viewers.
+// configuration, the global prompt files, and the signed-in account.
 export function SidebarFooter() {
+  const { me, signOut } = useAuth();
+  const signedIn = me != null && me.auth_enabled && !me.exempt && me.authenticated;
   return (
     <div className="flex shrink-0 items-center gap-1 border-t px-2 py-1.5">
       <ConfigDialog />
       <PromptsDialog />
+      {signedIn && (
+        <>
+          <span className="text-muted-foreground ms-auto truncate text-xs">
+            {me.username}
+          </span>
+          <Button
+            variant="ghost"
+            size="icon"
+            className="size-7"
+            onClick={signOut}
+            title="Sign out"
+          >
+            <LogOut className="size-4" />
+            <span className="sr-only">Sign out</span>
+          </Button>
+        </>
+      )}
     </div>
   );
 }

@@ -21,6 +21,7 @@ import (
 
 	"github.com/coder/websocket"
 	"github.com/coder/websocket/wsjson"
+	"github.com/linanwx/nagobot/auth"
 	cronpkg "github.com/linanwx/nagobot/cron"
 	"github.com/linanwx/nagobot/config"
 	"github.com/linanwx/nagobot/logger"
@@ -44,6 +45,7 @@ var rawFrontendFS embed.FS
 type WebChannel struct {
 	addr      string
 	workspace string
+	authMgr   *auth.Manager
 	messages  chan *Message
 	done      chan struct{}
 	wg        sync.WaitGroup
@@ -79,8 +81,9 @@ type webOutboundMessage struct {
 	Error string `json:"error,omitempty"`
 }
 
-// NewWebChannel creates a new web channel from config.
-func NewWebChannel(cfg *config.Config) Channel {
+// NewWebChannel creates a new web channel from config. authMgr guards the
+// HTTP API and WS; nil means auth is off (tests).
+func NewWebChannel(cfg *config.Config, authMgr *auth.Manager) Channel {
 	addr := cfg.GetWebAddr()
 	if addr == "" {
 		addr = webDefaultAddr
@@ -93,6 +96,7 @@ func NewWebChannel(cfg *config.Config) Channel {
 	return &WebChannel{
 		addr:      addr,
 		workspace: workspace,
+		authMgr:   authMgr,
 		messages:  make(chan *Message, webMessageBufferSize),
 		done:      make(chan struct{}),
 		clients:   make(map[string]*wsClient),
@@ -129,14 +133,25 @@ func (w *WebChannel) Start(ctx context.Context) error {
 	}
 
 	mux := http.NewServeMux()
-	mux.Handle("/ws", http.HandlerFunc(w.handleWS))
-	mux.Handle("/api/history", http.HandlerFunc(w.handleHistory))
-	mux.Handle("/api/sessions/", http.HandlerFunc(w.handleSessionMessages))
-	mux.Handle("/api/sessions", http.HandlerFunc(w.handleSessions))
-	mux.Handle("/api/config", http.HandlerFunc(w.handleConfig))
-	mux.Handle("/api/prompts/", http.HandlerFunc(w.handlePromptFile))
-	mux.Handle("/api/prompts", http.HandlerFunc(w.handlePrompts))
-	mux.Handle("/api/heartbeat/", http.HandlerFunc(w.handleHeartbeat))
+	// Auth endpoints are public by design: they are the login door. Every
+	// other API route and the WS require an exempt IP or a session cookie.
+	mux.Handle("/api/auth/me", http.HandlerFunc(w.handleAuthMe))
+	mux.Handle("/api/auth/redeem", http.HandlerFunc(w.handleAuthRedeem))
+	mux.Handle("/api/auth/context", http.HandlerFunc(w.handleAuthContext))
+	mux.Handle("/api/auth/setup", http.HandlerFunc(w.handleAuthSetup))
+	mux.Handle("/api/auth/passkey/register/begin", http.HandlerFunc(w.handleRegisterBegin))
+	mux.Handle("/api/auth/passkey/register/finish", http.HandlerFunc(w.handleRegisterFinish))
+	mux.Handle("/api/auth/passkey/login/begin", http.HandlerFunc(w.handleLoginBegin))
+	mux.Handle("/api/auth/passkey/login/finish", http.HandlerFunc(w.handleLoginFinish))
+	mux.Handle("/api/auth/logout", http.HandlerFunc(w.handleLogout))
+	mux.Handle("/ws", w.protected(w.handleWS))
+	mux.Handle("/api/history", w.protected(w.handleHistory))
+	mux.Handle("/api/sessions/", w.protected(w.handleSessionMessages))
+	mux.Handle("/api/sessions", w.protected(w.handleSessions))
+	mux.Handle("/api/config", w.protected(w.handleConfig))
+	mux.Handle("/api/prompts/", w.protected(w.handlePromptFile))
+	mux.Handle("/api/prompts", w.protected(w.handlePrompts))
+	mux.Handle("/api/heartbeat/", w.protected(w.handleHeartbeat))
 	mux.Handle("/", http.FileServer(http.FS(frontendFS)))
 
 	w.server = &http.Server{
