@@ -253,9 +253,12 @@ const ToolCardMessage: FC = () => {
       ? "…" + previewSrc.replace(/\s+/g, " ").trim().slice(-100)
       : oneLinePreview(previewSrc, 100);
   return (
+    // Negative vertical margins eat most of the thread's gap-y-6 so runs of
+    // consecutive tool cards (agentic turns) stack tightly while chat
+    // bubbles keep their roomier rhythm.
     <MessagePrimitive.Root
       data-slot="aui_tool-card-root"
-      className="px-2 py-0.5"
+      className="-my-2 px-2"
       data-role="tool"
     >
       <div className="border-border/25 text-muted-foreground w-full rounded-md border bg-transparent px-3 py-1.5 text-xs opacity-80">
@@ -504,7 +507,7 @@ const EventMessage: FC = () => {
   return (
     <MessagePrimitive.Root
       data-slot="aui_event-message-root"
-      className="px-2 py-1"
+      className="-my-1 px-2"
       data-role="event"
     >
       <div
