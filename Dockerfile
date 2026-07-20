@@ -20,7 +20,7 @@
 # multi-arch build compiles Go under QEMU emulation — by far the slowest step
 # of the release pipeline. Only the runtime stage below (apt/pip layers, which
 # are source-independent and gha-cached) runs emulated.
-FROM --platform=$BUILDPLATFORM golang:1.24 AS build
+FROM --platform=$BUILDPLATFORM golang:1.25 AS build
 ARG VERSION=dev
 ARG TARGETOS TARGETARCH
 WORKDIR /src
