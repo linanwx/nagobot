@@ -132,6 +132,11 @@ function LoginView({
 }) {
   const [busy, setBusy] = useState(false);
   const [failure, setFailure] = useState<string | null>(error ?? null);
+  // Passkeys only exist in secure contexts: Safari/Chrome hide the WebAuthn
+  // API entirely on plain-http origins (anything but localhost), and an IP
+  // address can never be a WebAuthn RP ID. Surface the real cause instead of
+  // the library's misleading "not supported in this browser".
+  const insecure = !window.isSecureContext;
 
   const signIn = async () => {
     setBusy(true);
@@ -160,9 +165,21 @@ function LoginView({
           the operator for a login link.
         </p>
       )}
-      <Button onClick={() => void signIn()} disabled={busy} className="w-full">
+      <Button
+        onClick={() => void signIn()}
+        disabled={busy || insecure}
+        className="w-full"
+      >
         {busy ? "Waiting for passkey…" : "Sign in with passkey"}
       </Button>
+      {insecure ? (
+        <p className="text-destructive mt-3 text-xs">
+          Passkeys require a secure context (HTTPS, or localhost). This page
+          was opened over plain HTTP at {window.location.host}, where the
+          browser disables WebAuthn — open the site via an HTTPS hostname
+          (e.g. tailscale serve) to sign in from this device.
+        </p>
+      ) : null}
       {failure && <p className="text-destructive mt-3 text-xs">{failure}</p>}
     </CenterCard>
   );
