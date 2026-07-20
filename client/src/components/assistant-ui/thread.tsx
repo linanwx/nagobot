@@ -258,7 +258,7 @@ const ToolCardMessage: FC = () => {
     // bubbles keep their roomier rhythm.
     <MessagePrimitive.Root
       data-slot="aui_tool-card-root"
-      className="-my-2 px-2"
+      className="-my-2.5 px-2"
       data-role="tool"
     >
       <div className="border-border/25 text-muted-foreground w-full rounded-md border bg-transparent px-3 py-1.5 text-xs opacity-80">
