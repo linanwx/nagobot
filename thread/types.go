@@ -17,6 +17,12 @@ import (
 // Sink is an alias for msg.Sink.
 type Sink = msg.Sink
 
+// StreamEvent is an alias for msg.StreamEvent.
+type StreamEvent = msg.StreamEvent
+
+// NewStreamPipe is a convenience re-export of msg.NewStreamPipe.
+var NewStreamPipe = msg.NewStreamPipe
+
 // ReactFunc is an alias for msg.ReactFunc.
 type ReactFunc = msg.ReactFunc
 

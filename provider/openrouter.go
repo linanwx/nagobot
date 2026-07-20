@@ -520,6 +520,7 @@ func openAIStreamChat(ctx context.Context, client openai.Client, params openai.C
 				var s string
 				if json.Unmarshal([]byte(raw), &s) == nil && s != "" {
 					reasoning.WriteString(s)
+					adapter.EmitReasoning(s)
 					break
 				}
 			}

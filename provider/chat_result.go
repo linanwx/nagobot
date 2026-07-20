@@ -10,14 +10,15 @@ import (
 type DeltaType int
 
 const (
-	DeltaText     DeltaType = iota // Text content delta
-	DeltaToolCall                  // First tool call detected
+	DeltaText      DeltaType = iota // Text content delta
+	DeltaToolCall                   // First tool call detected
+	DeltaReasoning                  // Reasoning/thinking text delta
 )
 
 // StreamDelta is a single unit emitted by a streaming provider.
 type StreamDelta struct {
 	Type     DeltaType
-	Text     string // DeltaText: the text chunk
+	Text     string // DeltaText / DeltaReasoning: the text chunk
 	ToolName string // DeltaToolCall: name of the first tool
 }
 

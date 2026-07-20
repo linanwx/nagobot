@@ -69,6 +69,7 @@ type Sink struct {
 	Send      func(ctx context.Context, response string) error
 	React     ReactFunc                       // Optional: fire-and-forget emoji reaction on the source message.
 	Chunkable bool                            // True for sinks that accept chunked streaming delivery (telegram, discord, feishu, cli).
+	Stream    func(ev StreamEvent)            // Optional: rich live streaming (thinking/text deltas, tool events). Must never block — back it with a StreamPipe. Sinks with Stream get final content via Send and skip chunked delivery.
 	Flush     func(ctx context.Context) error // Optional: signals end-of-turn; recorders use this to commit buffered output.
 }
 

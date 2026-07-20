@@ -1215,6 +1215,12 @@ func (a *responseAssembler) handleEvent(data []byte) (done bool, err error) {
 		}
 		a.adapter.EmitText(event.Delta)
 
+	case "response.reasoning_summary_text.delta", "response.reasoning_text.delta":
+		// Live reasoning stream (for UI display only). The authoritative
+		// ReasoningContent still comes from the completed reasoning item in
+		// extractOutputItem — these deltas never touch a.reasoning.
+		a.adapter.EmitReasoning(event.Delta)
+
 	case "response.output_item.done":
 		if itemType, _ := event.Item["type"].(string); itemType == "function_call" {
 			if !a.toolCallSignaled {

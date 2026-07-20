@@ -34,6 +34,7 @@ type Runner struct {
 	contextBudget      int                                                 // contextWindow - maxCompletionTokens; 0 = no guard
 	toolDefsTokens     int                                                 // cached token estimate for tool definitions
 	onStream           func(streamID, delta string)                        // optional: called with each streaming text delta; empty delta signals end of stream
+	onDelta            func(provider.StreamDelta)                          // optional: called with every raw stream delta (text, reasoning, tool-call) for rich sinks
 	onMessage          func(provider.Message)                              // optional: called for every message (assistant, tool, injected)
 	onEvent            func(event RunnerEvent, detail string)              // optional: lifecycle events (tool calls, etc.)
 	onIterationEnd     func() []provider.Message                           // optional: called after each tool iteration; returned messages are injected before the next LLM call
@@ -60,6 +61,11 @@ const (
 // OnStream sets a callback invoked with each streaming text delta during
 // Chat(). An empty delta signals the end of the stream (Chat() returned).
 func (r *Runner) OnStream(fn func(streamID, delta string)) { r.onStream = fn }
+
+// OnDelta sets a callback invoked with every raw stream delta (text,
+// reasoning, tool-call) as it arrives. Runs on the stream consumer
+// goroutine — keep it non-blocking.
+func (r *Runner) OnDelta(fn func(provider.StreamDelta)) { r.onDelta = fn }
 
 // OnEvent sets a callback for lifecycle events (tool calls, etc.).
 // Each event fires at most once per Chat() round.
@@ -395,6 +401,9 @@ func (r *Runner) callLLM(ctx context.Context, chatReq *provider.Request) (*llmCa
 				stream.Cancel() // unblock producer goroutine
 				return nil, fmt.Errorf("stream error: %w", recvErr)
 			}
+			if r.onDelta != nil {
+				r.onDelta(delta)
+			}
 			switch delta.Type {
 			case provider.DeltaText:
 				if r.onStream != nil {
@@ -688,6 +697,11 @@ func (r *Runner) logEstimationAccuracy(messages []provider.Message, resp *provid
 // the trim the progress summarizer consumes; the web UI thread view shows the
 // same records.
 const toolTraceFieldRunes = 500
+
+// streamToolFieldRunes caps tool args/result previews in rich stream events.
+// Larger than the trace cap — the web UI renders these in expandable cards —
+// but still bounded so one huge read_file result can't bloat a WS frame.
+const streamToolFieldRunes = 2000
 
 // resultPreview returns a rune-capped preview of a tool result, skipping any
 // leading YAML frontmatter so the preview shows actual content rather than the

@@ -290,6 +290,7 @@ func (p *MiMoProvider) chatStream(ctx context.Context, mmReq mmRequest, start ti
 
 			if delta.ReasoningContent != "" {
 				reasoning.WriteString(delta.ReasoningContent)
+				adapter.EmitReasoning(delta.ReasoningContent)
 			}
 			if delta.Content != "" {
 				content.WriteString(delta.Content)

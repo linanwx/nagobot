@@ -2,9 +2,31 @@
 //
 // Protocol (see channel/web.go):
 //   client → server: {type: "bind", session_id} | {type: "message", text}
-//   server → client: {type: "response", text} | {type: "bound", text} | {type: "error", error}
+//   server → client: {type: "response", text} | {type: "bound", text}
+//                  | {type: "error", error} | {type: "stream", kind, ...}
+//
+// "stream" frames carry live turn activity: thinking/text deltas (with the
+// round-accumulated snapshot for self-healing), tool lifecycle, and round/
+// turn boundaries.
 
 export type SocketStatus = "connecting" | "open" | "closed";
+
+export type StreamFrame = {
+  kind:
+    | "thinking"
+    | "text"
+    | "tool_call"
+    | "tool_result"
+    | "round_end"
+    | "turn_end";
+  delta?: string;
+  snapshot?: string;
+  tool?: string;
+  tool_call_id?: string;
+  args?: string;
+  is_error?: boolean;
+  seq?: number;
+};
 
 type OutboundFrame =
   | { type: "bind"; session_id: string }
@@ -14,7 +36,7 @@ type InboundFrame = {
   type: string;
   text?: string;
   error?: string;
-};
+} & Partial<StreamFrame>;
 
 const maxBackoffMs = 15_000;
 
@@ -26,6 +48,7 @@ export class NagobotSocket {
   private closed = false;
 
   onResponse: ((text: string) => void) | null = null;
+  onStream: ((ev: StreamFrame) => void) | null = null;
   onStatus: ((status: SocketStatus) => void) | null = null;
   onError: ((message: string) => void) | null = null;
 
@@ -53,6 +76,9 @@ export class NagobotSocket {
       switch (frame.type) {
         case "response":
           if (frame.text) this.onResponse?.(frame.text);
+          break;
+        case "stream":
+          if (frame.kind) this.onStream?.(frame as StreamFrame);
           break;
         case "error":
           if (frame.error) this.onError?.(frame.error);

@@ -245,10 +245,13 @@ const ToolCardMessage: FC = () => {
   const meta = useMessageMeta();
   const [expanded, setExpanded] = useState(false);
   const thinking = meta.toolName === "thinking";
-  const preview = oneLinePreview(
-    thinking ? (meta.resultText ?? "") : (meta.argsText ?? ""),
-    100,
-  );
+  // Live thinking previews its trailing text (the freshest thought), other
+  // live/idle cards preview args from the start.
+  const previewSrc = thinking ? (meta.resultText ?? "") : (meta.argsText ?? "");
+  const preview =
+    thinking && meta.running
+      ? "…" + previewSrc.replace(/\s+/g, " ").trim().slice(-100)
+      : oneLinePreview(previewSrc, 100);
   return (
     <MessagePrimitive.Root
       data-slot="aui_tool-card-root"
@@ -261,7 +264,9 @@ const ToolCardMessage: FC = () => {
           onClick={() => setExpanded((v) => !v)}
           className="flex w-full items-center gap-2 text-start"
         >
-          <span className="shrink-0">{thinking ? "💭" : "⚙"}</span>
+          <span className={cn("shrink-0", meta.running && "animate-pulse")}>
+            {thinking ? "💭" : "⚙"}
+          </span>
           <span className="shrink-0 font-mono font-medium">
             {meta.toolName}
           </span>
@@ -269,6 +274,11 @@ const ToolCardMessage: FC = () => {
           <span className="text-muted-foreground/60 min-w-0 flex-1 truncate font-mono text-[11px]">
             {preview}
           </span>
+          {meta.running ? (
+            <span className="text-sky-600 dark:text-sky-400 shrink-0 animate-pulse text-[10px]">
+              ●
+            </span>
+          ) : null}
           <MessageTimestamp />
           <span className="text-muted-foreground/60 shrink-0 text-[10px]">
             {expanded ? "▲" : "▼"}

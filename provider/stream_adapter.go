@@ -55,6 +55,17 @@ func (a *streamAdapter) EmitToolCall(name string) {
 	}
 }
 
+// EmitReasoning sends a reasoning/thinking text delta. No-op if cancelled.
+func (a *streamAdapter) EmitReasoning(text string) {
+	if text == "" {
+		return
+	}
+	select {
+	case a.ch <- StreamDelta{Type: DeltaReasoning, Text: text}:
+	case <-a.ctx.Done():
+	}
+}
+
 // SetError records a stream error. Call before Finish().
 // Wait() will return this error after draining the channel.
 func (a *streamAdapter) SetError(err error) {

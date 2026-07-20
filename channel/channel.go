@@ -10,6 +10,7 @@ import (
 
 	"github.com/linanwx/nagobot/config"
 	"github.com/linanwx/nagobot/logger"
+	"github.com/linanwx/nagobot/thread/msg"
 )
 
 // Message represents an incoming message from a channel.
@@ -39,6 +40,12 @@ type Reconfigurable interface {
 // Reactor is an optional interface for channels that support emoji reactions.
 type Reactor interface {
 	ReactTo(ctx context.Context, chatID, msgID, emoji string) error
+}
+
+// Streamer is an optional interface for channels that can deliver rich live
+// stream events (thinking/text deltas, tool lifecycle) to a connected client.
+type Streamer interface {
+	StreamTo(ctx context.Context, replyTo string, ev msg.StreamEvent) error
 }
 
 // Channel is the interface for messaging channels.
@@ -135,6 +142,22 @@ func (m *Manager) ReactTo(ctx context.Context, channelName, chatID, msgID, emoji
 // SendTo sends a text message to a named channel.
 func (m *Manager) SendTo(ctx context.Context, channelName, text, replyTo string) error {
 	return m.SendResponse(ctx, channelName, &Response{Text: text, ReplyTo: replyTo})
+}
+
+// StreamTo forwards a live stream event to a named channel. Silently returns
+// nil if the channel doesn't support streaming.
+func (m *Manager) StreamTo(ctx context.Context, channelName, replyTo string, ev msg.StreamEvent) error {
+	m.mu.RLock()
+	ch, ok := m.channels[channelName]
+	m.mu.RUnlock()
+	if !ok {
+		return nil
+	}
+	streamer, ok := ch.(Streamer)
+	if !ok {
+		return nil
+	}
+	return streamer.StreamTo(ctx, replyTo, ev)
 }
 
 // SendResponse delivers resp via the named channel. After a successful text

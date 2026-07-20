@@ -80,6 +80,16 @@ type webOutboundMessage struct {
 	Type  string `json:"type"`
 	Text  string `json:"text,omitempty"`
 	Error string `json:"error,omitempty"`
+
+	// type:"stream" — live turn activity (see thread/msg.StreamEvent).
+	Kind       string `json:"kind,omitempty"`         // thinking | text | tool_call | tool_result | round_end | turn_end
+	Delta      string `json:"delta,omitempty"`        // thinking/text increment
+	Snapshot   string `json:"snapshot,omitempty"`     // round-accumulated text (self-heal)
+	Tool       string `json:"tool,omitempty"`         // tool name
+	ToolCallID string `json:"tool_call_id,omitempty"` // tool pairing id
+	Args       string `json:"args,omitempty"`         // tool args / result preview
+	IsError    bool   `json:"is_error,omitempty"`     // tool_result error flag
+	Seq        int    `json:"seq,omitempty"`          // per-turn monotonic sequence
 }
 
 // NewWebChannel creates a new web channel from config. authMgr guards the
@@ -246,6 +256,41 @@ func (w *WebChannel) Send(ctx context.Context, resp *Response) error {
 
 // Messages returns the incoming message channel.
 func (w *WebChannel) Messages() <-chan *Message { return w.messages }
+
+// StreamTo implements Streamer: forward one live stream event to the client
+// currently bound to the session. No client bound = silently dropped (nobody
+// is watching; the authoritative content still arrives via Send and the
+// session history). Rebinding mid-turn picks up the stream from the next
+// event — snapshots make that seamless.
+func (w *WebChannel) StreamTo(ctx context.Context, replyTo string, ev thread.StreamEvent) error {
+	sessionID := sanitizeSessionKey(replyTo)
+	if sessionID == "" {
+		sessionID = webMainSessionID
+	}
+
+	w.mu.RLock()
+	client := w.clients[sessionID]
+	w.mu.RUnlock()
+	if client == nil {
+		return nil
+	}
+
+	payload := webOutboundMessage{
+		Type:       "stream",
+		Kind:       string(ev.Type),
+		Delta:      ev.Delta,
+		Snapshot:   ev.Snapshot,
+		Tool:       ev.Tool,
+		ToolCallID: ev.ToolCallID,
+		Args:       ev.Args,
+		IsError:    ev.IsError,
+		Seq:        ev.Seq,
+	}
+
+	client.mu.Lock()
+	defer client.mu.Unlock()
+	return wsjson.Write(ctx, client.conn, payload)
+}
 
 func (w *WebChannel) handleWS(rw http.ResponseWriter, r *http.Request) {
 	// The protected() wrapper already gated access; re-resolve to learn WHO

@@ -293,6 +293,27 @@ func (d *Dispatcher) buildSink(ch channel.Channel, msg *channel.Message, session
 		},
 	}
 
+	// Rich streaming: channels implementing Streamer (web) get live thinking/
+	// text deltas and tool events through a pipe — Push never blocks the turn;
+	// a lazily-started drain goroutine forwards to the bound client. Flushing
+	// the pipe before every authoritative Send keeps frame order: the client
+	// never sees a final response overtaken by stale deltas.
+	if _, ok := ch.(channel.Streamer); ok {
+		pipe := thread.NewStreamPipe(func(ev thread.StreamEvent) {
+			ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+			defer cancel()
+			if err := manager.StreamTo(ctx, channelName, replyTo, ev); err != nil {
+				logger.Debug("stream event delivery failed", "channel", channelName, "err", err)
+			}
+		})
+		innerSend := sink.Send
+		sink.Stream = pipe.Push
+		sink.Send = func(ctx context.Context, response string) error {
+			pipe.Flush()
+			return innerSend(ctx, response)
+		}
+	}
+
 	// Build React closure for channels that support it.
 	sink.React = d.buildReactFunc(channelName, manager, msg)
 	return sink

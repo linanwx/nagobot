@@ -428,6 +428,7 @@ func (p *DeepSeekProvider) chatStream(ctx context.Context, dsReq dsRequest, star
 
 			if delta.ReasoningContent != "" {
 				reasoning.WriteString(delta.ReasoningContent)
+				adapter.EmitReasoning(delta.ReasoningContent)
 			}
 			if delta.Content != "" {
 				content.WriteString(delta.Content)

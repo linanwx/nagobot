@@ -276,9 +276,33 @@ func (t *Thread) executeRunner(ctx, runCtx context.Context, p provider.Provider,
 		})
 	}
 
+	// Rich streaming: sinks with a Stream func (web) get thinking/text deltas
+	// and tool events live. Buffers accumulate per LLM round so every event
+	// carries a snapshot the client can self-heal from; OnMessage below emits
+	// the tool/round events and resets the buffers at round boundaries.
+	var thinkBuf, textBuf strings.Builder
+	richStream := sink.Stream != nil && !t.IsHeartbeatWake()
+	if richStream {
+		runner.OnDelta(func(d provider.StreamDelta) {
+			if ctx.Err() != nil || t.isSinkSuppressed() {
+				return
+			}
+			switch d.Type {
+			case provider.DeltaReasoning:
+				thinkBuf.WriteString(d.Text)
+				sink.Stream(StreamEvent{Type: sysmsg.StreamThinking, Delta: d.Text, Snapshot: thinkBuf.String()})
+			case provider.DeltaText:
+				textBuf.WriteString(d.Text)
+				sink.Stream(StreamEvent{Type: sysmsg.StreamText, Delta: d.Text, Snapshot: textBuf.String()})
+			}
+		})
+	}
+
 	// Streaming: register OnStream for chunkable sinks on non-heartbeat turns.
+	// Rich-stream sinks skip the chunked path — deltas already deliver the
+	// content live; the authoritative text still arrives via Send below.
 	var streamer *MarkdownStreamer
-	useStreaming := !t.IsHeartbeatWake() && !sink.IsZero() && sink.Chunkable
+	useStreaming := !t.IsHeartbeatWake() && !sink.IsZero() && sink.Chunkable && !richStream
 	if useStreaming {
 		streamer = NewMarkdownStreamer(sink, ctx, streamFlushThreshold)
 		runner.OnStream(func(streamID, delta string) {
@@ -299,6 +323,35 @@ func (t *Thread) executeRunner(ctx, runCtx context.Context, p provider.Provider,
 		intermediates = append(intermediates, m)
 		if persistMsg != nil {
 			persistMsg(m)
+		}
+
+		// Rich streaming: round boundaries and tool lifecycle. The assistant
+		// message arrives when its LLM call finished — close the live text
+		// buffers and announce the round's tool calls before they execute;
+		// each tool result flips its card to complete as it lands.
+		if richStream && !t.isSinkSuppressed() {
+			switch m.Role {
+			case "assistant":
+				sink.Stream(StreamEvent{Type: sysmsg.StreamRoundEnd})
+				thinkBuf.Reset()
+				textBuf.Reset()
+				for _, tc := range m.ToolCalls {
+					sink.Stream(StreamEvent{
+						Type:       sysmsg.StreamToolCall,
+						Tool:       tc.Function.Name,
+						ToolCallID: tc.ID,
+						Args:       truncateStr(tc.Function.Arguments, streamToolFieldRunes),
+					})
+				}
+			case "tool":
+				sink.Stream(StreamEvent{
+					Type:       sysmsg.StreamToolResult,
+					Tool:       m.Name,
+					ToolCallID: m.ToolCallID,
+					Args:       truncateStr(m.Content, streamToolFieldRunes),
+					IsError:    tools.IsToolError(m.Content),
+				})
+			}
 		}
 
 		if m.Role != "assistant" {
@@ -379,6 +432,10 @@ func (t *Thread) executeRunner(ctx, runCtx context.Context, p provider.Provider,
 	})
 	runCtx = provider.WithSessionKey(runCtx, t.sessionKey)
 	response, err = runner.RunWithMessages(runCtx, messages)
+	if richStream {
+		// Turn over — even on error, so the client closes its live state.
+		sink.Stream(StreamEvent{Type: sysmsg.StreamTurnEnd})
+	}
 	usage = runner.TotalUsage()
 	providerLabel = runner.ProviderLabel()
 	modelLabel = runner.ModelLabel()

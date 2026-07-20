@@ -14,7 +14,7 @@ import {
   type ApiToolCall,
   type MediaRef,
 } from "@/lib/api";
-import { NagobotSocket, type SocketStatus } from "@/lib/ws";
+import { NagobotSocket, type SocketStatus, type StreamFrame } from "@/lib/ws";
 
 export type ChatMessage = {
   id: string;
@@ -45,6 +45,8 @@ export type ChatMessage = {
   mediaPreview?: string;
   // Tier-1 compression replaced this content with a shorter version.
   compressed?: boolean;
+  // Live-streaming element still in flight (tool executing, thinking growing).
+  running?: boolean;
 };
 
 // MessageMeta is the metadata.custom payload handed to the thread components.
@@ -61,6 +63,7 @@ export type MessageMeta = {
   media?: MediaRef[];
   mediaPreview?: string;
   compressed?: boolean;
+  running?: boolean;
 };
 
 // Cap rendered history: the Thread view is not virtualized, and old sessions
@@ -336,6 +339,7 @@ const convertMessage = (m: ChatMessage): ThreadMessageLike => {
   if (m.media) custom.media = m.media;
   if (m.mediaPreview) custom.mediaPreview = m.mediaPreview;
   if (m.compressed) custom.compressed = true;
+  if (m.running) custom.running = true;
   return {
     id: m.id,
     role: m.role,
@@ -393,12 +397,147 @@ export function useNagobotChat(sessionKey: string) {
     socketRef.current = sock;
 
     sock.onStatus = setStatus;
+
+    // Live turn state (per socket, so a session switch resets it): ids of the
+    // in-flight thinking card and text bubble, plus tool cards by call id.
+    // All message updates are immutable — assistant-ui caches conversions by
+    // object identity, so a mutated-in-place message would never re-render.
+    const live = {
+      active: false,
+      thinkingId: null as string | null,
+      textId: null as string | null,
+      tools: new Map<string, string>(),
+    };
+
+    const replaceMsg = (id: string, patch: Partial<ChatMessage>) => {
+      setMessages((prev) =>
+        prev.map((m) => (m.id === id ? { ...m, ...patch } : m)),
+      );
+    };
+
+    sock.onStream = (ev: StreamFrame) => {
+      live.active = true;
+      startRunning(); // a turn is visibly in flight; each event re-arms the timeout
+      switch (ev.kind) {
+        case "thinking": {
+          const snap = ev.snapshot ?? "";
+          if (snap === "") break;
+          if (live.thinkingId) {
+            replaceMsg(live.thinkingId, { resultText: snap });
+          } else {
+            const id = localID("live-think");
+            live.thinkingId = id;
+            setMessages((prev) => [
+              ...prev,
+              {
+                id,
+                role: "assistant",
+                text: "",
+                kind: "tool",
+                toolName: "thinking",
+                resultText: snap,
+                running: true,
+                createdAt: new Date(),
+              },
+            ]);
+          }
+          break;
+        }
+        case "text": {
+          const snap = ev.snapshot ?? "";
+          if (snap === "") break;
+          if (live.textId) {
+            replaceMsg(live.textId, { text: snap });
+          } else {
+            const id = localID("live-text");
+            live.textId = id;
+            setMessages((prev) => [
+              ...prev,
+              { id, role: "assistant", text: snap, createdAt: new Date() },
+            ]);
+          }
+          break;
+        }
+        case "tool_call": {
+          if (!ev.tool) break;
+          const id = localID("live-tool");
+          if (ev.tool_call_id) live.tools.set(ev.tool_call_id, id);
+          setMessages((prev) => [
+            ...prev,
+            {
+              id,
+              role: "assistant",
+              text: "",
+              kind: "tool",
+              toolName: ev.tool,
+              argsText: prettyArgs(ev.args),
+              running: true,
+              createdAt: new Date(),
+            },
+          ]);
+          break;
+        }
+        case "tool_result": {
+          const id = ev.tool_call_id
+            ? live.tools.get(ev.tool_call_id)
+            : undefined;
+          if (!id) break;
+          if (ev.tool_call_id) live.tools.delete(ev.tool_call_id);
+          replaceMsg(id, { resultText: ev.args ?? "", running: false });
+          break;
+        }
+        case "round_end": {
+          // The LLM call finished: close the thinking card. The text bubble
+          // stays live — the authoritative "response" frame replaces it.
+          if (live.thinkingId) {
+            replaceMsg(live.thinkingId, { running: false });
+            live.thinkingId = null;
+          }
+          break;
+        }
+        case "turn_end": {
+          live.active = false;
+          live.textId = null;
+          if (live.thinkingId) {
+            replaceMsg(live.thinkingId, { running: false });
+            live.thinkingId = null;
+          }
+          // Any tool card without a result stays visible but stops pulsing.
+          const stale = [...live.tools.values()];
+          live.tools.clear();
+          if (stale.length > 0) {
+            setMessages((prev) =>
+              prev.map((m) =>
+                stale.includes(m.id) ? { ...m, running: false } : m,
+              ),
+            );
+          }
+          stopRunning();
+          break;
+        }
+      }
+    };
+
     sock.onResponse = (text) => {
-      stopRunning();
-      setMessages((prev) => [
-        ...prev,
-        { id: localID("resp"), role: "assistant", text, createdAt: new Date() },
-      ]);
+      // Streamed turns end on turn_end; a lone response (non-streaming
+      // provider or older daemon) still closes the spinner.
+      if (!live.active) stopRunning();
+      const final: ChatMessage = {
+        id: localID("resp"),
+        role: "assistant",
+        text,
+        createdAt: new Date(),
+      };
+      // Replace the live streamed bubble in place (authoritative content for
+      // the same round); otherwise append as before.
+      const liveId = live.textId;
+      live.textId = null;
+      setMessages((prev) => {
+        if (liveId && prev.some((m) => m.id === liveId)) {
+          return prev.map((m) => (m.id === liveId ? final : m));
+        }
+        return [...prev, final];
+      });
     };
     sock.onError = (message) => {
       stopRunning();

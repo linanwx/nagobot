@@ -13,6 +13,7 @@ func TestStreamAdapter_CollectDeltas(t *testing.T) {
 
 	// Simulate provider goroutine.
 	go func() {
+		adapter.EmitReasoning("let me think")
 		adapter.EmitText("hello")
 		adapter.EmitText(" world")
 		adapter.EmitToolCall("search")
@@ -23,6 +24,7 @@ func TestStreamAdapter_CollectDeltas(t *testing.T) {
 	stream := result.(StreamChatResult)
 
 	var texts []string
+	var reasonings []string
 	var toolName string
 	for {
 		d, err := stream.Recv()
@@ -35,6 +37,8 @@ func TestStreamAdapter_CollectDeltas(t *testing.T) {
 		switch d.Type {
 		case DeltaText:
 			texts = append(texts, d.Text)
+		case DeltaReasoning:
+			reasonings = append(reasonings, d.Text)
 		case DeltaToolCall:
 			toolName = d.ToolName
 		}
@@ -42,6 +46,9 @@ func TestStreamAdapter_CollectDeltas(t *testing.T) {
 
 	if len(texts) != 2 || texts[0] != "hello" || texts[1] != " world" {
 		t.Errorf("texts = %v", texts)
+	}
+	if len(reasonings) != 1 || reasonings[0] != "let me think" {
+		t.Errorf("reasonings = %v", reasonings)
 	}
 	if toolName != "search" {
 		t.Errorf("toolName = %q", toolName)

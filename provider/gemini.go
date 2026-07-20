@@ -316,6 +316,7 @@ func (p *GeminiProvider) chatStream(ctx context.Context, gmReq gmRequest, start 
 				isThought := part.Thought != nil && *part.Thought
 				if part.Text != "" && (isThought || looksLikeThoughtLeak(part.Text)) {
 					reasoning.WriteString(part.Text)
+					adapter.EmitReasoning(part.Text)
 				} else if part.Text != "" {
 					content.WriteString(part.Text)
 					adapter.EmitText(part.Text)

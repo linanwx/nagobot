@@ -602,6 +602,7 @@ func (p *AnthropicProvider) Chat(ctx context.Context, req *Request) (ChatResult,
 					adapter.EmitText(event.Delta.Text)
 				case "thinking_delta":
 					bs.thinking.WriteString(event.Delta.Thinking)
+					adapter.EmitReasoning(event.Delta.Thinking)
 				case "signature_delta":
 					bs.signature.WriteString(event.Delta.Signature)
 				case "input_json_delta":
