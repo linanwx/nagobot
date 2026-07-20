@@ -26,12 +26,15 @@ Output is the URL plus its expiry time. Send it to the user who asked.
 
 ## What the user does with it
 
-Opening the link offers two paths — explain briefly when handing it over:
+Opening the link shows everyone the system knows — existing web accounts
+AND chat identities (Discord/Telegram/... users who have talked to the
+bot) — plus a create-new option. Explain briefly when handing it over:
 
-- **Create a new user**: pick a username, optionally link their chat
-  identities (e.g. their Discord account), then register a passkey.
-- **I am an existing user**: claim an existing username (the lost-passkey
-  recovery path), then register a new passkey.
+- **Pick your chat identity** (e.g. your Discord name): creates the web
+  account around it, username prefilled, then register a passkey.
+- **Pick your web account**: the lost-passkey recovery path — claim your
+  existing username, register a new passkey.
+- **Create a new user**: for someone the bot has never seen.
 
 After setup, the passkey is the durable login for that browser — the link is
 spent. A user who loses their passkey simply asks for a new link and claims
