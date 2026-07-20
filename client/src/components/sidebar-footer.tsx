@@ -55,6 +55,21 @@ const docMarkdownComponents: Components = {
   td: (p) => <td className="border-border border px-2 py-1" {...p} />,
 };
 
+// splitFrontmatter separates a leading YAML frontmatter block from the
+// markdown body. Without this, ReactMarkdown mangles the header: the opening
+// `---` renders as an <hr> and the closing `---` turns the key/value lines
+// into a setext heading.
+function splitFrontmatter(content: string): { meta: [string, string][]; body: string } {
+  const m = /^---\n([\s\S]*?)\n---\n?/.exec(content);
+  if (!m) return { meta: [], body: content };
+  const meta: [string, string][] = [];
+  for (const line of m[1].split("\n")) {
+    const idx = line.indexOf(":");
+    if (idx > 0) meta.push([line.slice(0, idx).trim(), line.slice(idx + 1).trim()]);
+  }
+  return { meta, body: content.slice(m[0].length) };
+}
+
 function ConfigDialog() {
   const [open, setOpen] = useState(false);
   const [config, setConfig] = useState<unknown>(null);
@@ -180,9 +195,31 @@ function PromptsDialog() {
               {content == null ? (
                 <p className="text-muted-foreground">Loading…</p>
               ) : (
-                <ReactMarkdown remarkPlugins={[remarkGfm]} components={docMarkdownComponents}>
-                  {content}
-                </ReactMarkdown>
+                (() => {
+                  const { meta, body } = splitFrontmatter(content);
+                  return (
+                    <>
+                      {meta.length > 0 && (
+                        <div className="mb-3 flex flex-wrap gap-1.5 border-b pb-3">
+                          {meta.map(([k, v]) => (
+                            <span
+                              key={k}
+                              className="bg-muted text-muted-foreground rounded px-1.5 py-0.5 font-mono text-xs"
+                            >
+                              {k}: {v}
+                            </span>
+                          ))}
+                        </div>
+                      )}
+                      <ReactMarkdown
+                        remarkPlugins={[remarkGfm]}
+                        components={docMarkdownComponents}
+                      >
+                        {body}
+                      </ReactMarkdown>
+                    </>
+                  );
+                })()
               )}
             </div>
           </>
