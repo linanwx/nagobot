@@ -176,7 +176,6 @@ type WizardBase =
 type WizardStep =
   | { step: "choose" }
   | { step: "username" }
-  | { step: "identities" }
   | { step: "confirm" }
   | { step: "passkey"; username: string };
 
@@ -186,15 +185,15 @@ type WizardStep =
 // identities: someone who has talked to the bot on Discord already IS a
 // user here. Claiming a channel identity creates the web account around it
 // (username prefilled from the channel display name); picking a web account
-// is the lost-passkey recovery path. Only the web flow can merge identities
-// into one person — other channels always stand alone until claimed.
+// is the lost-passkey recovery path. One login = one person, exactly:
+// claiming binds only the identity that was picked — merging further
+// identities into a person is a separate mechanism, not this wizard.
 function SetupWizard({ onDone }: { onDone: () => void }) {
   const [persons, setPersons] = useState<PersonSummary[]>([]);
   const [identities, setIdentities] = useState<ChannelIdentity[]>([]);
   const [step, setStep] = useState<WizardStep>({ step: "choose" });
   const [base, setBase] = useState<WizardBase>({ kind: "new" });
   const [username, setUsername] = useState("");
-  const [picked, setPicked] = useState<Set<string>>(new Set());
   const [failure, setFailure] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
@@ -216,19 +215,15 @@ function SetupWizard({ onDone }: { onDone: () => void }) {
     setBase(b);
     setFailure(null);
     if (b.kind === "person") {
-      setPicked(new Set());
-      setStep({ step: "identities" });
+      setStep({ step: "confirm" });
       return;
     }
-    if (b.kind === "identity") {
-      setUsername(b.identity.name);
-      setPicked(new Set([b.identity.key]));
-    } else {
-      setUsername("");
-      setPicked(new Set());
-    }
+    setUsername(b.kind === "identity" ? b.identity.name : "");
     setStep({ step: "username" });
   };
+
+  // The one identity this login binds — the claimed one, or nothing.
+  const claimed = base.kind === "identity" ? [base.identity.key] : [];
 
   const submitSetup = async () => {
     setBusy(true);
@@ -236,8 +231,8 @@ function SetupWizard({ onDone }: { onDone: () => void }) {
     try {
       const resp = await setupPerson(
         base.kind === "person"
-          ? { mode: "associate", person_id: base.person.id, identities: [...picked] }
-          : { mode: "create", username: displayName, identities: [...picked] },
+          ? { mode: "associate", person_id: base.person.id }
+          : { mode: "create", username: displayName, identities: claimed },
       );
       setStep({ step: "passkey", username: resp.username });
     } catch (e) {
@@ -330,67 +325,11 @@ function SetupWizard({ onDone }: { onDone: () => void }) {
           <div className="mt-3 flex gap-2">
             <Button
               disabled={username.trim() === ""}
-              onClick={() => setStep({ step: "identities" })}
+              onClick={() => setStep({ step: "confirm" })}
             >
               Continue
             </Button>
             <Button variant="ghost" onClick={() => setStep({ step: "choose" })}>
-              Back
-            </Button>
-          </div>
-        </>
-      )}
-
-      {step.step === "identities" && (
-        <>
-          <p className="text-muted-foreground mb-3 text-sm">
-            {base.kind === "person" ? (
-              <>
-                Optionally link more chat identities to{" "}
-                <span className="text-foreground font-medium">{displayName}</span>.
-              </>
-            ) : (
-              <>
-                Link chat identities to{" "}
-                <span className="text-foreground font-medium">{displayName}</span>. Only
-                pick identities that are actually you.
-              </>
-            )}
-          </p>
-          <div className="flex max-h-64 flex-col gap-1 overflow-y-auto">
-            {unboundIdentities.map((id) => (
-              <label
-                key={id.key}
-                className="hover:bg-muted flex cursor-pointer items-center gap-2 rounded-md border px-3 py-2 text-sm"
-              >
-                <input
-                  type="checkbox"
-                  checked={picked.has(id.key)}
-                  onChange={(e) => {
-                    const next = new Set(picked);
-                    if (e.target.checked) next.add(id.key);
-                    else next.delete(id.key);
-                    setPicked(next);
-                  }}
-                />
-                <span className="font-medium">{id.name}</span>
-                <span className="text-muted-foreground font-mono text-xs">{id.key}</span>
-              </label>
-            ))}
-            {unboundIdentities.length === 0 && (
-              <p className="text-muted-foreground text-xs">
-                No unbound chat identities known — you can skip this.
-              </p>
-            )}
-          </div>
-          <div className="mt-3 flex gap-2">
-            <Button onClick={() => setStep({ step: "confirm" })}>Continue</Button>
-            <Button
-              variant="ghost"
-              onClick={() =>
-                setStep(base.kind === "person" ? { step: "choose" } : { step: "username" })
-              }
-            >
               Back
             </Button>
           </div>
@@ -409,11 +348,10 @@ function SetupWizard({ onDone }: { onDone: () => void }) {
                 Create user <span className="font-medium">{displayName}</span>
               </>
             )}
-            {picked.size > 0 && (
+            {claimed.length > 0 && (
               <>
                 {" "}
-                and link:{" "}
-                <span className="font-mono text-xs">{[...picked].join(", ")}</span>
+                as <span className="font-mono text-xs">{claimed.join(", ")}</span>
               </>
             )}
             ?
@@ -422,7 +360,12 @@ function SetupWizard({ onDone }: { onDone: () => void }) {
             <Button disabled={busy} onClick={() => void submitSetup()}>
               {busy ? "Saving…" : "Confirm"}
             </Button>
-            <Button variant="ghost" onClick={() => setStep({ step: "identities" })}>
+            <Button
+              variant="ghost"
+              onClick={() =>
+                setStep(base.kind === "person" ? { step: "choose" } : { step: "username" })
+              }
+            >
               Back
             </Button>
           </div>

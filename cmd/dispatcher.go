@@ -105,9 +105,14 @@ func (d *Dispatcher) dispatch(ctx context.Context, ch channel.Channel, msg *chan
 	}
 
 	if sysmsg.IsUserVisibleSource(source) {
-		// Feed the channel-identity dictionary (web login "associate with
-		// discord:Nansen" flow) — only real user speech counts.
-		d.authMgr.RecordIdentity(ch.Name(), msg.UserID, senderName)
+		// Feed the channel-identity dictionary (web login "claim your
+		// discord:Nansen" flow) — only real chat-channel speech counts.
+		// The web console is excluded: an authenticated web user already IS
+		// a person, and recording it would fabricate junk identities like
+		// "web:discord:<session>" from its bound-session UserID.
+		if ch.Name() != "web" {
+			d.authMgr.RecordIdentity(ch.Name(), msg.UserID, senderName)
+		}
 		if err := session.AppendChat(d.threads.SessionDir(sessionKey), session.ChatRoleUser, senderName, userMessage, time.Now()); err != nil {
 			logger.Warn("chat.jsonl user-write failed", "sessionKey", sessionKey, "err", err)
 		}
