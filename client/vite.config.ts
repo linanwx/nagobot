@@ -14,6 +14,13 @@ export default defineConfig({
       "@": path.resolve(__dirname, "./src"),
     },
   },
+  build: {
+    // Production build lands directly in the Go embed directory
+    // (channel/web.go: //go:embed web/dist/*) and is committed to the repo,
+    // so the daemon serves this client as a single self-contained binary.
+    outDir: "../channel/web/dist",
+    emptyOutDir: true,
+  },
   server: {
     // Listen on all interfaces so phones/tablets on the LAN can open the dev
     // client at http://<mac-ip>:5173 (API/WS are proxied server-side below).
