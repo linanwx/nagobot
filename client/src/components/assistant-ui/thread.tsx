@@ -213,14 +213,6 @@ const ThreadMessage: FC = () => {
   return <AssistantMessageComponent />;
 };
 
-// CompressedChip marks content whose original was replaced by Tier-1
-// compression — what's shown is the compressed version, not the full text.
-const CompressedChip: FC = () => (
-  <span className="rounded bg-violet-500/15 px-1 py-px text-[10px] tracking-wide text-violet-700 uppercase dark:text-violet-300">
-    compressed
-  </span>
-);
-
 // Tool card bodies (args / result) get a hard cap so a huge read_file result
 // can't take over the thread even when expanded.
 const toolBodyMaxChars = 6000;
@@ -273,7 +265,6 @@ const ToolCardMessage: FC = () => {
           <span className="shrink-0 font-mono font-medium">
             {meta.toolName}
           </span>
-          {meta.compressed ? <CompressedChip /> : null}
           <span className="text-muted-foreground/60 min-w-0 flex-1 truncate font-mono text-[11px]">
             {preview}
           </span>
@@ -752,7 +743,7 @@ const AssistantMessage: FC = () => {
       data-role="assistant"
       className="fade-in slide-in-from-bottom-1 animate-in relative -mb-7.5 pb-7.5 duration-150"
     >
-      {meta.caller || meta.compressed || createdAt ? (
+      {meta.caller || createdAt ? (
         <div
           data-slot="aui_assistant-message-header"
           className="flex items-baseline gap-2 px-2 pb-0.5"
@@ -762,7 +753,6 @@ const AssistantMessage: FC = () => {
               via {meta.caller}
             </span>
           ) : null}
-          {meta.compressed ? <CompressedChip /> : null}
           <MessageTimestamp />
         </div>
       ) : null}
@@ -927,7 +917,7 @@ const UserMessage: FC = () => {
       >
         {/* Inside the bubble wrapper so it always stacks directly above the
             bubble — as a grid child it would land in the spacer column. */}
-        {meta.senderName || meta.compressed || createdAt ? (
+        {meta.senderName || createdAt ? (
           <div
             data-slot="aui_user-message-header"
             className={cn(
@@ -940,7 +930,6 @@ const UserMessage: FC = () => {
                 {meta.senderName}
               </span>
             ) : null}
-            {meta.compressed ? <CompressedChip /> : null}
             <MessageTimestamp />
           </div>
         ) : null}
