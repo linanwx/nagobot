@@ -590,6 +590,23 @@ export function useNagobotChat(sessionKey: string) {
         return [...prev, final];
       });
     };
+    // Another person watching this session spoke — show their bubble right
+    // away (their page rendered it locally; ours would otherwise only see
+    // the reply stream). The next resync replaces it with the persisted form.
+    sock.onPeerMessage = (text, sender) => {
+      setMessages((prev) => [
+        ...prev,
+        {
+          id: localID("peer"),
+          role: "user",
+          text,
+          createdAt: new Date(),
+          senderName: sender || undefined,
+          isMe: false,
+        },
+      ]);
+    };
+
     sock.onError = (message) => {
       stopRunning();
       setMessages((prev) => [

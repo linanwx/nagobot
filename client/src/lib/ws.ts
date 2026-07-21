@@ -4,6 +4,7 @@
 //   client → server: {type: "bind", session_id} | {type: "message", text}
 //   server → client: {type: "response", text} | {type: "bound", text}
 //                  | {type: "error", error} | {type: "stream", kind, ...}
+//                  | {type: "peer_message", text, sender}
 //
 // "stream" frames carry live turn activity: thinking/text deltas (with the
 // round-accumulated snapshot for self-healing), tool lifecycle, and round/
@@ -41,6 +42,8 @@ type InboundFrame = {
   type: string;
   text?: string;
   error?: string;
+  // type:"peer_message" — another viewer of this session spoke.
+  sender?: string;
 } & Partial<StreamFrame>;
 
 const maxBackoffMs = 15_000;
@@ -56,6 +59,7 @@ export class NagobotSocket {
   onStream: ((ev: StreamFrame) => void) | null = null;
   onStatus: ((status: SocketStatus) => void) | null = null;
   onError: ((message: string) => void) | null = null;
+  onPeerMessage: ((text: string, sender: string) => void) | null = null;
 
   connect(): void {
     if (this.closed) return;
@@ -87,6 +91,9 @@ export class NagobotSocket {
           break;
         case "error":
           if (frame.error) this.onError?.(frame.error);
+          break;
+        case "peer_message":
+          if (frame.text) this.onPeerMessage?.(frame.text, frame.sender ?? "");
           break;
         // "bound" acks need no handling.
       }

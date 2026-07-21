@@ -59,11 +59,24 @@ type WebChannel struct {
 	wg        sync.WaitGroup
 	server    *http.Server
 
-	mu       sync.RWMutex
-	clients  map[string]*wsClient
+	mu sync.RWMutex
+	// clients: session key → viewer key → bound page. One active page per
+	// VIEWER per session (a person's newer page displaces their older one via
+	// wsCloseReplaced); different viewers coexist — that is what makes shared
+	// sessions group-viewable. Unauthenticated connections share one "anon"
+	// viewer key, preserving the old single-page semantics for auth-off
+	// deployments.
+	clients  map[string]map[string]*wsClient
 	peers    map[*wsClient]struct{}
 	msgID    int64
 	stopOnce sync.Once
+
+	// members: session key → person IDs that ever SENT a message there via
+	// web. Drives person-filtered push: participants get pinged when they are
+	// not watching; non-participants are never notified about the session.
+	// Persisted to system/web_session_members.json.
+	membersMu sync.Mutex
+	members   map[string]map[string]bool
 
 	systemPromptFn  func(string) (string, bool)
 	toolDefsFn      func(string) ([]provider.ToolDef, bool)
@@ -88,6 +101,10 @@ type webOutboundMessage struct {
 	Type  string `json:"type"`
 	Text  string `json:"text,omitempty"`
 	Error string `json:"error,omitempty"`
+
+	// type:"peer_message" — another viewer of the same session spoke; their
+	// display name rides along so the bubble can be attributed.
+	Sender string `json:"sender,omitempty"`
 
 	// type:"stream" — live turn activity (see thread/msg.StreamEvent).
 	Kind       string `json:"kind,omitempty"`         // thinking | text | tool_call | tool_result | round_end | turn_end
@@ -122,16 +139,19 @@ func NewWebChannel(cfg *config.Config, authMgr *auth.Manager) Channel {
 		}
 	}
 
-	return &WebChannel{
+	ch := &WebChannel{
 		addr:      addr,
 		workspace: workspace,
 		authMgr:   authMgr,
 		pushMgr:   pushMgr,
 		messages:  make(chan *Message, webMessageBufferSize),
 		done:      make(chan struct{}),
-		clients:   make(map[string]*wsClient),
+		clients:   make(map[string]map[string]*wsClient),
 		peers:     make(map[*wsClient]struct{}),
+		members:   make(map[string]map[string]bool),
 	}
+	ch.loadMembers()
+	return ch
 }
 
 // SetSystemPromptFn sets a callback that builds the current system prompt
@@ -222,7 +242,7 @@ func (w *WebChannel) Stop() error {
 		for client := range w.peers {
 			clients = append(clients, client)
 		}
-		w.clients = make(map[string]*wsClient)
+		w.clients = make(map[string]map[string]*wsClient)
 		w.peers = make(map[*wsClient]struct{})
 		w.mu.Unlock()
 
@@ -256,56 +276,73 @@ func (w *WebChannel) Send(ctx context.Context, resp *Response) error {
 		sessionID = webMainSessionID
 	}
 
-	w.mu.RLock()
-	client := w.clients[sessionID]
-	w.mu.RUnlock()
-	if client == nil {
-		// Nobody is watching this session in a browser. The message is
-		// already in session.jsonl (history catches the eye up on next
-		// open); deliver the ping via Web Push if any device enrolled.
-		if w.pushMgr.HasSubscriptions() {
-			w.pushMgr.Send(push.Notification{
-				Title:   "nagobot · " + sessionID,
-				Body:    truncateRunes(resp.Text, 140),
-				Session: sessionID,
-			})
-			return nil
-		}
-		return fmt.Errorf("web session not connected: %s", sessionID)
-	}
-
 	payload := webOutboundMessage{
 		Type: "response",
 		Text: resp.Text,
 	}
 
-	client.mu.Lock()
-	defer client.mu.Unlock()
-	if err := wsjson.Write(ctx, client.conn, payload); err != nil {
-		return fmt.Errorf("websocket send failed: %w", err)
+	// Multicast to every page watching the session. A viewer whose write
+	// fails counts as offline — their devices fall through to push below.
+	delivered := 0
+	online := make(map[string]bool)
+	for _, client := range w.boundClients(sessionID) {
+		client.mu.Lock()
+		err := wsjson.Write(ctx, client.conn, payload)
+		client.mu.Unlock()
+		if err != nil {
+			logger.Warn("web channel: ws send failed", "session", sessionID, "err", err)
+			continue
+		}
+		delivered++
+		online[viewerKey(client.person)] = true
 	}
-	return nil
+
+	notification := push.Notification{
+		Title:   "nagobot · " + sessionID,
+		Body:    truncateRunes(resp.Text, 140),
+		Session: sessionID,
+	}
+
+	// Participants who are not watching right now get the ping on their
+	// enrolled devices — that is what makes a shared session a group chat.
+	if members := w.membersOf(sessionID); members != nil {
+		for id := range members {
+			if online[id] {
+				delete(members, id)
+			}
+		}
+		pushed := w.pushMgr.SendTo(notification, members)
+		if delivered > 0 || pushed > 0 {
+			return nil
+		}
+		return fmt.Errorf("web session not connected: %s", sessionID)
+	}
+
+	// No participant record (pre-existing session, or auth-off deployment):
+	// keep the legacy behavior — broadcast push only when no page at all is
+	// watching.
+	if delivered > 0 {
+		return nil
+	}
+	if w.pushMgr.HasSubscriptions() {
+		w.pushMgr.Send(notification)
+		return nil
+	}
+	return fmt.Errorf("web session not connected: %s", sessionID)
 }
 
 // Messages returns the incoming message channel.
 func (w *WebChannel) Messages() <-chan *Message { return w.messages }
 
-// StreamTo implements Streamer: forward one live stream event to the client
-// currently bound to the session. No client bound = silently dropped (nobody
-// is watching; the authoritative content still arrives via Send and the
-// session history). Rebinding mid-turn picks up the stream from the next
-// event — snapshots make that seamless.
+// StreamTo implements Streamer: forward one live stream event to every page
+// bound to the session. No page bound = silently dropped (nobody is watching;
+// the authoritative content still arrives via Send and the session history).
+// Rebinding mid-turn picks up the stream from the next event — snapshots make
+// that seamless. Per-page write failures are dropped for the same reason.
 func (w *WebChannel) StreamTo(ctx context.Context, replyTo string, ev thread.StreamEvent) error {
 	sessionID := sanitizeSessionKey(replyTo)
 	if sessionID == "" {
 		sessionID = webMainSessionID
-	}
-
-	w.mu.RLock()
-	client := w.clients[sessionID]
-	w.mu.RUnlock()
-	if client == nil {
-		return nil
 	}
 
 	payload := webOutboundMessage{
@@ -320,9 +357,12 @@ func (w *WebChannel) StreamTo(ctx context.Context, replyTo string, ev thread.Str
 		Seq:        ev.Seq,
 	}
 
-	client.mu.Lock()
-	defer client.mu.Unlock()
-	return wsjson.Write(ctx, client.conn, payload)
+	for _, client := range w.boundClients(sessionID) {
+		client.mu.Lock()
+		_ = wsjson.Write(ctx, client.conn, payload)
+		client.mu.Unlock()
+	}
+	return nil
 }
 
 func (w *WebChannel) handleWS(rw http.ResponseWriter, r *http.Request) {
@@ -425,10 +465,130 @@ func (w *WebChannel) handleWS(rw http.ResponseWriter, r *http.Request) {
 				return
 			}
 
+			// Group bookkeeping: the sender becomes a participant (push
+			// target when away), and every OTHER page watching the session
+			// sees the message immediately — without this they would only
+			// see the reply stream, not what prompted it.
+			if client.person != nil {
+				w.recordMember(sessionID, client.person.ID)
+			}
+			peerPayload := webOutboundMessage{
+				Type:   "peer_message",
+				Text:   text,
+				Sender: username,
+			}
+			for _, peer := range w.boundClients(sessionID) {
+				if peer == client {
+					continue
+				}
+				peer.mu.Lock()
+				_ = wsjson.Write(r.Context(), peer.conn, peerPayload)
+				peer.mu.Unlock()
+			}
+
 		default:
 			_ = wsjson.Write(r.Context(), conn, webOutboundMessage{Type: "error", Error: "unsupported message type"})
 		}
 	}
+}
+
+// viewerKey identifies who is looking through a ws client for binding
+// purposes: the person ID, or a shared "anon" bucket when auth is off or the
+// connection came from an exempt IP.
+func viewerKey(person *auth.Person) string {
+	if person == nil {
+		return "anon"
+	}
+	return person.ID
+}
+
+func (w *WebChannel) membersFile() string {
+	if w.workspace == "" {
+		return ""
+	}
+	return filepath.Join(w.workspace, "system", "web_session_members.json")
+}
+
+func (w *WebChannel) loadMembers() {
+	path := w.membersFile()
+	if path == "" {
+		return
+	}
+	buf, err := os.ReadFile(path)
+	if err != nil {
+		return // first run
+	}
+	var raw map[string][]string
+	if err := json.Unmarshal(buf, &raw); err != nil {
+		logger.Warn("web channel: bad session members file", "path", path, "err", err)
+		return
+	}
+	w.membersMu.Lock()
+	defer w.membersMu.Unlock()
+	for session, ids := range raw {
+		set := make(map[string]bool, len(ids))
+		for _, id := range ids {
+			set[id] = true
+		}
+		w.members[session] = set
+	}
+}
+
+func (w *WebChannel) recordMember(sessionID, personID string) {
+	if sessionID == "" || personID == "" {
+		return
+	}
+	w.membersMu.Lock()
+	defer w.membersMu.Unlock()
+	set := w.members[sessionID]
+	if set[personID] {
+		return
+	}
+	if set == nil {
+		set = make(map[string]bool)
+		w.members[sessionID] = set
+	}
+	set[personID] = true
+
+	path := w.membersFile()
+	if path == "" {
+		return
+	}
+	raw := make(map[string][]string, len(w.members))
+	for session, ids := range w.members {
+		list := make([]string, 0, len(ids))
+		for id := range ids {
+			list = append(list, id)
+		}
+		sort.Strings(list)
+		raw[session] = list
+	}
+	buf, err := json.MarshalIndent(raw, "", "  ")
+	if err != nil {
+		logger.Warn("web channel: marshal session members failed", "err", err)
+		return
+	}
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err == nil {
+		if err := os.WriteFile(path, buf, 0o600); err != nil {
+			logger.Warn("web channel: save session members failed", "err", err)
+		}
+	}
+}
+
+// membersOf returns the participant person IDs of a session, or nil when the
+// session has no recorded participants.
+func (w *WebChannel) membersOf(sessionID string) map[string]bool {
+	w.membersMu.Lock()
+	defer w.membersMu.Unlock()
+	set := w.members[sessionID]
+	if len(set) == 0 {
+		return nil
+	}
+	out := make(map[string]bool, len(set))
+	for id := range set {
+		out[id] = true
+	}
+	return out
 }
 
 func (w *WebChannel) registerPeer(client *wsClient) {
@@ -444,23 +604,50 @@ func (w *WebChannel) unregisterPeer(client *wsClient) {
 }
 
 func (w *WebChannel) bindClient(sessionID string, client *wsClient) {
+	key := viewerKey(client.person)
 	w.mu.Lock()
-	old := w.clients[sessionID]
-	w.clients[sessionID] = client
+	viewers := w.clients[sessionID]
+	if viewers == nil {
+		viewers = make(map[string]*wsClient)
+		w.clients[sessionID] = viewers
+	}
+	old := viewers[key]
+	viewers[key] = client
 	w.mu.Unlock()
 
+	// Only the SAME viewer's older page is displaced — other people watching
+	// the session keep their connections (group viewing).
 	if old != nil && old != client {
 		_ = old.conn.Close(wsCloseReplaced, "replaced by another page")
 	}
 }
 
 func (w *WebChannel) unbindClient(sessionID string, client *wsClient) {
+	key := viewerKey(client.person)
 	w.mu.Lock()
 	defer w.mu.Unlock()
-	current := w.clients[sessionID]
-	if current == client {
-		delete(w.clients, sessionID)
+	viewers := w.clients[sessionID]
+	if viewers[key] == client {
+		delete(viewers, key)
+		if len(viewers) == 0 {
+			delete(w.clients, sessionID)
+		}
 	}
+}
+
+// boundClients snapshots every page currently watching a session.
+func (w *WebChannel) boundClients(sessionID string) []*wsClient {
+	w.mu.RLock()
+	defer w.mu.RUnlock()
+	viewers := w.clients[sessionID]
+	if len(viewers) == 0 {
+		return nil
+	}
+	out := make([]*wsClient, 0, len(viewers))
+	for _, c := range viewers {
+		out = append(out, c)
+	}
+	return out
 }
 
 func webURLHintFromAddr(addr string) string {

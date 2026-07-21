@@ -173,22 +173,42 @@ type Notification struct {
 // service reports as gone (404/410) are pruned. Errors are logged, never
 // returned — push is best-effort by nature and callers have no recovery.
 func (m *Manager) Send(n Notification) {
+	m.send(n, nil)
+}
+
+// SendTo delivers a notification only to devices enrolled by the given
+// persons. Returns the number of devices targeted (before delivery attempts)
+// so callers can tell "nobody enrolled" apart from "sent". Subscriptions
+// without a person attribution (exempt-IP or auth-off enrollments) are never
+// matched by a filtered send — they only receive broadcast Send.
+func (m *Manager) SendTo(n Notification, personIDs map[string]bool) int {
+	if len(personIDs) == 0 {
+		return 0
+	}
+	return m.send(n, personIDs)
+}
+
+func (m *Manager) send(n Notification, personIDs map[string]bool) int {
 	if m == nil {
-		return
+		return 0
 	}
 	m.mu.Lock()
-	subs := make([]Subscription, len(m.subs))
-	copy(subs, m.subs)
+	subs := make([]Subscription, 0, len(m.subs))
+	for _, s := range m.subs {
+		if personIDs == nil || (s.PersonID != "" && personIDs[s.PersonID]) {
+			subs = append(subs, s)
+		}
+	}
 	keys := m.keys
 	m.mu.Unlock()
 	if len(subs) == 0 {
-		return
+		return 0
 	}
 
 	payload, err := json.Marshal(n)
 	if err != nil {
 		logger.Warn("push: marshal payload failed", "err", err)
-		return
+		return 0
 	}
 
 	var gone []string
@@ -222,6 +242,7 @@ func (m *Manager) Send(n Notification) {
 			logger.Info("push: pruned dead subscription", "endpoint", ep)
 		}
 	}
+	return len(subs)
 }
 
 func (m *Manager) saveLocked() error {
