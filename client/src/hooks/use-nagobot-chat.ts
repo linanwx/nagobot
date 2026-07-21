@@ -357,8 +357,6 @@ export function useNagobotChat(sessionKey: string) {
     const sock = new NagobotSocket();
     socketRef.current = sock;
 
-    sock.onStatus = setStatus;
-
     // Live turn state (per socket, so a session switch resets it): ids of the
     // in-flight thinking card and text bubble, plus tool cards by call id.
     // All message updates are immutable — assistant-ui caches conversions by
@@ -369,6 +367,52 @@ export function useNagobotChat(sessionKey: string) {
       textId: null as string | null,
       tools: new Map<string, string>(),
     };
+
+    let cancelled = false;
+    // isMe: with a known sender_id, match against the viewer's identity keys.
+    // Without one (data predating sender_id, or auth disabled), fall back to
+    // the shape of the data: single-user messages carry no sender_name and
+    // read as the viewer's own; named group-chat speakers stay "others".
+    const isMe: IsMeFn = (senderID, senderName) => {
+      if (senderID) return meKeysRef.current.has(senderID);
+      return !senderName;
+    };
+
+    // resync re-reads session.jsonl and REPLACES the message list. Messages
+    // delivered while this page was disconnected (mobile OS froze the PWA,
+    // server fell back to Web Push) exist only on disk — the reconnected
+    // socket never replays them, so without this the page resumes showing
+    // its pre-freeze state forever. Live stream ids are reset; an in-flight
+    // turn rebuilds its bubbles from the next snapshot-carrying frame.
+    const resync = () => {
+      fetchSession(sessionKey)
+        .then((detail) => {
+          if (cancelled) return;
+          live.thinkingId = null;
+          live.textId = null;
+          live.tools.clear();
+          setMessages(sessionToChatMessages(detail.messages, isMe));
+        })
+        .catch(() => {
+          // Keep whatever is on screen; the next reconnect/visible retries.
+        });
+    };
+
+    // Resync on every reconnect after the first successful open, and whenever
+    // the tab returns to the foreground (an iOS resume often revives the page
+    // without any socket close event ever firing).
+    let wasOpen = false;
+    sock.onStatus = (s) => {
+      setStatus(s);
+      if (s === "open") {
+        if (wasOpen) resync();
+        wasOpen = true;
+      }
+    };
+    const onVisibility = () => {
+      if (document.visibilityState === "visible") resync();
+    };
+    document.addEventListener("visibilitychange", onVisibility);
 
     const replaceMsg = (id: string, patch: Partial<ChatMessage>) => {
       setMessages((prev) =>
@@ -536,17 +580,8 @@ export function useNagobotChat(sessionKey: string) {
     sock.bind(sessionKey);
     sock.connect();
 
-    let cancelled = false;
     setHistoryError(null);
     setHistoryLoading(true);
-    // isMe: with a known sender_id, match against the viewer's identity keys.
-    // Without one (data predating sender_id, or auth disabled), fall back to
-    // the shape of the data: single-user messages carry no sender_name and
-    // read as the viewer's own; named group-chat speakers stay "others".
-    const isMe: IsMeFn = (senderID, senderName) => {
-      if (senderID) return meKeysRef.current.has(senderID);
-      return !senderName;
-    };
     // setHistoryLoading(false) lives in the SAME callback as setMessages —
     // not a .finally — so both land in one React commit. Split across two
     // promise callbacks they can commit separately, and the in-between frame
@@ -576,6 +611,7 @@ export function useNagobotChat(sessionKey: string) {
 
     return () => {
       cancelled = true;
+      document.removeEventListener("visibilitychange", onVisibility);
       sock.close();
       socketRef.current = null;
     };
