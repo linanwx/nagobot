@@ -99,15 +99,15 @@ export type IsMeFn = (
   senderName: string | undefined,
 ) => boolean;
 
-// dispatchSendsToMessages parses a dispatch tool call's sends into messages:
-// to=user / to=caller:user deliveries become assistant chat bubbles (that
-// text reached the user), everything else becomes an outgoing event card
-// with its target. lastCaller resolves the "caller:*" targets to the session
-// that most recently woke us. Returns [] for dispatch({}) (silent turn end).
-//
-// result is the paired tool-result content: a rejected call (the model then
+// dispatchSendsToMessages renders the user-visible side of a dispatch call:
+// each successfully delivered to=user / to=caller:user send becomes an
+// assistant chat bubble (that text reached a human). The dispatch tool card
+// itself is rendered separately like any other tool — this only adds the
+// bubbles on top. Failed calls add nothing: a rejected call (the model then
 // retries, so rendering it would duplicate the retry's sends) is skipped
-// entirely, and a partial failure skips the sends its "- send #N" lines name.
+// entirely, and a partial failure skips the sends its "- send #N" lines
+// name. Other targets (session/subagent/...) get no extra rendering — the
+// tool card already shows them.
 function dispatchSendsToMessages(
   tc: ApiToolCall,
   createdAt: Date | undefined,
@@ -136,58 +136,18 @@ function dispatchSendsToMessages(
   for (const [index, s] of sends.entries()) {
     if (failed.has(index + 1)) continue;
     if (typeof s !== "object" || s === null) continue;
-    const send = s as {
-      to?: string;
-      body?: string;
-      message?: string;
-      params?: Record<string, string>;
-      // Legacy pre-params layout kept top-level addressing fields.
-      session_key?: string;
-      channel?: string;
-      user_id?: string;
-      agent?: string;
-    };
+    const send = s as { to?: string; body?: string; message?: string };
     const body = (send.body ?? send.message ?? "").trim();
     if (body === "") continue;
-    const p = send.params ?? {};
     const to = send.to ?? "";
-
-    if (to === "user" || to === "caller:user") {
-      out.push({
-        id: localID("disp"),
-        role: "assistant",
-        text: body,
-        createdAt,
-        caller: to === "caller:user" ? lastCaller || undefined : undefined,
-      });
-      continue;
-    }
-
-    let target = "";
-    if (to === "session") {
-      target =
-        p.session_key ||
-        send.session_key ||
-        [p.channel || send.channel, p.user_id || send.user_id]
-          .filter(Boolean)
-          .join(":");
-    } else if (to === "caller:session") {
-      target = lastCaller || "caller session";
-    } else if (to === "subagent" || to === "fork") {
-      const agent = p.agent || send.agent;
-      target = agent ? `${to} (${agent})` : to;
-    } else {
-      target = to;
-    }
+    if (to !== "user" && to !== "caller:user") continue;
 
     out.push({
       id: localID("disp"),
       role: "assistant",
       text: body,
       createdAt,
-      kind: "event",
-      source: "dispatch",
-      target: target || undefined,
+      caller: to === "caller:user" ? lastCaller || undefined : undefined,
     });
   }
   return out;
@@ -260,17 +220,6 @@ export function sessionToChatMessages(
         const name = tc.function?.name;
         if (!name) continue;
         const result = tc.id ? toolResults.get(tc.id) : undefined;
-        if (name === "dispatch") {
-          out.push(
-            ...dispatchSendsToMessages(
-              tc,
-              createdAt,
-              lastCaller,
-              result?.content,
-            ),
-          );
-          continue;
-        }
         out.push({
           id: tc.id || localID("tool"),
           role: "assistant",
@@ -282,6 +231,18 @@ export function sessionToChatMessages(
           resultText: result?.content ?? "",
           compressed: Boolean(result?.compressed),
         });
+        // dispatch additionally surfaces its delivered user-facing sends as
+        // chat bubbles — the human actually received that text.
+        if (name === "dispatch") {
+          out.push(
+            ...dispatchSendsToMessages(
+              tc,
+              createdAt,
+              lastCaller,
+              result?.content,
+            ),
+          );
+        }
       }
       continue;
     }
