@@ -500,16 +500,19 @@ export function useNagobotChat(sessionKey: string) {
           // Some platforms (Android Chrome) only allow SW-shown notifications.
         }
       }
+      // Replace the live streamed bubble in place (authoritative content for
+      // the same round); otherwise append. The replacement KEEPS the live
+      // bubble's id — swapping in a fresh id at the same spot makes
+      // assistant-ui's store treat old and new as sibling branches of the
+      // same parent and render a "< 2/2 >" branch picker.
+      const liveId = live.textId;
+      live.textId = null;
       const final: ChatMessage = {
-        id: localID("resp"),
+        id: liveId ?? localID("resp"),
         role: "assistant",
         text,
         createdAt: new Date(),
       };
-      // Replace the live streamed bubble in place (authoritative content for
-      // the same round); otherwise append as before.
-      const liveId = live.textId;
-      live.textId = null;
       setMessages((prev) => {
         if (liveId && prev.some((m) => m.id === liveId)) {
           return prev.map((m) => (m.id === liveId ? final : m));
@@ -547,7 +550,15 @@ export function useNagobotChat(sessionKey: string) {
     fetchSession(sessionKey)
       .then((detail) => {
         if (!cancelled) {
-          setMessages(sessionToChatMessages(detail.messages, isMe));
+          // Prepend history in front of whatever arrived live while the fetch
+          // was in flight. Overwriting instead would orphan the stream state
+          // machine's ids (live.textId etc. point at wiped messages), leaving
+          // every later snapshot a no-op — the turn looks frozen after a
+          // close-and-reopen mid-response.
+          setMessages((prev) => [
+            ...sessionToChatMessages(detail.messages, isMe),
+            ...prev,
+          ]);
         }
       })
       .catch((err: unknown) => {
@@ -602,6 +613,12 @@ export function useNagobotChat(sessionKey: string) {
     [startRunning],
   );
 
+  // takeOver reclaims the session after another page displaced this one
+  // (status "replaced"): reconnect + rebind, which in turn bumps that page.
+  const takeOver = useCallback(() => {
+    socketRef.current?.resume();
+  }, []);
+
   const runtime = useExternalStoreRuntime<ChatMessage>({
     messages,
     isRunning,
@@ -609,5 +626,5 @@ export function useNagobotChat(sessionKey: string) {
     onNew,
   });
 
-  return { runtime, status, historyError, historyLoading };
+  return { runtime, status, historyError, historyLoading, takeOver };
 }

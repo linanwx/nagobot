@@ -19,6 +19,7 @@ const statusLabel = {
   connecting: "connecting…",
   open: "online",
   closed: "reconnecting…",
+  replaced: "inactive",
 } as const;
 
 // The child-session menu is capped: cli alone has hundreds of thread children.
@@ -40,7 +41,7 @@ export function ChatPane({
   onBack: () => void;
   hiddenOnMobile?: boolean;
 }) {
-  const { runtime, status, historyError, historyLoading } =
+  const { runtime, status, historyError, historyLoading, takeOver } =
     useNagobotChat(sessionKey);
 
   const visibleChildren = childSessions.slice(0, childMenuLimit);
@@ -126,7 +127,20 @@ export function ChatPane({
         </p>
       )}
       <div className="min-h-0 flex-1">
-        {historyLoading ? (
+        {status === "replaced" ? (
+          <div className="flex h-full flex-col items-center justify-center gap-3 px-6 text-center">
+            <p className="text-sm font-medium">
+              This session is now active in another window
+            </p>
+            <p className="text-muted-foreground max-w-sm text-xs">
+              Only one page can be connected to a session at a time. Messages
+              are being delivered to the other window.
+            </p>
+            <Button size="sm" onClick={takeOver}>
+              Use here instead
+            </Button>
+          </div>
+        ) : historyLoading ? (
           <div className="flex h-full items-center justify-center">
             <div
               className="border-muted-foreground/30 border-t-foreground size-6 animate-spin rounded-full border-2"

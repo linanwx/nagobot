@@ -9,7 +9,12 @@
 // round-accumulated snapshot for self-healing), tool lifecycle, and round/
 // turn boundaries.
 
-export type SocketStatus = "connecting" | "open" | "closed";
+// "replaced": another page bound this session and the server closed us with
+// code 4001. Auto-reconnecting would kick that page right back, so the socket
+// stays down until resume() is called explicitly.
+export type SocketStatus = "connecting" | "open" | "closed" | "replaced";
+
+const closeCodeReplaced = 4001;
 
 export type StreamFrame = {
   kind:
@@ -87,9 +92,13 @@ export class NagobotSocket {
       }
     };
 
-    ws.onclose = () => {
+    ws.onclose = (ev) => {
       if (this.ws !== ws) return; // superseded by a newer connection
       this.ws = null;
+      if (ev.code === closeCodeReplaced) {
+        this.onStatus?.("replaced");
+        return; // no reconnect — the user reclaims via resume()
+      }
       this.onStatus?.("closed");
       this.scheduleReconnect();
     };
@@ -102,6 +111,14 @@ export class NagobotSocket {
       this.connect();
     }, this.backoffMs);
     this.backoffMs = Math.min(this.backoffMs * 2, maxBackoffMs);
+  }
+
+  // resume reconnects after a "replaced" takeover — this page becomes the
+  // active one and the server bumps whichever page took over (code 4001).
+  resume(): void {
+    if (this.closed || this.ws) return;
+    this.backoffMs = 1_000;
+    this.connect();
   }
 
   bind(session: string): void {

@@ -37,6 +37,12 @@ const (
 	webDefaultAddr       = "127.0.0.1:18080"
 	webShutdownTimeout   = 5 * time.Second
 	sessionsDirName      = "sessions"
+
+	// wsCloseReplaced tells a client its session binding was taken over by a
+	// newer page. The client must NOT auto-reconnect (that would kick the new
+	// page right back — an endless tug-of-war); it shows a takeover notice
+	// with a manual "continue here" action instead.
+	wsCloseReplaced = websocket.StatusCode(4001)
 )
 
 //go:embed web/dist/*
@@ -329,9 +335,12 @@ func (w *WebChannel) handleWS(rw http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Deliberately no bindClient here: binding happens only on the client's
+	// explicit "bind" frame. Binding every fresh connection to the main
+	// session would kick whichever page is legitimately watching it, even
+	// when this connection is about to bind a different session.
 	client := &wsClient{conn: conn, boundSession: webMainSessionID, person: person}
 	w.registerPeer(client)
-	w.bindClient(webMainSessionID, client)
 
 	w.wg.Add(1)
 	defer w.wg.Done()
@@ -441,7 +450,7 @@ func (w *WebChannel) bindClient(sessionID string, client *wsClient) {
 	w.mu.Unlock()
 
 	if old != nil && old != client {
-		_ = old.conn.Close(websocket.StatusNormalClosure, "replaced")
+		_ = old.conn.Close(wsCloseReplaced, "replaced by another page")
 	}
 }
 
