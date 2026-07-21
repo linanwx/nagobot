@@ -58,10 +58,14 @@ function SessionRow({
   showFolderBadge?: boolean;
 }) {
   const active = selected === session.key || selected.startsWith(session.key + ":");
+  // A summarized session is identified by its summary alone — the raw
+  // session id adds nothing a human recognizes, so it moves to the tooltip.
+  const label = session.summary || sessionLabel(session.key);
   return (
     <button
       type="button"
       onClick={() => onSelect(session.key)}
+      title={session.key}
       className={cn(
         "flex w-full flex-col gap-0.5 rounded-md px-2 py-1.5 text-left",
         active
@@ -75,18 +79,11 @@ function SessionRow({
             {folderOf(session.key)}
           </span>
         )}
-        <span className="min-w-0 flex-1 truncate text-sm">
-          {sessionLabel(session.key)}
-        </span>
+        <span className="min-w-0 flex-1 truncate text-sm">{label}</span>
         <span className="shrink-0 text-[10px] text-muted-foreground">
           {relativeTime(session.updated_at)}
         </span>
       </span>
-      {session.summary && (
-        <span className="truncate text-xs text-muted-foreground">
-          {session.summary}
-        </span>
-      )}
     </button>
   );
 }
