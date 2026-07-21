@@ -45,18 +45,54 @@ function fmtTime(ts: string): string {
 
 // Wake payloads are YAML frontmatter + body. One level of nesting is enough:
 // the dashboard did the same, and deeper nesting falls back to plain text.
+//
+// Values can span lines: go-yaml emits multi-line strings (e.g. the wake
+// `action` hint) as block scalars (`|-` + indented lines), so a field ends
+// only at the next unindented `key:` line — everything in between folds into
+// the current value.
+
+// Frontmatter keys are snake_case identifiers at zero indentation; anything
+// else (indented hint lines, `1.` list items, backtick code) is value text.
+const fmKeyRe = /^([A-Za-z_][A-Za-z0-9_.-]*):\s?(.*)$/;
+
+function foldValue(lines: string[]): string {
+  const head = lines[0].trim();
+  const rest = lines.slice(1);
+  while (rest.length > 0 && rest[rest.length - 1].trim() === "") rest.pop();
+  if (rest.length === 0) return head;
+  const indent = Math.min(
+    ...rest
+      .filter((l) => l.trim() !== "")
+      .map((l) => l.length - l.trimStart().length),
+  );
+  const body = rest.map((l) => l.slice(indent)).join("\n");
+  // A block-scalar indicator (|, |-, >-, …) carries no content of its own.
+  if (/^[|>][+-]?\d?$/.test(head)) return body;
+  return head === "" ? body : head + "\n" + body;
+}
+
 function splitFrontmatter(
   content: string,
 ): { fields: [string, string][]; body: string } | null {
   const m = /^---\n([\s\S]*?)\n---\n?/.exec(content);
   if (!m) return null;
   const fields: [string, string][] = [];
+  let key: string | null = null;
+  let lines: string[] = [];
+  const flush = () => {
+    if (key != null) fields.push([key, foldValue(lines)]);
+  };
   for (const line of m[1].split("\n")) {
-    const idx = line.indexOf(":");
-    if (idx > 0) {
-      fields.push([line.slice(0, idx).trim(), line.slice(idx + 1).trim()]);
+    const km = fmKeyRe.exec(line);
+    if (km) {
+      flush();
+      key = km[1];
+      lines = [km[2]];
+    } else if (key != null) {
+      lines.push(line);
     }
   }
+  flush();
   if (fields.length === 0) return null;
   return { fields, body: content.slice(m[0].length) };
 }
@@ -184,7 +220,7 @@ function FieldGrid({
         // Duplicate keys are possible in merged wake payloads; index the key.
         <div key={`${k}-${i}`} className="contents">
           <span className="text-muted-foreground">{k}</span>
-          <span className="break-words">{v}</span>
+          <span className="break-words whitespace-pre-wrap">{v}</span>
         </div>
       ))}
     </div>
