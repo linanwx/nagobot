@@ -190,6 +190,17 @@ export function sessionToChatMessages(
   }
 
   for (const m of api) {
+    // Trimmed heartbeat/dream turns are background noise the bot itself no
+    // longer sees: Tier-1 marks the whole turn (heartbeat_trim on assistant/
+    // tool messages, a "[heartbeat at …]" marker on the wake). Hide them
+    // here — the raw-data dialog still shows everything.
+    if (m.heartbeat_trim) continue;
+    if (
+      m.role === "user" &&
+      (m.compressed?.startsWith("[heartbeat ") ||
+        m.compressed?.startsWith("[progress "))
+    )
+      continue;
     if (m.role !== "user" && m.role !== "assistant") continue;
     const createdAt = m.timestamp ? new Date(m.timestamp) : undefined;
     const raw = m.content ?? "";
