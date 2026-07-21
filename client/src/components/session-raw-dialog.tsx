@@ -203,7 +203,10 @@ function MessageCard({ msg, index }: { msg: ApiMessage; index: number }) {
   return (
     <div
       className={cn(
-        "border-border overflow-hidden rounded-md border border-s-4",
+        // shrink-0: cards are flex-column children of a height-capped
+        // scroller — without it they compress to slivers instead of
+        // overflowing into scroll once the list outgrows the dialog.
+        "border-border shrink-0 overflow-hidden rounded-md border border-s-4",
         roleEdge[role] ?? "border-s-border",
         msg.heartbeat_trim && "opacity-60",
       )}

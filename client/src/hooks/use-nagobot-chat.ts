@@ -283,7 +283,17 @@ export function sessionToChatMessages(
       compressed,
     });
   }
-  return out.slice(-historyLimit);
+  // Deduplicate ids defensively: assistant-ui's message repository THROWS on
+  // a repeated id, and with no error boundary that white-screens the whole
+  // app. Session data is normally unique, but one dirty line must not take
+  // the page down.
+  const seen = new Set<string>();
+  return out.slice(-historyLimit).map((m) => {
+    let id = m.id;
+    while (seen.has(id)) id = `${id}+`;
+    seen.add(id);
+    return id === m.id ? m : { ...m, id };
+  });
 }
 
 const convertMessage = (m: ChatMessage): ThreadMessageLike => {
