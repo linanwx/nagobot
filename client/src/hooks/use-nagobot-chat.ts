@@ -522,6 +522,23 @@ export function useNagobotChat(sessionKey: string) {
       // Streamed turns end on turn_end; a lone response (non-streaming
       // provider or older daemon) still closes the spinner.
       if (!live.active) stopRunning();
+      // Desktop nicety: tab open but hidden → system notification. Web Push
+      // (sw.js) covers the no-tab case; this covers the backgrounded tab,
+      // where the server sees a connected client and sends no push.
+      if (
+        document.hidden &&
+        typeof Notification !== "undefined" &&
+        Notification.permission === "granted"
+      ) {
+        try {
+          new Notification(`nagobot · ${sessionKey}`, {
+            body: text.length > 140 ? text.slice(0, 140) + "…" : text,
+            tag: sessionKey,
+          });
+        } catch {
+          // Some platforms (Android Chrome) only allow SW-shown notifications.
+        }
+      }
       const final: ChatMessage = {
         id: localID("resp"),
         role: "assistant",

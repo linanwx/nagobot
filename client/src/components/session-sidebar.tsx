@@ -1,6 +1,7 @@
-import { ChevronRight } from "lucide-react";
+import { ChevronRight, Plus } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { SidebarFooter } from "@/components/sidebar-footer";
+import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import type { SessionEntry } from "@/lib/api";
 import { relativeTime } from "@/lib/sessions";
@@ -94,12 +95,15 @@ export function SessionSidebar({
   sessions,
   selected,
   onSelect,
+  onCreate,
   error,
   hiddenOnMobile,
 }: {
   sessions: SessionEntry[];
   selected: string;
   onSelect: (key: string) => void;
+  // Start a fresh browser-created session (random web:* key).
+  onCreate: () => void;
   error: string | null;
   // Mobile shows list OR chat, never both; md+ always shows the sidebar.
   hiddenOnMobile?: boolean;
@@ -138,6 +142,16 @@ export function SessionSidebar({
           placeholder="Filter…"
           className="h-7 flex-1 text-xs"
         />
+        <Button
+          variant="ghost"
+          size="icon"
+          className="size-7 shrink-0"
+          onClick={onCreate}
+          title="New session"
+        >
+          <Plus className="size-4" />
+          <span className="sr-only">New session</span>
+        </Button>
       </div>
       <nav className="flex-1 overflow-y-auto overscroll-contain px-2 py-2">
         {error && <p className="px-2 py-1 text-xs text-destructive">{error}</p>}

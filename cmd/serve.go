@@ -525,6 +525,25 @@ func buildDefaultSinkFor(chMgr *channel.Manager, cfg *config.Config, sessionsDir
 			}
 		}
 
+		// web:{id} (browser-created sessions) → deliver to the bound browser
+		// client; the web channel falls back to Web Push when none is
+		// connected, so sinkless wakes (cross-session dispatch, cron) can
+		// still reach the user.
+		if strings.HasPrefix(sessionKey, "web:") {
+			return thread.Sink{
+				Label: "your response will be sent to the web client for session " + sessionKey,
+				Send: func(ctx context.Context, response string) error {
+					if strings.TrimSpace(response) == "" {
+						return nil
+					}
+					return chMgr.SendResponse(ctx, "web", &channel.Response{
+						Text:    response,
+						ReplyTo: sessionKey,
+					})
+				},
+			}
+		}
+
 		// "cli" → socket channel.
 		if sessionKey == "cli" {
 			if _, ok := chMgr.Get("socket"); ok {

@@ -1,4 +1,4 @@
-import { BookText, LogOut, Settings } from "lucide-react";
+import { Bell, BellOff, BookText, LogOut, Settings } from "lucide-react";
 import { useEffect, useState } from "react";
 import ReactMarkdown, { type Components } from "react-markdown";
 import remarkGfm from "remark-gfm";
@@ -19,6 +19,12 @@ import {
   fetchPromptFiles,
   type PromptFileEntry,
 } from "@/lib/api";
+import {
+  currentSubscription,
+  disablePush,
+  enablePush,
+  pushSupported,
+} from "@/lib/push";
 import { cn } from "@/lib/utils";
 
 // Compact markdown styling for prompt documents. Kept local: the registry
@@ -230,6 +236,56 @@ function PromptsDialog() {
   );
 }
 
+// PushToggle enrolls/withdraws this browser for Web Push. Hidden entirely
+// where push can never work (insecure context, iOS Safari tab).
+function PushToggle() {
+  const [enabled, setEnabled] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const supported = pushSupported();
+
+  useEffect(() => {
+    if (!supported) return;
+    currentSubscription()
+      .then((sub) => setEnabled(sub != null))
+      .catch(() => setEnabled(false));
+  }, [supported]);
+
+  if (!supported) return null;
+
+  const toggle = async () => {
+    setBusy(true);
+    try {
+      if (enabled) {
+        await disablePush();
+        setEnabled(false);
+      } else {
+        await enablePush();
+        setEnabled(true);
+      }
+    } catch (e) {
+      console.error("push toggle failed:", e);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <Button
+      variant="ghost"
+      size="icon"
+      className="size-7"
+      disabled={busy}
+      onClick={() => void toggle()}
+      title={enabled ? "Disable push notifications" : "Enable push notifications"}
+    >
+      {enabled ? <Bell className="size-4" /> : <BellOff className="size-4" />}
+      <span className="sr-only">
+        {enabled ? "Disable push notifications" : "Enable push notifications"}
+      </span>
+    </Button>
+  );
+}
+
 // SidebarFooter is the strip at the bottom of the session list: daemon
 // configuration, the global prompt files, and the signed-in account.
 export function SidebarFooter() {
@@ -239,6 +295,7 @@ export function SidebarFooter() {
     <div className="flex shrink-0 items-center gap-1 border-t px-2 py-1.5">
       <ConfigDialog />
       <PromptsDialog />
+      <PushToggle />
       {signedIn && (
         <>
           <span className="text-muted-foreground ms-auto truncate text-xs">

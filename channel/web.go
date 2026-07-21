@@ -26,6 +26,7 @@ import (
 	"github.com/linanwx/nagobot/config"
 	"github.com/linanwx/nagobot/logger"
 	"github.com/linanwx/nagobot/provider"
+	"github.com/linanwx/nagobot/push"
 	"github.com/linanwx/nagobot/session"
 	"github.com/linanwx/nagobot/thread"
 )
@@ -46,6 +47,7 @@ type WebChannel struct {
 	addr      string
 	workspace string
 	authMgr   *auth.Manager
+	pushMgr   *push.Manager
 	messages  chan *Message
 	done      chan struct{}
 	wg        sync.WaitGroup
@@ -104,10 +106,21 @@ func NewWebChannel(cfg *config.Config, authMgr *auth.Manager) Channel {
 		logger.Warn("web channel: failed to get workspace path", "err", err)
 	}
 
+	var pushMgr *push.Manager
+	if workspace != "" {
+		pushMgr, err = push.NewManager(filepath.Join(workspace, "system"))
+		if err != nil {
+			// Push is an enhancement, not a prerequisite — the channel still
+			// serves chat without it.
+			logger.Warn("web channel: push disabled", "err", err)
+		}
+	}
+
 	return &WebChannel{
 		addr:      addr,
 		workspace: workspace,
 		authMgr:   authMgr,
+		pushMgr:   pushMgr,
 		messages:  make(chan *Message, webMessageBufferSize),
 		done:      make(chan struct{}),
 		clients:   make(map[string]*wsClient),
@@ -164,6 +177,9 @@ func (w *WebChannel) Start(ctx context.Context) error {
 	mux.Handle("/api/prompts", w.protected(w.handlePrompts))
 	mux.Handle("/api/heartbeat/", w.protected(w.handleHeartbeat))
 	mux.Handle("/api/media/", w.protected(w.handleMedia))
+	mux.Handle("/api/push/vapid-key", w.protected(w.handlePushKey))
+	mux.Handle("/api/push/subscribe", w.protected(w.handlePushSubscribe))
+	mux.Handle("/api/push/unsubscribe", w.protected(w.handlePushUnsubscribe))
 	mux.Handle("/", http.FileServer(http.FS(frontendFS)))
 
 	w.server = &http.Server{
@@ -238,6 +254,17 @@ func (w *WebChannel) Send(ctx context.Context, resp *Response) error {
 	client := w.clients[sessionID]
 	w.mu.RUnlock()
 	if client == nil {
+		// Nobody is watching this session in a browser. The message is
+		// already in session.jsonl (history catches the eye up on next
+		// open); deliver the ping via Web Push if any device enrolled.
+		if w.pushMgr.HasSubscriptions() {
+			w.pushMgr.Send(push.Notification{
+				Title:   "nagobot · " + sessionID,
+				Body:    truncateRunes(resp.Text, 140),
+				Session: sessionID,
+			})
+			return nil
+		}
 		return fmt.Errorf("web session not connected: %s", sessionID)
 	}
 

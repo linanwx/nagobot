@@ -6,9 +6,22 @@ import { childSessionsOf, parentSessionOf, topLevelSessions } from "@/lib/sessio
 
 const refreshIntervalMs = 30_000;
 
+// newWebSessionKey mints the key for a browser-created session. The web:
+// prefix keeps these out of the cli/discord/cron namespaces; the dispatcher
+// materializes the session on its first message.
+function newWebSessionKey(): string {
+  const bytes = new Uint8Array(4);
+  crypto.getRandomValues(bytes);
+  const id = [...bytes].map((b) => b.toString(16).padStart(2, "0")).join("");
+  return `web:${id}`;
+}
+
 export default function App() {
   const [sessionKey, setSessionKey] = useState("cli");
   const [sessions, setSessions] = useState<SessionEntry[]>([]);
+  // Browser-created sessions that have no session.jsonl yet — merged into the
+  // sidebar until the server list includes them.
+  const [draftSessions, setDraftSessions] = useState<SessionEntry[]>([]);
   const [sessionsError, setSessionsError] = useState<string | null>(null);
   // On narrow screens the list and the chat are two full-screen views; this
   // picks which one is showing. Desktop (md+) always shows both side by side.
@@ -35,7 +48,13 @@ export default function App() {
     };
   }, []);
 
-  const topLevel = useMemo(() => topLevelSessions(sessions), [sessions]);
+  const merged = useMemo(() => {
+    const known = new Set(sessions.map((s) => s.key));
+    const drafts = draftSessions.filter((d) => !known.has(d.key));
+    return [...drafts, ...sessions];
+  }, [sessions, draftSessions]);
+
+  const topLevel = useMemo(() => topLevelSessions(merged), [merged]);
   const children = useMemo(
     () => childSessionsOf(sessions, sessionKey),
     [sessions, sessionKey],
@@ -50,12 +69,23 @@ export default function App() {
     setMobilePane("chat");
   };
 
+  const createSession = () => {
+    const key = newWebSessionKey();
+    const now = new Date().toISOString();
+    setDraftSessions((prev) => [
+      { key, created_at: now, updated_at: now, message_count: 0 },
+      ...prev,
+    ]);
+    openSession(key);
+  };
+
   return (
     <div className="flex h-dvh bg-background text-foreground">
       <SessionSidebar
         sessions={topLevel}
         selected={sessionKey}
         onSelect={openSession}
+        onCreate={createSession}
         error={sessionsError}
         hiddenOnMobile={mobilePane === "chat"}
       />
