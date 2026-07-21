@@ -292,7 +292,7 @@ export function SidebarFooter() {
   const { me, signOut } = useAuth();
   const signedIn = me != null && me.auth_enabled && !me.exempt && me.authenticated;
   return (
-    <div className="flex shrink-0 items-center gap-1 border-t px-2 py-1.5">
+    <div className="flex shrink-0 items-center gap-1 border-t px-2 pt-1.5 pb-[max(0.375rem,env(safe-area-inset-bottom))]">
       <ConfigDialog />
       <PromptsDialog />
       <PushToggle />

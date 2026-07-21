@@ -80,7 +80,13 @@ export default function App() {
   };
 
   return (
-    <div className="flex h-dvh bg-background text-foreground">
+    // viewport-fit=cover lets the page bleed under the iOS notch/home
+    // indicator; the top inset is compensated here, the bottom inside the
+    // sidebar footer and composer (so their backgrounds still fill the bar).
+    <div
+      className="flex h-dvh bg-background text-foreground"
+      style={{ paddingTop: "env(safe-area-inset-top)" }}
+    >
       <SessionSidebar
         sessions={topLevel}
         selected={sessionKey}
