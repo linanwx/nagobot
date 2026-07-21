@@ -1,7 +1,8 @@
 import { AssistantRuntimeProvider } from "@assistant-ui/react";
-import { ArrowUpLeft, ChevronLeft, MoreHorizontal } from "lucide-react";
-import { useMemo } from "react";
+import { ArrowUpLeft, ChevronLeft, FileJson, MoreHorizontal } from "lucide-react";
+import { useMemo, useState } from "react";
 import { Thread } from "@/components/assistant-ui/thread";
+import { SessionRawDialog } from "@/components/session-raw-dialog";
 import { Button } from "@/components/ui/button";
 import {
   DropdownMenu,
@@ -55,6 +56,7 @@ export function ChatPane({
     () => (hasMessages ? { Welcome: NullWelcome } : undefined),
     [hasMessages],
   );
+  const [rawOpen, setRawOpen] = useState(false);
 
   const visibleChildren = childSessions.slice(0, childMenuLimit);
 
@@ -93,6 +95,11 @@ export function ChatPane({
             </Button>
           </DropdownMenuTrigger>
           <DropdownMenuContent align="end" className="w-72">
+            <DropdownMenuItem onSelect={() => setRawOpen(true)}>
+              <FileJson className="size-4" />
+              Raw session data
+            </DropdownMenuItem>
+            <DropdownMenuSeparator />
             {parentSession && (
               <>
                 <DropdownMenuItem onSelect={() => onOpenSession(parentSession)}>
@@ -132,6 +139,11 @@ export function ChatPane({
             )}
           </DropdownMenuContent>
         </DropdownMenu>
+        <SessionRawDialog
+          sessionKey={sessionKey}
+          open={rawOpen}
+          onOpenChange={setRawOpen}
+        />
       </header>
       {historyError && (
         <p className="border-b bg-destructive/10 px-4 py-1 text-xs text-destructive">

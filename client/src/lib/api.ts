@@ -11,6 +11,7 @@ export type SessionEntry = {
 
 export type ApiToolCall = {
   id?: string;
+  type?: string;
   function?: {
     name?: string;
     arguments?: string;
@@ -33,6 +34,14 @@ export type ApiMessage = {
   // Tier-1 compressed replacement of the content — presence marks the
   // message as compressed.
   compressed?: string;
+  // Opaque provider reasoning details (e.g. Gemini thought signatures).
+  reasoning_details?: unknown;
+  // Tier-1 flags: reasoning excluded at send time / whole heartbeat turn
+  // removed at send time / result exempt from compression.
+  reasoning_trimmed?: boolean;
+  heartbeat_trim?: boolean;
+  skip_trim?: boolean;
+  reasoning_tokens?: number;
   tokens?: number;
   compressed_tokens?: number;
 };
