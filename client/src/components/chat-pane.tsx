@@ -1,5 +1,6 @@
 import { AssistantRuntimeProvider } from "@assistant-ui/react";
 import { ArrowUpLeft, ChevronLeft, MoreHorizontal } from "lucide-react";
+import { useMemo } from "react";
 import { Thread } from "@/components/assistant-ui/thread";
 import { Button } from "@/components/ui/button";
 import {
@@ -14,6 +15,12 @@ import { useNagobotChat } from "@/hooks/use-nagobot-chat";
 import type { SessionEntry } from "@/lib/api";
 import { relativeTime } from "@/lib/sessions";
 import { cn } from "@/lib/utils";
+
+// Blank welcome slot: shown instead of "How can I help you today?" while the
+// runtime's internal store is still ingesting a session that HAS history —
+// that sync runs in a post-mount effect, so the empty-thread welcome would
+// flash for a frame or two before the messages appear.
+const NullWelcome = () => null;
 
 const statusLabel = {
   connecting: "connecting…",
@@ -41,8 +48,13 @@ export function ChatPane({
   onBack: () => void;
   hiddenOnMobile?: boolean;
 }) {
-  const { runtime, status, historyError, historyLoading, takeOver } =
+  const { runtime, status, historyError, historyLoading, takeOver, messageCount } =
     useNagobotChat(sessionKey);
+  const hasMessages = messageCount > 0;
+  const threadComponents = useMemo(
+    () => (hasMessages ? { Welcome: NullWelcome } : undefined),
+    [hasMessages],
+  );
 
   const visibleChildren = childSessions.slice(0, childMenuLimit);
 
@@ -150,7 +162,7 @@ export function ChatPane({
           </div>
         ) : (
           <AssistantRuntimeProvider runtime={runtime}>
-            <Thread />
+            <Thread components={threadComponents} />
           </AssistantRuntimeProvider>
         )}
       </div>

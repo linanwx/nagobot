@@ -547,28 +547,31 @@ export function useNagobotChat(sessionKey: string) {
       if (senderID) return meKeysRef.current.has(senderID);
       return !senderName;
     };
+    // setHistoryLoading(false) lives in the SAME callback as setMessages —
+    // not a .finally — so both land in one React commit. Split across two
+    // promise callbacks they can commit separately, and the in-between frame
+    // (loading done, messages still empty) flashes the welcome screen.
     fetchSession(sessionKey)
       .then((detail) => {
-        if (!cancelled) {
-          // Prepend history in front of whatever arrived live while the fetch
-          // was in flight. Overwriting instead would orphan the stream state
-          // machine's ids (live.textId etc. point at wiped messages), leaving
-          // every later snapshot a no-op — the turn looks frozen after a
-          // close-and-reopen mid-response.
-          setMessages((prev) => [
-            ...sessionToChatMessages(detail.messages, isMe),
-            ...prev,
-          ]);
-        }
+        if (cancelled) return;
+        // Prepend history in front of whatever arrived live while the fetch
+        // was in flight. Overwriting instead would orphan the stream state
+        // machine's ids (live.textId etc. point at wiped messages), leaving
+        // every later snapshot a no-op — the turn looks frozen after a
+        // close-and-reopen mid-response.
+        setMessages((prev) => [
+          ...sessionToChatMessages(detail.messages, isMe),
+          ...prev,
+        ]);
+        setHistoryLoading(false);
       })
       .catch((err: unknown) => {
+        if (cancelled) return;
         // A brand-new session has no file yet; an empty thread is correct.
-        if (!cancelled && !String(err).includes("404")) {
+        if (!String(err).includes("404")) {
           setHistoryError(String(err));
         }
-      })
-      .finally(() => {
-        if (!cancelled) setHistoryLoading(false);
+        setHistoryLoading(false);
       });
 
     return () => {
@@ -626,5 +629,17 @@ export function useNagobotChat(sessionKey: string) {
     onNew,
   });
 
-  return { runtime, status, historyError, historyLoading, takeOver };
+  return {
+    runtime,
+    status,
+    historyError,
+    historyLoading,
+    takeOver,
+    // Known synchronously, unlike the runtime's internal thread state which
+    // ingests external messages in a post-mount effect. The pane uses this to
+    // suppress the welcome screen during that sync gap — otherwise a session
+    // with history flashes "How can I help you today?" before the store
+    // catches up.
+    messageCount: messages.length,
+  };
 }
