@@ -497,16 +497,16 @@ func wakeActionHint(source WakeSource) string {
 	}
 	switch source {
 	case WakeSession:
-		return "Another nagobot lifeform sent you a message. This message is ONLY visible to you and user cannot see it. You can generate a response and it will be sent back, but better use dispatch to specify your response.\n\n" +
-			"End this turn with one or more of:\n" +
-			"1. `dispatch(to=caller:session)` — send to the nagobot lifeform who sent you the message.\n" +
-			"2. `dispatch(to=user)` — send a message to your own user (if you are one of the user-facing sessions).\n" +
-			"3. `dispatch(to=session, params={session_key: ...})` — send to a specific nagobot lifeform.\n" +
+		return "Another nagobot session sent you a message, which is ONLY visible to you.\n\n" +
+			"End this turn with dispatch — a plain-text response with no function call will be rejected and dropped.\n\n" +
+			"Examples:\n" +
+			"1. `dispatch(to=caller:session)` — communicate with the nagobot session that sent you the message.\n" +
+			"2. `dispatch(to=user)` — send a message to your user.\n" +
+			"3. `dispatch(to=session, params={session_key: ...})` — send to a specific nagobot session.\n" +
 			"4. `dispatch({})` — silent end, no delivery.\n\n" +
-			"When replying to the caller (option 1), start your reply body with a standalone line:\n" +
-			"`> Re: \"<excerpt>\"`\n" +
-			"`<excerpt>` = ≤200 chars from the incoming request body, newlines collapsed to spaces. Pick the most informative span — NOT the first line, which is often preamble.\n\n" +
-			"MUST NOT: use `dispatch({})` when you suspect mis-routing. Instead `dispatch(to=caller:session)` with an explanation — silent drop hides the mistake."
+			"When replying to another session, start your reply body with a standalone line:\n" +
+			"`> Re: \"<subject>\"`\n" +
+			"`<subject>` = ≤200 chars from the incoming request, newlines collapsed to spaces. Pick the most informative span."
 	case WakeCron:
 		return "A scheduled cron task has started. Execute it based on the provided job context. " +
 			"Non-interactive: there is no user to answer questions this turn — do not ask for clarification; act on the job context or end silently. " +

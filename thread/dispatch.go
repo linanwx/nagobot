@@ -178,7 +178,7 @@ func (t *Thread) buildSinkToCaller(targetSession string) Sink {
 //     the per-wake sink via SetSuppressSink
 func BuildPairedSessionSink(mgr *Manager, selfKey, peerKey string) Sink {
 	return Sink{
-		Label: "your reply will be forwarded to caller session " + peerKey,
+		Label: "reply to caller session " + peerKey + " via dispatch(to=caller:session)",
 		Send: func(_ context.Context, response string) error {
 			response = strings.TrimSpace(response)
 			if response == "" {
