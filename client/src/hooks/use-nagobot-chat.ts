@@ -412,6 +412,11 @@ export function useNagobotChat(sessionKey: string) {
           live.thinkingId = null;
           live.textId = null;
           live.tools.clear();
+          // A turn_end missed while disconnected would leave the stop button
+          // stuck until the failsafe timeout. Clear the running state here;
+          // a turn genuinely still in flight re-arms it on its next frame.
+          live.active = false;
+          stopRunning();
           setMessages(sessionToChatMessages(detail.messages, isMe));
         })
         .catch(() => {
