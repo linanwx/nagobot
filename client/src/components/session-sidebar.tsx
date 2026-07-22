@@ -1,13 +1,40 @@
-import { ChevronRight, Plus } from "lucide-react";
+import { ChevronRight, Funnel, Plus } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { SidebarFooter } from "@/components/sidebar-footer";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
+import {
+  DropdownMenu,
+  DropdownMenuCheckboxItem,
+  DropdownMenuContent,
+  DropdownMenuLabel,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import type { SessionEntry } from "@/lib/api";
 import { relativeTime } from "@/lib/sessions";
 import { cn } from "@/lib/utils";
 
 const collapseStorageKey = "sidebar-collapsed-folders";
+const filterStorageKey = "sidebar-filter-settings";
+
+// The sidebar exists to reach ACTIVE conversations quickly, so by default it
+// hides maintenance noise: cron sessions (knowledge updates, tidyup) and
+// anything quiet for over a week. Both are opt-in via the funnel menu.
+type FilterSettings = {
+  showCron: boolean;
+  showOld: boolean;
+};
+
+const defaultFilters: FilterSettings = { showCron: false, showOld: false };
+
+const oldSessionMs = 7 * 24 * 60 * 60 * 1000;
+
+function loadFilters(): FilterSettings {
+  try {
+    return { ...defaultFilters, ...JSON.parse(localStorage.getItem(filterStorageKey) ?? "{}") };
+  } catch {
+    return defaultFilters;
+  }
+}
 
 type Folder = {
   name: string;
@@ -50,12 +77,10 @@ function SessionRow({
   session,
   selected,
   onSelect,
-  showFolderBadge,
 }: {
   session: SessionEntry;
   selected: string;
   onSelect: (key: string) => void;
-  showFolderBadge?: boolean;
 }) {
   const active = selected === session.key || selected.startsWith(session.key + ":");
   // A summarized session is identified by its summary alone — the raw
@@ -74,11 +99,6 @@ function SessionRow({
       )}
     >
       <span className="flex items-baseline gap-2">
-        {showFolderBadge && (
-          <span className="shrink-0 rounded bg-muted px-1 py-px text-[10px] uppercase tracking-wide text-muted-foreground">
-            {folderOf(session.key)}
-          </span>
-        )}
         <span className="min-w-0 flex-1 truncate text-sm">{label}</span>
         <span className="shrink-0 text-[10px] text-muted-foreground">
           {relativeTime(session.updated_at)}
@@ -105,24 +125,31 @@ export function SessionSidebar({
   // Mobile shows list OR chat, never both; md+ always shows the sidebar.
   hiddenOnMobile?: boolean;
 }) {
-  const [filter, setFilter] = useState("");
   const [collapsed, setCollapsed] = useState<Record<string, boolean>>(loadCollapsed);
+  const [filters, setFilters] = useState<FilterSettings>(loadFilters);
 
   useEffect(() => {
     localStorage.setItem(collapseStorageKey, JSON.stringify(collapsed));
   }, [collapsed]);
 
-  const folders = useMemo(() => groupByFolder(sessions), [sessions]);
+  useEffect(() => {
+    localStorage.setItem(filterStorageKey, JSON.stringify(filters));
+  }, [filters]);
 
-  const query = filter.trim().toLowerCase();
-  const matches = useMemo(() => {
-    if (query === "") return null;
-    return sessions.filter(
-      (s) =>
-        s.key.toLowerCase().includes(query) ||
-        (s.summary ?? "").toLowerCase().includes(query),
-    );
-  }, [sessions, query]);
+  const visible = useMemo(() => {
+    const cutoff = Date.now() - oldSessionMs;
+    return sessions.filter((s) => {
+      if (!filters.showCron && folderOf(s.key) === "cron") return false;
+      if (!filters.showOld) {
+        const t = new Date(s.updated_at).getTime();
+        if (!Number.isNaN(t) && t < cutoff) return false;
+      }
+      return true;
+    });
+  }, [sessions, filters]);
+
+  const folders = useMemo(() => groupByFolder(visible), [visible]);
+  const hiddenCount = sessions.length - visible.length;
 
   return (
     <aside
@@ -133,12 +160,46 @@ export function SessionSidebar({
     >
       <div className="flex h-12 shrink-0 items-center gap-2 border-b px-3">
         <span className="text-sm font-semibold tracking-wide">nagobot</span>
-        <Input
-          value={filter}
-          onChange={(e) => setFilter(e.target.value)}
-          placeholder="Filter…"
-          className="h-7 flex-1 text-xs"
-        />
+        <span className="flex-1" />
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <Button
+              variant="ghost"
+              size="icon"
+              className="size-7 shrink-0 relative"
+              title="Filter sessions"
+            >
+              <Funnel className="size-4" />
+              {hiddenCount > 0 && (
+                <span className="bg-primary absolute top-0.5 right-0.5 size-1.5 rounded-full" />
+              )}
+              <span className="sr-only">Filter sessions</span>
+            </Button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="start" className="w-60">
+            <DropdownMenuLabel className="text-muted-foreground text-xs font-normal">
+              {hiddenCount > 0
+                ? `${hiddenCount} session${hiddenCount === 1 ? "" : "s"} hidden`
+                : "Showing all sessions"}
+            </DropdownMenuLabel>
+            <DropdownMenuCheckboxItem
+              checked={filters.showCron}
+              onCheckedChange={(v) =>
+                setFilters((prev) => ({ ...prev, showCron: v === true }))
+              }
+            >
+              Show scheduled (cron) sessions
+            </DropdownMenuCheckboxItem>
+            <DropdownMenuCheckboxItem
+              checked={filters.showOld}
+              onCheckedChange={(v) =>
+                setFilters((prev) => ({ ...prev, showOld: v === true }))
+              }
+            >
+              Show sessions older than 7 days
+            </DropdownMenuCheckboxItem>
+          </DropdownMenuContent>
+        </DropdownMenu>
         <Button
           variant="ghost"
           size="icon"
@@ -153,21 +214,11 @@ export function SessionSidebar({
       <nav className="flex-1 overflow-y-auto overscroll-contain px-2 py-2">
         {error && <p className="px-2 py-1 text-xs text-destructive">{error}</p>}
 
-        {matches ? (
-          // Filter mode: flat results across all folders.
-          matches.length === 0 ? (
-            <p className="px-2 py-1 text-xs text-muted-foreground">No matches</p>
-          ) : (
-            matches.map((s) => (
-              <SessionRow
-                key={s.key}
-                session={s}
-                selected={selected}
-                onSelect={onSelect}
-                showFolderBadge
-              />
-            ))
-          )
+        {folders.length === 0 ? (
+          <p className="text-muted-foreground px-2 py-1 text-xs">
+            No recent sessions
+            {hiddenCount > 0 && ` (${hiddenCount} hidden by filters)`}
+          </p>
         ) : (
           folders.map((folder) => {
             const isCollapsed = collapsed[folder.name] ?? false;
