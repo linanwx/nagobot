@@ -12,21 +12,20 @@ Threads are execution units that bind a session to an agent. Each thread has an 
 
 The single turn-terminating routing primitive. Call it at the end of a turn to declare where your output goes. Each entry in `sends` has a `to` field selecting the target:
 
-- **`caller:user`** — reply to whoever woke THIS turn AND assert the caller is the channel user (user-channel wake: telegram / discord / cli / web / feishu / wecom). Fields: `body`.
+- **`user`** — reply to your channel user via your session's user-channel sink. Only valid for user-facing sessions (`telegram:*` / `discord:*` / `cli` / `web` / `feishu:*` / `wecom:*`). This is how you reply to a channel user who woke you, AND how you proactively message your user when a non-user source (cron, heartbeat, another session) woke you. Fields: `body`.
 - **`caller:session`** — reply to the caller AND assert the caller is another session (cross-session wake; `caller_session_key` is present in the wake YAML). Fields: `body`.
-- **`user`** — reply to your channel user via your session's user-channel sink. Only valid for user-facing sessions (`telegram:*` / `discord:*` / `cli` / `web` / `feishu:*` / `wecom:*`). Distinct from `caller:user`: useful when a non-user source (cron, heartbeat, another session) woke you and you want to proactively message your user instead of replying to the waker. Fields: `body`.
 - **`subagent`** — spawn a new subagent thread, or wake the existing one at the same `task_id`. Fields: `body` + `params`: `agent` (optional — falls back to session default), `task_id` (required, `[a-z0-9_-]+`).
 - **`fork`** — branch the current session as a new agent thread with stripped history inherited, or wake the existing one at the same `task_id`. Fields: `body` + `params`: `agent` (optional), `task_id`.
 - **`session`** — wake another session's AI. The body becomes that session's wake message, processed by **its** AI (own agent / persona / history) — it is NOT delivered verbatim to that session's human user; the target AI decides what, if anything, to forward (typically via its own `dispatch(to=user)`). Addressing lives in `params`, two mutually exclusive forms: `params.session_key` (exact key — the session must already exist) or `params.channel` + `params.user_id` (channel endpoint — the session is **created if missing**; use this to initiate contact with a user who may never have talked to the bot, e.g. `params: {channel: "wecom", user_id: "ZhaoJing"}`; groups follow the channel's own convention, e.g. `user_id: "group:<chatid>"`). Either way the target's `dispatch(to=caller:session)` routes back to **your** session (not the target's channel user). The exchange recurses until one side halts.
 
-### Picking between `caller:user` and `caller:session`
+### Replying to whoever woke you: `to=user` vs `caller:session`
 
 Read `caller_session_key` in the wake YAML:
 - **Present** → caller is another session → use `caller:session`.
-- **Absent** AND this session is user-facing → caller is the channel user → use `caller:user`.
-- System sources (cron / heartbeat / compression) have no usable caller form — validation rejects both `caller:user` and `caller:session`. Use `dispatch({})` to end silently, or `dispatch(to=user)` to reach your channel user.
+- **Absent** AND this session is user-facing → caller is the channel user → use `to=user`.
+- System sources (cron / heartbeat / compression) have no caller to reply to. Use `dispatch({})` to end silently, or `dispatch(to=user)` to reach your channel user.
 
-Kind assertions are validated: asserting the wrong kind is a cheap validation error (turn continues; fix and re-call), not a silent misroute. The tool result on success reports `delivered_to` so you can confirm who received the reply.
+The `caller:session` kind assertion is validated: asserting it when the caller is actually the channel user (or a system source) is a cheap validation error (turn continues; fix and re-call), not a silent misroute. The tool result on success reports `delivered_to` so you can confirm who received the reply.
 
 ### Caller is per-wake
 
@@ -38,7 +37,7 @@ If you receive a cross-session wake (WakeSession) that you believe was sent to t
 
 ### Drop-sink callers (cron / compression / heartbeat)
 
-Some wakes attach a drop sink rather than a routable sink. The wake YAML `delivery` field says so explicitly (e.g. "Caller is cron — output to caller is dropped"). For those turns there is NO valid caller form: both `caller:user` and `caller:session` will fail validation. End with `dispatch({})` (silent), or in user-facing sessions use `dispatch(to=user)` / `dispatch(to=session, params={session_key: ...})` for explicit delivery.
+Some wakes attach a drop sink rather than a routable sink. The wake YAML `delivery` field says so explicitly (e.g. "Caller is cron — output to caller is dropped"). For those turns there is no caller to reply to: `caller:session` will fail validation. End with `dispatch({})` (silent), or in user-facing sessions use `dispatch(to=user)` / `dispatch(to=session, params={session_key: ...})` for explicit delivery.
 
 ```
 tool_call: dispatch(sends=[
@@ -58,7 +57,7 @@ On successful dispatch the turn ends; on validation error the turn continues so 
 - When the child must reason about the current conversation itself (scheduling, reflection, summarization): **fork**.
 - Cross-session notifications ("notify user in telegram:12345"): **session** with `params.session_key`.
 - Proactively contacting a channel user who may have no session yet (e.g. a cron job messaging an employee for the first time): **session** with `params.channel` + `params.user_id`.
-- Replying to the current user / parent: **caller:user** (channel-user wake) or **caller:session** (cross-session wake).
+- Replying to the current user / parent: **user** (channel-user wake) or **caller:session** (cross-session wake).
 
 ### check_session
 

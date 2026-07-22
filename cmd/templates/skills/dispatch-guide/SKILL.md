@@ -1,13 +1,13 @@
 ---
 name: dispatch-guide
-description: Use when about to call the `dispatch` tool and unsure which `to` form to pick, when a dispatch validation error reports a mismatch between asserted caller kind and actual caller, or when handling a `child_completed` wake from a previously dispatched subagent/fork. Focused decision tree for routing replies (caller:user / caller:session / user / session), spawning (subagent / fork), receiving child results, and silent termination.
+description: Use when about to call the `dispatch` tool and unsure which `to` form to pick, when a dispatch validation error reports a mismatch between asserted caller kind and actual caller, or when handling a `child_completed` wake from a previously dispatched subagent/fork. Focused decision tree for routing replies (user / caller:session / session), spawning (subagent / fork), receiving child results, and silent termination.
 ---
 
 # Dispatch Routing Guide
 
 `dispatch` is the only turn-terminating routing primitive. Every turn ends with either an explicit `dispatch(...)` call or implicit default-sink delivery. This skill is the decision tree for picking the right `to` value.
 
-**Solo rule**: dispatch terminates the turn ONLY when it is the sole tool call in your message. Batched alongside other tool calls, every send still delivers but the turn continues — you see the other tools' results and keep working. This is the progress-note pattern: `dispatch(to=caller:user, "Searching, back in a minute...")` + `web_search(...)` in one message delivers the note, runs the search, and returns you the results to keep reasoning. Deliveries in a batched dispatch are real — never resend them in the final dispatch.
+**Solo rule**: dispatch terminates the turn ONLY when it is the sole tool call in your message. Batched alongside other tool calls, every send still delivers but the turn continues — you see the other tools' results and keep working. This is the progress-note pattern: `dispatch(to=user, "Searching, back in a minute...")` + `web_search(...)` in one message delivers the note, runs the search, and returns you the results to keep reasoning. Deliveries in a batched dispatch are real — never resend them in the final dispatch.
 
 ## The 30-second decision
 
@@ -33,27 +33,21 @@ Then:
 
 | caller kind | this session is user-facing | reply to caller | proactive to user |
 |---|---|---|---|
-| user (channel wake) | yes | `caller:user` | (same as caller:user, but `user` also works) |
+| user (channel wake) | yes | `user` | `user` |
 | session (cross-session) | yes/no | `caller:session` | `user` (only if user-facing) |
 | system (cron/heartbeat) | yes | — (no caller) | `user` |
 | system | no | — | `dispatch({})` |
 
-## The six `to` forms
-
-### `caller:user` — reply to caller, asserting caller is the channel user
-- **Use when**: `caller_session_key` is absent AND the wake source is a user-channel source (telegram/discord/cli/web/feishu/wecom).
-- **Why over `user`**: it asserts. If the wake actually came from cron/heartbeat/another session and you slipped, validation fails and the turn continues — much better than silently routing to the wrong place.
-- **Fields**: `body`.
+## The five `to` forms
 
 ### `caller:session` — reply to caller, asserting caller is another session
 - **Use when**: `caller_session_key` is present in the wake YAML.
 - **Don't silently drop cross-session wakes**: if you think a peer session sent something to the wrong recipient, reply with an explanation via `caller:session`, never `dispatch({})`. The peer needs to learn about the misroute.
 - **Fields**: `body`.
 
-### `user` — proactive message to your channel user
-- **Use when**: a non-user source (cron / heartbeat / peer session) woke you and you want to reach your human user *instead of* replying to the waker. Or when current session is user-facing and you want a clean direct send regardless of caller.
+### `user` — message your channel user
+- **Use when**: (1) the channel user woke you and you're replying to them; (2) a non-user source (cron / heartbeat / peer session) woke you and you want to reach your human user *instead of* replying to the waker.
 - **Required**: this session must be user-facing.
-- **vs `caller:user`**: same physical destination when caller IS the user, but no caller-kind assertion. Pick `caller:user` when you want the safety net; pick `user` when caller isn't the user.
 - **Fields**: `body`.
 
 ### `session` — wake any existing session by key
@@ -127,7 +121,7 @@ This is a normal wake — your turn runs as usual, and you must end with dispatc
    - **Use the result internally and continue working** → call other tools, then dispatch as appropriate at end of turn.
    - **Spawn a follow-up** → `dispatch(to=subagent, params={task_id: "..."}, body="...")`.
    - **Result was useless / nothing to forward** → `dispatch({})` to end silently.
-3. **Do NOT use `caller:user`** here — caller is the child session, not the user; that assertion fails validation.
+3. **`to=user` forwards to your human, not the child** — the child (caller of this turn) is a session, so a plain reply would need `caller:session`; but usually you forward the child's result to your human via `to=user`.
 4. **Don't accidentally `dispatch(to=caller:session)` back to the child** unless you genuinely want to send it more work — that re-wakes the child and may cause a ping-pong.
 
 If you spawned multiple subagents in parallel (`task_id: news-a`, `news-b`), each completes independently and wakes you separately. You'll see one `child_completed` wake per child. If you want to wait for all of them before responding to the user, accumulate state in scratch (heartbeat.md or session memory) and only `dispatch(to=user)` when the last one arrives.
@@ -145,16 +139,16 @@ Implication: validation errors are cheap retries; execution errors after partial
 
 ### Skip-dispatch path: when default sink delivery is correct
 
-You don't HAVE to call dispatch. If you end the turn with plain assistant content and no `dispatch` tool_call, the runner forwards that content via the wake's sink (the same path as `caller:user` / `caller:session` use). This is **fine and intended** when:
+You don't HAVE to call dispatch. If you end the turn with plain assistant content and no `dispatch` tool_call, the runner forwards that content via the wake's sink (the same path as `to=user` / `caller:session` use). This is **fine and intended** when:
 
-- The wake source is the channel user (telegram/discord/cli/web/feishu/wecom) and you're just replying with text — equivalent to `caller:user`.
+- The wake source is the channel user (telegram/discord/cli/web/feishu/wecom) and you're just replying with text — equivalent to `to=user`.
 - The wake source is another session (`WakeSession` / `child_completed`) and you're just replying with text — equivalent to `caller:session`.
 
 Do NOT rely on default delivery when:
 
 - Wake source is `cron` / `heartbeat*` / `compression`. These wakes carry a **drop sink** — content silently goes nowhere. You MUST explicitly `dispatch(to=user)` (if user-facing) or `dispatch({})` to acknowledge end-of-turn. Plain content here is invisible.
 - You need to spawn / wake / fan-out — there's no default for those.
-- You want the caller-kind assertion safety net — only `caller:*` validates.
+- You want the caller-kind assertion safety net — only `caller:session` validates.
 
 Rule of thumb: if you need to hit a non-caller target OR you're in a drop-sink wake OR you want assertion safety, use dispatch. Otherwise plain content is fine.
 
@@ -165,7 +159,7 @@ Rule of thumb: if you need to hit a non-caller target OR you're in a drop-sink w
 ### Batch dedup: at most one caller, at most one user, distinct keys for spawns
 
 Validation rejects:
-- Two or more sends to `caller:*` in the same batch (any combination of `caller:user` / `caller:session` collapses to a single "caller" target).
+- Two or more `caller:session` sends in the same batch (they collapse to a single "caller" target).
 - Two or more `to=user` sends.
 - Two `subagent` or `fork` sends sharing the same `task_id`.
 - Two `to=session` sends with the same `session_key`.
@@ -195,12 +189,12 @@ dispatch validates the entire batch before executing anything. On validation err
 
 | Symptom | Likely cause |
 |---|---|
-| `to=caller:user but actual caller is another session` | wake YAML has `caller_session_key`; switch to `caller:session` |
-| `to=caller:* but actual caller is system` | cron/heartbeat/compression wake; use `dispatch({})` or `to=user` |
-| `current session is not user-facing — to=user is only valid for telegram/...` | this is a subagent/fork/cron session; reply via `caller:*` or `dispatch({})` |
+| `to=caller:session but actual caller is the channel user` | no `caller_session_key` in the wake; the user woke you — use `to=user` |
+| `to=caller:session but actual caller is system` | cron/heartbeat/compression wake; use `dispatch({})` or `to=user` |
+| `current session is not user-facing — to=user is only valid for telegram/...` | this is a subagent/fork/cron session; reply via `caller:session` or `dispatch({})` |
 | `params.task_id is required` / `params.task_id must match [a-z0-9_-]+` | subagent/fork needs a kebab/snake-case id in `params` |
 | `session_key is the current session (self-reference not allowed)` | `to=session` doesn't self-loop; use `to=user` to message this session's own user, `caller:session` to reply, or `fork` for a branch |
-| `unknown params key(s)` / `does not accept params` | a params key landed on the wrong target — the error names where it belongs and, for user/caller:*, the exact JSON to resend |
+| `unknown params key(s)` / `does not accept params` | a params key landed on the wrong target — the error names where it belongs and, for user/caller:session, the exact JSON to resend |
 | `duplicate target in batch` | two sends resolve to the same target; merge bodies or pick distinct task_ids |
 | Validation error mentioning non-empty assistant content | move all user-facing text into a send body, or drop the dispatch call |
 | Result outcome `partial-failure` | some sends delivered, others failed at execution time. Already-delivered messages cannot be unsent — read the executed/failed lists, then on next turn act on what's still pending. |
@@ -211,7 +205,7 @@ dispatch validates the entire batch before executing anything. On validation err
 
 ```
 # Replying to user message in telegram:123
-dispatch(sends=[{to: "caller:user", body: "Done — here's the summary..."}])
+dispatch(sends=[{to: "user", body: "Done — here's the summary..."}])
 
 # Cron pulse, nothing to do
 dispatch({})
@@ -242,7 +236,7 @@ dispatch(sends=[{to: "caller:session", body: "Done. Findings: ..."}])
 
 # Reply + spawn in one batch
 dispatch(sends=[
-  {to: "caller:user", body: "On it — checking now."},
+  {to: "user", body: "On it — checking now."},
   {to: "subagent", params: {agent: "search", task_id: "news-a"}, body: "Search topic A"}
 ])
 
@@ -252,7 +246,7 @@ dispatch(sends=[
 # To respond to the user only after all return, accumulate state in heartbeat.md
 # and dispatch(to=user) when the last child arrives.
 dispatch(sends=[
-  {to: "caller:user", body: "Investigating across 4 angles — will report when complete."},
+  {to: "user", body: "Investigating across 4 angles — will report when complete."},
   {to: "subagent", params: {agent: "researcher", task_id: "angle-pricing"},  body: "Investigate pricing landscape for X"},
   {to: "subagent", params: {agent: "researcher", task_id: "angle-competitors"}, body: "List top 5 competitors and their positioning"},
   {to: "subagent", params: {agent: "researcher", task_id: "angle-regulation"},  body: "Summarize regulatory constraints in EU/US"},
