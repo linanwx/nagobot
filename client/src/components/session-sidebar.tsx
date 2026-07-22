@@ -53,7 +53,8 @@ function sessionLabel(key: string): string {
   return idx === -1 ? key : key.slice(idx + 1);
 }
 
-// Folders ordered by their most recent session (sessions arrive time-sorted).
+// Folders ordered by their most recent session (sessions arrive time-sorted),
+// except "web" — the browser's own sessions — which is always pinned first.
 function groupByFolder(sessions: SessionEntry[]): Folder[] {
   const byName = new Map<string, SessionEntry[]>();
   for (const s of sessions) {
@@ -62,7 +63,10 @@ function groupByFolder(sessions: SessionEntry[]): Folder[] {
     list.push(s);
     byName.set(name, list);
   }
-  return [...byName.entries()].map(([name, list]) => ({ name, sessions: list }));
+  const folders = [...byName.entries()].map(([name, list]) => ({ name, sessions: list }));
+  const webIdx = folders.findIndex((f) => f.name === "web");
+  if (webIdx > 0) folders.unshift(...folders.splice(webIdx, 1));
+  return folders;
 }
 
 function loadCollapsed(): Record<string, boolean> {
