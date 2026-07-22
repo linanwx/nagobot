@@ -21,6 +21,7 @@ import (
 
 	"github.com/coder/websocket"
 	"github.com/coder/websocket/wsjson"
+	"github.com/klauspost/compress/gzhttp"
 	"github.com/linanwx/nagobot/auth"
 	cronpkg "github.com/linanwx/nagobot/cron"
 	"github.com/linanwx/nagobot/config"
@@ -175,6 +176,27 @@ func (w *WebChannel) SetContextBudgetFn(fn func(string) (int, int, bool)) {
 // Name returns the channel name.
 func (w *WebChannel) Name() string { return "web" }
 
+// staticCacheHandler serves the embedded SPA with correct cache lifetimes.
+// Files under /assets/ are content-hash-named and immutable, so they get a
+// one-year immutable cache; everything else at the root (index.html, sw.js,
+// manifest, icons) is served no-cache so a new deploy — with fresh asset
+// hashes and an updated service worker — is picked up on the next load.
+//
+// Without this, the embed FS's zero ModTime means http.FileServer emits no
+// Last-Modified and no ETag, so nothing is ever conditionally cached and the
+// whole bundle is re-downloaded on every visit.
+func staticCacheHandler(fsys fs.FS) http.Handler {
+	fileServer := http.FileServer(http.FS(fsys))
+	return http.HandlerFunc(func(rw http.ResponseWriter, r *http.Request) {
+		if strings.HasPrefix(r.URL.Path, "/assets/") {
+			rw.Header().Set("Cache-Control", "public, max-age=31536000, immutable")
+		} else {
+			rw.Header().Set("Cache-Control", "no-cache")
+		}
+		fileServer.ServeHTTP(rw, r)
+	})
+}
+
 // Start starts the web server.
 func (w *WebChannel) Start(ctx context.Context) error {
 	frontendFS, err := fs.Sub(rawFrontendFS, "web/dist")
@@ -194,7 +216,6 @@ func (w *WebChannel) Start(ctx context.Context) error {
 	mux.Handle("/api/auth/passkey/login/begin", http.HandlerFunc(w.handleLoginBegin))
 	mux.Handle("/api/auth/passkey/login/finish", http.HandlerFunc(w.handleLoginFinish))
 	mux.Handle("/api/auth/logout", http.HandlerFunc(w.handleLogout))
-	mux.Handle("/ws", w.protected(w.handleWS))
 	mux.Handle("/api/history", w.protected(w.handleHistory))
 	mux.Handle("/api/sessions/", w.protected(w.handleSessionMessages))
 	mux.Handle("/api/sessions", w.protected(w.handleSessions))
@@ -206,11 +227,41 @@ func (w *WebChannel) Start(ctx context.Context) error {
 	mux.Handle("/api/push/vapid-key", w.protected(w.handlePushKey))
 	mux.Handle("/api/push/subscribe", w.protected(w.handlePushSubscribe))
 	mux.Handle("/api/push/unsubscribe", w.protected(w.handlePushUnsubscribe))
-	mux.Handle("/", http.FileServer(http.FS(frontendFS)))
+	mux.Handle("/", staticCacheHandler(frontendFS))
+
+	// Compression + WS split. gzhttp wraps the whole API+static mux, but with an
+	// explicit compressible-type ALLOW list: gzhttp's default compresses
+	// application/octet-stream, and Go serves .woff2 fonts as octet-stream (they
+	// aren't in its mime table), so the default would re-gzip already-compressed
+	// fonts — wasted CPU, ~zero gain. The list below is exactly the text-shaped
+	// types (HTML/JS/CSS/JSON/SVG); fonts, PNG icons and other binaries fall
+	// through uncompressed.
+	//
+	// The WebSocket upgrade is registered on the OUTER router so it never passes
+	// through the gzip ResponseWriter — coder/websocket's Accept hard-requires
+	// http.Hijacker, which the gzip wrapper does not surface. "/ws" is a more
+	// specific pattern than "/", so it wins the route; everything else falls to
+	// the gzipped mux.
+	gzip, err := gzhttp.NewWrapper(gzhttp.ContentTypes([]string{
+		"text/html",
+		"text/css",
+		"text/javascript",
+		"application/javascript",
+		"application/json",
+		"application/manifest+json",
+		"image/svg+xml",
+		"text/plain",
+	}))
+	if err != nil {
+		return fmt.Errorf("failed to build gzip wrapper: %w", err)
+	}
+	root := http.NewServeMux()
+	root.Handle("/ws", w.protected(w.handleWS))
+	root.Handle("/", gzip(mux))
 
 	w.server = &http.Server{
 		Addr:    w.addr,
-		Handler: mux,
+		Handler: root,
 	}
 
 	ln, err := net.Listen("tcp", w.addr)

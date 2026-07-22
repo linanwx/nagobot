@@ -6,6 +6,7 @@ require (
 	codeberg.org/readeck/go-readability/v2 v2.1.1
 	github.com/JohannesKaufmann/html-to-markdown/v2 v2.5.0
 	github.com/PuerkitoBio/goquery v1.10.3
+	github.com/SherClockHolmes/webpush-go v1.4.0
 	github.com/anthropics/anthropic-sdk-go v1.21.0
 	github.com/aws/aws-sdk-go-v2 v1.41.7
 	github.com/aws/aws-sdk-go-v2/config v1.32.17
@@ -18,6 +19,7 @@ require (
 	github.com/go-telegram/bot v1.19.0
 	github.com/go-webauthn/webauthn v0.17.4
 	github.com/gorilla/websocket v1.5.0
+	github.com/klauspost/compress v1.19.1
 	github.com/larksuite/oapi-sdk-go/v3 v3.9.2
 	github.com/openai/openai-go/v3 v3.18.0
 	github.com/robfig/cron/v3 v3.0.1
@@ -31,7 +33,6 @@ require (
 
 require (
 	github.com/JohannesKaufmann/dom v0.2.0 // indirect
-	github.com/SherClockHolmes/webpush-go v1.4.0 // indirect
 	github.com/andybalholm/cascadia v1.3.3 // indirect
 	github.com/araddon/dateparse v0.0.0-20210429162001-6b43995a97de // indirect
 	github.com/atotto/clipboard v0.1.4 // indirect
