@@ -205,7 +205,15 @@ export function sessionToChatMessages(
     const compressed = Boolean(m.compressed);
 
     if (m.role === "assistant") {
-      if (m.reasoning_content && m.reasoning_content.trim() !== "") {
+      // Trimmed reasoning (Tier-1 >2h send-time exclusion) is preserved in the
+      // stored session but the bot itself no longer sees it — skip the thinking
+      // card, matching the heartbeat_trim hide above. The raw-data dialog still
+      // shows it.
+      if (
+        !m.reasoning_trimmed &&
+        m.reasoning_content &&
+        m.reasoning_content.trim() !== ""
+      ) {
         out.push({
           id: localID("think"),
           role: "assistant",
