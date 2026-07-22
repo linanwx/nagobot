@@ -1,7 +1,12 @@
-import { ChevronRight, Funnel, Plus } from "lucide-react";
+import { ChevronRight, Funnel, PanelLeftClose, PanelLeftOpen, Plus } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { SidebarFooter } from "@/components/sidebar-footer";
 import { Button } from "@/components/ui/button";
+import {
+  Collapsible,
+  CollapsibleContent,
+  CollapsibleTrigger,
+} from "@/components/ui/collapsible";
 import {
   DropdownMenu,
   DropdownMenuCheckboxItem,
@@ -15,6 +20,8 @@ import { cn } from "@/lib/utils";
 
 const collapseStorageKey = "sidebar-collapsed-folders";
 const filterStorageKey = "sidebar-filter-settings";
+// Desktop-only: whether the whole sidebar is collapsed to a thin rail.
+const railStorageKey = "sidebar-rail-collapsed";
 
 // The sidebar exists to reach ACTIVE conversations quickly, so by default it
 // hides maintenance noise: cron sessions (knowledge updates, tidyup), CLI
@@ -83,6 +90,10 @@ function loadCollapsed(): Record<string, boolean> {
   }
 }
 
+function loadRailCollapsed(): boolean {
+  return localStorage.getItem(railStorageKey) === "true";
+}
+
 function SessionRow({
   session,
   selected,
@@ -139,10 +150,16 @@ export function SessionSidebar({
 }) {
   const [collapsed, setCollapsed] = useState<Record<string, boolean>>(loadCollapsed);
   const [filters, setFilters] = useState<FilterSettings>(loadFilters);
+  // Desktop-only rail collapse — hides the sidebar to a thin edge strip.
+  const [railCollapsed, setRailCollapsed] = useState<boolean>(loadRailCollapsed);
 
   useEffect(() => {
     localStorage.setItem(collapseStorageKey, JSON.stringify(collapsed));
   }, [collapsed]);
+
+  useEffect(() => {
+    localStorage.setItem(railStorageKey, String(railCollapsed));
+  }, [railCollapsed]);
 
   useEffect(() => {
     localStorage.setItem(filterStorageKey, JSON.stringify(filters));
@@ -167,10 +184,33 @@ export function SessionSidebar({
   return (
     <aside
       className={cn(
-        "h-full w-full shrink-0 flex-col border-r bg-sidebar text-sidebar-foreground md:flex md:w-72",
+        "h-full w-full shrink-0 flex-col border-r bg-sidebar text-sidebar-foreground md:flex",
         hiddenOnMobile ? "hidden" : "flex",
+        railCollapsed ? "md:w-12" : "md:w-72",
       )}
     >
+      {/* Collapsed rail — desktop only. A single button re-expands the sidebar. */}
+      {railCollapsed && (
+        <div className="hidden h-full shrink-0 flex-col items-center py-2 md:flex">
+          <Button
+            variant="ghost"
+            size="icon"
+            className="size-7"
+            onClick={() => setRailCollapsed(false)}
+            title="Expand sidebar"
+          >
+            <PanelLeftOpen className="size-4" />
+            <span className="sr-only">Expand sidebar</span>
+          </Button>
+        </div>
+      )}
+      {/* Full sidebar — always on mobile; on desktop only when not collapsed. */}
+      <div
+        className={cn(
+          "min-h-0 flex-1 flex-col",
+          railCollapsed ? "flex md:hidden" : "flex",
+        )}
+      >
       <div className="flex h-12 shrink-0 items-center gap-2 border-b px-3">
         <span className="text-sm font-semibold tracking-wide">nagobot</span>
         <span className="flex-1" />
@@ -231,6 +271,16 @@ export function SessionSidebar({
           <Plus className="size-4" />
           <span className="sr-only">New session</span>
         </Button>
+        <Button
+          variant="ghost"
+          size="icon"
+          className="hidden size-7 shrink-0 md:inline-flex"
+          onClick={() => setRailCollapsed(true)}
+          title="Collapse sidebar"
+        >
+          <PanelLeftClose className="size-4" />
+          <span className="sr-only">Collapse sidebar</span>
+        </Button>
       </div>
       <nav className="flex-1 overflow-y-auto overscroll-contain px-2 py-2">
         {error && <p className="px-2 py-1 text-xs text-destructive">{error}</p>}
@@ -242,32 +292,27 @@ export function SessionSidebar({
           </p>
         ) : (
           folders.map((folder) => {
-            const isCollapsed = collapsed[folder.name] ?? false;
+            // collapsed[name] === true means the folder is closed; Collapsible's
+            // `open` is the inverse. localStorage keeps the same closed-set shape.
+            const open = !(collapsed[folder.name] ?? false);
             return (
-              <div key={folder.name} className="mb-1">
-                <button
-                  type="button"
-                  onClick={() =>
-                    setCollapsed((prev) => ({
-                      ...prev,
-                      [folder.name]: !isCollapsed,
-                    }))
-                  }
-                  className="flex w-full items-center gap-1 rounded-md px-1 py-1 text-xs font-medium uppercase tracking-wider text-muted-foreground hover:bg-sidebar-accent/50"
-                >
-                  <ChevronRight
-                    className={cn(
-                      "size-3 transition-transform",
-                      !isCollapsed && "rotate-90",
-                    )}
-                  />
+              <Collapsible
+                key={folder.name}
+                open={open}
+                onOpenChange={(next) =>
+                  setCollapsed((prev) => ({ ...prev, [folder.name]: !next }))
+                }
+                className="mb-1"
+              >
+                <CollapsibleTrigger className="group flex w-full items-center gap-1 rounded-md px-1 py-1 text-xs font-medium uppercase tracking-wider text-muted-foreground hover:bg-sidebar-accent/50">
+                  <ChevronRight className="size-3 transition-transform group-data-[state=open]:rotate-90" />
                   {folder.name}
                   <span className="ml-auto pr-1 font-normal">
                     {folder.sessions.length}
                   </span>
-                </button>
-                {!isCollapsed &&
-                  folder.sessions.map((s) => (
+                </CollapsibleTrigger>
+                <CollapsibleContent>
+                  {folder.sessions.map((s) => (
                     <SessionRow
                       key={s.key}
                       session={s}
@@ -275,12 +320,14 @@ export function SessionSidebar({
                       onSelect={onSelect}
                     />
                   ))}
-              </div>
+                </CollapsibleContent>
+              </Collapsible>
             );
           })
         )}
       </nav>
       <SidebarFooter />
+      </div>
     </aside>
   );
 }
