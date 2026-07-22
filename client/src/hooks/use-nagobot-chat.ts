@@ -41,8 +41,6 @@ export type ChatMessage = {
   resultText?: string;
   // Attachments (served via /api/media/{name}).
   media?: MediaRef[];
-  // Upfront media description / transcription from the wake frontmatter.
-  mediaPreview?: string;
   // Tier-1 compression replaced this content with a shorter version.
   compressed?: boolean;
   // Live-streaming element still in flight (tool executing, thinking growing).
@@ -61,14 +59,14 @@ export type MessageMeta = {
   argsText?: string;
   resultText?: string;
   media?: MediaRef[];
-  mediaPreview?: string;
   compressed?: boolean;
   running?: boolean;
 };
 
-// Cap rendered history: the Thread view is not virtualized, and old sessions
-// can hold thousands of entries.
-const historyLimit = 300;
+// Rendered-history page size: the Thread view is not virtualized, and old
+// sessions can hold thousands of entries, so the pane starts with the last
+// page and a "load earlier" control extends the window one page at a time.
+const historyPageSize = 300;
 
 // A turn with no response frame (e.g. a silent dispatch({}) end) would leave
 // the spinner on forever without this.
@@ -290,7 +288,6 @@ export function sessionToChatMessages(
       isMe: me,
       caller,
       media: media.length > 0 ? media : undefined,
-      mediaPreview: wake.mediaPreview,
       compressed,
     });
   }
@@ -299,7 +296,7 @@ export function sessionToChatMessages(
   // app. Session data is normally unique, but one dirty line must not take
   // the page down.
   const seen = new Set<string>();
-  return out.slice(-historyLimit).map((m) => {
+  return out.map((m) => {
     let id = m.id;
     while (seen.has(id)) id = `${id}+`;
     seen.add(id);
@@ -319,7 +316,6 @@ const convertMessage = (m: ChatMessage): ThreadMessageLike => {
   if (m.argsText) custom.argsText = m.argsText;
   if (m.resultText) custom.resultText = m.resultText;
   if (m.media) custom.media = m.media;
-  if (m.mediaPreview) custom.mediaPreview = m.mediaPreview;
   if (m.compressed) custom.compressed = true;
   if (m.running) custom.running = true;
   return {
@@ -333,6 +329,9 @@ const convertMessage = (m: ChatMessage): ThreadMessageLike => {
 
 export function useNagobotChat(sessionKey: string) {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
+  // How many trailing entries of the full mapped history are rendered. The
+  // pane is keyed by sessionKey, so a session switch resets this to one page.
+  const [renderLimit, setRenderLimit] = useState(historyPageSize);
   const [isRunning, setIsRunning] = useState(false);
   const [status, setStatus] = useState<SocketStatus>("connecting");
   const [historyError, setHistoryError] = useState<string | null>(null);
@@ -701,8 +700,19 @@ export function useNagobotChat(sessionKey: string) {
     socketRef.current?.resume();
   }, []);
 
+  // Only the trailing window is handed to the (non-virtualized) thread view;
+  // "load earlier" widens the window a page at a time. Live updates target
+  // recent messages, so they are always inside the window.
+  const visibleMessages = useMemo(
+    () => (messages.length > renderLimit ? messages.slice(-renderLimit) : messages),
+    [messages, renderLimit],
+  );
+  const loadEarlier = useCallback(() => {
+    setRenderLimit((limit) => limit + historyPageSize);
+  }, []);
+
   const runtime = useExternalStoreRuntime<ChatMessage>({
-    messages,
+    messages: visibleMessages,
     isRunning,
     convertMessage,
     onNew,
@@ -719,6 +729,9 @@ export function useNagobotChat(sessionKey: string) {
     // suppress the welcome screen during that sync gap — otherwise a session
     // with history flashes "How can I help you today?" before the store
     // catches up.
-    messageCount: messages.length,
+    messageCount: visibleMessages.length,
+    // Entries above the rendered window (0 = everything is shown).
+    earlierCount: messages.length - visibleMessages.length,
+    loadEarlier,
   };
 }

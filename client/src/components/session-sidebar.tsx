@@ -17,14 +17,20 @@ const collapseStorageKey = "sidebar-collapsed-folders";
 const filterStorageKey = "sidebar-filter-settings";
 
 // The sidebar exists to reach ACTIVE conversations quickly, so by default it
-// hides maintenance noise: cron sessions (knowledge updates, tidyup) and
-// anything quiet for over a week. Both are opt-in via the funnel menu.
+// hides maintenance noise: cron sessions (knowledge updates, tidyup), CLI
+// sessions (operator terminal traffic), and anything quiet for over a week.
+// All are opt-in via the funnel menu.
 type FilterSettings = {
   showCron: boolean;
+  showCli: boolean;
   showOld: boolean;
 };
 
-const defaultFilters: FilterSettings = { showCron: false, showOld: false };
+const defaultFilters: FilterSettings = {
+  showCron: false,
+  showCli: false,
+  showOld: false,
+};
 
 const oldSessionMs = 7 * 24 * 60 * 60 * 1000;
 
@@ -102,8 +108,10 @@ function SessionRow({
           : "hover:bg-sidebar-accent/50",
       )}
     >
+      {/* Smaller two-line label: summaries are the only way to tell sessions
+          apart, and a single truncated text-sm line cut them too short. */}
       <span className="flex items-baseline gap-2">
-        <span className="min-w-0 flex-1 truncate text-sm">{label}</span>
+        <span className="line-clamp-2 min-w-0 flex-1 text-xs">{label}</span>
         <span className="shrink-0 text-[10px] text-muted-foreground">
           {relativeTime(session.updated_at)}
         </span>
@@ -144,6 +152,7 @@ export function SessionSidebar({
     const cutoff = Date.now() - oldSessionMs;
     return sessions.filter((s) => {
       if (!filters.showCron && folderOf(s.key) === "cron") return false;
+      if (!filters.showCli && folderOf(s.key) === "cli") return false;
       if (!filters.showOld) {
         const t = new Date(s.updated_at).getTime();
         if (!Number.isNaN(t) && t < cutoff) return false;
@@ -193,6 +202,14 @@ export function SessionSidebar({
               }
             >
               Show scheduled (cron) sessions
+            </DropdownMenuCheckboxItem>
+            <DropdownMenuCheckboxItem
+              checked={filters.showCli}
+              onCheckedChange={(v) =>
+                setFilters((prev) => ({ ...prev, showCli: v === true }))
+              }
+            >
+              Show CLI sessions
             </DropdownMenuCheckboxItem>
             <DropdownMenuCheckboxItem
               checked={filters.showOld}

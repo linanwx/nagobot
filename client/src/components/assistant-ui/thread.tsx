@@ -88,6 +88,10 @@ export type ThreadComponents = {
 
 export type ThreadProps = {
   components?: ThreadComponents | undefined;
+  // History entries above the rendered window; > 0 shows the "load earlier"
+  // control at the top of the thread.
+  earlierCount?: number | undefined;
+  onLoadEarlier?: (() => void) | undefined;
 };
 
 const EMPTY_COMPONENTS: ThreadComponents = {};
@@ -101,17 +105,29 @@ const isNewChatView = (s: AssistantState) =>
   s.thread.messages.length === 0 &&
   (!s.thread.isLoading || s.threads.isLoading);
 
-export const Thread: FC<ThreadProps> = ({ components = EMPTY_COMPONENTS }) => {
+export const Thread: FC<ThreadProps> = ({
+  components = EMPTY_COMPONENTS,
+  earlierCount = 0,
+  onLoadEarlier,
+}) => {
   const isEmpty = useAuiState(isNewChatView);
 
   return (
     <ThreadComponentsContext.Provider value={components}>
-      <ThreadRoot isEmpty={isEmpty} />
+      <ThreadRoot
+        isEmpty={isEmpty}
+        earlierCount={earlierCount}
+        onLoadEarlier={onLoadEarlier}
+      />
     </ThreadComponentsContext.Provider>
   );
 };
 
-const ThreadRoot: FC<{ isEmpty: boolean }> = ({ isEmpty }) => {
+const ThreadRoot: FC<{
+  isEmpty: boolean;
+  earlierCount: number;
+  onLoadEarlier?: (() => void) | undefined;
+}> = ({ isEmpty, earlierCount, onLoadEarlier }) => {
   const { Welcome = ThreadWelcome } = useContext(ThreadComponentsContext);
 
   return (
@@ -139,6 +155,18 @@ const ThreadRoot: FC<{ isEmpty: boolean }> = ({ isEmpty }) => {
           <AuiIf condition={isNewChatView}>
             <Welcome />
           </AuiIf>
+
+          {earlierCount > 0 && onLoadEarlier && (
+            <div className="mb-4 flex justify-center">
+              <button
+                type="button"
+                onClick={onLoadEarlier}
+                className="text-muted-foreground hover:bg-muted hover:text-foreground rounded-full border px-3 py-1 text-xs"
+              >
+                Load earlier messages ({earlierCount} more)
+              </button>
+            </div>
+          )}
 
           <div
             data-slot="aui_message-group"
@@ -304,12 +332,12 @@ const ToolCardMessage: FC = () => {
 
 // MediaAttachments renders a user message's attachments from the protected
 // /api/media route: images inline, audio as a player, anything else as a
-// download link. mediaPreview (the upfront AI description/transcription)
-// renders as a dim caption.
+// download link. The upfront AI description/transcription from the wake
+// frontmatter is deliberately NOT rendered — it is model context, not chat,
+// and long transcriptions drowned the conversation (raw dialog still has it).
 const MediaAttachments: FC<{
   media: NonNullable<MessageMeta["media"]>;
-  preview?: string | undefined;
-}> = ({ media, preview }) => (
+}> = ({ media }) => (
   <div className="flex flex-col items-end gap-1.5">
     {media.map((m) =>
       m.kind === "image" ? (
@@ -334,11 +362,6 @@ const MediaAttachments: FC<{
         </a>
       ),
     )}
-    {preview ? (
-      <span className="text-muted-foreground/70 max-w-full text-[11px] italic">
-        {preview}
-      </span>
-    ) : null}
   </div>
 );
 
@@ -935,7 +958,7 @@ const UserMessage: FC = () => {
         ) : null}
         {meta.media ? (
           <div className={cn("mb-1.5", !isMe && "[&>div]:items-start")}>
-            <MediaAttachments media={meta.media} preview={meta.mediaPreview} />
+            <MediaAttachments media={meta.media} />
           </div>
         ) : null}
         <div

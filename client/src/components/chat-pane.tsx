@@ -49,8 +49,16 @@ export function ChatPane({
   onBack: () => void;
   hiddenOnMobile?: boolean;
 }) {
-  const { runtime, status, historyError, historyLoading, takeOver, messageCount } =
-    useNagobotChat(sessionKey);
+  const {
+    runtime,
+    status,
+    historyError,
+    historyLoading,
+    takeOver,
+    messageCount,
+    earlierCount,
+    loadEarlier,
+  } = useNagobotChat(sessionKey);
   const hasMessages = messageCount > 0;
   const threadComponents = useMemo(
     () => (hasMessages ? { Welcome: NullWelcome } : undefined),
@@ -174,7 +182,11 @@ export function ChatPane({
           </div>
         ) : (
           <AssistantRuntimeProvider runtime={runtime}>
-            <Thread components={threadComponents} />
+            <Thread
+              components={threadComponents}
+              earlierCount={earlierCount}
+              onLoadEarlier={loadEarlier}
+            />
           </AssistantRuntimeProvider>
         )}
       </div>
