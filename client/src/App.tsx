@@ -63,6 +63,12 @@ export default function App() {
     () => parentSessionOf(sessions, sessionKey),
     [sessions, sessionKey],
   );
+  // The open session's summary (drafts and unsummarized sessions have none) —
+  // the chat header prefers it over the opaque session id.
+  const currentSummary = useMemo(
+    () => sessions.find((s) => s.key === sessionKey)?.summary,
+    [sessions, sessionKey],
+  );
 
   const openSession = (key: string) => {
     setSessionKey(key);
@@ -99,6 +105,7 @@ export default function App() {
       <ChatPane
         key={sessionKey}
         sessionKey={sessionKey}
+        summary={currentSummary}
         childSessions={children}
         parentSession={parent}
         onOpenSession={openSession}

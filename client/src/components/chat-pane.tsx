@@ -35,6 +35,7 @@ const childMenuLimit = 50;
 
 export function ChatPane({
   sessionKey,
+  summary,
   childSessions,
   parentSession,
   onOpenSession,
@@ -42,6 +43,9 @@ export function ChatPane({
   hiddenOnMobile,
 }: {
   sessionKey: string;
+  // The session's summary, if it has one — shown as the header title in place
+  // of the opaque session id (which is kept as the hover tooltip / fallback).
+  summary?: string;
   childSessions: SessionEntry[];
   parentSession: string | null;
   onOpenSession: (key: string) => void;
@@ -85,8 +89,13 @@ export function ChatPane({
           <ChevronLeft className="size-4" />
           <span className="sr-only">Back to session list</span>
         </Button>
-        <span className="truncate text-sm font-medium">{sessionKey}</span>
-        <span className="ml-auto flex items-center gap-1.5 text-xs text-muted-foreground">
+        <span
+          className="min-w-0 flex-1 truncate text-sm font-medium"
+          title={sessionKey}
+        >
+          {summary || sessionKey}
+        </span>
+        <span className="flex shrink-0 items-center gap-1.5 text-xs text-muted-foreground">
           <span
             className={cn(
               "size-2 rounded-full",
