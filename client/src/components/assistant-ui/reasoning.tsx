@@ -11,6 +11,7 @@ import {
 } from "react";
 import { cva, type VariantProps } from "class-variance-authority";
 import { BrainIcon, ChevronDownIcon } from "lucide-react";
+import { useTranslation } from "react-i18next";
 import {
   useScrollLock,
   useAuiState,
@@ -171,7 +172,9 @@ function ReasoningTrigger({
   active?: boolean;
   duration?: number;
 }) {
+  const { t } = useTranslation();
   const durationText = duration ? ` (${duration}s)` : "";
+  const label = t("reasoning.label") + durationText;
 
   return (
     <CollapsibleTrigger
@@ -190,14 +193,14 @@ function ReasoningTrigger({
         data-slot="reasoning-trigger-label"
         className="aui-reasoning-trigger-label-wrapper relative inline-block leading-none tabular-nums"
       >
-        <span>Reasoning{durationText}</span>
+        <span>{label}</span>
         {active ? (
           <span
             aria-hidden
             data-slot="reasoning-trigger-shimmer"
             className="aui-reasoning-trigger-shimmer shimmer pointer-events-none absolute inset-0 motion-reduce:animate-none"
           >
-            Reasoning{durationText}
+            {label}
           </span>
         ) : null}
       </span>

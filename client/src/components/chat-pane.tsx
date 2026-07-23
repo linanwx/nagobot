@@ -1,6 +1,7 @@
 import { AssistantRuntimeProvider } from "@assistant-ui/react";
 import { ArrowUpLeft, ChevronLeft, FileJson, MoreHorizontal } from "lucide-react";
 import { useMemo, useState } from "react";
+import { useTranslation } from "react-i18next";
 import { Thread } from "@/components/assistant-ui/thread";
 import { SessionRawDialog } from "@/components/session-raw-dialog";
 import { Button } from "@/components/ui/button";
@@ -23,11 +24,11 @@ import { cn } from "@/lib/utils";
 // flash for a frame or two before the messages appear.
 const NullWelcome = () => null;
 
-const statusLabel = {
-  connecting: "connecting…",
-  open: "online",
-  closed: "reconnecting…",
-  replaced: "inactive",
+const statusLabelKey = {
+  connecting: "chat.connecting",
+  open: "chat.online",
+  closed: "chat.reconnecting",
+  replaced: "chat.inactive",
 } as const;
 
 // The child-session menu is capped: cli alone has hundreds of thread children.
@@ -57,6 +58,7 @@ export function ChatPane({
   // surface a session that until now existed only in this browser.
   onFirstSend?: (key: string) => void;
 }) {
+  const { t } = useTranslation();
   const {
     runtime,
     status,
@@ -91,7 +93,7 @@ export function ChatPane({
           onClick={onBack}
         >
           <ChevronLeft className="size-4" />
-          <span className="sr-only">Back to session list</span>
+          <span className="sr-only">{t("chat.backToList")}</span>
         </Button>
         <span
           className="min-w-0 flex-1 truncate text-sm font-medium"
@@ -106,36 +108,38 @@ export function ChatPane({
               status === "open" ? "bg-emerald-500" : "bg-amber-500",
             )}
           />
-          {statusLabel[status]}
+          {t(statusLabelKey[status])}
         </span>
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
             <Button variant="ghost" size="icon" className="size-7">
               <MoreHorizontal className="size-4" />
-              <span className="sr-only">Session menu</span>
+              <span className="sr-only">{t("chat.sessionMenu")}</span>
             </Button>
           </DropdownMenuTrigger>
           <DropdownMenuContent align="end" className="w-72">
             <DropdownMenuItem onSelect={() => setRawOpen(true)}>
               <FileJson className="size-4" />
-              Raw session data
+              {t("chat.rawSessionData")}
             </DropdownMenuItem>
             <DropdownMenuSeparator />
             {parentSession && (
               <>
                 <DropdownMenuItem onSelect={() => onOpenSession(parentSession)}>
                   <ArrowUpLeft className="size-4" />
-                  Back to {parentSession}
+                  {t("chat.backTo", { key: parentSession })}
                 </DropdownMenuItem>
                 <DropdownMenuSeparator />
               </>
             )}
             <DropdownMenuLabel>
-              Child sessions
+              {t("chat.childSessions")}
               {childSessions.length > 0 && ` (${childSessions.length})`}
             </DropdownMenuLabel>
             {visibleChildren.length === 0 ? (
-              <DropdownMenuItem disabled>No child sessions</DropdownMenuItem>
+              <DropdownMenuItem disabled>
+                {t("chat.noChildSessions")}
+              </DropdownMenuItem>
             ) : (
               <div className="max-h-80 overflow-y-auto">
                 {visibleChildren.map((c) => (
@@ -153,7 +157,9 @@ export function ChatPane({
                 ))}
                 {childSessions.length > childMenuLimit && (
                   <DropdownMenuItem disabled>
-                    …and {childSessions.length - childMenuLimit} more
+                    {t("chat.andMore", {
+                      count: childSessions.length - childMenuLimit,
+                    })}
                   </DropdownMenuItem>
                 )}
               </div>
@@ -168,21 +174,18 @@ export function ChatPane({
       </header>
       {historyError && (
         <p className="border-b bg-destructive/10 px-4 py-1 text-xs text-destructive">
-          Failed to load history: {historyError}
+          {t("chat.historyFailed", { error: historyError })}
         </p>
       )}
       <div className="min-h-0 flex-1">
         {status === "replaced" ? (
           <div className="flex h-full flex-col items-center justify-center gap-3 px-6 text-center">
-            <p className="text-sm font-medium">
-              This session is now active in another window
-            </p>
+            <p className="text-sm font-medium">{t("chat.replacedTitle")}</p>
             <p className="text-muted-foreground max-w-sm text-xs">
-              Only one page can be connected to a session at a time. Messages
-              are being delivered to the other window.
+              {t("chat.replacedBody")}
             </p>
             <Button size="sm" onClick={takeOver}>
-              Use here instead
+              {t("chat.useHere")}
             </Button>
           </div>
         ) : historyLoading ? (
@@ -190,7 +193,7 @@ export function ChatPane({
             <div
               className="border-muted-foreground/30 border-t-foreground size-6 animate-spin rounded-full border-2"
               role="status"
-              aria-label="Loading history"
+              aria-label={t("chat.loadingHistory")}
             />
           </div>
         ) : (

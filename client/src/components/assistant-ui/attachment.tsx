@@ -1,6 +1,7 @@
 "use client";
 
 import { type PropsWithChildren, useEffect, useState, type FC } from "react";
+import { useTranslation } from "react-i18next";
 import {
   XIcon,
   PlusIcon,
@@ -134,6 +135,7 @@ const AttachmentThumb: FC = () => {
 };
 
 const AttachmentUI: FC = () => {
+  const { t } = useTranslation();
   const aui = useAui();
   const isComposer = aui.attachment.source !== "message";
 
@@ -142,11 +144,11 @@ const AttachmentUI: FC = () => {
     const type = s.attachment.type;
     switch (type) {
       case "image":
-        return "Image";
+        return t("attachment.image");
       case "document":
-        return "Document";
+        return t("attachment.document");
       case "file":
-        return "File";
+        return t("attachment.file");
       default:
         return type;
     }
@@ -166,7 +168,7 @@ const AttachmentUI: FC = () => {
   const errorMessage = useAuiState((s) =>
     s.attachment.status.type === "incomplete" &&
     s.attachment.status.reason === "error"
-      ? (s.attachment.status.message ?? "Upload failed")
+      ? (s.attachment.status.message ?? t("attachment.uploadFailed"))
       : undefined,
   );
 
@@ -189,9 +191,14 @@ const AttachmentUI: FC = () => {
               )}
               role="button"
               tabIndex={0}
-              aria-label={`${typeLabel} attachment${
-                isError ? ", upload failed" : isUploading ? ", uploading" : ""
-              }`}
+              aria-label={
+                typeLabel +
+                (isError
+                  ? `, ${t("attachment.uploadFailed")}`
+                  : isUploading
+                    ? `, ${t("attachment.uploading")}`
+                    : "")
+              }
             >
               <AttachmentThumb />
               {isUploading && (
@@ -226,10 +233,11 @@ const AttachmentUI: FC = () => {
 };
 
 const AttachmentRemove: FC = () => {
+  const { t } = useTranslation();
   return (
     <AttachmentPrimitive.Remove asChild>
       <TooltipIconButton
-        tooltip="Remove file"
+        tooltip={t("attachment.remove")}
         className="aui-attachment-tile-remove text-muted-foreground hover:[&_svg]:text-destructive absolute end-1.5 top-1.5 size-3.5 rounded-full bg-white opacity-100 shadow-sm hover:bg-white! [&_svg]:text-black"
         side="top"
       >
@@ -260,15 +268,16 @@ export const ComposerAttachments: FC = () => {
 };
 
 export const ComposerAddAttachment: FC = () => {
+  const { t } = useTranslation();
   return (
     <ComposerPrimitive.AddAttachment asChild>
       <TooltipIconButton
-        tooltip="Add Attachment"
+        tooltip={t("attachment.add")}
         side="bottom"
         variant="ghost"
         size="icon"
         className="aui-composer-add-attachment hover:bg-muted-foreground/15 dark:border-muted-foreground/15 dark:hover:bg-muted-foreground/30 size-7 rounded-full p-1 text-xs font-semibold"
-        aria-label="Add Attachment"
+        aria-label={t("attachment.add")}
       >
         <PlusIcon className="aui-attachment-add-icon size-4.5 stroke-[1.5px]" />
       </TooltipIconButton>

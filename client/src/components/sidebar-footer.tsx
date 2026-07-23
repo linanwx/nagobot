@@ -1,5 +1,6 @@
 import { Bell, BellOff, BookText, LogOut, Settings } from "lucide-react";
 import { useEffect, useState } from "react";
+import { useTranslation } from "react-i18next";
 import ReactMarkdown, { type Components } from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { useAuth } from "@/components/auth-gate";
@@ -78,6 +79,7 @@ function splitFrontmatter(content: string): { meta: [string, string][]; body: st
 }
 
 function ConfigDialog() {
+  const { t } = useTranslation();
   const [open, setOpen] = useState(false);
   const [config, setConfig] = useState<unknown>(null);
   const [error, setError] = useState<string | null>(null);
@@ -95,20 +97,18 @@ function ConfigDialog() {
       <DialogTrigger asChild>
         <Button variant="ghost" size="icon" className="size-7">
           <Settings className="size-4" />
-          <span className="sr-only">Daemon configuration</span>
+          <span className="sr-only">{t("sidebar.configuration")}</span>
         </Button>
       </DialogTrigger>
       <DialogContent className="flex max-h-[85dvh] flex-col sm:max-w-2xl">
         <DialogHeader>
-          <DialogTitle>Configuration</DialogTitle>
-          <DialogDescription>
-            Live daemon config (read-only; secrets redacted).
-          </DialogDescription>
+          <DialogTitle>{t("sidebar.configuration")}</DialogTitle>
+          <DialogDescription>{t("sidebar.configurationDesc")}</DialogDescription>
         </DialogHeader>
         {error ? (
           <p className="text-destructive text-sm">{error}</p>
         ) : config == null ? (
-          <p className="text-muted-foreground text-sm">Loading…</p>
+          <p className="text-muted-foreground text-sm">{t("common.loading")}</p>
         ) : (
           <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain pe-1">
             <ConfigView config={config} />
@@ -120,6 +120,7 @@ function ConfigDialog() {
 }
 
 function PromptsDialog() {
+  const { t } = useTranslation();
   const [open, setOpen] = useState(false);
   const [files, setFiles] = useState<PromptFileEntry[] | null>(null);
   const [selected, setSelected] = useState<string | null>(null);
@@ -152,23 +153,21 @@ function PromptsDialog() {
       <DialogTrigger asChild>
         <Button variant="ghost" size="icon" className="size-7">
           <BookText className="size-4" />
-          <span className="sr-only">Global prompts</span>
+          <span className="sr-only">{t("sidebar.globalPrompts")}</span>
         </Button>
       </DialogTrigger>
       <DialogContent className="flex max-h-[85dvh] flex-col sm:max-w-2xl">
         <DialogHeader>
-          <DialogTitle>Global prompts</DialogTitle>
-          <DialogDescription>
-            System prompt files injected into every agent (read-only).
-          </DialogDescription>
+          <DialogTitle>{t("sidebar.globalPrompts")}</DialogTitle>
+          <DialogDescription>{t("sidebar.globalPromptsDesc")}</DialogDescription>
         </DialogHeader>
         {error ? (
           <p className="text-destructive text-sm">{error}</p>
         ) : files == null ? (
-          <p className="text-muted-foreground text-sm">Loading…</p>
+          <p className="text-muted-foreground text-sm">{t("common.loading")}</p>
         ) : files.length === 0 ? (
           <p className="text-muted-foreground text-sm">
-            No prompt files found (or the daemon predates /api/prompts).
+            {t("sidebar.noPromptFiles")}
           </p>
         ) : (
           <>
@@ -200,7 +199,7 @@ function PromptsDialog() {
             )}
             <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain rounded-md border p-3 text-sm leading-relaxed wrap-break-word">
               {content == null ? (
-                <p className="text-muted-foreground">Loading…</p>
+                <p className="text-muted-foreground">{t("common.loading")}</p>
               ) : (
                 (() => {
                   const { meta, body } = splitFrontmatter(content);
@@ -239,6 +238,7 @@ function PromptsDialog() {
 // PushToggle enrolls/withdraws this browser for Web Push. Hidden entirely
 // where push can never work (insecure context, iOS Safari tab).
 function PushToggle() {
+  const { t } = useTranslation();
   const [enabled, setEnabled] = useState(false);
   const [busy, setBusy] = useState(false);
   const supported = pushSupported();
@@ -276,11 +276,11 @@ function PushToggle() {
       className="size-7"
       disabled={busy}
       onClick={() => void toggle()}
-      title={enabled ? "Disable push notifications" : "Enable push notifications"}
+      title={enabled ? t("sidebar.disablePush") : t("sidebar.enablePush")}
     >
       {enabled ? <Bell className="size-4" /> : <BellOff className="size-4" />}
       <span className="sr-only">
-        {enabled ? "Disable push notifications" : "Enable push notifications"}
+        {enabled ? t("sidebar.disablePush") : t("sidebar.enablePush")}
       </span>
     </Button>
   );
@@ -289,6 +289,7 @@ function PushToggle() {
 // SidebarFooter is the strip at the bottom of the session list: daemon
 // configuration, the global prompt files, and the signed-in account.
 export function SidebarFooter() {
+  const { t } = useTranslation();
   const { me, signOut } = useAuth();
   const signedIn = me != null && me.auth_enabled && !me.exempt && me.authenticated;
   return (
@@ -306,10 +307,10 @@ export function SidebarFooter() {
             size="icon"
             className="size-7"
             onClick={signOut}
-            title="Sign out"
+            title={t("sidebar.signOut")}
           >
             <LogOut className="size-4" />
-            <span className="sr-only">Sign out</span>
+            <span className="sr-only">{t("sidebar.signOut")}</span>
           </Button>
         </>
       )}

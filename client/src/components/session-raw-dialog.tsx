@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { useTranslation } from "react-i18next";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -381,6 +382,7 @@ export function SessionRawDialog({
   open: boolean;
   onOpenChange: (open: boolean) => void;
 }) {
+  const { t } = useTranslation();
   const [detail, setDetail] = useState<SessionDetail | null>(null);
   const [error, setError] = useState<string | null>(null);
 
@@ -411,7 +413,7 @@ export function SessionRawDialog({
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="flex max-h-[85dvh] flex-col sm:max-w-3xl">
         <DialogHeader>
-          <DialogTitle>Raw session data</DialogTitle>
+          <DialogTitle>{t("chat.rawSessionData")}</DialogTitle>
           <DialogDescription className="font-mono text-xs">
             {sessionKey} · session.jsonl
             {detail &&
@@ -426,7 +428,7 @@ export function SessionRawDialog({
             </Button>
           </div>
         ) : detail == null ? (
-          <p className="text-muted-foreground text-sm">Loading…</p>
+          <p className="text-muted-foreground text-sm">{t("common.loading")}</p>
         ) : (
           <div className="flex min-h-0 flex-1 flex-col gap-2 overflow-y-auto overscroll-contain pe-1">
             {detail.messages.map((m, i) => (

@@ -1,6 +1,7 @@
 "use client";
 
 import { memo, useCallback, useRef, useState } from "react";
+import { useTranslation } from "react-i18next";
 import {
   AlertCircleIcon,
   CheckIcon,
@@ -133,13 +134,14 @@ function ToolFallbackTrigger({
   toolName: string;
   status?: ToolCallMessagePartStatus;
 }) {
+  const { t } = useTranslation();
   const statusType = status?.type ?? "complete";
   const isRunning = statusType === "running";
   const isCancelled =
     status?.type === "incomplete" && status.reason === "cancelled";
 
   const Icon = statusIconMap[statusType];
-  const label = isCancelled ? "Cancelled tool" : "Used tool";
+  const label = isCancelled ? t("tool.cancelled") : t("tool.used");
 
   return (
     <CollapsibleTrigger
@@ -257,6 +259,7 @@ function ToolFallbackResult({
 }: React.ComponentProps<"div"> & {
   result?: unknown;
 }) {
+  const { t } = useTranslation();
   if (result === undefined) return null;
 
   return (
@@ -266,7 +269,7 @@ function ToolFallbackResult({
       {...props}
     >
       <p className="aui-tool-fallback-result-header text-muted-foreground text-xs font-medium">
-        Result:
+        {t("tool.result")}
       </p>
       <pre className="aui-tool-fallback-result-content bg-muted/50 text-foreground/90 mt-1 rounded-md p-2.5 text-xs whitespace-pre-wrap">
         {typeof result === "string" ? result : JSON.stringify(result, null, 2)}
@@ -282,6 +285,7 @@ function ToolFallbackError({
 }: React.ComponentProps<"div"> & {
   status?: ToolCallMessagePartStatus;
 }) {
+  const { t } = useTranslation();
   if (status?.type !== "incomplete") return null;
 
   const error = status.error;
@@ -294,7 +298,7 @@ function ToolFallbackError({
   if (!errorText) return null;
 
   const isCancelled = status.reason === "cancelled";
-  const headerText = isCancelled ? "Cancelled reason:" : "Error:";
+  const headerText = isCancelled ? t("tool.cancelledReason") : t("tool.error");
 
   return (
     <div
@@ -312,23 +316,31 @@ function ToolFallbackError({
   );
 }
 
+// These two strings are tool RESULTS recorded into the session data, not UI
+// copy — they must stay English regardless of the UI locale.
 const APPROVED_RESULT = "Approved by user";
 const DENIED_RESULT = "User denied tool execution";
 
-const APPROVAL_OPTION_DEFAULT_LABELS: Record<string, string> = {
-  "allow-once": "Allow",
-  "allow-always": "Always allow",
-  "reject-once": "Deny",
-  "reject-always": "Always deny",
+// Known approval kinds → translation keys. Kind membership doubles as the
+// "kit can resolve this option" check, so keep the key set in sync with
+// isAllowKind below.
+const APPROVAL_OPTION_LABEL_KEYS: Record<string, string> = {
+  "allow-once": "tool.allow",
+  "allow-always": "tool.allowAlways",
+  "reject-once": "tool.deny",
+  "reject-always": "tool.denyAlways",
 };
 
 const isAllowKind = (kind: string) =>
   kind === "allow-once" || kind === "allow-always";
 
-const approvalOptionLabel = (option: ToolApprovalOption) =>
+const approvalOptionLabel = (
+  option: ToolApprovalOption,
+  t: (key: string) => string,
+) =>
   option.label ??
-  (Object.hasOwn(APPROVAL_OPTION_DEFAULT_LABELS, option.kind)
-    ? APPROVAL_OPTION_DEFAULT_LABELS[option.kind]
+  (Object.hasOwn(APPROVAL_OPTION_LABEL_KEYS, option.kind)
+    ? t(APPROVAL_OPTION_LABEL_KEYS[option.kind])
     : undefined) ??
   option.id;
 
@@ -347,6 +359,7 @@ function ToolFallbackApproval({
     interrupt?: ToolCallMessagePart["interrupt"];
     approval?: ToolCallMessagePart["approval"];
   }) {
+  const { t } = useTranslation();
   const [submitted, setSubmitted] = useState(false);
   const [confirmingId, setConfirmingId] = useState<string | null>(null);
 
@@ -362,7 +375,7 @@ function ToolFallbackApproval({
   // always preserves a refusal path.
   const declaredOptions = respondToApproval ? approval?.options : undefined;
   const options = declaredOptions?.filter((o) =>
-    Object.hasOwn(APPROVAL_OPTION_DEFAULT_LABELS, o.kind),
+    Object.hasOwn(APPROVAL_OPTION_LABEL_KEYS, o.kind),
   );
 
   const respond = (approved: boolean) => {
@@ -416,7 +429,7 @@ function ToolFallbackApproval({
         {...props}
       >
         <p className="aui-tool-fallback-approval-confirm-title font-semibold">
-          {confirmMeta?.title ?? `${approvalOptionLabel(confirming)}?`}
+          {confirmMeta?.title ?? `${approvalOptionLabel(confirming, t)}?`}
         </p>
         {confirmDescription && (
           <p className="aui-tool-fallback-approval-confirm-description text-muted-foreground">
@@ -478,7 +491,7 @@ function ToolFallbackApproval({
             onClick={() => handleOption(option)}
             disabled={submitted}
           >
-            {approvalOptionLabel(option)}
+            {approvalOptionLabel(option, t)}
           </Button>
         ))}
         {rejectOptions.length === 0 && (

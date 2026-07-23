@@ -1,4 +1,5 @@
 import { createContext, useCallback, useContext, useEffect, useState } from "react";
+import { Trans, useTranslation } from "react-i18next";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
@@ -96,11 +97,7 @@ export function AuthGate({ children }: { children: React.ReactNode }) {
   }, []);
 
   if (state.phase === "loading") {
-    return (
-      <div className="text-muted-foreground flex h-dvh items-center justify-center text-sm">
-        Loading…
-      </div>
-    );
+    return <LoadingScreen />;
   }
   if (state.phase === "login") {
     return (
@@ -118,6 +115,15 @@ export function AuthGate({ children }: { children: React.ReactNode }) {
     <AuthContext.Provider value={{ me: state.me, signOut }}>
       {children}
     </AuthContext.Provider>
+  );
+}
+
+function LoadingScreen() {
+  const { t } = useTranslation();
+  return (
+    <div className="text-muted-foreground flex h-dvh items-center justify-center text-sm">
+      {t("common.loading")}
+    </div>
   );
 }
 
@@ -141,6 +147,7 @@ function LoginView({
   error?: string;
   onDone: () => void;
 }) {
+  const { t } = useTranslation();
   const [busy, setBusy] = useState(false);
   const [failure, setFailure] = useState<string | null>(error ?? null);
   const [username, setUsername] = useState("");
@@ -183,15 +190,10 @@ function LoginView({
   return (
     <CenterCard>
       {linkInvalid ? (
-        <p className="text-destructive mb-4 text-sm">
-          This login link is invalid or has expired. Ask the operator for a
-          fresh one (links are single-use, 30 minutes), or sign in below if
-          this site already knows you.
-        </p>
+        <p className="text-destructive mb-4 text-sm">{t("auth.linkInvalid")}</p>
       ) : (
         <p className="text-muted-foreground mb-4 text-sm">
-          Sign in with your username and password, or with a passkey. No
-          account yet? Ask the operator for a login link.
+          {t("auth.signInIntro")}
         </p>
       )}
       <form
@@ -204,25 +206,25 @@ function LoginView({
         <Input
           value={username}
           onChange={(e) => setUsername(e.target.value)}
-          placeholder="username"
+          placeholder={t("auth.username")}
           autoComplete="username"
         />
         <Input
           type="password"
           value={password}
           onChange={(e) => setPassword(e.target.value)}
-          placeholder="password"
+          placeholder={t("auth.password")}
           autoComplete="current-password"
         />
         <Button type="submit" disabled={busy || !passwordReady} className="w-full">
-          {busy ? "Signing in…" : "Sign in"}
+          {busy ? t("auth.signingIn") : t("auth.signIn")}
         </Button>
       </form>
       {passkeyOk === true && (
         <>
           <div className="text-muted-foreground my-3 flex items-center gap-2 text-xs">
             <span className="bg-border h-px flex-1" />
-            or
+            {t("auth.or")}
             <span className="bg-border h-px flex-1" />
           </div>
           <Button
@@ -231,7 +233,7 @@ function LoginView({
             disabled={busy}
             className="w-full"
           >
-            Sign in with passkey
+            {t("auth.signInWithPasskey")}
           </Button>
         </>
       )}
@@ -240,9 +242,7 @@ function LoginView({
         // gone for anyone who registered one elsewhere. Silent hiding is
         // reserved for devices that never had a passkey provider.
         <p className="text-muted-foreground mt-3 text-xs">
-          Passkey sign-in is unavailable here: passkeys require HTTPS (or
-          localhost), and this page was opened over plain HTTP at{" "}
-          {window.location.host}. Password sign-in still works.
+          {t("auth.insecureNote", { host: window.location.host })}
         </p>
       ) : null}
       {failure && <p className="text-destructive mt-3 text-xs">{failure}</p>}
@@ -271,6 +271,7 @@ type WizardStep =
 // claiming binds only the identity that was picked — merging further
 // identities into a person is a separate mechanism, not this wizard.
 function SetupWizard({ onDone }: { onDone: () => void }) {
+  const { t } = useTranslation();
   const [persons, setPersons] = useState<PersonSummary[]>([]);
   const [identities, setIdentities] = useState<ChannelIdentity[]>([]);
   const [step, setStep] = useState<WizardStep>({ step: "choose" });
@@ -367,7 +368,7 @@ function SetupWizard({ onDone }: { onDone: () => void }) {
       {step.step === "choose" && (
         <>
           <p className="text-muted-foreground mb-3 text-sm">
-            Who are you? Pick yourself below, or start fresh.
+            {t("auth.whoAreYou")}
           </p>
           <div className="flex max-h-72 flex-col gap-1 overflow-y-auto">
             {persons.map((p) => (
@@ -379,7 +380,7 @@ function SetupWizard({ onDone }: { onDone: () => void }) {
               >
                 <span className="font-medium">{p.username}</span>
                 <span className="text-muted-foreground ms-2 text-xs">
-                  web account
+                  {t("auth.webAccount")}
                   {(p.identities ?? []).length > 0 &&
                     ` · ${(p.identities ?? []).join(", ")}`}
                 </span>
@@ -398,12 +399,12 @@ function SetupWizard({ onDone }: { onDone: () => void }) {
             ))}
             {persons.length === 0 && unboundIdentities.length === 0 && (
               <p className="text-muted-foreground text-xs">
-                Nobody known yet — you are the first.
+                {t("auth.nobodyYet")}
               </p>
             )}
           </div>
           <Button className="mt-3 w-full" onClick={() => startFrom({ kind: "new" })}>
-            None of these — create a new user
+            {t("auth.createNewUser")}
           </Button>
         </>
       )}
@@ -412,20 +413,22 @@ function SetupWizard({ onDone }: { onDone: () => void }) {
         <>
           <p className="text-muted-foreground mb-3 text-sm">
             {base.kind === "identity" ? (
-              <>
-                Claiming{" "}
-                <span className="text-foreground font-medium">{base.identity.name}</span>{" "}
-                <span className="font-mono text-xs">({base.identity.key})</span>. Pick a
-                username for the web account.
-              </>
+              <Trans
+                i18nKey="auth.claiming"
+                values={{ name: base.identity.name, key: base.identity.key }}
+                components={{
+                  name: <span className="text-foreground font-medium" />,
+                  code: <span className="font-mono text-xs" />,
+                }}
+              />
             ) : (
-              <>Pick a username.</>
+              t("auth.pickUsername")
             )}
           </p>
           <Input
             value={username}
             onChange={(e) => setUsername(e.target.value)}
-            placeholder="username"
+            placeholder={t("auth.username")}
             autoFocus
           />
           <div className="mt-3 flex gap-2">
@@ -433,10 +436,10 @@ function SetupWizard({ onDone }: { onDone: () => void }) {
               disabled={username.trim() === ""}
               onClick={() => setStep({ step: "confirm" })}
             >
-              Continue
+              {t("common.continue")}
             </Button>
             <Button variant="ghost" onClick={() => setStep({ step: "choose" })}>
-              Back
+              {t("common.back")}
             </Button>
           </div>
         </>
@@ -445,26 +448,26 @@ function SetupWizard({ onDone }: { onDone: () => void }) {
       {step.step === "confirm" && (
         <>
           <p className="mb-3 text-sm">
-            {base.kind === "person" ? (
-              <>
-                Sign in as <span className="font-medium">{displayName}</span>
-              </>
-            ) : (
-              <>
-                Create user <span className="font-medium">{displayName}</span>
-              </>
-            )}
-            {claimed.length > 0 && (
-              <>
-                {" "}
-                as <span className="font-mono text-xs">{claimed.join(", ")}</span>
-              </>
-            )}
-            ?
+            <Trans
+              i18nKey={
+                base.kind === "person"
+                  ? claimed.length > 0
+                    ? "auth.confirmSignInAs"
+                    : "auth.confirmSignIn"
+                  : claimed.length > 0
+                    ? "auth.confirmCreateAs"
+                    : "auth.confirmCreate"
+              }
+              values={{ name: displayName, ids: claimed.join(", ") }}
+              components={{
+                b: <span className="font-medium" />,
+                code: <span className="font-mono text-xs" />,
+              }}
+            />
           </p>
           <div className="flex gap-2">
             <Button disabled={busy} onClick={() => void submitSetup()}>
-              {busy ? "Saving…" : "Confirm"}
+              {busy ? t("auth.saving") : t("common.confirm")}
             </Button>
             <Button
               variant="ghost"
@@ -472,7 +475,7 @@ function SetupWizard({ onDone }: { onDone: () => void }) {
                 setStep(base.kind === "person" ? { step: "choose" } : { step: "username" })
               }
             >
-              Back
+              {t("common.back")}
             </Button>
           </div>
         </>
@@ -481,9 +484,13 @@ function SetupWizard({ onDone }: { onDone: () => void }) {
       {step.step === "passkey" && (
         <>
           <p className="text-muted-foreground mb-4 text-sm">
-            Last step: pick how{" "}
-            <span className="text-foreground font-medium">{step.username}</span>{" "}
-            will sign in from now on — the link you used is now spent.
+            <Trans
+              i18nKey="auth.lastStep"
+              values={{ username: step.username }}
+              components={{
+                b: <span className="text-foreground font-medium" />,
+              }}
+            />
           </p>
           {!usePassword && !passwordOnly ? (
             <>
@@ -492,7 +499,7 @@ function SetupWizard({ onDone }: { onDone: () => void }) {
                 onClick={() => void runRegister()}
                 className="w-full"
               >
-                {busy ? "Waiting for passkey…" : "Register passkey"}
+                {busy ? t("auth.waitingPasskey") : t("auth.registerPasskey")}
               </Button>
               <Button
                 variant="ghost"
@@ -503,12 +510,10 @@ function SetupWizard({ onDone }: { onDone: () => void }) {
                 }}
                 className="mt-2 w-full"
               >
-                Use a password instead
+                {t("auth.usePasswordInstead")}
               </Button>
               <p className="text-muted-foreground mt-2 text-xs">
-                No passkey prompt appearing? Some devices (e.g. Android
-                without Google services) have no passkey support — use a
-                password instead.
+                {t("auth.noPasskeyPrompt")}
               </p>
             </>
           ) : (
@@ -523,7 +528,7 @@ function SetupWizard({ onDone }: { onDone: () => void }) {
                 type="password"
                 value={pw}
                 onChange={(e) => setPw(e.target.value)}
-                placeholder="password (min 8 characters)"
+                placeholder={t("auth.passwordMin")}
                 autoComplete="new-password"
                 autoFocus
               />
@@ -531,21 +536,21 @@ function SetupWizard({ onDone }: { onDone: () => void }) {
                 type="password"
                 value={pw2}
                 onChange={(e) => setPw2(e.target.value)}
-                placeholder="repeat password"
+                placeholder={t("auth.passwordRepeat")}
                 autoComplete="new-password"
               />
               {pw !== "" && pw.length < 8 && (
                 <p className="text-muted-foreground text-xs">
-                  At least 8 characters.
+                  {t("auth.passwordTooShort")}
                 </p>
               )}
               {pw2 !== "" && pw !== pw2 && (
                 <p className="text-destructive text-xs">
-                  Passwords don't match.
+                  {t("auth.passwordMismatch")}
                 </p>
               )}
               <Button type="submit" disabled={busy || !pwReady} className="w-full">
-                {busy ? "Saving…" : "Set password & sign in"}
+                {busy ? t("auth.saving") : t("auth.setPasswordSignIn")}
               </Button>
               {!passwordOnly && (
                 <Button
@@ -557,13 +562,12 @@ function SetupWizard({ onDone }: { onDone: () => void }) {
                   }}
                   className="w-full"
                 >
-                  Back to passkey
+                  {t("auth.backToPasskey")}
                 </Button>
               )}
               {passwordOnly && (
                 <p className="text-muted-foreground text-xs">
-                  This device has no passkey support — a password is how{" "}
-                  {step.username} will sign in.
+                  {t("auth.passwordOnlyNote", { username: step.username })}
                 </p>
               )}
             </form>

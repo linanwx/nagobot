@@ -16,6 +16,7 @@ import {
 } from "@/lib/api";
 import { NagobotSocket, type SocketStatus, type StreamFrame } from "@/lib/ws";
 import { imageAttachmentAdapter } from "@/lib/attachment-adapter";
+import i18n from "@/i18n";
 
 // TurnPart is one ordered element of an assistant turn. It maps 1:1 onto
 // assistant-ui's native message parts (reasoning / text / tool-call), so a
@@ -791,7 +792,7 @@ export function useNagobotChat(
               {
                 id: localID("err"),
                 role: "assistant" as const,
-                text: "⚠️ Not connected to the daemon — message was not sent.",
+                text: i18n.t("chat.notConnected"),
                 createdAt: new Date(),
               },
             ]),

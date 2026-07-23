@@ -9,6 +9,7 @@ import {
   type PropsWithChildren,
 } from "react";
 import { ChevronDownIcon, LoaderIcon } from "lucide-react";
+import { useTranslation } from "react-i18next";
 import { cva, type VariantProps } from "class-variance-authority";
 import { useScrollLock } from "@assistant-ui/react";
 import {
@@ -101,7 +102,8 @@ function ToolGroupTrigger({
   count: number;
   active?: boolean;
 }) {
-  const label = `${count} tool ${count === 1 ? "call" : "calls"}`;
+  const { t } = useTranslation();
+  const label = t("tool.calls", { count });
 
   return (
     <CollapsibleTrigger

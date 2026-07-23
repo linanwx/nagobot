@@ -1,5 +1,6 @@
 import { ChevronRight, Funnel, PanelLeftClose, PanelLeftOpen, Plus } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
+import { useTranslation } from "react-i18next";
 import { SidebarFooter } from "@/components/sidebar-footer";
 import { Button } from "@/components/ui/button";
 import {
@@ -148,6 +149,7 @@ export function SessionSidebar({
   // Mobile shows list OR chat, never both; md+ always shows the sidebar.
   hiddenOnMobile?: boolean;
 }) {
+  const { t } = useTranslation();
   const [collapsed, setCollapsed] = useState<Record<string, boolean>>(loadCollapsed);
   const [filters, setFilters] = useState<FilterSettings>(loadFilters);
   // Desktop-only rail collapse — hides the sidebar to a thin edge strip.
@@ -197,10 +199,10 @@ export function SessionSidebar({
             size="icon"
             className="size-7"
             onClick={() => setRailCollapsed(false)}
-            title="Expand sidebar"
+            title={t("sidebar.expand")}
           >
             <PanelLeftOpen className="size-4" />
-            <span className="sr-only">Expand sidebar</span>
+            <span className="sr-only">{t("sidebar.expand")}</span>
           </Button>
         </div>
       )}
@@ -220,20 +222,20 @@ export function SessionSidebar({
               variant="ghost"
               size="icon"
               className="size-7 shrink-0 relative"
-              title="Filter sessions"
+              title={t("sidebar.filter")}
             >
               <Funnel className="size-4" />
               {hiddenCount > 0 && (
                 <span className="bg-primary absolute top-0.5 right-0.5 size-1.5 rounded-full" />
               )}
-              <span className="sr-only">Filter sessions</span>
+              <span className="sr-only">{t("sidebar.filter")}</span>
             </Button>
           </DropdownMenuTrigger>
           <DropdownMenuContent align="start" className="w-60">
             <DropdownMenuLabel className="text-muted-foreground text-xs font-normal">
               {hiddenCount > 0
-                ? `${hiddenCount} session${hiddenCount === 1 ? "" : "s"} hidden`
-                : "Showing all sessions"}
+                ? t("sidebar.hidden", { count: hiddenCount })
+                : t("sidebar.showingAll")}
             </DropdownMenuLabel>
             <DropdownMenuCheckboxItem
               checked={filters.showCron}
@@ -241,7 +243,7 @@ export function SessionSidebar({
                 setFilters((prev) => ({ ...prev, showCron: v === true }))
               }
             >
-              Show scheduled (cron) sessions
+              {t("sidebar.showCron")}
             </DropdownMenuCheckboxItem>
             <DropdownMenuCheckboxItem
               checked={filters.showCli}
@@ -249,7 +251,7 @@ export function SessionSidebar({
                 setFilters((prev) => ({ ...prev, showCli: v === true }))
               }
             >
-              Show CLI sessions
+              {t("sidebar.showCli")}
             </DropdownMenuCheckboxItem>
             <DropdownMenuCheckboxItem
               checked={filters.showOld}
@@ -257,7 +259,7 @@ export function SessionSidebar({
                 setFilters((prev) => ({ ...prev, showOld: v === true }))
               }
             >
-              Show sessions older than 7 days
+              {t("sidebar.showOld")}
             </DropdownMenuCheckboxItem>
           </DropdownMenuContent>
         </DropdownMenu>
@@ -266,20 +268,20 @@ export function SessionSidebar({
           size="icon"
           className="size-7 shrink-0"
           onClick={onCreate}
-          title="New session"
+          title={t("sidebar.newSession")}
         >
           <Plus className="size-4" />
-          <span className="sr-only">New session</span>
+          <span className="sr-only">{t("sidebar.newSession")}</span>
         </Button>
         <Button
           variant="ghost"
           size="icon"
           className="hidden size-7 shrink-0 md:inline-flex"
           onClick={() => setRailCollapsed(true)}
-          title="Collapse sidebar"
+          title={t("sidebar.collapse")}
         >
           <PanelLeftClose className="size-4" />
-          <span className="sr-only">Collapse sidebar</span>
+          <span className="sr-only">{t("sidebar.collapse")}</span>
         </Button>
       </div>
       <nav className="flex-1 overflow-y-auto overscroll-contain px-2 py-2">
@@ -287,8 +289,8 @@ export function SessionSidebar({
 
         {folders.length === 0 ? (
           <p className="text-muted-foreground px-2 py-1 text-xs">
-            No recent sessions
-            {hiddenCount > 0 && ` (${hiddenCount} hidden by filters)`}
+            {t("sidebar.noRecent")}
+            {hiddenCount > 0 && t("sidebar.hiddenByFilters", { count: hiddenCount })}
           </p>
         ) : (
           folders.map((folder) => {
