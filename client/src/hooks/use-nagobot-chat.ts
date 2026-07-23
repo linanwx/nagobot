@@ -15,6 +15,7 @@ import {
   type MediaRef,
 } from "@/lib/api";
 import { NagobotSocket, type SocketStatus, type StreamFrame } from "@/lib/ws";
+import { imageAttachmentAdapter } from "@/lib/attachment-adapter";
 
 export type ChatMessage = {
   id: string;
@@ -335,7 +336,10 @@ const convertMessage = (m: ChatMessage): ThreadMessageLike => {
   };
 };
 
-export function useNagobotChat(sessionKey: string) {
+export function useNagobotChat(
+  sessionKey: string,
+  onFirstSend?: (key: string) => void,
+) {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   // How many trailing entries of the full mapped history are rendered. The
   // pane is keyed by sessionKey, so a session switch resets this to one page.
@@ -361,6 +365,12 @@ export function useNagobotChat(sessionKey: string) {
 
   const socketRef = useRef<NagobotSocket | null>(null);
   const runningTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // Held in refs so onNew keeps a stable identity: the pane is remounted per
+  // session (key={sessionKey}), so "first send" is naturally per-session.
+  const onFirstSendRef = useRef(onFirstSend);
+  onFirstSendRef.current = onFirstSend;
+  const firstSendNotified = useRef(false);
 
   const stopRunning = useCallback(() => {
     setIsRunning(false);
@@ -674,9 +684,27 @@ export function useNagobotChat(sessionKey: string) {
         .map((p) => p.text)
         .join("\n")
         .trim();
-      if (text === "") return;
 
-      const sent = socketRef.current?.send(text) ?? false;
+      // Attachments are uploaded by the adapter before onNew runs; each carries
+      // an image part whose `image` is /api/media/{name}. Recover the basename
+      // to forward on the WS frame and to echo the thumbnail optimistically.
+      const media: MediaRef[] = [];
+      for (const att of message.attachments ?? []) {
+        for (const part of att.content ?? []) {
+          if (part.type === "image" && typeof part.image === "string") {
+            const base = part.image.split("/").pop();
+            if (base) media.push({ name: decodeURIComponent(base), kind: "image" });
+          }
+        }
+      }
+
+      if (text === "" && media.length === 0) return;
+
+      const sent =
+        socketRef.current?.send(
+          text,
+          media.map((m) => ({ name: m.name })),
+        ) ?? false;
       setMessages((prev) => [
         ...prev,
         {
@@ -685,6 +713,7 @@ export function useNagobotChat(sessionKey: string) {
           text,
           createdAt: new Date(),
           isMe: true,
+          media: media.length > 0 ? media : undefined,
         },
         ...(sent
           ? []
@@ -697,9 +726,15 @@ export function useNagobotChat(sessionKey: string) {
               },
             ]),
       ]);
-      if (sent) startRunning();
+      if (sent) {
+        startRunning();
+        if (!firstSendNotified.current) {
+          firstSendNotified.current = true;
+          onFirstSendRef.current?.(sessionKey);
+        }
+      }
     },
-    [startRunning],
+    [startRunning, sessionKey],
   );
 
   // takeOver reclaims the session after another page displaced this one
@@ -724,6 +759,7 @@ export function useNagobotChat(sessionKey: string) {
     isRunning,
     convertMessage,
     onNew,
+    adapters: { attachments: imageAttachmentAdapter },
   });
 
   return {

@@ -226,6 +226,22 @@ export function mediaURL(name: string): string {
   return `/api/media/${encodeURIComponent(name)}`;
 }
 
+// uploadMedia POSTs a file's raw bytes to /api/media and returns the basename
+// the server stored it under. That name is then attached to the next WS
+// "message" frame so the backend can build a media_summary for it. Cookie auth
+// rides the same-origin request automatically.
+export async function uploadMedia(file: File): Promise<{ name: string }> {
+  const res = await fetch("/api/media", {
+    method: "POST",
+    headers: { "Content-Type": file.type || "application/octet-stream" },
+    body: file,
+  });
+  if (!res.ok) {
+    throw new Error(`upload failed (${res.status}): ${await res.text()}`);
+  }
+  return res.json();
+}
+
 // splitSpeakerPrefix extracts the legacy "[Name]: " speaker prefix that group
 // chats prepend to message text (data written before `sender_name` existed).
 // Returns the name and the text without the prefix, or name "" when there is

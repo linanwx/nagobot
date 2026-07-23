@@ -41,6 +41,7 @@ export function ChatPane({
   onOpenSession,
   onBack,
   hiddenOnMobile,
+  onFirstSend,
 }: {
   sessionKey: string;
   // The session's summary, if it has one — shown as the header title in place
@@ -52,6 +53,9 @@ export function ChatPane({
   // Returns to the session list on mobile (list and chat are two views there).
   onBack: () => void;
   hiddenOnMobile?: boolean;
+  // Fired once, after this pane's first successful send, so the sidebar can
+  // surface a session that until now existed only in this browser.
+  onFirstSend?: (key: string) => void;
 }) {
   const {
     runtime,
@@ -62,7 +66,7 @@ export function ChatPane({
     messageCount,
     earlierCount,
     loadEarlier,
-  } = useNagobotChat(sessionKey);
+  } = useNagobotChat(sessionKey, onFirstSend);
   const hasMessages = messageCount > 0;
   const threadComponents = useMemo(
     () => (hasMessages ? { Welcome: NullWelcome } : undefined),

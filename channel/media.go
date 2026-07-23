@@ -93,6 +93,52 @@ func downloadMedia(mediaDir, url string) string {
 	return filePath
 }
 
+// saveMediaFile writes raw bytes from r into mediaDir under a generated name
+// derived from contentType (same naming scheme as downloadMedia), returning the
+// basename. Used by channels that receive bytes directly (e.g. the web console's
+// paste/upload) rather than a URL to fetch. Caps the read at maxMediaSize.
+// Returns an error if the content type has no known extension.
+func saveMediaFile(mediaDir, contentType string, r io.Reader) (string, error) {
+	if mediaDir == "" {
+		return "", fmt.Errorf("media directory unavailable")
+	}
+	ext := extensionFromContentType(contentType)
+	if ext == "" {
+		return "", fmt.Errorf("unsupported content type %q", contentType)
+	}
+
+	prefix := "media"
+	switch {
+	case strings.HasPrefix(contentType, "image/"):
+		prefix = "img"
+	case strings.HasPrefix(contentType, "audio/"):
+		prefix = "audio"
+	case strings.HasPrefix(contentType, "video/"):
+		prefix = "video"
+	case strings.HasPrefix(contentType, "application/pdf"):
+		prefix = "pdf"
+	}
+
+	buf := make([]byte, 4)
+	rand.Read(buf)
+	fileName := fmt.Sprintf("%s-%s-%s%s", prefix, time.Now().Format("20060102-150405"), hex.EncodeToString(buf), ext)
+	filePath := filepath.Join(mediaDir, fileName)
+
+	f, err := os.Create(filePath)
+	if err != nil {
+		return "", fmt.Errorf("create media file: %w", err)
+	}
+	defer f.Close()
+
+	const maxMediaSize = 20 << 20 // 20 MB
+	if _, err := io.Copy(f, io.LimitReader(r, maxMediaSize)); err != nil {
+		os.Remove(filePath)
+		return "", fmt.Errorf("write media file: %w", err)
+	}
+
+	return fileName, nil
+}
+
 func extensionFromURL(url string) string {
 	// Strip query string before checking extension.
 	if idx := strings.IndexByte(url, '?'); idx >= 0 {

@@ -34,9 +34,20 @@ export type StreamFrame = {
   seq?: number;
 };
 
+// Media the client already uploaded via POST /api/media, referenced by the
+// basename that endpoint returned.
+export type OutboundMedia = { name: string; mime?: string };
+
 type OutboundFrame =
   | { type: "bind"; session_id: string }
-  | { type: "message"; text: string };
+  | {
+      type: "message";
+      text: string;
+      // Stamped on every message so routing never depends on the server having
+      // already processed our bind frame.
+      session_id: string;
+      media?: OutboundMedia[];
+    };
 
 type InboundFrame = {
   type: string;
@@ -50,7 +61,9 @@ const maxBackoffMs = 15_000;
 
 export class NagobotSocket {
   private ws: WebSocket | null = null;
-  private session = "cli";
+  // No default session: bind() is always called before connect(). A silent
+  // fallback here would route messages into someone else's session.
+  private session = "";
   private backoffMs = 1_000;
   private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
   private closed = false;
@@ -134,8 +147,13 @@ export class NagobotSocket {
   }
 
   // send returns false when the socket is not open; the message is not queued.
-  send(text: string): boolean {
-    return this.sendFrame({ type: "message", text });
+  send(text: string, media?: OutboundMedia[]): boolean {
+    return this.sendFrame({
+      type: "message",
+      text,
+      session_id: this.session,
+      ...(media && media.length > 0 ? { media } : {}),
+    });
   }
 
   private sendFrame(frame: OutboundFrame): boolean {

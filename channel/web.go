@@ -92,10 +92,19 @@ type wsClient struct {
 }
 
 type webInboundMessage struct {
-	Type      string `json:"type"`
-	ID        string `json:"id,omitempty"`
-	SessionID string `json:"session_id,omitempty"`
-	Text      string `json:"text"`
+	Type      string            `json:"type"`
+	ID        string            `json:"id,omitempty"`
+	SessionID string            `json:"session_id,omitempty"`
+	Text      string            `json:"text"`
+	Media     []webInboundMedia `json:"media,omitempty"`
+}
+
+// webInboundMedia references a file the client already uploaded via
+// POST /api/media. Name is the basename returned by that endpoint; the message
+// handler resolves it under {workspace}/media and turns it into a media_summary.
+type webInboundMedia struct {
+	Name string `json:"name"`
+	Mime string `json:"mime,omitempty"`
 }
 
 type webOutboundMessage struct {
@@ -224,6 +233,7 @@ func (w *WebChannel) Start(ctx context.Context) error {
 	mux.Handle("/api/prompts", w.protected(w.handlePrompts))
 	mux.Handle("/api/heartbeat/", w.protected(w.handleHeartbeat))
 	mux.Handle("/api/media/", w.protected(w.handleMedia))
+	mux.Handle("/api/media", w.protected(w.handleMediaUpload))
 	mux.Handle("/api/push/vapid-key", w.protected(w.handlePushKey))
 	mux.Handle("/api/push/subscribe", w.protected(w.handlePushSubscribe))
 	mux.Handle("/api/push/unsubscribe", w.protected(w.handlePushUnsubscribe))
@@ -430,7 +440,10 @@ func (w *WebChannel) handleWS(rw http.ResponseWriter, r *http.Request) {
 	// explicit "bind" frame. Binding every fresh connection to the main
 	// session would kick whichever page is legitimately watching it, even
 	// when this connection is about to bind a different session.
-	client := &wsClient{conn: conn, boundSession: webMainSessionID, person: person}
+	// No default bound session: a connection that never sent a bind frame has no
+	// session, and a message on it is refused rather than silently routed into
+	// a shared default. (unbindClient on an empty key is a no-op.)
+	client := &wsClient{conn: conn, boundSession: "", person: person}
 	w.registerPeer(client)
 
 	w.wg.Add(1)
@@ -472,8 +485,34 @@ func (w *WebChannel) handleWS(rw http.ResponseWriter, r *http.Request) {
 
 		case "message":
 			text := strings.TrimSpace(req.Text)
-			if text == "" {
+
+			// Resolve any client-uploaded media (POST /api/media returned these
+			// basenames) into a media_summary — the same channel-agnostic
+			// contract Telegram/Discord use. Each name is basename-cleaned and
+			// must exist under {workspace}/media, so a client cannot smuggle an
+			// arbitrary path into image_path (which the model may later read).
+			var mediaSummaries []string
+			if w.workspace != "" {
+				for _, m := range req.Media {
+					name := filepath.Base(filepath.Clean(strings.TrimSpace(m.Name)))
+					if name == "" || name == "." || name == string(filepath.Separator) {
+						continue
+					}
+					path := filepath.Join(w.workspace, "media", name)
+					if _, err := os.Stat(path); err != nil {
+						continue
+					}
+					mediaSummaries = append(mediaSummaries, MediaSummary("photo", "image_path", path))
+				}
+			}
+
+			if text == "" && len(mediaSummaries) == 0 {
 				continue
+			}
+			if text == "" {
+				// Image-only turn: give the wake a body, mirroring Telegram's
+				// "[Photo received]" placeholder for a caption-less photo.
+				text = "[Image received]"
 			}
 
 			client.mu.Lock()
@@ -481,17 +520,26 @@ func (w *WebChannel) handleWS(rw http.ResponseWriter, r *http.Request) {
 			client.mu.Unlock()
 
 			sessionID := boundSess
-			channelID := "web:" + sessionID
 			if sid := strings.TrimSpace(req.SessionID); sid != "" {
 				if valid := sanitizeSessionKey(sid); valid != "" {
 					sessionID = valid
-					channelID = "web:" + valid
 				}
 			}
+			if sessionID == "" {
+				_ = wsjson.Write(r.Context(), conn, webOutboundMessage{
+					Type:  "error",
+					Error: "no session bound: send a bind frame or include session_id",
+				})
+				continue
+			}
+			channelID := "web:" + sessionID
 
 			username := "web-user"
 			metadata := map[string]string{
 				"chat_id": sessionID,
+			}
+			if len(mediaSummaries) > 0 {
+				metadata["media_summary"] = strings.Join(mediaSummaries, "\n")
 			}
 			if client.person != nil {
 				// Attribute the message to the logged-in person so rendering
