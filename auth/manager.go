@@ -24,6 +24,7 @@ type Manager struct {
 	codes      *codeStore
 	sessions   *sessionStore
 	identities *identityStore
+	limiter    *loginLimiter
 	wa         *webauthn.WebAuthn
 
 	disabled    bool
@@ -72,6 +73,7 @@ func NewManager(systemDir string, cfg *config.Config) (*Manager, error) {
 		codes:      newCodeStore(),
 		sessions:   sessions,
 		identities: identities,
+		limiter:    newLoginLimiter(),
 		disabled:   ac.Disabled,
 		publicURL:  strings.TrimRight(strings.TrimSpace(ac.PublicURL), "/"),
 		listenAddr: listenAddr,
@@ -335,6 +337,10 @@ func (m *Manager) FinishLogin(flowID string, r *http.Request) (sessionToken stri
 	}
 	return token, matched, nil
 }
+
+// SessionTTL is the device-session idle window; the web layer uses it as the
+// cookie MaxAge and re-issues the cookie on activity so both slide together.
+func (m *Manager) SessionTTL() time.Duration { return deviceSessionTTL }
 
 // ValidateSession resolves a device-session cookie token to a person.
 func (m *Manager) ValidateSession(token string) (*Person, bool) {

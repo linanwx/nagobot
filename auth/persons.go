@@ -1,13 +1,15 @@
 // Package auth implements web login for nagobot.
 //
-// The credential model has exactly two stages: a one-time login code
-// (minted by the CLI, delivered as a link, 30 minutes, single use) that
-// bootstraps a browser, and a passkey (WebAuthn) that is the durable
-// credential for logging back in. There are no passwords and no
-// self-registration: a person enters the system only through a login link.
+// The credential model: a one-time login code (minted by the CLI, delivered
+// as a link, 30 minutes, single use) bootstraps a browser; the durable
+// credential for logging back in is either a passkey (WebAuthn) or a
+// username+password (bcrypt) — the password path exists because some devices
+// (GMS-less Chinese-market Android) have no passkey provider at all. There
+// is no self-registration: a person enters the system only through a login
+// link, and picks their durable credential at the end of that flow.
 //
 // Person is the cross-channel identity: one human, many channel
-// identities ("discord:1480...", ...) plus any number of passkeys.
+// identities ("discord:1480...", ...) plus passkeys and/or a password.
 package auth
 
 import (
@@ -32,6 +34,9 @@ type Person struct {
 	CreatedAt   time.Time             `json:"created_at"`
 	Identities  []string              `json:"identities,omitempty"`
 	Credentials []webauthn.Credential `json:"credentials,omitempty"`
+	// PasswordHash is the bcrypt hash of the person's password, empty when
+	// no password is set (passkey-only account).
+	PasswordHash string `json:"password_hash,omitempty"`
 }
 
 // waUser adapts Person to the webauthn.User interface. The WebAuthn user
@@ -132,6 +137,36 @@ func (s *personStore) byID(id string) *Person {
 		}
 	}
 	return nil
+}
+
+// byUsername resolves a person by username (case-insensitive, matching the
+// uniqueness rule in create).
+func (s *personStore) byUsername(username string) *Person {
+	username = strings.TrimSpace(username)
+	if username == "" {
+		return nil
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for _, p := range s.persons {
+		if strings.EqualFold(p.Username, username) {
+			return p
+		}
+	}
+	return nil
+}
+
+// setPassword stores a bcrypt hash as the person's password credential.
+func (s *personStore) setPassword(personID, hash string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for _, p := range s.persons {
+		if p.ID == personID {
+			p.PasswordHash = hash
+			return s.saveLocked()
+		}
+	}
+	return fmt.Errorf("person %s not found", personID)
 }
 
 func (s *personStore) list() []*Person {

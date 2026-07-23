@@ -14,6 +14,9 @@ export type AuthMe = {
   person_id?: string;
   username?: string;
   identities?: string[];
+  // A redeemed-but-unfinished setup session is live in this browser (setup
+  // cookie, 30 min) — the gate resumes the wizard instead of showing login.
+  setup_live?: boolean;
 };
 
 export type PersonSummary = {
@@ -88,6 +91,34 @@ export async function registerPasskey(): Promise<{ username: string }> {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(attestation),
+    }),
+  );
+}
+
+// setPassword stores a password as the durable credential for the live setup
+// session (the alternative to registerPasskey, for devices with no passkey
+// provider) and leaves the browser logged in.
+export async function setPassword(password: string): Promise<{ username: string }> {
+  return jsonOrThrow(
+    await fetch("/api/auth/password/set", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ password }),
+    }),
+  );
+}
+
+// passwordLogin signs in with username+password and leaves the browser
+// logged in. Rate-limited server-side; the error message is uniform.
+export async function passwordLogin(
+  username: string,
+  password: string,
+): Promise<{ username: string }> {
+  return jsonOrThrow(
+    await fetch("/api/auth/password/login", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ username, password }),
     }),
   );
 }

@@ -6,8 +6,10 @@ import {
   fetchMe,
   loginPasskey,
   logout,
+  passwordLogin,
   redeemCode,
   registerPasskey,
+  setPassword,
   setupPerson,
   type AuthMe,
   type ChannelIdentity,
@@ -42,6 +44,10 @@ export function AuthGate({ children }: { children: React.ReactNode }) {
       const me = await fetchMe();
       if (me.authenticated) {
         setState({ phase: "ready", me });
+      } else if (me.setup_live) {
+        // A redeemed link's setup session is still live in this browser —
+        // resume the wizard (covers closing the tab mid-setup).
+        setState({ phase: "setup" });
       } else {
         setState({ phase: "login" });
       }
@@ -64,10 +70,14 @@ export function AuthGate({ children }: { children: React.ReactNode }) {
     redeemCode(code)
       .then(async (ok) => {
         if (!ok) {
-          // Maybe this browser is already logged in and the link is stale.
+          // The link is spent — but maybe THIS browser spent it: already
+          // logged in, or mid-setup with a live setup cookie. Reopening the
+          // same link must continue, not dead-end on "invalid".
           const me = await fetchMe().catch(() => null);
           if (me?.authenticated) {
             setState({ phase: "ready", me });
+          } else if (me?.setup_live) {
+            setState({ phase: "setup" });
           } else {
             setState({ phase: "login", linkInvalid: true });
           }
@@ -132,10 +142,13 @@ function LoginView({
 }) {
   const [busy, setBusy] = useState(false);
   const [failure, setFailure] = useState<string | null>(error ?? null);
+  const [username, setUsername] = useState("");
+  const [password, setPassword] = useState("");
   // Passkeys only exist in secure contexts: Safari/Chrome hide the WebAuthn
   // API entirely on plain-http origins (anything but localhost), and an IP
   // address can never be a WebAuthn RP ID. Surface the real cause instead of
-  // the library's misleading "not supported in this browser".
+  // the library's misleading "not supported in this browser". Password login
+  // has no such constraint.
   const insecure = !window.isSecureContext;
 
   const signIn = async () => {
@@ -151,33 +164,77 @@ function LoginView({
     }
   };
 
+  const signInPassword = async () => {
+    setBusy(true);
+    setFailure(null);
+    try {
+      await passwordLogin(username.trim(), password);
+      onDone();
+    } catch (e) {
+      setFailure(e instanceof Error ? e.message : String(e));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const passwordReady = username.trim() !== "" && password !== "";
+
   return (
     <CenterCard>
       {linkInvalid ? (
         <p className="text-destructive mb-4 text-sm">
           This login link is invalid or has expired. Ask the operator for a
-          fresh one (links are single-use, 30 minutes), or sign in with a
-          passkey if this browser has one.
+          fresh one (links are single-use, 30 minutes), or sign in below if
+          this site already knows you.
         </p>
       ) : (
         <p className="text-muted-foreground mb-4 text-sm">
-          Sign in with the passkey registered for this site. No passkey? Ask
-          the operator for a login link.
+          Sign in with your username and password, or with a passkey. No
+          account yet? Ask the operator for a login link.
         </p>
       )}
+      <form
+        onSubmit={(e) => {
+          e.preventDefault();
+          if (passwordReady && !busy) void signInPassword();
+        }}
+        className="flex flex-col gap-2"
+      >
+        <Input
+          value={username}
+          onChange={(e) => setUsername(e.target.value)}
+          placeholder="username"
+          autoComplete="username"
+        />
+        <Input
+          type="password"
+          value={password}
+          onChange={(e) => setPassword(e.target.value)}
+          placeholder="password"
+          autoComplete="current-password"
+        />
+        <Button type="submit" disabled={busy || !passwordReady} className="w-full">
+          {busy ? "Signing in…" : "Sign in"}
+        </Button>
+      </form>
+      <div className="text-muted-foreground my-3 flex items-center gap-2 text-xs">
+        <span className="bg-border h-px flex-1" />
+        or
+        <span className="bg-border h-px flex-1" />
+      </div>
       <Button
+        variant="outline"
         onClick={() => void signIn()}
         disabled={busy || insecure}
         className="w-full"
       >
-        {busy ? "Waiting for passkey…" : "Sign in with passkey"}
+        Sign in with passkey
       </Button>
       {insecure ? (
-        <p className="text-destructive mt-3 text-xs">
-          Passkeys require a secure context (HTTPS, or localhost). This page
-          was opened over plain HTTP at {window.location.host}, where the
-          browser disables WebAuthn — open the site via an HTTPS hostname
-          (e.g. tailscale serve) to sign in from this device.
+        <p className="text-muted-foreground mt-3 text-xs">
+          Passkey sign-in is unavailable here: passkeys require HTTPS (or
+          localhost), and this page was opened over plain HTTP at{" "}
+          {window.location.host}. Password sign-in still works.
         </p>
       ) : null}
       {failure && <p className="text-destructive mt-3 text-xs">{failure}</p>}
@@ -213,6 +270,11 @@ function SetupWizard({ onDone }: { onDone: () => void }) {
   const [username, setUsername] = useState("");
   const [failure, setFailure] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  // Credential-choice state for the final step: passkey (default) or password.
+  const [usePassword, setUsePassword] = useState(false);
+  const [pw, setPw] = useState("");
+  const [pw2, setPw2] = useState("");
+  const pwReady = pw.length >= 8 && pw === pw2;
 
   useEffect(() => {
     fetchAuthContext()
@@ -265,6 +327,19 @@ function SetupWizard({ onDone }: { onDone: () => void }) {
     setFailure(null);
     try {
       await registerPasskey();
+      onDone();
+    } catch (e) {
+      setFailure(e instanceof Error ? e.message : String(e));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const runSetPassword = async () => {
+    setBusy(true);
+    setFailure(null);
+    try {
+      await setPassword(pw);
       onDone();
     } catch (e) {
       setFailure(e instanceof Error ? e.message : String(e));
@@ -392,14 +467,85 @@ function SetupWizard({ onDone }: { onDone: () => void }) {
       {step.step === "passkey" && (
         <>
           <p className="text-muted-foreground mb-4 text-sm">
-            Last step: register a passkey for{" "}
-            <span className="text-foreground font-medium">{step.username}</span>
-            . It becomes the login for this site — the link you used is now
-            spent.
+            Last step: pick how{" "}
+            <span className="text-foreground font-medium">{step.username}</span>{" "}
+            will sign in from now on — the link you used is now spent.
           </p>
-          <Button disabled={busy} onClick={() => void runRegister()} className="w-full">
-            {busy ? "Waiting for passkey…" : "Register passkey"}
-          </Button>
+          {!usePassword ? (
+            <>
+              <Button
+                disabled={busy}
+                onClick={() => void runRegister()}
+                className="w-full"
+              >
+                {busy ? "Waiting for passkey…" : "Register passkey"}
+              </Button>
+              <Button
+                variant="ghost"
+                disabled={busy}
+                onClick={() => {
+                  setFailure(null);
+                  setUsePassword(true);
+                }}
+                className="mt-2 w-full"
+              >
+                Use a password instead
+              </Button>
+              <p className="text-muted-foreground mt-2 text-xs">
+                No passkey prompt appearing? Some devices (e.g. Android
+                without Google services) have no passkey support — use a
+                password instead.
+              </p>
+            </>
+          ) : (
+            <form
+              onSubmit={(e) => {
+                e.preventDefault();
+                if (pwReady && !busy) void runSetPassword();
+              }}
+              className="flex flex-col gap-2"
+            >
+              <Input
+                type="password"
+                value={pw}
+                onChange={(e) => setPw(e.target.value)}
+                placeholder="password (min 8 characters)"
+                autoComplete="new-password"
+                autoFocus
+              />
+              <Input
+                type="password"
+                value={pw2}
+                onChange={(e) => setPw2(e.target.value)}
+                placeholder="repeat password"
+                autoComplete="new-password"
+              />
+              {pw !== "" && pw.length < 8 && (
+                <p className="text-muted-foreground text-xs">
+                  At least 8 characters.
+                </p>
+              )}
+              {pw2 !== "" && pw !== pw2 && (
+                <p className="text-destructive text-xs">
+                  Passwords don't match.
+                </p>
+              )}
+              <Button type="submit" disabled={busy || !pwReady} className="w-full">
+                {busy ? "Saving…" : "Set password & sign in"}
+              </Button>
+              <Button
+                variant="ghost"
+                disabled={busy}
+                onClick={() => {
+                  setFailure(null);
+                  setUsePassword(false);
+                }}
+                className="w-full"
+              >
+                Back to passkey
+              </Button>
+            </form>
+          )}
         </>
       )}
 

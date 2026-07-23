@@ -13,7 +13,11 @@ import (
 )
 
 const (
-	deviceSessionTTL = 90 * 24 * time.Hour
+	// deviceSessionTTL is a SLIDING window: validate() refreshes LastSeen on
+	// every hit, so an active browser stays logged in indefinitely and only
+	// 30 days of idleness expires the session. The cookie is re-issued on
+	// activity by the web layer so it slides in step.
+	deviceSessionTTL = 30 * 24 * time.Hour
 	// lastSeenGranularity bounds how often a session's LastSeen update is
 	// persisted; in-memory it is always current.
 	lastSeenGranularity = time.Hour

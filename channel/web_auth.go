@@ -2,6 +2,7 @@ package channel
 
 import (
 	"encoding/json"
+	"net"
 	"net/http"
 	"time"
 
@@ -32,12 +33,23 @@ func (w *WebChannel) authorize(r *http.Request) (person *auth.Person, allowed bo
 	return nil, false
 }
 
-// protected wraps an API handler with the auth check.
+// protected wraps an API handler with the auth check. On a cookie-authenticated
+// request it also re-issues the session cookie with a fresh MaxAge, so the
+// cookie's lifetime slides together with the server-side session's sliding
+// LastSeen — an active browser never hits a hard cookie expiry.
 func (w *WebChannel) protected(h http.HandlerFunc) http.HandlerFunc {
 	return func(rw http.ResponseWriter, r *http.Request) {
-		if _, ok := w.authorize(r); !ok {
+		person, ok := w.authorize(r)
+		if !ok {
 			http.Error(rw, "authentication required", http.StatusUnauthorized)
 			return
+		}
+		if person != nil {
+			// person != nil means the session cookie validated (exempt/auth-off
+			// requests carry nil) — safe to re-issue what the browser sent.
+			if c, err := r.Cookie(sessionCookieName); err == nil {
+				setCookie(rw, sessionCookieName, c.Value, w.authMgr.SessionTTL())
+			}
 		}
 		h(rw, r)
 	}
@@ -81,6 +93,11 @@ func (w *WebChannel) handleAuthMe(rw http.ResponseWriter, r *http.Request) {
 		PersonID      string   `json:"person_id,omitempty"`
 		Username      string   `json:"username,omitempty"`
 		Identities    []string `json:"identities,omitempty"`
+		// SetupLive reports a still-valid setup cookie: the browser redeemed a
+		// login link (30 min) but hasn't finished registering a credential.
+		// The frontend uses it to resume the setup wizard instead of showing
+		// "link invalid" when a spent link is reopened in the same browser.
+		SetupLive bool `json:"setup_live,omitempty"`
 	}
 	resp := meResponse{AuthEnabled: w.authMgr != nil && w.authMgr.Enabled()}
 	if !resp.AuthEnabled {
@@ -102,6 +119,9 @@ func (w *WebChannel) handleAuthMe(rw http.ResponseWriter, r *http.Request) {
 			resp.Username = p.Username
 			resp.Identities = p.Identities
 		}
+	}
+	if !resp.Authenticated {
+		resp.SetupLive = w.setupToken(r) != ""
 	}
 	writeJSON(rw, http.StatusOK, resp)
 }
@@ -228,7 +248,74 @@ func (w *WebChannel) handleRegisterFinish(rw http.ResponseWriter, r *http.Reques
 		return
 	}
 	clearCookie(rw, setupCookieName)
-	setCookie(rw, sessionCookieName, sessionToken, 90*24*time.Hour)
+	setCookie(rw, sessionCookieName, sessionToken, w.authMgr.SessionTTL())
+	writeJSON(rw, http.StatusOK, map[string]string{"username": person.Username})
+}
+
+// remoteIP extracts the host part of RemoteAddr for the login rate limiter.
+// Deliberately never consults forwarding headers, matching ExemptIP.
+func remoteIP(r *http.Request) string {
+	host, _, err := net.SplitHostPort(r.RemoteAddr)
+	if err != nil {
+		return r.RemoteAddr
+	}
+	return host
+}
+
+// --- POST /api/auth/password/set {password} ---
+// Setup-scoped: the password counterpart of passkey registration, for
+// devices with no passkey provider (GMS-less Android). Stores the bcrypt
+// hash, closes the setup session, and leaves the browser logged in.
+func (w *WebChannel) handlePasswordSet(rw http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(rw, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	token := w.setupToken(r)
+	if token == "" {
+		http.Error(rw, "no live setup session", http.StatusUnauthorized)
+		return
+	}
+	var p struct {
+		Password string `json:"password"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&p); err != nil {
+		http.Error(rw, "bad request body", http.StatusBadRequest)
+		return
+	}
+	sessionToken, person, err := w.authMgr.SetPasswordForSetup(token, p.Password, r.UserAgent())
+	if err != nil {
+		http.Error(rw, err.Error(), http.StatusBadRequest)
+		return
+	}
+	clearCookie(rw, setupCookieName)
+	setCookie(rw, sessionCookieName, sessionToken, w.authMgr.SessionTTL())
+	writeJSON(rw, http.StatusOK, map[string]string{"username": person.Username})
+}
+
+// --- POST /api/auth/password/login {username, password} ---
+// Public: rate-limited (per username+IP) with a uniform error, see
+// Manager.PasswordLogin.
+func (w *WebChannel) handlePasswordLogin(rw http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(rw, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	var p struct {
+		Username string `json:"username"`
+		Password string `json:"password"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&p); err != nil || p.Username == "" || p.Password == "" {
+		http.Error(rw, "missing username or password", http.StatusBadRequest)
+		return
+	}
+	sessionToken, person, err := w.authMgr.PasswordLogin(p.Username, p.Password, remoteIP(r), r.UserAgent())
+	if err != nil {
+		logger.Warn("password login failed", "username", p.Username, "ip", remoteIP(r))
+		http.Error(rw, err.Error(), http.StatusUnauthorized)
+		return
+	}
+	setCookie(rw, sessionCookieName, sessionToken, w.authMgr.SessionTTL())
 	writeJSON(rw, http.StatusOK, map[string]string{"username": person.Username})
 }
 
@@ -255,7 +342,7 @@ func (w *WebChannel) handleLoginFinish(rw http.ResponseWriter, r *http.Request) 
 		http.Error(rw, err.Error(), http.StatusUnauthorized)
 		return
 	}
-	setCookie(rw, sessionCookieName, sessionToken, 90*24*time.Hour)
+	setCookie(rw, sessionCookieName, sessionToken, w.authMgr.SessionTTL())
 	writeJSON(rw, http.StatusOK, map[string]string{"username": person.Username})
 }
 
