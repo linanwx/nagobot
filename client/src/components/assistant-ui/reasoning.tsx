@@ -6,7 +6,6 @@ import {
   useCallback,
   useContext,
   useEffect,
-  useLayoutEffect,
   useRef,
   useState,
 } from "react";
@@ -82,12 +81,12 @@ function ReasoningRoot({
   const isAutoMode = isControlled || userOpen === null;
   const isPreview = streaming === true && isOpen && isAutoMode;
 
-  const prevStreamingRef = useRef(streaming);
-  useLayoutEffect(() => {
-    if (prevStreamingRef.current === streaming) return;
-    prevStreamingRef.current = streaming;
-    if (!isControlled && userOpen === null) lockScroll();
-  }, [streaming, isControlled, userOpen, lockScroll]);
+  // NOTE: upstream locks the viewport scroll for the auto open/close
+  // animation on streaming flips. With turnAnchor="top" that lock pins
+  // scrollTop and kills the one-shot smooth scroll that anchors the just-sent
+  // user message to the viewport top (the anchor never retries), so the
+  // auto-mode lock is deliberately removed — the top-anchor reserve absorbs
+  // the height change instead. Manual toggles still lock (handleOpenChange).
 
   const handleOpenChange = useCallback(
     (open: boolean) => {

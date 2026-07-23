@@ -17,6 +17,26 @@ import {
 import { NagobotSocket, type SocketStatus, type StreamFrame } from "@/lib/ws";
 import { imageAttachmentAdapter } from "@/lib/attachment-adapter";
 
+// TurnPart is one ordered element of an assistant turn. It maps 1:1 onto
+// assistant-ui's native message parts (reasoning / text / tool-call), so a
+// whole agentic turn — thinking, tool chain, speech — lives in ONE assistant
+// message. That single-message shape is what the thread's turnAnchor="top"
+// layout machinery assumes: the anchored user message stays second-to-last
+// for the entire turn, so the reserved blank below it shrinks gradually
+// instead of collapsing when a second message would have appeared.
+export type TurnPart =
+  | { type: "reasoning"; text: string }
+  | { type: "text"; text: string }
+  | {
+      type: "tool";
+      callId: string;
+      toolName: string;
+      argsText?: string;
+      // undefined while the call is executing — assistant-ui derives the
+      // running spinner from a missing result on a running message.
+      resultText?: string;
+    };
+
 export type ChatMessage = {
   id: string;
   role: "user" | "assistant";
@@ -25,8 +45,11 @@ export type ChatMessage = {
   source?: string;
   // "chat"  — a conversation bubble (human or assistant speech)
   // "event" — a system frame (wake payloads, cross-session traffic, errors)
-  // "tool"  — a single tool invocation, rendered as a collapsible card
-  kind?: "chat" | "event" | "tool";
+  kind?: "chat" | "event";
+  // Assistant turn content as native parts. When set, `text` is unused —
+  // speech rides in the parts. Plain bubbles (dispatch sends, errors, peer
+  // echoes) keep using `text`.
+  parts?: TurnPart[];
   // Human speaker display name (multi-user channels / web usernames).
   senderName?: string;
   // Whether this user message was sent by the logged-in viewer ("me" aligns
@@ -36,32 +59,22 @@ export type ChatMessage = {
   caller?: string;
   // Where this session sent a message (outgoing dispatch).
   target?: string;
-  // kind:"tool" payload.
-  toolName?: string;
-  argsText?: string;
-  resultText?: string;
   // Attachments (served via /api/media/{name}).
   media?: MediaRef[];
   // Tier-1 compression replaced this content with a shorter version.
   compressed?: boolean;
-  // Live-streaming element still in flight (tool executing, thinking growing).
-  running?: boolean;
 };
 
 // MessageMeta is the metadata.custom payload handed to the thread components.
 export type MessageMeta = {
-  kind?: "event" | "tool";
+  kind?: "event";
   source?: string;
   caller?: string;
   target?: string;
   senderName?: string;
   isMe?: boolean;
-  toolName?: string;
-  argsText?: string;
-  resultText?: string;
   media?: MediaRef[];
   compressed?: boolean;
-  running?: boolean;
 };
 
 // Rendered-history page size: the Thread view is not virtualized, and old
@@ -164,11 +177,22 @@ function prettyArgs(raw: string | undefined): string {
   }
 }
 
+// Tool card bodies (args / result) get a hard cap so a huge read_file result
+// can't take over the thread even when expanded.
+const toolBodyMaxChars = 6000;
+
+function capToolText(text: string): string {
+  if (text.length <= toolBodyMaxChars) return text;
+  return text.slice(0, toolBodyMaxChars) + `\n… (${text.length} chars total)`;
+}
+
 // sessionToChatMessages maps session.jsonl — the sole UI history source —
 // into the message store. Every entry surfaces somewhere:
-//   - assistant content and dispatch(to=user | caller:user) sends → bubbles
-//     (the only two outlets that ever reach a human)
-//   - other tool calls (with their paired results) → collapsible tool cards
+//   - each assistant turn (reasoning, tool chain, speech — everything
+//     between wakes) → ONE assistant message with native parts, matching
+//     the live-stream shape so layout and rendering are identical
+//   - dispatch(to=user | caller:user) sends → extra chat bubbles (that text
+//     actually reached a human)
 //   - system-sender wakes (cron / heartbeat / compression / cross-session)
 //     → subdued event cards, never mistaken for human speech
 //   - human wakes → user bubbles, "me" resolved via sender_id
@@ -180,13 +204,31 @@ export function sessionToChatMessages(
   let lastCaller = "";
   // Tool results, keyed by the tool call they answer — dispatch uses them to
   // drop rejected calls (the model retries those, so rendering both would
-  // duplicate every send); tool cards show them as the call's output.
+  // duplicate every send); tool parts show them as the call's output.
   const toolResults = new Map<string, ApiMessage>();
   for (const m of api) {
     if (m.role === "tool" && m.tool_call_id) {
       toolResults.set(m.tool_call_id, m);
     }
   }
+
+  // Consecutive assistant entries (the LLM iterations of one turn) accumulate
+  // into a single parts-based message; anything else flushes it first.
+  let turn: ChatMessage | null = null;
+  const flushTurn = () => {
+    if (turn && (turn.parts?.length ?? 0) > 0) out.push(turn);
+    turn = null;
+  };
+  const turnParts = (m: ApiMessage, createdAt: Date | undefined): TurnPart[] => {
+    turn ??= {
+      id: m.id || localID("turn"),
+      role: "assistant",
+      text: "",
+      createdAt,
+      parts: [],
+    };
+    return (turn.parts ??= []);
+  };
 
   for (const m of api) {
     // Trimmed heartbeat/dream turns are background noise the bot itself no
@@ -207,63 +249,52 @@ export function sessionToChatMessages(
 
     if (m.role === "assistant") {
       // Trimmed reasoning (Tier-1 >2h send-time exclusion) is preserved in the
-      // stored session but the bot itself no longer sees it — skip the thinking
-      // card, matching the heartbeat_trim hide above. The raw-data dialog still
+      // stored session but the bot itself no longer sees it — skip the part,
+      // matching the heartbeat_trim hide above. The raw-data dialog still
       // shows it.
       if (
         !m.reasoning_trimmed &&
         m.reasoning_content &&
         m.reasoning_content.trim() !== ""
       ) {
-        out.push({
-          id: localID("think"),
-          role: "assistant",
-          text: "",
-          createdAt,
-          kind: "tool",
-          toolName: "thinking",
-          resultText: m.reasoning_content,
+        turnParts(m, createdAt).push({
+          type: "reasoning",
+          text: m.reasoning_content,
         });
       }
       if (raw.trim() !== "") {
-        out.push({
-          id: m.id || localID("hist"),
-          role: "assistant",
-          text: raw,
-          createdAt,
-          compressed,
-        });
+        turnParts(m, createdAt).push({ type: "text", text: raw });
       }
       for (const tc of m.tool_calls ?? []) {
         const name = tc.function?.name;
         if (!name) continue;
         const result = tc.id ? toolResults.get(tc.id) : undefined;
-        out.push({
-          id: tc.id || localID("tool"),
-          role: "assistant",
-          text: "",
-          createdAt,
-          kind: "tool",
+        turnParts(m, createdAt).push({
+          type: "tool",
+          callId: tc.id || localID("tool"),
           toolName: name,
           argsText: prettyArgs(tc.function?.arguments),
           resultText: result?.content ?? "",
-          compressed: Boolean(result?.compressed),
         });
         // dispatch additionally surfaces its delivered user-facing sends as
-        // chat bubbles — the human actually received that text.
+        // chat bubbles — the human actually received that text. The bubbles
+        // are their own messages, so the turn splits chronologically here.
         if (name === "dispatch") {
-          out.push(
-            ...dispatchSendsToMessages(
-              tc,
-              createdAt,
-              lastCaller,
-              result?.content,
-            ),
+          const bubbles = dispatchSendsToMessages(
+            tc,
+            createdAt,
+            lastCaller,
+            result?.content,
           );
+          if (bubbles.length > 0) {
+            flushTurn();
+            out.push(...bubbles);
+          }
         }
       }
       continue;
     }
+    flushTurn();
 
     // role === "user": a wake payload — human speech, or a system frame.
     const wake = parseWakePayload(raw);
@@ -300,6 +331,7 @@ export function sessionToChatMessages(
       compressed,
     });
   }
+  flushTurn();
   // Deduplicate ids defensively: assistant-ui's message repository THROWS on
   // a repeated id, and with no error boundary that white-screens the whole
   // app. Session data is normally unique, but one dirty line must not take
@@ -313,24 +345,44 @@ export function sessionToChatMessages(
   });
 }
 
+// toNativeContent maps TurnParts onto assistant-ui's native content parts.
+// A missing tool result stays undefined — on a running message that is what
+// drives the tool's spinner; empty text/reasoning parts are dropped by
+// assistant-ui itself.
+function toNativeContent(parts: TurnPart[]): ThreadMessageLike["content"] {
+  return parts.map((p) => {
+    if (p.type === "tool") {
+      return {
+        type: "tool-call" as const,
+        toolCallId: p.callId,
+        toolName: p.toolName,
+        argsText: p.argsText ? capToolText(p.argsText) : "",
+        result:
+          p.resultText !== undefined
+            ? capToolText(p.resultText) || "(no output)"
+            : undefined,
+      };
+    }
+    return { type: p.type, text: p.text };
+  });
+}
+
 const convertMessage = (m: ChatMessage): ThreadMessageLike => {
   const custom: MessageMeta = {};
-  if (m.kind === "event" || m.kind === "tool") custom.kind = m.kind;
+  if (m.kind === "event") custom.kind = m.kind;
   if (m.source) custom.source = m.source;
   if (m.caller) custom.caller = m.caller;
   if (m.target) custom.target = m.target;
   if (m.senderName) custom.senderName = m.senderName;
   if (m.isMe !== undefined) custom.isMe = m.isMe;
-  if (m.toolName) custom.toolName = m.toolName;
-  if (m.argsText) custom.argsText = m.argsText;
-  if (m.resultText) custom.resultText = m.resultText;
   if (m.media) custom.media = m.media;
   if (m.compressed) custom.compressed = true;
-  if (m.running) custom.running = true;
   return {
     id: m.id,
     role: m.role,
-    content: [{ type: "text", text: m.text }],
+    content: m.parts
+      ? toNativeContent(m.parts)
+      : [{ type: "text", text: m.text }],
     createdAt: m.createdAt,
     metadata: Object.keys(custom).length > 0 ? { custom } : undefined,
   };
@@ -395,15 +447,20 @@ export function useNagobotChat(
     const sock = new NagobotSocket();
     socketRef.current = sock;
 
-    // Live turn state (per socket, so a session switch resets it): ids of the
-    // in-flight thinking card and text bubble, plus tool cards by call id.
+    // Live turn state (per socket, so a session switch resets it). The whole
+    // in-flight turn is ONE assistant message whose parts array grows as
+    // frames arrive — thinking → reasoning part, tool_call/tool_result →
+    // tool part, text → text part. Indices point into that parts array
+    // (parts are append-only within a turn, so indices are stable).
     // All message updates are immutable — assistant-ui caches conversions by
     // object identity, so a mutated-in-place message would never re-render.
     const live = {
       active: false,
-      thinkingId: null as string | null,
-      textId: null as string | null,
-      tools: new Map<string, string>(),
+      turnId: null as string | null,
+      partCount: 0,
+      thinkingIdx: null as number | null,
+      textIdx: null as number | null,
+      tools: new Map<string, number>(),
     };
 
     let cancelled = false;
@@ -420,14 +477,16 @@ export function useNagobotChat(
     // delivered while this page was disconnected (mobile OS froze the PWA,
     // server fell back to Web Push) exist only on disk — the reconnected
     // socket never replays them, so without this the page resumes showing
-    // its pre-freeze state forever. Live stream ids are reset; an in-flight
-    // turn rebuilds its bubbles from the next snapshot-carrying frame.
+    // its pre-freeze state forever. Live stream state is reset; an in-flight
+    // turn rebuilds its message from the next snapshot-carrying frame.
     const resync = () => {
       fetchSession(sessionKey)
         .then((detail) => {
           if (cancelled) return;
-          live.thinkingId = null;
-          live.textId = null;
+          live.turnId = null;
+          live.partCount = 0;
+          live.thinkingIdx = null;
+          live.textIdx = null;
           live.tools.clear();
           // A turn_end missed while disconnected would leave the stop button
           // stuck until the failsafe timeout. Clear the running state here;
@@ -457,9 +516,46 @@ export function useNagobotChat(
     };
     document.addEventListener("visibilitychange", onVisibility);
 
-    const replaceMsg = (id: string, patch: Partial<ChatMessage>) => {
+    // ensureTurn opens the turn's single assistant message on the first
+    // frame; every later frame edits its parts array in place (immutably).
+    const ensureTurn = () => {
+      if (live.turnId) return;
+      const id = localID("live-turn");
+      live.turnId = id;
+      live.partCount = 0;
+      live.thinkingIdx = null;
+      live.textIdx = null;
+      live.tools.clear();
+      setMessages((prev) => [
+        ...prev,
+        { id, role: "assistant", text: "", parts: [], createdAt: new Date() },
+      ]);
+    };
+    const appendPart = (part: TurnPart): number => {
+      ensureTurn();
+      const id = live.turnId;
+      const idx = live.partCount++;
       setMessages((prev) =>
-        prev.map((m) => (m.id === id ? { ...m, ...patch } : m)),
+        prev.map((m) =>
+          m.id === id ? { ...m, parts: [...(m.parts ?? []), part] } : m,
+        ),
+      );
+      return idx;
+    };
+    const patchPart = (idx: number, patch: Partial<TurnPart>) => {
+      const id = live.turnId;
+      if (!id) return;
+      setMessages((prev) =>
+        prev.map((m) =>
+          m.id === id
+            ? {
+                ...m,
+                parts: (m.parts ?? []).map((p, i) =>
+                  i === idx ? ({ ...p, ...patch } as TurnPart) : p,
+                ),
+              }
+            : m,
+        ),
       );
     };
 
@@ -470,96 +566,60 @@ export function useNagobotChat(
         case "thinking": {
           const snap = ev.snapshot ?? "";
           if (snap === "") break;
-          if (live.thinkingId) {
-            replaceMsg(live.thinkingId, { resultText: snap });
+          if (live.thinkingIdx !== null) {
+            patchPart(live.thinkingIdx, { text: snap });
           } else {
-            const id = localID("live-think");
-            live.thinkingId = id;
-            setMessages((prev) => [
-              ...prev,
-              {
-                id,
-                role: "assistant",
-                text: "",
-                kind: "tool",
-                toolName: "thinking",
-                resultText: snap,
-                running: true,
-                createdAt: new Date(),
-              },
-            ]);
+            live.thinkingIdx = appendPart({ type: "reasoning", text: snap });
           }
           break;
         }
         case "text": {
           const snap = ev.snapshot ?? "";
           if (snap === "") break;
-          if (live.textId) {
-            replaceMsg(live.textId, { text: snap });
+          if (live.textIdx !== null) {
+            patchPart(live.textIdx, { text: snap });
           } else {
-            const id = localID("live-text");
-            live.textId = id;
-            setMessages((prev) => [
-              ...prev,
-              { id, role: "assistant", text: snap, createdAt: new Date() },
-            ]);
+            live.textIdx = appendPart({ type: "text", text: snap });
           }
           break;
         }
         case "tool_call": {
           if (!ev.tool) break;
-          const id = localID("live-tool");
-          if (ev.tool_call_id) live.tools.set(ev.tool_call_id, id);
-          setMessages((prev) => [
-            ...prev,
-            {
-              id,
-              role: "assistant",
-              text: "",
-              kind: "tool",
-              toolName: ev.tool,
-              argsText: prettyArgs(ev.args),
-              running: true,
-              createdAt: new Date(),
-            },
-          ]);
+          const idx = appendPart({
+            type: "tool",
+            callId: ev.tool_call_id || localID("live-tool"),
+            toolName: ev.tool,
+            argsText: prettyArgs(ev.args),
+          });
+          if (ev.tool_call_id) live.tools.set(ev.tool_call_id, idx);
           break;
         }
         case "tool_result": {
-          const id = ev.tool_call_id
+          const idx = ev.tool_call_id
             ? live.tools.get(ev.tool_call_id)
             : undefined;
-          if (!id) break;
+          if (idx === undefined) break;
           if (ev.tool_call_id) live.tools.delete(ev.tool_call_id);
-          replaceMsg(id, { resultText: ev.args ?? "", running: false });
+          patchPart(idx, { resultText: ev.args ?? "" });
           break;
         }
         case "round_end": {
-          // The LLM call finished: close the thinking card. The text bubble
-          // stays live — the authoritative "response" frame replaces it.
-          if (live.thinkingId) {
-            replaceMsg(live.thinkingId, { running: false });
-            live.thinkingId = null;
-          }
+          // The LLM call finished: the next round's thinking/text open fresh
+          // parts. The current text part stays addressable — the
+          // authoritative "response" frame replaces its content.
+          live.thinkingIdx = null;
           break;
         }
         case "turn_end": {
+          // Spinners stop by themselves: once isRunning drops, the message
+          // status goes complete and every part renders settled — pending
+          // tool parts included. The turn message itself stays as-is until
+          // the next resync replaces it with the persisted form.
           live.active = false;
-          live.textId = null;
-          if (live.thinkingId) {
-            replaceMsg(live.thinkingId, { running: false });
-            live.thinkingId = null;
-          }
-          // Any tool card without a result stays visible but stops pulsing.
-          const stale = [...live.tools.values()];
+          live.turnId = null;
+          live.thinkingIdx = null;
+          live.textIdx = null;
           live.tools.clear();
-          if (stale.length > 0) {
-            setMessages((prev) =>
-              prev.map((m) =>
-                stale.includes(m.id) ? { ...m, running: false } : m,
-              ),
-            );
-          }
           stopRunning();
           break;
         }
@@ -587,25 +647,29 @@ export function useNagobotChat(
           // Some platforms (Android Chrome) only allow SW-shown notifications.
         }
       }
-      // Replace the live streamed bubble in place (authoritative content for
-      // the same round); otherwise append. The replacement KEEPS the live
-      // bubble's id — swapping in a fresh id at the same spot makes
-      // assistant-ui's store treat old and new as sibling branches of the
-      // same parent and render a "< 2/2 >" branch picker.
-      const liveId = live.textId;
-      live.textId = null;
-      const final: ChatMessage = {
-        id: liveId ?? localID("resp"),
-        role: "assistant",
-        text,
-        createdAt: new Date(),
-      };
-      setMessages((prev) => {
-        if (liveId && prev.some((m) => m.id === liveId)) {
-          return prev.map((m) => (m.id === liveId ? final : m));
+      // Replace the live streamed text part in place (authoritative content
+      // for the same round); otherwise append — into the live turn when one
+      // is open (keeps the turn a single message, which the anchored layout
+      // depends on), as a standalone bubble when not.
+      if (live.turnId) {
+        if (live.textIdx !== null) {
+          patchPart(live.textIdx, { text });
+        } else {
+          appendPart({ type: "text", text });
         }
-        return [...prev, final];
-      });
+        // The next round (if any) opens a fresh text part.
+        live.textIdx = null;
+      } else {
+        setMessages((prev) => [
+          ...prev,
+          {
+            id: localID("resp"),
+            role: "assistant",
+            text,
+            createdAt: new Date(),
+          },
+        ]);
+      }
     };
     // Another person watching this session spoke — show their bubble right
     // away (their page rendered it locally; ours would otherwise only see
@@ -626,15 +690,21 @@ export function useNagobotChat(
 
     sock.onError = (message) => {
       stopRunning();
-      setMessages((prev) => [
-        ...prev,
-        {
-          id: localID("err"),
-          role: "assistant",
-          text: `⚠️ ${message}`,
-          createdAt: new Date(),
-        },
-      ]);
+      // Fold the error into the open live turn when there is one — a
+      // standalone message after the turn would break the anchored layout.
+      if (live.turnId) {
+        appendPart({ type: "text", text: `⚠️ ${message}` });
+      } else {
+        setMessages((prev) => [
+          ...prev,
+          {
+            id: localID("err"),
+            role: "assistant",
+            text: `⚠️ ${message}`,
+            createdAt: new Date(),
+          },
+        ]);
+      }
     };
 
     sock.bind(sessionKey);

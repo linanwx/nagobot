@@ -235,100 +235,11 @@ const ThreadMessage: FC = () => {
   );
 
   if (customKind === "event") return <EventMessage />;
-  if (customKind === "tool") return <ToolCardMessage />;
   if (isEditing) return <EditComposer />;
   if (role === "user") return <UserMessage />;
   return <AssistantMessageComponent />;
 };
 
-// Tool card bodies (args / result) get a hard cap so a huge read_file result
-// can't take over the thread even when expanded.
-const toolBodyMaxChars = 6000;
-
-function capText(text: string): string {
-  if (text.length <= toolBodyMaxChars) return text;
-  return text.slice(0, toolBodyMaxChars) + `\n… (${text.length} chars total)`;
-}
-
-// oneLinePreview compacts a text into a single header-line preview.
-function oneLinePreview(text: string, max: number): string {
-  const line = text.replace(/\s+/g, " ").trim();
-  return line.length > max ? line.slice(0, max) + "…" : line;
-}
-
-// ToolCardMessage renders a single tool invocation as a collapsed one-line
-// card — name plus an args preview — expanding to the full arguments and the
-// paired result. This is the "everything else" bucket: any assistant activity
-// that is not speech (and not a dispatch delivery) is a tool call, so the
-// full trace stays visible without drowning the conversation.
-const ToolCardMessage: FC = () => {
-  const meta = useMessageMeta();
-  const [expanded, setExpanded] = useState(false);
-  const thinking = meta.toolName === "thinking";
-  // Live thinking previews its trailing text (the freshest thought), other
-  // live/idle cards preview args from the start.
-  const previewSrc = thinking ? (meta.resultText ?? "") : (meta.argsText ?? "");
-  const preview =
-    thinking && meta.running
-      ? "…" + previewSrc.replace(/\s+/g, " ").trim().slice(-100)
-      : oneLinePreview(previewSrc, 100);
-  return (
-    // Negative vertical margins eat most of the thread's gap-y-6 so runs of
-    // consecutive tool cards (agentic turns) stack tightly while chat
-    // bubbles keep their roomier rhythm.
-    <MessagePrimitive.Root
-      data-slot="aui_tool-card-root"
-      className="-my-2.5 px-2"
-      data-role="tool"
-    >
-      <div className="border-border/25 text-muted-foreground w-full rounded-md border bg-transparent px-3 py-1.5 text-xs opacity-80">
-        <button
-          type="button"
-          onClick={() => setExpanded((v) => !v)}
-          className="flex w-full items-center gap-2 text-start"
-        >
-          <span className={cn("shrink-0", meta.running && "animate-pulse")}>
-            {thinking ? "💭" : "⚙"}
-          </span>
-          <span className="shrink-0 font-mono font-medium">
-            {meta.toolName}
-          </span>
-          <span className="text-muted-foreground/60 min-w-0 flex-1 truncate font-mono text-[11px]">
-            {preview}
-          </span>
-          {meta.running ? (
-            <span className="text-sky-600 dark:text-sky-400 shrink-0 animate-pulse text-[10px]">
-              ●
-            </span>
-          ) : null}
-          <MessageTimestamp />
-          <span className="text-muted-foreground/60 shrink-0 text-[10px]">
-            {expanded ? "▲" : "▼"}
-          </span>
-        </button>
-        {expanded && (
-          <div className="mt-1.5 flex flex-col gap-1.5">
-            {meta.argsText ? (
-              <pre className="bg-muted/60 max-h-60 overflow-auto rounded p-2 font-mono text-[11px] whitespace-pre-wrap">
-                {capText(meta.argsText)}
-              </pre>
-            ) : null}
-            {meta.resultText ? (
-              <pre className="border-border/40 max-h-80 overflow-auto rounded border p-2 font-mono text-[11px] whitespace-pre-wrap">
-                {capText(meta.resultText)}
-              </pre>
-            ) : null}
-            {!meta.argsText && !meta.resultText ? (
-              <span className="text-muted-foreground/60 text-[11px] italic">
-                no arguments, no recorded result
-              </span>
-            ) : null}
-          </div>
-        )}
-      </div>
-    </MessagePrimitive.Root>
-  );
-};
 
 // MediaAttachments renders a user message's attachments from the protected
 // /api/media route: images inline, audio as a player, anything else as a
