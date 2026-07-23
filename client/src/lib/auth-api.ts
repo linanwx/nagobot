@@ -123,6 +123,20 @@ export async function passwordLogin(
   );
 }
 
+// passkeyAvailable reports whether this device can actually complete a
+// passkey ceremony: secure context, WebAuthn API, and a user-verifying
+// platform authenticator. Some devices (e.g. Android without Google
+// services) expose the API but have no passkey provider — there create()
+// hangs forever, while this probe returns false immediately.
+export async function passkeyAvailable(): Promise<boolean> {
+  if (!window.isSecureContext || !window.PublicKeyCredential) return false;
+  try {
+    return await PublicKeyCredential.isUserVerifyingPlatformAuthenticatorAvailable();
+  } catch {
+    return false;
+  }
+}
+
 // loginPasskey runs the usernameless assertion ceremony and leaves the
 // browser logged in on success.
 export async function loginPasskey(): Promise<{ username: string }> {

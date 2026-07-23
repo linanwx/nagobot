@@ -6,6 +6,7 @@ import {
   fetchMe,
   loginPasskey,
   logout,
+  passkeyAvailable,
   passwordLogin,
   redeemCode,
   registerPasskey,
@@ -144,12 +145,12 @@ function LoginView({
   const [failure, setFailure] = useState<string | null>(error ?? null);
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
-  // Passkeys only exist in secure contexts: Safari/Chrome hide the WebAuthn
-  // API entirely on plain-http origins (anything but localhost), and an IP
-  // address can never be a WebAuthn RP ID. Surface the real cause instead of
-  // the library's misleading "not supported in this browser". Password login
-  // has no such constraint.
-  const insecure = !window.isSecureContext;
+  // null while the probe runs; the passkey section only renders on true, so
+  // devices with no passkey provider see a clean password-only form.
+  const [passkeyOk, setPasskeyOk] = useState<boolean | null>(null);
+  useEffect(() => {
+    void passkeyAvailable().then(setPasskeyOk);
+  }, []);
 
   const signIn = async () => {
     setBusy(true);
@@ -217,20 +218,27 @@ function LoginView({
           {busy ? "Signing in…" : "Sign in"}
         </Button>
       </form>
-      <div className="text-muted-foreground my-3 flex items-center gap-2 text-xs">
-        <span className="bg-border h-px flex-1" />
-        or
-        <span className="bg-border h-px flex-1" />
-      </div>
-      <Button
-        variant="outline"
-        onClick={() => void signIn()}
-        disabled={busy || insecure}
-        className="w-full"
-      >
-        Sign in with passkey
-      </Button>
-      {insecure ? (
+      {passkeyOk === true && (
+        <>
+          <div className="text-muted-foreground my-3 flex items-center gap-2 text-xs">
+            <span className="bg-border h-px flex-1" />
+            or
+            <span className="bg-border h-px flex-1" />
+          </div>
+          <Button
+            variant="outline"
+            onClick={() => void signIn()}
+            disabled={busy}
+            className="w-full"
+          >
+            Sign in with passkey
+          </Button>
+        </>
+      )}
+      {passkeyOk === false && !window.isSecureContext ? (
+        // Passkeys only exist in secure contexts — explain why the button is
+        // gone for anyone who registered one elsewhere. Silent hiding is
+        // reserved for devices that never had a passkey provider.
         <p className="text-muted-foreground mt-3 text-xs">
           Passkey sign-in is unavailable here: passkeys require HTTPS (or
           localhost), and this page was opened over plain HTTP at{" "}
@@ -275,6 +283,12 @@ function SetupWizard({ onDone }: { onDone: () => void }) {
   const [pw, setPw] = useState("");
   const [pw2, setPw2] = useState("");
   const pwReady = pw.length >= 8 && pw === pw2;
+  // Devices with no passkey provider skip the choice — password only.
+  const [passkeyOk, setPasskeyOk] = useState<boolean | null>(null);
+  useEffect(() => {
+    void passkeyAvailable().then(setPasskeyOk);
+  }, []);
+  const passwordOnly = passkeyOk === false;
 
   useEffect(() => {
     fetchAuthContext()
@@ -471,7 +485,7 @@ function SetupWizard({ onDone }: { onDone: () => void }) {
             <span className="text-foreground font-medium">{step.username}</span>{" "}
             will sign in from now on — the link you used is now spent.
           </p>
-          {!usePassword ? (
+          {!usePassword && !passwordOnly ? (
             <>
               <Button
                 disabled={busy}
@@ -533,17 +547,25 @@ function SetupWizard({ onDone }: { onDone: () => void }) {
               <Button type="submit" disabled={busy || !pwReady} className="w-full">
                 {busy ? "Saving…" : "Set password & sign in"}
               </Button>
-              <Button
-                variant="ghost"
-                disabled={busy}
-                onClick={() => {
-                  setFailure(null);
-                  setUsePassword(false);
-                }}
-                className="w-full"
-              >
-                Back to passkey
-              </Button>
+              {!passwordOnly && (
+                <Button
+                  variant="ghost"
+                  disabled={busy}
+                  onClick={() => {
+                    setFailure(null);
+                    setUsePassword(false);
+                  }}
+                  className="w-full"
+                >
+                  Back to passkey
+                </Button>
+              )}
+              {passwordOnly && (
+                <p className="text-muted-foreground text-xs">
+                  This device has no passkey support — a password is how{" "}
+                  {step.username} will sign in.
+                </p>
+              )}
             </form>
           )}
         </>
