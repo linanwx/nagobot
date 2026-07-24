@@ -826,10 +826,17 @@ const AssistantActionBar: FC = () => {
   );
 };
 
-// UserMessage renders human speech. The logged-in viewer's own messages
-// (sender_id matches an identity of theirs) align right in the accent bubble;
-// other humans align left with their name — a group chat with the assistant
-// and other users on the left, "me" on the right.
+// Leading glyph for another person's avatar circle. Sender names are channel
+// handles ("web-user", "Nansen"), so the first character is the only stable
+// initial available.
+const senderInitial = (name: string): string =>
+  name.trim().charAt(0).toUpperCase() || "?";
+
+// UserMessage renders human speech, following assistant-ui's native two-party
+// bubble pattern: the logged-in viewer's own messages align right in the
+// primary bubble; other humans align left behind an avatar circle in the muted
+// bubble — a group chat with the assistant and other users on the left, "me"
+// on the right.
 const UserMessage: FC = () => {
   const meta = useMessageMeta();
   const createdAt = useAuiState(
@@ -858,38 +865,56 @@ const UserMessage: FC = () => {
           isMe ? "col-start-2" : "col-start-1",
         )}
       >
-        {/* Inside the bubble wrapper so it always stacks directly above the
-            bubble — as a grid child it would land in the spacer column. */}
-        {meta.senderName || createdAt ? (
-          <div
-            data-slot="aui_user-message-header"
-            className={cn(
-              "mb-0.5 flex items-baseline gap-2 px-1",
-              isMe ? "justify-end" : "justify-start",
-            )}
-          >
-            {meta.senderName ? (
-              <span className="text-muted-foreground text-xs font-medium">
-                {meta.senderName}
-              </span>
+        {/* Another person's turn gets the native avatar + bubble row; the
+            viewer's own turn needs no avatar (the right edge identifies it). */}
+        <div className={cn(!isMe && "flex items-start gap-3")}>
+          {!isMe && meta.senderName ? (
+            <div
+              data-slot="aui_user-message-avatar"
+              title={meta.senderName}
+              className="bg-primary/10 text-primary flex size-8 shrink-0 items-center justify-center rounded-full text-xs font-medium select-none"
+            >
+              {senderInitial(meta.senderName)}
+            </div>
+          ) : null}
+          <div className="min-w-0 flex-1">
+            {/* Header lives in the bubble column so the name shares the
+                bubble's left edge; as a grid child it would land in the
+                spacer column instead. */}
+            {meta.senderName || createdAt ? (
+              <div
+                data-slot="aui_user-message-header"
+                className={cn(
+                  "mb-0.5 flex items-baseline gap-2 px-1",
+                  isMe ? "justify-end" : "justify-start",
+                )}
+              >
+                {meta.senderName ? (
+                  <span className="text-muted-foreground text-xs font-medium">
+                    {meta.senderName}
+                  </span>
+                ) : null}
+                <MessageTimestamp />
+              </div>
             ) : null}
-            <MessageTimestamp />
+            {meta.media ? (
+              <div className={cn("mb-1.5", !isMe && "[&>div]:items-start")}>
+                <MediaAttachments media={meta.media} />
+              </div>
+            ) : null}
+            <div
+              className={cn(
+                "aui-user-message-content peer rounded-2xl px-4 py-2.5 text-sm wrap-break-word empty:hidden",
+                isMe
+                  ? "bg-primary text-primary-foreground"
+                  : "bg-muted text-foreground",
+              )}
+            >
+              {/* NOTE: do not swap Text for MarkdownText here — the registry
+                  MarkdownText renders empty outside assistant messages. */}
+              <MessagePrimitive.Parts />
+            </div>
           </div>
-        ) : null}
-        {meta.media ? (
-          <div className={cn("mb-1.5", !isMe && "[&>div]:items-start")}>
-            <MediaAttachments media={meta.media} />
-          </div>
-        ) : null}
-        <div
-          className={cn(
-            "aui-user-message-content peer text-foreground rounded-xl px-4 py-2 wrap-break-word empty:hidden",
-            isMe ? "bg-muted" : "bg-background border",
-          )}
-        >
-          {/* NOTE: do not swap Text for MarkdownText here — the registry
-              MarkdownText renders empty outside assistant messages. */}
-          <MessagePrimitive.Parts />
         </div>
         {/* Edit action bar removed — editing history is not supported by the
             nagobot backend (messages are an append-only session log). */}
