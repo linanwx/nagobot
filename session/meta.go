@@ -54,6 +54,15 @@ type Meta struct {
 	Agent     string         `json:"agent,omitempty"`      // Explicitly assigned agent name.
 	DiscordDM *DiscordDMMeta `json:"discord_dm,omitempty"` // Discord DM routing.
 
+	// ClientTimezone is the IANA timezone last reported by an external client
+	// that can observe the human's device (currently only the web UI, which
+	// reads Intl.DateTimeFormat().resolvedOptions().timeZone). It takes priority
+	// over the server-side channels.sessionTimezones config when rendering wake
+	// frontmatter times, so a phone in Asia/Shanghai talking to a server in
+	// Europe/Dublin sees times in its own zone. Only the timezone is trusted —
+	// the timestamp value itself always stays the authoritative server clock.
+	ClientTimezone string `json:"clientTimezone,omitempty"`
+
 	// TokenEstimateRatios records the last MaxTokenRatioSamples observations of
 	// (real total tokens) / (estimated total tokens) per "provider/model" key.
 	// Used for calibrating estimation accuracy and (eventually) compression

@@ -47,6 +47,9 @@ type OutboundFrame =
       // already processed our bind frame.
       session_id: string;
       media?: OutboundMedia[];
+      // The browser's IANA timezone, so the server renders wake-frontmatter
+      // times in this device's zone rather than its own. Server validates it.
+      tz?: string;
     };
 
 type InboundFrame = {
@@ -58,6 +61,17 @@ type InboundFrame = {
 } & Partial<StreamFrame>;
 
 const maxBackoffMs = 15_000;
+
+// browserTimezone returns the device's IANA zone (e.g. "Asia/Shanghai"), or ""
+// if the runtime can't report it. Sent with each message so the server renders
+// wake-frontmatter times in the user's zone instead of its own.
+function browserTimezone(): string {
+  try {
+    return Intl.DateTimeFormat().resolvedOptions().timeZone ?? "";
+  } catch {
+    return "";
+  }
+}
 
 export class NagobotSocket {
   private ws: WebSocket | null = null;
@@ -153,6 +167,7 @@ export class NagobotSocket {
       text,
       session_id: this.session,
       ...(media && media.length > 0 ? { media } : {}),
+      ...(browserTimezone() ? { tz: browserTimezone() } : {}),
     });
   }
 

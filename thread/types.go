@@ -1,6 +1,7 @@
 package thread
 
 import (
+	"strings"
 	"sync"
 	"time"
 
@@ -226,11 +227,30 @@ func (t *Thread) location() *time.Location {
 	return time.Now().Location()
 }
 
-// locationFor returns the *time.Location for a session key's configured
-// timezone, falling back to the system local timezone. Shared by Thread.location
-// and Manager-level helpers (e.g. media-preview recent-chat rendering).
+// locationFor returns the *time.Location for a session key, by precedence:
+//
+//  1. the client-reported timezone persisted in the session's meta.json — the
+//     device the human is actually on (currently only the web UI reports it);
+//  2. the server-side channels.sessionTimezones config for the key;
+//  3. the server's own system timezone.
+//
+// The client zone wins over the config zone deliberately: the human's own device
+// is a better source of truth for "what wall-clock time is it for them" than an
+// operator's per-session setting. Each stage LoadLocation-guards, so a stale or
+// malformed value silently falls through instead of erroring. Shared by
+// Thread.location and Manager-level helpers (e.g. media-preview rendering).
 func (m *Manager) locationFor(sessionKey string) *time.Location {
-	if m != nil && m.cfg != nil && m.cfg.SessionTimezoneFor != nil {
+	if m == nil {
+		return time.Now().Location()
+	}
+	if dir := m.SessionDir(sessionKey); dir != "" {
+		if tz := strings.TrimSpace(session.ReadMeta(dir).ClientTimezone); tz != "" {
+			if loc, err := time.LoadLocation(tz); err == nil {
+				return loc
+			}
+		}
+	}
+	if m.cfg != nil && m.cfg.SessionTimezoneFor != nil {
 		if tz := m.cfg.SessionTimezoneFor(sessionKey); tz != "" {
 			if loc, err := time.LoadLocation(tz); err == nil {
 				return loc

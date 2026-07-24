@@ -97,6 +97,11 @@ type webInboundMessage struct {
 	SessionID string            `json:"session_id,omitempty"`
 	Text      string            `json:"text"`
 	Media     []webInboundMedia `json:"media,omitempty"`
+	// TZ is the browser's IANA timezone (Intl.DateTimeFormat().resolvedOptions()
+	// .timeZone). Carried into the message metadata so wake frontmatter times
+	// render in the user's device zone rather than the server's. Untrusted —
+	// validated with time.LoadLocation before it is persisted or used.
+	TZ string `json:"tz,omitempty"`
 }
 
 // webInboundMedia references a file the client already uploaded via
@@ -542,6 +547,14 @@ func (w *WebChannel) handleWS(rw http.ResponseWriter, r *http.Request) {
 			}
 			if len(mediaSummaries) > 0 {
 				metadata["media_summary"] = strings.Join(mediaSummaries, "\n")
+			}
+			// Browser timezone: validate here (the trust boundary) so a garbage
+			// or unknown zone never reaches the session store. LoadLocation
+			// rejects anything not in the tz database.
+			if tz := strings.TrimSpace(req.TZ); tz != "" {
+				if _, err := time.LoadLocation(tz); err == nil {
+					metadata["client_tz"] = tz
+				}
 			}
 			if client.person != nil {
 				// Attribute the message to the logged-in person so rendering

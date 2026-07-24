@@ -117,6 +117,17 @@ func (d *Dispatcher) dispatch(ctx context.Context, ch channel.Channel, msg *chan
 		mediaPreview = d.generateMediaPreviews(sessionKey, mediaInfo)
 	}
 
+	// Persist a client-reported timezone (web only, already validated at the
+	// channel boundary) so every wake for this session — including later cron
+	// and heartbeat wakes that have no client attached — renders its frontmatter
+	// time in the human's device zone. Only the zone is learned; the timestamp
+	// value stays the server clock.
+	if tz := msg.Metadata["client_tz"]; tz != "" {
+		if dir := d.threads.SessionDir(sessionKey); dir != "" {
+			session.UpdateMeta(dir, func(m *session.Meta) { m.ClientTimezone = tz })
+		}
+	}
+
 	if sysmsg.IsUserVisibleSource(source) {
 		// Feed the channel-identity dictionary (web login "claim your
 		// discord:Nansen" flow) — only real chat-channel speech counts.
