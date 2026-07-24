@@ -251,7 +251,6 @@ func (t *Thread) executeRunner(ctx, runCtx context.Context, p provider.Provider,
 	}
 	runner := NewRunner(p, t.toolsForTurn(), metrics, loopBudget)
 	runner.ShouldHalt(t.isHaltLoop)
-	runner.SetUserVisible(sysmsg.IsUserVisibleSource(t.lastWakeSource))
 
 	// Persist per-call estimation accuracy ratios into the session's meta.json.
 	if cfg := t.cfg(); cfg.Sessions != nil && t.sessionKey != "" {

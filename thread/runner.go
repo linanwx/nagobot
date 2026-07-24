@@ -10,7 +10,6 @@ import (
 
 	"github.com/linanwx/nagobot/logger"
 	"github.com/linanwx/nagobot/provider"
-	"github.com/linanwx/nagobot/thread/msg"
 	"github.com/linanwx/nagobot/tools"
 )
 
@@ -43,7 +42,6 @@ type Runner struct {
 	onEstimationSample func(providerName, modelName string, ratio float64) // optional: called after each LLM call with the (real / estimated) total-token ratio
 	providerLabel      string                                              // effective provider name from last response
 	modelLabel         string                                              // effective model name from last response
-	userVisible        bool                                                // true when the current turn was triggered by a user-visible message
 	iterations         int                                                 // number of tool-call iterations completed
 }
 
@@ -103,9 +101,6 @@ func (r *Runner) ShouldHalt(fn func() bool) { r.shouldHalt = fn }
 func (r *Runner) OnEstimationSample(fn func(providerName, modelName string, ratio float64)) {
 	r.onEstimationSample = fn
 }
-
-// SetUserVisible marks this runner as handling a user-visible turn.
-func (r *Runner) SetUserVisible(v bool) { r.userVisible = v }
 
 // TotalUsage returns the accumulated token usage across all Chat calls in the loop.
 func (r *Runner) TotalUsage() provider.Usage { return r.totalUsage }
@@ -317,18 +312,6 @@ func (r *Runner) RunWithMessages(ctx context.Context, messages []provider.Messag
 		}
 
 		r.iterations++
-
-		// Hint: after 2 tool-call iterations in a user-visible turn,
-		// nudge the model to delegate remaining work to a subagent via dispatch.
-		if r.userVisible && r.iterations == 5 {
-			hint := msg.BuildSystemMessage("context_hint", nil,
-				"Over 2 tool-call rounds in this turn. For tasks requiring multiple tool calls, prefer delegating to a subagent via dispatch(to=subagent) to reduce main session context pressure.")
-			hintMsg := provider.Message{Role: "user", Content: hint, Source: "system"}
-			messages = append(messages, hintMsg)
-			if r.onMessage != nil {
-				r.onMessage(hintMsg)
-			}
-		}
 
 		// Inject mid-execution user messages after the latest tool results so
 		// the model sees them as new context after the tool chain.
