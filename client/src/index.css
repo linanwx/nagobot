@@ -81,8 +81,10 @@
      * corner curve mid-scroll. The max variant (Chrome 135+) is the stable
      * reservation; the plain inset is the pre-135 fallback.
      *
-     * The floor only ever applies where both resolve to 0 — desktop and
-     * square-cornered phones (SE/8) — so it is spacing, not safety.
+     * Consumers ADD their design padding to this (calc, not max): the inset
+     * is where the unsafe region starts, not a padding budget to spend. On a
+     * 34px home-indicator iPhone, max() left content flush against the
+     * indicator with no breathing room.
      */
     --safe-bottom: env(safe-area-max-inset-bottom, env(safe-area-inset-bottom, 0px));
     --keyboard-inset: 0px;

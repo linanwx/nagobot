@@ -177,10 +177,14 @@ const ThreadRoot: FC<{
 
           <ThreadPrimitive.ViewportFooter
             className={cn(
-              // The md: floor must keep the safe area too: a landscape phone
-              // is wide enough to hit the md breakpoint, so a bare pb-6 there
-              // would override the inset instead of raising it.
-              "aui-thread-viewport-footer bg-background flex flex-col gap-4 overflow-visible pb-[max(1rem,var(--safe-bottom))] md:pb-[max(1.5rem,var(--safe-bottom))]",
+              // Design padding ADDS to the safe area rather than max()-ing
+              // with it. max() let a 34px home-indicator inset swallow the
+              // 1rem entirely, so on notched phones the composer sat flush on
+              // the safe-area boundary with no visual gap above the indicator
+              // (measured on iOS 18.7). The inset is a floor to build on, not
+              // a substitute for spacing. The md: variant needs it too — a
+              // landscape phone is wide enough to hit that breakpoint.
+              "aui-thread-viewport-footer bg-background flex flex-col gap-4 overflow-visible pb-[calc(1rem+var(--safe-bottom))] md:pb-[calc(1.5rem+var(--safe-bottom))]",
               !isEmpty &&
                 "sticky bottom-0 mt-auto rounded-t-(--composer-radius)",
             )}
