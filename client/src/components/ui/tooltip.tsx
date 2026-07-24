@@ -16,10 +16,21 @@ function TooltipProvider({
   )
 }
 
+// Tooltip carries its own Provider, matching shadcn upstream. Radix throws
+// "`Tooltip` must be used within `TooltipProvider`" on mount otherwise, which
+// with no ancestor Provider takes down the whole tree — that is exactly how a
+// pasted image blanked the page (the attachment thumbnail renders a bare
+// Tooltip). Self-providing makes every call site safe instead of the one that
+// happened to crash. Nesting Providers is supported; an outer one simply keeps
+// its own delayDuration for the rest of its subtree.
 function Tooltip({
   ...props
 }: React.ComponentProps<typeof TooltipPrimitive.Root>) {
-  return <TooltipPrimitive.Root data-slot="tooltip" {...props} />
+  return (
+    <TooltipProvider>
+      <TooltipPrimitive.Root data-slot="tooltip" {...props} />
+    </TooltipProvider>
+  )
 }
 
 function TooltipTrigger({
