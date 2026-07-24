@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strings"
 	"sync"
 	"time"
 )
@@ -79,9 +80,20 @@ func (s *identityStore) saveLocked() error {
 	return nil
 }
 
+// nonBindableChannel reports whether a channel's users are excluded from the
+// associate/bind UI. socket is the local CLI: a single, always-present, host-
+// local identity ("cli-user" / socket:local) that is not a real cross-channel
+// person to bind a passkey to. Recording it only pollutes the picker.
+func nonBindableChannel(channelName string) bool {
+	return channelName == "socket"
+}
+
 // record notes that a channel user was seen speaking.
 func (s *identityStore) record(channelName, userID, displayName string) error {
 	if channelName == "" || userID == "" {
+		return nil
+	}
+	if nonBindableChannel(channelName) {
 		return nil
 	}
 	key := channelName + ":" + userID
@@ -110,6 +122,12 @@ func (s *identityStore) list() []Identity {
 	defer s.mu.Unlock()
 	out := make([]Identity, 0, len(s.identities))
 	for _, id := range s.identities {
+		// Hide non-bindable identities that older builds may already have
+		// persisted (e.g. socket:local). The entry is kept on disk — this is a
+		// display filter, not a deletion.
+		if ch, _, ok := strings.Cut(id.Key, ":"); ok && nonBindableChannel(ch) {
+			continue
+		}
 		out = append(out, *id)
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].LastSeen.After(out[j].LastSeen) })

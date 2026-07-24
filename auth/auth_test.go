@@ -1,6 +1,8 @@
 package auth
 
 import (
+	"os"
+	"path/filepath"
 	"testing"
 
 	"github.com/linanwx/nagobot/config"
@@ -138,6 +140,42 @@ func TestRecordIdentity(t *testing.T) {
 	// nil manager must be a safe no-op (dispatcher in tests).
 	var nilMgr *Manager
 	nilMgr.RecordIdentity("discord", "1", "x")
+}
+
+// The local CLI (socket:local) is not a bindable cross-channel person and must
+// never appear in the associate/bind picker — neither when freshly recorded nor
+// when an older build already persisted it to identities.json.
+func TestSocketIdentityNotBindable(t *testing.T) {
+	dir := t.TempDir()
+
+	// Simulate a store written by an older build that recorded socket:local.
+	seed := `{"identities":[{"key":"socket:local","name":"cli-user","last_seen":"2026-07-24T00:00:00Z"}]}`
+	if err := os.WriteFile(filepath.Join(dir, "identities.json"), []byte(seed), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	cfg := &config.Config{
+		Channels: &config.ChannelsConfig{
+			Web: &config.WebChannelConfig{Addr: "127.0.0.1:8080"},
+		},
+	}
+	m, err := NewManager(dir, cfg)
+	if err != nil {
+		t.Fatalf("NewManager: %v", err)
+	}
+
+	// Existing socket entry is hidden on read.
+	if ids := m.Identities(); len(ids) != 0 {
+		t.Fatalf("socket identity must be hidden from the bind list, got %+v", ids)
+	}
+
+	// New socket records are dropped; real channels still recorded.
+	m.RecordIdentity("socket", "local", "cli-user")
+	m.RecordIdentity("discord", "1480", "Nansen")
+	ids := m.Identities()
+	if len(ids) != 1 || ids[0].Key != "discord:1480" {
+		t.Fatalf("want only discord:1480 bindable, got %+v", ids)
+	}
 }
 
 func TestDeviceSessions(t *testing.T) {
