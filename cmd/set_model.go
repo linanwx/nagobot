@@ -192,26 +192,53 @@ func listModelRouting(cfg *config.Config) error {
 	fmt.Printf("  %-20s %-20s %s\n", "─────", "─────────", "────────────────")
 
 	defaultLabel := cfg.GetProvider() + " / " + cfg.GetModelType()
+	// firstSpecialtyRule returns the model label for the first specialty in the
+	// list that has a type:specialty rule, mirroring thread/run.go's
+	// left-to-right resolution. Empty second return = no specialty matched.
+	firstSpecialtyRule := func(specialties []string) (label, via string) {
+		for _, sp := range specialties {
+			if r := config.FindModelRule(cfg.Thread.Models, config.ModelRuleSpecialty, sp); r != nil {
+				return r.Provider + " / " + r.ModelType, sp
+			}
+		}
+		return "", ""
+	}
+
 	for _, a := range scanAllAgents() {
 		specialtyLabel := strings.Join(a.Specialties, ", ")
 		if specialtyLabel == "" {
 			specialtyLabel = "(none)"
 		}
+		// Main row = the non-source chain: agent rule > first basic specialty
+		// with a rule > default. Source-specialty routing sits ABOVE this in
+		// precedence but only on matching wake sources, so it is shown as
+		// sub-rows below rather than folded into this model.
 		routingLabel := defaultLabel + " (default)"
 		if r := config.FindModelRule(cfg.Thread.Models, config.ModelRuleAgent, a.Name); r != nil {
 			routingLabel = r.Provider + " / " + r.ModelType + " (agent rule)"
-		} else {
-			for _, sp := range a.Specialties {
-				if r := config.FindModelRule(cfg.Thread.Models, config.ModelRuleSpecialty, sp); r != nil {
-					routingLabel = r.Provider + " / " + r.ModelType
-					if len(a.Specialties) > 1 {
-						routingLabel += " (via " + sp + ")"
-					}
-					break
-				}
+		} else if label, via := firstSpecialtyRule(a.Specialties); label != "" {
+			routingLabel = label
+			if len(a.Specialties) > 1 {
+				routingLabel += " (via " + via + ")"
 			}
 		}
 		fmt.Printf("  %-20s %-20s %s\n", a.Name, specialtyLabel, routingLabel)
+
+		// Source-specialty overrides: one sub-row per wake source, sorted for
+		// deterministic output. Each shows what that source's specialty list
+		// resolves to; a list with no matching rule cascades to the main row's
+		// model (agent rule / basic specialty / default), flagged as such.
+		for _, src := range sortedKeys(a.SourceSpecialties) {
+			list := a.SourceSpecialties[src]
+			label, via := firstSpecialtyRule(list)
+			model := label
+			if model == "" {
+				model = routingLabel + " (cascades)"
+			} else if len(list) > 1 {
+				model += " (via " + via + ")"
+			}
+			fmt.Printf("    ↳ on %-14s %-20s %s\n", src, strings.Join(list, ", "), model)
+		}
 	}
 
 	// Available models per provider
@@ -235,10 +262,26 @@ func listModelRouting(cfg *config.Config) error {
 	return nil
 }
 
+// sortedKeys returns a map's keys in ascending order, for deterministic output.
+func sortedKeys(m map[string][]string) []string {
+	keys := make([]string, 0, len(m))
+	for k := range m {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	return keys
+}
+
 // agentSpecialties is an agent paired with its ordered specialty tags.
 type agentSpecialties struct {
 	Name        string
 	Specialties []string
+	// SourceSpecialties maps a wake source (e.g. "heartbeat") to the specialty
+	// list tried, in precedence, ABOVE the agent rule and the basic Specialties
+	// — but only on turns whose wake source matches. --list has no live wake
+	// source, so these are rendered as extra sub-rows rather than folded into
+	// the agent's main resolved model.
+	SourceSpecialties map[string][]string
 }
 
 // scanAllAgents reads all embedded agent templates, returning each agent with
@@ -263,7 +306,18 @@ func scanAllAgents() []agentSpecialties {
 		if name == "" {
 			name = strings.TrimSuffix(e.Name(), ".md")
 		}
-		out = append(out, agentSpecialties{Name: name, Specialties: []string(meta.Specialties)})
+		var srcSpec map[string][]string
+		if len(meta.SourceSpecialties) > 0 {
+			srcSpec = make(map[string][]string, len(meta.SourceSpecialties))
+			for src, list := range meta.SourceSpecialties {
+				srcSpec[src] = []string(list)
+			}
+		}
+		out = append(out, agentSpecialties{
+			Name:              name,
+			Specialties:       []string(meta.Specialties),
+			SourceSpecialties: srcSpec,
+		})
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].Name < out[j].Name })
 	return out
