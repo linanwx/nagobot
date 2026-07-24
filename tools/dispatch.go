@@ -418,11 +418,9 @@ func (t *DispatchTool) run(ctx context.Context, args json.RawMessage) (result st
 		}, "Turn terminated silently. No delivery; history recorded.")
 	}
 
-	// Validate entire batch first (all-or-nothing on validation). Per-send
-	// validation runs before the user-progress rule so that specific errors
-	// (unknown to=, malformed task_id, missing session_key, caller-kind
-	// mismatch, etc.) get specific feedback instead of being shadowed by a
-	// generic "no user-facing target" message.
+	// Validate entire batch first (all-or-nothing on validation): a batch that
+	// half-delivers and then reports an error is worse than one that delivers
+	// nothing, because executed sends cannot be unrolled.
 	if errs := t.validateAll(a.Sends); len(errs) > 0 {
 		return buildDispatchErrorResult(errs)
 	}

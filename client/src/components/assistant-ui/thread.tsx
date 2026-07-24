@@ -757,6 +757,16 @@ const AssistantMessage: FC = () => {
   const createdAt = useAuiState(
     (s) => s.message.createdAt as Date | undefined,
   );
+  // The action bar only offers copy and export-markdown, both of which act on
+  // the message's TEXT. A turn that produced only a chain of thought (reasoning
+  // and tool calls, no reply — e.g. one that ended via dispatch) has nothing for
+  // them to act on, so the whole footer is dropped rather than reserving its
+  // 30px of blank space under the Thinking card.
+  const hasText = useAuiState((s) =>
+    s.message.content.some(
+      (part) => part.type === "text" && part.text.trim() !== "",
+    ),
+  );
 
   const ACTION_BAR_PT = "pt-1.5";
   // Keep the action bar inside the contained root's paint box, then cancel its reserved space in flow.
@@ -866,13 +876,15 @@ const AssistantMessage: FC = () => {
         <MessageError />
       </div>
 
-      <div
-        data-slot="aui_assistant-message-footer"
-        className={cn("ms-2 flex items-center", ACTION_BAR_HEIGHT)}
-      >
-        <BranchPicker />
-        <AssistantActionBar />
-      </div>
+      {hasText ? (
+        <div
+          data-slot="aui_assistant-message-footer"
+          className={cn("ms-2 flex items-center", ACTION_BAR_HEIGHT)}
+        >
+          <BranchPicker />
+          <AssistantActionBar />
+        </div>
+      ) : null}
     </MessagePrimitive.Root>
   );
 };
