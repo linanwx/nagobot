@@ -283,9 +283,11 @@ const MediaAttachments: FC<{
 // (Message roots deliberately do NOT use content-visibility:auto — off-screen
 // placeholder heights made scroll positions jump as real heights resolved.)
 const eventCollapseChars = 300;
-const eventCollapseLines = 5;
+// Matches the collapsed max-h-16 clamp (~4 lines at 11px), so a body is only
+// called collapsible when collapsing would actually hide something.
+const eventCollapseLines = 4;
 
-// Badge tint per event source, so the card kind is scannable at a glance:
+// Avatar tint per event source, so the event kind is scannable at a glance:
 // outgoing dispatches read blue, incoming session traffic green, cron amber,
 // everything else neutral.
 function eventBadgeClass(source: string | undefined): string {
@@ -301,10 +303,17 @@ function eventBadgeClass(source: string | undefined): string {
     case "error":
       return "bg-red-500/15 text-red-700 dark:text-red-300";
     default:
-      // Not bg-muted: the card itself is bg-muted, so the badge needs its own
-      // contrast to stay readable against it.
-      return "bg-foreground/10";
+      // Not bg-muted: the bubble beside it is muted too, so the avatar needs
+      // its own contrast to stay readable next to it.
+      return "bg-foreground/10 text-muted-foreground";
   }
+}
+
+// Avatar glyph for a system event: the source's initial (H for heartbeat, C
+// for cron) distinguishes event kinds the way a person's initial does for
+// speakers.
+function eventInitial(source: string | undefined): string {
+  return (source ?? "system").trim().charAt(0).toUpperCase() || "S";
 }
 
 // Quiet sources are operational traces (subagent progress snapshots,
@@ -440,67 +449,81 @@ const EventMessage: FC = () => {
       className="-my-1 px-2"
       data-role="event"
     >
-      <div
-        className={cn(
-          "text-muted-foreground w-full rounded-2xl px-3 py-1.5 text-[11px]",
-          quiet ? "bg-muted/40 opacity-75" : "bg-muted",
-        )}
-      >
-        <div className="mb-0.5 flex flex-wrap items-center gap-x-2 gap-y-0.5">
-          {/* "System" names the speaker the way a user message names its
-              sender; the source badge beside it names the event type. */}
-          <span className="text-[10px] font-medium tracking-wide uppercase">
-            {t("thread.eventSystem")}
-          </span>
-          {meta.source ? (
-            <span
-              className={cn(
-                "rounded px-1 py-px text-[10px] tracking-wide uppercase",
-                eventBadgeClass(meta.source),
-              )}
-            >
-              {meta.source}
-            </span>
-          ) : null}
-          {direction ? (
-            <span className="font-mono text-[10px] break-all">
-              {direction}
-            </span>
-          ) : null}
-          <MessageTimestamp className="ms-auto" />
-        </div>
-        {quote !== "" && (
-          <div className="border-border/60 text-muted-foreground/60 mb-1 line-clamp-2 border-s-2 ps-2 whitespace-pre-wrap italic wrap-break-word">
-            {quote}
-          </div>
-        )}
+      {/* Same shape as another person's message — avatar circle beside a
+          bubble — so system traffic reads as a speaker rather than a separate
+          card format. Its palette stays fainter than human speech: the daemon
+          is talking, but it should never compete with the conversation. */}
+      <div className="flex items-start gap-3">
         <div
+          data-slot="aui_event-message-avatar"
+          title={meta.source}
           className={cn(
-            "wrap-break-word",
-            !markdown && "whitespace-pre-wrap",
-            !quiet && collapsed && "max-h-24 overflow-hidden",
+            "flex size-8 shrink-0 items-center justify-center rounded-full text-[10px] font-medium select-none",
+            eventBadgeClass(meta.source),
           )}
         >
-          {markdown ? (
-            <ReactMarkdown
-              remarkPlugins={[remarkGfm]}
-              components={eventMarkdownComponents}
-            >
-              {shownBody}
-            </ReactMarkdown>
-          ) : (
-            shownBody
-          )}
+          {eventInitial(meta.source)}
         </div>
-        {collapsible && (
-          <button
-            type="button"
-            onClick={() => setExpanded((v) => !v)}
-            className="text-muted-foreground/80 hover:text-foreground mt-1 text-[10px] font-medium"
+        <div className="min-w-0 flex-1">
+          <div
+            data-slot="aui_event-message-header"
+            className="mb-0.5 flex flex-wrap items-baseline gap-x-2 gap-y-0.5 px-1"
           >
-            {expanded ? t("common.showLess") : t("common.showMore")}
-          </button>
-        )}
+            {/* The speaker's name carries the event type: "System heartbeat". */}
+            <span className="text-muted-foreground/70 text-xs font-medium">
+              {meta.source
+                ? `${t("thread.eventSystem")} ${meta.source}`
+                : t("thread.eventSystem")}
+            </span>
+            {direction ? (
+              <span className="text-muted-foreground/60 font-mono text-[10px] break-all">
+                {direction}
+              </span>
+            ) : null}
+            <MessageTimestamp className="ms-auto" />
+          </div>
+          <div
+            className={cn(
+              "text-muted-foreground/70 rounded-2xl px-3 py-1.5 text-[11px]",
+              quiet ? "bg-muted/30 opacity-75" : "bg-muted/50",
+            )}
+          >
+            {quote !== "" && (
+              <div className="border-border/60 text-muted-foreground/50 mb-1 line-clamp-2 border-s-2 ps-2 whitespace-pre-wrap italic wrap-break-word">
+                {quote}
+              </div>
+            )}
+            <div
+              className={cn(
+                "wrap-break-word",
+                !markdown && "whitespace-pre-wrap",
+                // ~4 lines at 11px — long wake payloads stay subordinate to
+                // the conversation until expanded.
+                !quiet && collapsed && "max-h-16 overflow-hidden",
+              )}
+            >
+              {markdown ? (
+                <ReactMarkdown
+                  remarkPlugins={[remarkGfm]}
+                  components={eventMarkdownComponents}
+                >
+                  {shownBody}
+                </ReactMarkdown>
+              ) : (
+                shownBody
+              )}
+            </div>
+            {collapsible && (
+              <button
+                type="button"
+                onClick={() => setExpanded((v) => !v)}
+                className="text-muted-foreground/60 hover:text-foreground mt-1 text-[10px] font-medium"
+              >
+                {expanded ? t("common.showLess") : t("common.showMore")}
+              </button>
+            )}
+          </div>
+        </div>
       </div>
     </MessagePrimitive.Root>
   );
