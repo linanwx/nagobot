@@ -11,7 +11,6 @@ import {
   parseWakePayload,
   splitSpeakerPrefix,
   type ApiMessage,
-  type ApiToolCall,
   type MediaRef,
 } from "@/lib/api";
 import { NagobotSocket, type SocketStatus, type StreamFrame } from "@/lib/ws";
@@ -48,8 +47,8 @@ export type ChatMessage = {
   // "event" — a system frame (wake payloads, cross-session traffic, errors)
   kind?: "chat" | "event";
   // Assistant turn content as native parts. When set, `text` is unused —
-  // speech rides in the parts. Plain bubbles (dispatch sends, errors, peer
-  // echoes) keep using `text`.
+  // speech rides in the parts. Plain bubbles (errors, peer echoes) keep
+  // using `text`.
   parts?: TurnPart[];
   // Human speaker display name (multi-user channels / web usernames).
   senderName?: string;
@@ -112,60 +111,6 @@ export type IsMeFn = (
   senderName: string | undefined,
 ) => boolean;
 
-// dispatchSendsToMessages renders the user-visible side of a dispatch call:
-// each successfully delivered to=user / to=caller:user send becomes an
-// assistant chat bubble (that text reached a human). The dispatch tool card
-// itself is rendered separately like any other tool — this only adds the
-// bubbles on top. Failed calls add nothing: a rejected call (the model then
-// retries, so rendering it would duplicate the retry's sends) is skipped
-// entirely, and a partial failure skips the sends its "- send #N" lines
-// name. Other targets (session/subagent/...) get no extra rendering — the
-// tool card already shows them.
-function dispatchSendsToMessages(
-  tc: ApiToolCall,
-  createdAt: Date | undefined,
-  lastCaller: string,
-  result: string | undefined,
-): ChatMessage[] {
-  if (result?.includes("outcome: validation-error")) return [];
-  const failed = new Set<number>();
-  if (result?.includes("outcome: partial-failure")) {
-    for (const m of result.matchAll(/- send #(\d+)/g)) {
-      failed.add(Number(m[1]));
-    }
-  }
-
-  let args: unknown;
-  try {
-    args = JSON.parse(tc.function?.arguments || "{}");
-  } catch {
-    return [];
-  }
-  if (typeof args !== "object" || args === null) return [];
-  const sends = (args as { sends?: unknown }).sends;
-  if (!Array.isArray(sends)) return [];
-
-  const out: ChatMessage[] = [];
-  for (const [index, s] of sends.entries()) {
-    if (failed.has(index + 1)) continue;
-    if (typeof s !== "object" || s === null) continue;
-    const send = s as { to?: string; body?: string; message?: string };
-    const body = (send.body ?? send.message ?? "").trim();
-    if (body === "") continue;
-    const to = send.to ?? "";
-    if (to !== "user" && to !== "caller:user") continue;
-
-    out.push({
-      id: localID("disp"),
-      role: "assistant",
-      text: body,
-      createdAt,
-      caller: to === "caller:user" ? lastCaller || undefined : undefined,
-    });
-  }
-  return out;
-}
-
 // prettyArgs re-serializes a tool call's JSON arguments for display —
 // multi-line, unescaped — falling back to the raw string on parse failure.
 function prettyArgs(raw: string | undefined): string {
@@ -191,9 +136,9 @@ function capToolText(text: string): string {
 // into the message store. Every entry surfaces somewhere:
 //   - each assistant turn (reasoning, tool chain, speech — everything
 //     between wakes) → ONE assistant message with native parts, matching
-//     the live-stream shape so layout and rendering are identical
-//   - dispatch(to=user | caller:user) sends → extra chat bubbles (that text
-//     actually reached a human)
+//     the live-stream shape so layout and rendering are identical. Nothing
+//     splits a turn any more: speaking to the human is plain content, not a
+//     dispatch, so an assistant turn's tool chain always groups as one card.
 //   - system-sender wakes (cron / heartbeat / compression / cross-session)
 //     → subdued event cards, never mistaken for human speech
 //   - human wakes → user bubbles, "me" resolved via sender_id
@@ -202,10 +147,8 @@ export function sessionToChatMessages(
   isMe: IsMeFn,
 ): ChatMessage[] {
   const out: ChatMessage[] = [];
-  let lastCaller = "";
-  // Tool results, keyed by the tool call they answer — dispatch uses them to
-  // drop rejected calls (the model retries those, so rendering both would
-  // duplicate every send); tool parts show them as the call's output.
+  // Tool results, keyed by the tool call they answer, so each tool part can
+  // show its own output.
   const toolResults = new Map<string, ApiMessage>();
   for (const m of api) {
     if (m.role === "tool" && m.tool_call_id) {
@@ -277,21 +220,6 @@ export function sessionToChatMessages(
           argsText: prettyArgs(tc.function?.arguments),
           resultText: result?.content ?? "",
         });
-        // dispatch additionally surfaces its delivered user-facing sends as
-        // chat bubbles — the human actually received that text. The bubbles
-        // are their own messages, so the turn splits chronologically here.
-        if (name === "dispatch") {
-          const bubbles = dispatchSendsToMessages(
-            tc,
-            createdAt,
-            lastCaller,
-            result?.content,
-          );
-          if (bubbles.length > 0) {
-            flushTurn();
-            out.push(...bubbles);
-          }
-        }
       }
       continue;
     }
@@ -307,7 +235,6 @@ export function sessionToChatMessages(
     let senderName: string | undefined;
     let caller: string | undefined;
     let me: boolean | undefined;
-    if (wake.caller) lastCaller = wake.caller;
     if (wake.sender && wake.sender !== "user") {
       kind = "event";
       caller = wake.caller;
