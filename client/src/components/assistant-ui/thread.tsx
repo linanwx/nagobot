@@ -7,21 +7,15 @@ import {
 } from "@/components/assistant-ui/attachment";
 import { ThreadFollowupSuggestions } from "@/components/assistant-ui/follow-up-suggestions";
 import { MarkdownText } from "@/components/assistant-ui/markdown-text";
-import {
-  Reasoning,
-  ReasoningContent,
-  ReasoningRoot,
-  ReasoningText,
-  ReasoningTrigger,
-} from "@/components/assistant-ui/reasoning";
+import { Reasoning } from "@/components/assistant-ui/reasoning";
 import { ToolFallback } from "@/components/assistant-ui/tool-fallback";
-import {
-  ToolGroupContent,
-  ToolGroupRoot,
-  ToolGroupTrigger,
-} from "@/components/assistant-ui/tool-group";
 import { TooltipIconButton } from "@/components/assistant-ui/tooltip-icon-button";
 import { Button } from "@/components/ui/button";
+import {
+  Collapsible,
+  CollapsibleContent,
+  CollapsibleTrigger,
+} from "@/components/ui/collapsible";
 import { useCoarsePointer } from "@/hooks/use-coarse-pointer";
 import type { MessageMeta } from "@/hooks/use-nagobot-chat";
 import { mediaURL } from "@/lib/api";
@@ -45,7 +39,9 @@ import {
 import {
   ArrowDownIcon,
   ArrowUpIcon,
+  BrainIcon,
   CheckIcon,
+  ChevronDownIcon,
   ChevronLeftIcon,
   ChevronRightIcon,
   CopyIcon,
@@ -691,6 +687,58 @@ const MessageError: FC = () => {
   );
 };
 
+// ChainRow is one line of the thinking card: a small circular bullet in the
+// gutter, content in the rest. Tool calls bring their own trigger row, so this
+// is used for reasoning only — it exists to keep the gutter aligned between
+// the two.
+const ChainRow: FC<PropsWithChildren<{ icon: React.ReactNode }>> = ({
+  icon,
+  children,
+}) => (
+  <div className="flex gap-3 px-4 py-1.5">
+    <div className="bg-muted mt-0.5 flex size-5 shrink-0 items-center justify-center rounded-full">
+      {icon}
+    </div>
+    {children}
+  </div>
+);
+
+// ChainOfThoughtCard is the single disclosure that wraps a turn's whole
+// reasoning + tool chain. It opens itself while the turn is running and
+// collapses when the turn ends, and the first manual toggle takes over from
+// then on — same auto/manual handover as ReasoningRoot, which this replaces
+// at the group level.
+const ChainOfThoughtCard: FC<PropsWithChildren<{ running: boolean }>> = ({
+  running,
+  children,
+}) => {
+  const { t } = useTranslation();
+  const [userOpen, setUserOpen] = useState<boolean | null>(null);
+  const open = userOpen ?? running;
+
+  return (
+    <Collapsible
+      open={open}
+      onOpenChange={setUserOpen}
+      data-slot="aui_chain-of-thought"
+      className="border-border/80 bg-background/90 my-2 overflow-hidden rounded-xl border shadow-sm"
+    >
+      <CollapsibleTrigger className="hover:bg-muted/50 group/cot-trigger flex w-full cursor-pointer items-center gap-2 px-4 py-2.5 text-sm font-medium transition-colors">
+        <ChevronDownIcon
+          className={cn(
+            "size-4 shrink-0 transition-transform duration-200",
+            !open && "-rotate-90",
+          )}
+        />
+        <span className={cn(running && "shimmer")}>{t("thread.thinking")}</span>
+      </CollapsibleTrigger>
+      <CollapsibleContent className="border-t py-1.5">
+        {children}
+      </CollapsibleContent>
+    </Collapsible>
+  );
+};
+
 const AssistantMessage: FC = () => {
   const { t } = useTranslation();
   const {
@@ -739,62 +787,58 @@ const AssistantMessage: FC = () => {
         >
           {({ part, children }) => {
             switch (part.type) {
-              // The chain-of-thought wrapper is the card; reasoning and tool
-              // groups render as ghost rows inside it, so a turn's thinking
-              // and its tool calls read as one native card rather than two
-              // stacked boxes. groupBy nests both under this part, so neither
-              // ever needs its own border.
+              // ONE card per turn, with a single "Thinking" disclosure. The
+              // reasoning and tool groups nested under it render nothing of
+              // their own — their children become flat rows in this card's
+              // body, so a turn reads as one chain rather than a stack of
+              // separately-collapsible "Reasoning" and "N tool calls" boxes.
               case "group-chainOfThought":
                 return (
-                  <div
-                    data-slot="aui_chain-of-thought"
-                    // Row separator via an adjacent-sibling rule rather than
-                    // divide-y: the utility emits no border against these
-                    // children, so the rows would run together.
-                    className="border-border/80 bg-background/90 my-2 overflow-hidden rounded-xl border shadow-sm [&>*+*]:border-t"
+                  <ChainOfThoughtCard
+                    running={part.status.type === "running"}
                   >
                     {children}
-                  </div>
+                  </ChainOfThoughtCard>
                 );
               case "group-tool":
                 if (ToolGroup) {
                   return <ToolGroup group={part}>{children}</ToolGroup>;
                 }
-                return (
-                  <ToolGroupRoot variant="ghost" className="px-4 py-1">
-                    <ToolGroupTrigger
-                      count={part.indices.length}
-                      active={part.status.type === "running"}
-                    />
-                    <ToolGroupContent>{children}</ToolGroupContent>
-                  </ToolGroupRoot>
-                );
+                return <>{children}</>;
               case "group-reasoning": {
                 if (ReasoningGroup) {
                   return (
                     <ReasoningGroup group={part}>{children}</ReasoningGroup>
                   );
                 }
-                const running = part.status.type === "running";
-                return (
-                  <ReasoningRoot
-                    variant="ghost"
-                    className="px-4 py-1"
-                    streaming={running}
-                  >
-                    <ReasoningTrigger active={running} />
-                    <ReasoningContent aria-busy={running}>
-                      <ReasoningText>{children}</ReasoningText>
-                    </ReasoningContent>
-                  </ReasoningRoot>
-                );
+                return <>{children}</>;
               }
               case "text":
                 return <MarkdownText />;
+              // A reasoning part is one row of the chain: a brain bullet plus
+              // the thought itself, muted and italic. It never carries its own
+              // disclosure — the card's "Thinking" toggle governs the whole
+              // chain.
               case "reasoning":
-                return <Reasoning {...part} />;
+                return (
+                  <ChainRow
+                    icon={
+                      <BrainIcon className="text-muted-foreground size-3" />
+                    }
+                  >
+                    <div className="text-muted-foreground min-w-0 flex-1 text-sm leading-relaxed italic">
+                      <Reasoning {...part} />
+                    </div>
+                  </ChainRow>
+                );
+              // Tool calls stay individually expandable (ToolFallback is its
+              // own collapsible row) — only their group wrapper is gone.
               case "tool-call":
-                return part.toolUI ?? <ToolFallbackComponent {...part} />;
+                return (
+                  <div className="px-4 py-0.5">
+                    {part.toolUI ?? <ToolFallbackComponent {...part} />}
+                  </div>
+                );
               case "data":
                 return part.dataRendererUI;
               case "indicator":
