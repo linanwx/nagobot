@@ -108,11 +108,25 @@ export default function App() {
 
   return (
     // viewport-fit=cover lets the page bleed under the iOS notch/home
-    // indicator; the top inset is compensated here, the bottom inside the
-    // sidebar footer and composer (so their backgrounds still fill the bar).
+    // indicator — and switches OFF the browser's own insetting, so every edge
+    // we want protected has to be restored here by hand. Top and the two
+    // horizontal insets are compensated on this root; the horizontal pair is
+    // what keeps content out of the sensor housing and the rounded corners in
+    // LANDSCAPE, where iOS reports 44-59px there (portrait reports 0, which is
+    // why omitting them looked harmless). The bottom is deliberately NOT
+    // compensated here — it is applied inside the sidebar footer and composer
+    // instead, so their backgrounds still fill the bar down to the screen edge.
+    // Height is dvh MINUS the keyboard: Android shrinks dvh by itself so
+    // --keyboard-inset stays 0 there, while iOS never shrinks it and the
+    // variable carries the whole keyboard height (see lib/keyboard-inset.ts).
     <div
-      className="flex h-dvh bg-background text-foreground"
-      style={{ paddingTop: "env(safe-area-inset-top)" }}
+      className="flex bg-background text-foreground"
+      style={{
+        height: "calc(100dvh - var(--keyboard-inset, 0px))",
+        paddingTop: "env(safe-area-inset-top)",
+        paddingLeft: "env(safe-area-inset-left)",
+        paddingRight: "env(safe-area-inset-right)",
+      }}
     >
       <SessionSidebar
         sessions={topLevel}

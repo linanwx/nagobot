@@ -66,6 +66,26 @@
 }
 
 :root {
+    /* Bottom safe area for anything anchored to the bottom edge.
+     *
+     * viewport-fit=cover (index.html) turns OFF the browser's automatic
+     * insetting — WebKit's iPhone X guidance is explicit that the safe-area
+     * rectangle is the one that avoids "the rounded corners, or the device's
+     * sensor housing", and that opting into cover means restoring it yourself.
+     * So the rounded display corners need no radius math of our own: staying
+     * inside the safe area already clears them.
+     *
+     * safe-area-max-inset-bottom comes first because on Android the plain
+     * inset is DYNAMIC — it shrinks toward 0 as Chrome's chin collapses on
+     * scroll, which would walk a bottom bar down into the gesture bar and the
+     * corner curve mid-scroll. The max variant (Chrome 135+) is the stable
+     * reservation; the plain inset is the pre-135 fallback.
+     *
+     * The floor only ever applies where both resolve to 0 — desktop and
+     * square-cornered phones (SE/8) — so it is spacing, not safety.
+     */
+    --safe-bottom: env(safe-area-max-inset-bottom, env(safe-area-inset-bottom, 0px));
+    --keyboard-inset: 0px;
     --background: oklch(1 0 0);
     --foreground: oklch(0.145 0 0);
     --card: oklch(1 0 0);
@@ -98,6 +118,13 @@
     --sidebar-accent-foreground: oklch(0.205 0 0);
     --sidebar-border: oklch(0.922 0 0);
     --sidebar-ring: oklch(0.708 0 0);
+}
+
+/* With the keyboard up, the keyboard itself covers the home indicator, so the
+ * bottom inset would only add a dead gap between the composer and the keys.
+ * The attribute is set by lib/keyboard-inset.ts. */
+:root[data-keyboard="open"] {
+    --safe-bottom: 0px;
 }
 
 .dark {

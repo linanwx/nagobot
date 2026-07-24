@@ -177,7 +177,10 @@ const ThreadRoot: FC<{
 
           <ThreadPrimitive.ViewportFooter
             className={cn(
-              "aui-thread-viewport-footer bg-background flex flex-col gap-4 overflow-visible pb-[max(1rem,env(safe-area-inset-bottom))] md:pb-6",
+              // The md: floor must keep the safe area too: a landscape phone
+              // is wide enough to hit the md breakpoint, so a bare pb-6 there
+              // would override the inset instead of raising it.
+              "aui-thread-viewport-footer bg-background flex flex-col gap-4 overflow-visible pb-[max(1rem,var(--safe-bottom))] md:pb-[max(1.5rem,var(--safe-bottom))]",
               !isEmpty &&
                 "sticky bottom-0 mt-auto rounded-t-(--composer-radius)",
             )}
