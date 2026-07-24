@@ -301,7 +301,9 @@ function eventBadgeClass(source: string | undefined): string {
     case "error":
       return "bg-red-500/15 text-red-700 dark:text-red-300";
     default:
-      return "bg-muted";
+      // Not bg-muted: the card itself is bg-muted, so the badge needs its own
+      // contrast to stay readable against it.
+      return "bg-foreground/10";
   }
 }
 
@@ -440,13 +442,16 @@ const EventMessage: FC = () => {
     >
       <div
         className={cn(
-          "text-muted-foreground w-full rounded-md border px-3 py-2 text-xs",
-          quiet
-            ? "border-border/25 bg-transparent opacity-75"
-            : "border-border/40 bg-muted/40",
+          "text-muted-foreground w-full rounded-2xl px-3 py-1.5 text-[11px]",
+          quiet ? "bg-muted/40 opacity-75" : "bg-muted",
         )}
       >
-        <div className="mb-1 flex flex-wrap items-center gap-x-2 gap-y-0.5">
+        <div className="mb-0.5 flex flex-wrap items-center gap-x-2 gap-y-0.5">
+          {/* "System" names the speaker the way a user message names its
+              sender; the source badge beside it names the event type. */}
+          <span className="text-[10px] font-medium tracking-wide uppercase">
+            {t("thread.eventSystem")}
+          </span>
           {meta.source ? (
             <span
               className={cn(

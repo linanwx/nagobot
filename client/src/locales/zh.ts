@@ -112,6 +112,7 @@ export const zh = {
     working: "助手正在处理",
     via: "来自 {{caller}}",
     eventFrom: "来自 {{caller}}",
+    eventSystem: "系统",
     previous: "上一条",
     next: "下一条",
   },

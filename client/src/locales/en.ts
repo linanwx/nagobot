@@ -114,6 +114,7 @@ export const en = {
     working: "Assistant is working",
     via: "via {{caller}}",
     eventFrom: "from {{caller}}",
+    eventSystem: "System",
     previous: "Previous",
     next: "Next",
   },
