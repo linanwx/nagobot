@@ -956,6 +956,15 @@ const UserMessage: FC = () => {
   // and legacy paths without one default to "me" (the composer is the
   // viewer).
   const isMe = meta.isMe !== false;
+  // An image sent with no caption still carries an empty text part, so Parts
+  // renders a child node and the bubble's `empty:hidden` never matches —
+  // leaving a blank pill under the picture. Gate on real content instead.
+  // Non-text parts keep the bubble: only an all-empty-text message drops it.
+  const hasBubbleContent = useAuiState((s) =>
+    s.message.content.some(
+      (part) => part.type !== "text" || part.text.trim() !== "",
+    ),
+  );
   return (
     <MessagePrimitive.Root
       data-slot="aui_user-message-root"
@@ -1012,18 +1021,20 @@ const UserMessage: FC = () => {
                 <MediaAttachments media={meta.media} />
               </div>
             ) : null}
-            <div
-              className={cn(
-                "aui-user-message-content peer rounded-2xl px-4 py-2.5 text-sm wrap-break-word empty:hidden",
-                isMe
-                  ? "bg-primary text-primary-foreground"
-                  : "bg-muted text-foreground",
-              )}
-            >
-              {/* NOTE: do not swap Text for MarkdownText here — the registry
-                  MarkdownText renders empty outside assistant messages. */}
-              <MessagePrimitive.Parts />
-            </div>
+            {hasBubbleContent ? (
+              <div
+                className={cn(
+                  "aui-user-message-content peer rounded-2xl px-4 py-2.5 text-sm wrap-break-word empty:hidden",
+                  isMe
+                    ? "bg-primary text-primary-foreground"
+                    : "bg-muted text-foreground",
+                )}
+              >
+                {/* NOTE: do not swap Text for MarkdownText here — the registry
+                    MarkdownText renders empty outside assistant messages. */}
+                <MessagePrimitive.Parts />
+              </div>
+            ) : null}
           </div>
         </div>
         {/* Edit action bar removed — editing history is not supported by the
