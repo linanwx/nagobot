@@ -28,6 +28,8 @@ the wake YAML:
 
 The `caller:session` kind assertion is validated: asserting it when the caller is actually the channel user (or a system source) is a cheap validation error (turn continues; fix and re-call), not a silent misroute. The tool result on success reports `delivered_to` so you can confirm who received the reply.
 
+**A user-woken turn may not end on a bare dispatch.** When the caller is the channel user and your dispatch is the sole tool call, the same message must also carry your reply text — otherwise the turn closes having said nothing to the person who asked, while the work went to a subagent or a peer. The tool rejects that call (no send executes, the turn continues); add the text and re-issue. `dispatch({})` with no sends stays exempt: choosing to say nothing is different from forgetting to.
+
 ### Caller is per-wake
 
 Every turn is triggered by a wake; every wake carries a caller identity. The same session can be woken by the user in one turn, by a cron job in the next, and by a subagent in the one after. `dispatch(to=caller:*)` always replies to **the caller of the current turn** — never a fixed identity. Read the wake YAML header each turn to see who woke you; don't assume the caller is the same as last turn.

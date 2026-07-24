@@ -1110,3 +1110,148 @@ func TestDispatch_ExplicitBatchSizeOne_StillTerminates(t *testing.T) {
 		t.Fatal("solo dispatch must halt")
 	}
 }
+
+// --- Reply-less turn rule: a solo dispatch on a user wake must carry content ---
+
+// runDispatchFull seeds both the assistant content and the tool batch size, so a
+// test can express "the model wrote X alongside a dispatch that was one of N
+// tool calls".
+func runDispatchFull(t *testing.T, host *mockDispatchHost, argsJSON, content string, batchSize int) (outcome, result string) {
+	t.Helper()
+	tool := NewDispatchTool(host)
+	ctx := provider.WithAssistantContent(context.Background(), content)
+	ctx = provider.WithToolBatchSize(ctx, batchSize)
+	result = tool.Run(ctx, json.RawMessage(argsJSON))
+	for _, line := range strings.Split(result, "\n") {
+		if rest, ok := strings.CutPrefix(line, "outcome:"); ok {
+			outcome = strings.TrimSpace(rest)
+			break
+		}
+	}
+	return outcome, result
+}
+
+// The human asked something; the model hands the work to a subagent and ends the
+// turn saying nothing. They would see silence, so the dispatch is refused and no
+// send executes — the turn continues so the model can add its report.
+func TestDispatch_UserWake_SoloDispatchWithoutContentRejected(t *testing.T) {
+	host := &mockDispatchHost{
+		currentKey:     "telegram:42",
+		callerKind:     "user",
+		contentReaches: true,
+		agents:         map[string]bool{"researcher": true},
+	}
+	outcome, res := runDispatchFull(t, host,
+		`{"sends": [{"to": "subagent", "params": {"agent": "researcher", "task_id": "t1"}, "body": "dig into X"}]}`,
+		"", 1)
+	if outcome != "validation-error" {
+		t.Fatalf("outcome=%q, want validation-error; full result:\n%s", outcome, res)
+	}
+	if len(host.subagentCalls) != 0 {
+		t.Errorf("no send may execute on rejection, got %+v", host.subagentCalls)
+	}
+	if host.halted {
+		t.Error("rejection must not halt — the model needs another iteration to speak")
+	}
+	if !strings.Contains(res, "dispatch({})") {
+		t.Errorf("error must point at dispatch({}) as the deliberate-silence path:\n%s", res)
+	}
+}
+
+// Same turn, but the model reported to the human in content: normal shape.
+func TestDispatch_UserWake_SoloDispatchWithContentAccepted(t *testing.T) {
+	host := &mockDispatchHost{
+		currentKey:     "telegram:42",
+		callerKind:     "user",
+		contentReaches: true,
+		agents:         map[string]bool{"researcher": true},
+	}
+	outcome, res := runDispatchFull(t, host,
+		`{"sends": [{"to": "subagent", "params": {"agent": "researcher", "task_id": "t1"}, "body": "dig into X"}]}`,
+		"On it — handing this to the research subagent.", 1)
+	if outcome != "turn-terminated" {
+		t.Fatalf("outcome=%q, want turn-terminated; full result:\n%s", outcome, res)
+	}
+	if len(host.subagentCalls) != 1 {
+		t.Fatalf("expected the send to execute, got %+v", host.subagentCalls)
+	}
+	if !host.halted {
+		t.Error("solo dispatch must halt")
+	}
+}
+
+// dispatch({}) stays the always-valid silent termination, even on a user wake.
+// It is the model explicitly choosing to say nothing, not forgetting to.
+func TestDispatch_UserWake_EmptyDispatchStillSilentlyTerminates(t *testing.T) {
+	host := &mockDispatchHost{
+		currentKey:     "telegram:42",
+		callerKind:     "user",
+		contentReaches: true,
+	}
+	outcome, _ := runDispatchFull(t, host, `{"sends": []}`, "", 1)
+	if outcome != "turn-terminated-silent" {
+		t.Fatalf("outcome=%q, want turn-terminated-silent", outcome)
+	}
+	if !host.halted {
+		t.Error("empty dispatch must halt")
+	}
+}
+
+// Batched with other tool calls the turn does NOT end, so the model still gets
+// to speak later — nothing to enforce here.
+func TestDispatch_UserWake_BatchedDispatchWithoutContentAllowed(t *testing.T) {
+	host := &mockDispatchHost{
+		currentKey:     "telegram:42",
+		callerKind:     "user",
+		contentReaches: true,
+		agents:         map[string]bool{"researcher": true},
+	}
+	outcome, res := runDispatchFull(t, host,
+		`{"sends": [{"to": "subagent", "params": {"agent": "researcher", "task_id": "t1"}, "body": "dig into X"}]}`,
+		"", 3)
+	if outcome != "delivered-turn-continues" {
+		t.Fatalf("outcome=%q, want delivered-turn-continues; full result:\n%s", outcome, res)
+	}
+	if len(host.subagentCalls) != 1 {
+		t.Errorf("expected the send to execute, got %+v", host.subagentCalls)
+	}
+}
+
+// A peer-session wake: nobody is waiting on a reply from this session's human,
+// so replying to the peer and saying nothing to the human is legitimate.
+func TestDispatch_PeerWake_SoloDispatchWithoutContentAllowed(t *testing.T) {
+	host := &mockDispatchHost{
+		currentKey:     "telegram:42",
+		callerKind:     "session",
+		callerKey:      "cli",
+		contentReaches: true,
+	}
+	outcome, res := runDispatchFull(t, host,
+		`{"sends": [{"to": "caller:session", "body": "done"}]}`, "", 1)
+	if outcome != "turn-terminated" {
+		t.Fatalf("outcome=%q, want turn-terminated; full result:\n%s", outcome, res)
+	}
+	if host.sentToCaller != "done" {
+		t.Errorf("expected caller delivery, got %q", host.sentToCaller)
+	}
+}
+
+// Where content cannot be delivered at all (subagent/fork/heartbeat, or a web
+// session whose defaultSink is not chunkable), demanding it would be an
+// unsatisfiable loop — the rule must not fire.
+func TestDispatch_UserWake_NoContentSinkStillAllowsSoloDispatch(t *testing.T) {
+	host := &mockDispatchHost{
+		currentKey:     "telegram:42",
+		callerKind:     "user",
+		contentReaches: false,
+		sessions:       map[string]bool{"cli": true},
+	}
+	outcome, res := runDispatchFull(t, host,
+		`{"sends": [{"to": "session", "params": {"session_key": "cli"}, "body": "fyi"}]}`, "", 1)
+	if outcome != "turn-terminated" {
+		t.Fatalf("outcome=%q, want turn-terminated; full result:\n%s", outcome, res)
+	}
+	if len(host.wokeSessions) != 1 {
+		t.Errorf("expected the send to execute, got %+v", host.wokeSessions)
+	}
+}

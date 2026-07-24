@@ -253,6 +253,7 @@ func (t *DispatchTool) Def() provider.ToolDef {
 				"Which form to pick when replying to whoever woke you: read `caller_session_key` in the wake YAML frontmatter. Present → dispatch(to=caller:session) (a peer session woke you). Absent AND this session is user-facing → the channel user woke you: do NOT dispatch, just write your reply as ordinary text. System sources (cron/heartbeat/compression) have no caller to reply to — write your reply (delivered only if the source allows) or dispatch({}). " +
 				"Empty sends — dispatch({}) — is silent turn termination; nothing delivered, history recorded. Only use when you genuinely have nothing to say AND the caller does not need to know you finished. If you received a cross-session wake you believe was mis-routed, dispatch(to=caller:session) with an explanation — do NOT silently drop it via dispatch({}) (the caller never learns). " +
 				"Assistant content alongside a dispatch call: dispatch itself delivers ONLY each send's `body`. The content field is your speech to your own human, and it is delivered independently whenever this turn's wake source allows it — so on a user-facing turn, reporting to your human in content while routing work with dispatch is the normal shape, and when you hand work off you SHOULD tell your human what you just did. Where content reaches nobody (a heartbeat turn, or a subagent/fork with no human of its own) it is rejected with a validation error so the text is not lost — move it into a send body. " +
+				"REQUIRED on user-woken turns: if the wake came from your human (sender: user) and this dispatch is your sole tool call — so the turn ENDS here — the message MUST also carry your reply text. Ending a turn with routing alone leaves the person who asked with nothing while the work goes elsewhere; such a call is rejected, nothing is sent, and the turn continues so you can add the text and re-issue it. dispatch({}) with no sends is exempt — that is how you deliberately say nothing. " +
 				"Common mistakes to avoid: (a) do NOT use to=session to reply to whoever woke you — that is to=caller:session; to=session wakes a DIFFERENT session. (b) Do NOT dispatch in order to reach your own human — there is no to=user; end the turn with plain text instead. (c) Do NOT use plain text to answer a cross-session caller — text goes to your own human, not the caller; use to=caller:session. " +
 				"On success the turn ends (if dispatch was the sole tool call). On validation error the turn continues — fix and re-call. " +
 				"dispatch fires NOW — it has no delay/schedule parameter. For any future or delayed wake (including a delayed self-wake), use the manage-cron skill, not dispatch.",
@@ -372,8 +373,10 @@ func (t *DispatchTool) run(ctx context.Context, args json.RawMessage) (result st
 	// Short content (< 50 runes) is usually a stray fragment (an ack, an emoji);
 	// rejecting it would force a full turn re-run for no benefit, so it is
 	// dropped with a warning (appended via the defer above) and dispatch proceeds.
-	content := strings.TrimSpace(provider.AssistantContentFromContext(ctx))
-	if t.host.ContentReachesSomeone() {
+	rawContent := strings.TrimSpace(provider.AssistantContentFromContext(ctx))
+	contentReaches := t.host.ContentReachesSomeone()
+	content := rawContent
+	if contentReaches {
 		content = ""
 	}
 	if content != "" {
@@ -423,6 +426,35 @@ func (t *DispatchTool) run(ctx context.Context, args json.RawMessage) (result st
 	// nothing, because executed sends cannot be unrolled.
 	if errs := t.validateAll(a.Sends); len(errs) > 0 {
 		return buildDispatchErrorResult(errs)
+	}
+
+	// A solo dispatch ENDS the turn. When the human just spoke and this turn
+	// routes the work somewhere else without saying a word to them, they asked a
+	// question and got silence — the reply exists, but it went to a subagent or
+	// a peer session instead. Content is the ONLY channel to one's own human
+	// (there is no to=user), so demand it before letting the turn close.
+	//
+	// Deliberately narrow, on three axes:
+	//   - solo only: batched with other tool calls the turn continues, so the
+	//     model still gets its chance to speak.
+	//   - user wakes only (CallerKindUser == IsUserVisibleSource): on a peer or
+	//     cron wake nobody is waiting on a reply, and staying quiet is a real
+	//     design — e.g. dream's next-day follow-up drops itself when the moment
+	//     has passed. Narrating every peer interaction to the human is worse.
+	//   - contentReaches only: never demand text this turn cannot deliver
+	//     (heartbeat, subagent/fork, and web sessions whose defaultSink is not
+	//     chunkable), or the model would be trapped in an unsatisfiable loop.
+	// Empty dispatch({}) is exempt by construction — it returns above, and it is
+	// the model explicitly choosing silence rather than forgetting to speak.
+	if solo && contentReaches && rawContent == "" {
+		if kind, _, _ := t.host.CallerInfo(); kind == msg.CallerKindUser {
+			return toolResult("dispatch", map[string]any{
+				"outcome": "validation-error",
+			}, "Validation failed — no sends were executed. Fix and re-call dispatch; the turn continues.\n\n"+
+				"Reason: this dispatch is the only tool call in your message, so it ENDS the turn — but your message carries no assistant text, and the human on this session is waiting for a reply. They would see nothing at all while the work was handed to someone else.\n\n"+
+				"Fix: write what you want the human to know as ordinary assistant text in the SAME message as this dispatch call (e.g. \"Looking into it — I've asked the research subagent.\"), then re-issue the dispatch unchanged. Content is the only way to reach your own human; dispatch delivers each send's `body` to OTHER agents.\n"+
+				"If you truly mean to say nothing to them, call dispatch({}) with no sends instead — that ends the turn silently on purpose.")
+		}
 	}
 
 	// Execute. Partial failure possible — the halt decision (solo only) is

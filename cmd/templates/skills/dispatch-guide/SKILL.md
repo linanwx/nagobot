@@ -14,6 +14,8 @@ Whether your reply text actually reaches the human is decided by the server from
 the wake source — you cannot change it by phrasing. This skill is the decision
 tree for that, and for picking the right `to` value when you do dispatch.
 
+**Reply-less turn rule**: when the wake came from your human (`sender: user`) and your dispatch is the sole tool call — so the turn ends there — the message MUST also carry your reply text. Routing the work away and ending in silence leaves the person who asked with nothing. The tool rejects such a call: no send executes, the turn continues, and you re-issue the same dispatch with your text added. `dispatch({})` with no sends is exempt — that is the deliberate way to say nothing.
+
 **Solo rule**: dispatch terminates the turn ONLY when it is the sole tool call in your message. Batched alongside other tool calls, every send still delivers but the turn continues — you see the other tools' results and keep working. This is the progress-note pattern: write "Searching, back in a minute..." as your text + `web_search(...)` + a `dispatch(to=subagent, ...)` in one message: the note goes to your human, the search runs, and you get the results to keep reasoning. Deliveries in a batched dispatch are real — never resend them in the final dispatch.
 
 ## The 30-second decision
