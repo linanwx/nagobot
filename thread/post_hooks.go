@@ -18,12 +18,6 @@ import (
 // requirement to use dispatch.
 const sourceCrossThreadDispatchRequired = "cross-thread-dispatch-required"
 
-// sourceProgressDispatchRequired is the `source:` tag for the system-reminder
-// injected mid-turn when a WakeProgress turn produced a no-tool-calls reply.
-// Like the cross-thread tag, it is not a WakeSource — it just marks the rejected
-// attempt + dispatch requirement in history so the model sees why it must redo.
-const sourceProgressDispatchRequired = "progress-dispatch-required"
-
 // postTurnHook runs after a turn completes. Returned strings are persisted as
 // user-role messages in session.jsonl and become part of subsequent turns'
 // context. Parallel to turnHook (which runs before the LLM call).
@@ -170,25 +164,3 @@ func buildCrossThreadDispatchRequiredPayload(peerKey string, now time.Time) stri
 	return markInjected(sb.String())
 }
 
-// buildProgressDispatchRequiredPayload renders the system reminder injected
-// mid-turn (via the runner's OnNoToolCalls hook) when a WakeProgress turn
-// produced a reply with no tool calls. The plain text was dropped by the
-// progress monitor's sink (nothing delivered); the model must redo the turn
-// ending with an explicit dispatch — dispatch(to=user) to surface a note, or
-// dispatch({}) to end silently.
-func buildProgressDispatchRequiredPayload(now time.Time) string {
-	body := "This is a PROGRESS turn. Plain text here is NOT deliverable — your reply was dropped and reached no one.\n\n" +
-		"End this turn with an explicit dispatch:\n" +
-		"  - dispatch(sends=[{to: \"user\", body: \"...\"}]) — surface a brief progress note to the user (only when progress reached a new stage)\n" +
-		"  - dispatch({}) — end silently (the default; use when there is nothing worth surfacing)\n\n" +
-		"Do not reply with plain text again."
-
-	var sb strings.Builder
-	sb.WriteString("---\n")
-	fmt.Fprintf(&sb, "source: %s\n", sourceProgressDispatchRequired)
-	fmt.Fprintf(&sb, "time: %s\n", formatWakeTime(now))
-	sb.WriteString("sender: system\n")
-	sb.WriteString("---\n\n")
-	sb.WriteString(body)
-	return markInjected(sb.String())
-}

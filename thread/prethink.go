@@ -168,7 +168,7 @@ func composePreThinkHint(destructive, search, coder, investigator, webURL bool, 
 	var parts []string
 
 	if destructive {
-		parts = append(parts, "Destructive action: fulfilling this may delete data, send/publish to others, write outside the workspace, or trigger irreversible side effects. Confirm with the user via dispatch(to=user) before executing, and prefer a dry-run or reversible path.")
+		parts = append(parts, "Destructive action: fulfilling this may delete data, send/publish to others, write outside the workspace, or trigger irreversible side effects. Confirm with the user before executing (just ask in plain text), and prefer a dry-run or reversible path.")
 	}
 	if search {
 		parts = append(parts, "Search: there is a meaningful chance (>10%) a relevant fact has changed since the model's training cutoff or needs an authoritative source. Consider dispatching a search subagent.")

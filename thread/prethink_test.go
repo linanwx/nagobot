@@ -34,7 +34,7 @@ func TestComposePreThinkHint(t *testing.T) {
 			destructive: true,
 			wantAll: []string{
 				"Destructive action: fulfilling this may delete data, send/publish to others, write outside the workspace, or trigger irreversible side effects.",
-				"Confirm with the user via dispatch(to=user) before executing, and prefer a dry-run or reversible path.",
+				"Confirm with the user before executing (just ask in plain text), and prefer a dry-run or reversible path.",
 			},
 		},
 		{

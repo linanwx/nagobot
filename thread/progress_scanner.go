@@ -30,11 +30,6 @@ const (
 	// progressSummaryAgent is the tools-disabled stateless sibling agent
 	// (specialty: [lowcost]) that turns a tool trace into a progress note.
 	progressSummaryAgent = "progress-summary"
-	// progressMaxDispatchNudges caps how many times a single WakeProgress turn is
-	// re-prompted to use dispatch before the runner gives up and ends it silently
-	// (the plain text is dropped regardless). Keeps a non-complying model from
-	// burning the whole maxIterations budget on a low-value progress turn.
-	progressMaxDispatchNudges = 2
 )
 
 // ProgressScanner periodically reports long-running turns to the person waiting
@@ -47,7 +42,7 @@ const (
 //     straight out the thread's defaultSink to the channel user.
 //   - subagent/fork child of a user-facing ancestor: the note rides a
 //     WakeProgress wake to that ancestor, whose LLM decides whether to surface
-//     it (dispatch to=user) or drop it (dispatch({})).
+//     it (plain reply text) or drop it (dispatch({})).
 //
 // The monitored thread is never touched — no interruption, no injected
 // messages. If the observed turn ends before the summary arrives, the note is
@@ -283,8 +278,8 @@ func buildSummaryRequest(info msg.ThreadInfo) string {
 
 // deliverToUser sends a main session's progress note straight out its
 // defaultSink (the channel user), bypassing the busy thread. Mirrors
-// SendToUser's chat.jsonl bookkeeping so pre-think's recent-chat context sees
-// the note.
+// recordProactiveChat's chat.jsonl bookkeeping so pre-think's recent-chat
+// context sees the note.
 func (p *ProgressScanner) deliverToUser(ctx context.Context, th *Thread, summary string) {
 	th.mu.Lock()
 	key := th.sessionKey
@@ -307,7 +302,7 @@ func (p *ProgressScanner) deliverToUser(ctx context.Context, th *Thread, summary
 
 // deliverToAncestor wakes the user-facing ancestor with the child's summary as
 // a WakeProgress wake. The ancestor's LLM decides whether to surface it
-// (dispatch to=user) or drop it (dispatch({})); its reply-to-caller is dropped.
+// (plain reply text) or drop it (dispatch({})); its reply-to-caller is dropped.
 func (p *ProgressScanner) deliverToAncestor(childKey, ancestor string, info msg.ThreadInfo, summary string) {
 	body := fmt.Sprintf("🔍 subagent %s · running %s · %d steps\n\n%s",
 		childKey, humanizeDuration(info.ElapsedSec), info.TotalToolCalls, summary)

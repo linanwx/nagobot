@@ -354,7 +354,7 @@ func (s *heartbeatScheduler) maybeFirePulse(key string, now time.Time, lastActiv
 			Source:  thread.WakeHeartbeat,
 			Message: message,
 			Sink: thread.Sink{
-				Label: "heartbeat pulse — no auto-delivery, use dispatch to send messages",
+				Label: "heartbeat pulse — nothing produced this turn reaches the user, by design",
 				Send:  func(_ context.Context, _ string) error { return nil },
 			},
 		})

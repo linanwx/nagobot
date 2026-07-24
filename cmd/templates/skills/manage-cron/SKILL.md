@@ -4,10 +4,11 @@ description: Schedule nagobot's own background jobs — recurring tasks, one-tim
 ---
 # Manage Cron Jobs
 
-Cron fires are channel events — caller = cron, not a routable session. Every
-cron-triggered turn's caller sink is a **drop sink**: naive final text output
-is discarded. The session MUST call `dispatch(to=user)` or
-`dispatch(to=session, params={session_key: ...})` explicitly to deliver anywhere.
+Cron fires are channel events — caller = cron, not a routable session. There is
+nobody to reply *to*, but a cron turn on a user-facing session CAN still speak to
+that session's own human: just write your reply as ordinary text and it is
+delivered. Use `dispatch(to=session, params={session_key: ...})` to reach a
+different session, or `dispatch({})` to finish silently.
 
 ## Two Modes
 
@@ -109,11 +110,12 @@ Standard 5-field: `min hour day month weekday`
 - `*/15 * * * *` — every 15 minutes
 - `0 9 * * 1-5` — weekdays at 09:00
 
-## Why caller is dropped
+## Where a cron turn's output goes
 
-Cron has no session to reply to. If the model naively outputs final text
-without dispatch, that text goes to the drop sink — it is recorded in session
-history but not delivered anywhere. This is by design: every delivery path
-must be explicit. Always decide: `dispatch(to=user)` (inject mode, user-facing
-target), `dispatch(to=session, params={session_key: ...})` (cross-session forward), or
-`dispatch({})` (silent intentional skip).
+Cron has no session to reply to, so `to=caller:session` is invalid on these
+turns. Delivery of plain text is decided by the session, not by you: on a
+user-facing session (inject mode) your reply text goes to that human; on a
+cron-owned session it goes nowhere and is only recorded in history. So decide
+each fire: write the text you want the human to see, `dispatch(to=session,
+params={session_key: ...})` to forward elsewhere, or `dispatch({})` to skip
+silently.

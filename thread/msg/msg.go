@@ -184,7 +184,7 @@ func (s WakeSource) RequiresExplicitDispatch() bool {
 }
 
 // CallerKind is the high-level classification of a wake's caller, used by
-// dispatch's caller:session validation and its to=user gating.
+// dispatch's caller:session validation.
 type CallerKind string
 
 const (

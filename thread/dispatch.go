@@ -144,7 +144,7 @@ func (t *Thread) CreateOrWakeFork(_ context.Context, agentName, taskID, body, ov
 // The wake carries a recursive paired sink: the target's reply wakes THIS
 // thread's session back, and the reverse-direction wake carries another
 // paired sink — so the exchange recurses until one party explicitly halts
-// via dispatch({}) or redirects out via dispatch(to=user).
+// via dispatch({}) or answers its own human in plain text instead.
 func (t *Thread) WakeSession(_ context.Context, sessionKey, body string) error {
 	if t.mgr == nil {
 		return fmt.Errorf("manager not configured")
@@ -173,7 +173,8 @@ func (t *Thread) buildSinkToCaller(targetSession string) Sink {
 //
 // Exchanges recurse indefinitely until one side halts explicitly:
 //   - dispatch({}) — silent termination
-//   - dispatch(to=user) — redirect to channel user
+//   - plain reply text on a user-facing session — content goes to that human
+//     via contentSink instead of continuing the exchange
 //   - dispatch(to=<any>) with SignalHalt — any explicit dispatch suppresses
 //     the per-wake sink via SetSuppressSink
 func BuildPairedSessionSink(mgr *Manager, selfKey, peerKey string) Sink {
@@ -195,41 +196,86 @@ func BuildPairedSessionSink(mgr *Manager, selfKey, peerKey string) Sink {
 	}
 }
 
-// SendToUser delivers body via the channel user sink (this session's
-// defaultSink). Only valid for user-facing sessions where defaultSink is
-// the outbound channel sink.
-func (t *Thread) SendToUser(ctx context.Context, body string) error {
-	if !t.IsUserFacing() {
-		return fmt.Errorf("session %q is not user-facing — no channel user sink", t.sessionKey)
+// contentSink resolves where this turn's plain assistant content is delivered.
+//
+// Content is speech to this session's OWN human — the destination is decided by
+// the server from the wake source, never by the model. This replaces the old
+// dispatch(to=user): a turn reaches the human by simply producing content, and
+// dispatch is left to route between agents.
+//
+//   - user-visible wake (the human just spoke): the wake's own sink, untouched —
+//     it carries per-wake context (stream binding, chat.jsonl, reply threading).
+//   - non-user-facing session (subagent / fork / cron's own session): the wake's
+//     sink. Such a turn has no human of its own; the runner separately requires
+//     an explicit dispatch there, so this is only a fallback.
+//   - heartbeat / compression on a user-facing session: nothing. Nightly
+//     maintenance must never speak, and this no longer depends on the model
+//     remembering to call dispatch({}) — nor on the scheduler happening to
+//     attach a drop sink.
+//   - anything else on a user-facing session (cron, peer session, progress):
+//     the channel sink, i.e. speak to my human.
+// The bool reports a proactive delivery: content going somewhere other than the
+// wake's own sink, which therefore bypasses that sink's chat.jsonl write (see
+// recordProactiveChat). It is returned rather than recomputed by the caller so
+// lastWakeSource is only ever read under the lock.
+func (t *Thread) contentSink(wakeSink Sink) (Sink, bool) {
+	t.mu.Lock()
+	src := t.lastWakeSource
+	def := t.defaultSink
+	t.mu.Unlock()
+
+	if msg.IsUserVisibleSource(src) || !t.IsUserFacing() {
+		return wakeSink, false
+	}
+	// Prefix match: existing sessions carry legacy "heartbeat_reflect" /
+	// "heartbeat_wake" sources alongside the current "heartbeat".
+	if strings.HasPrefix(string(src), string(WakeHeartbeat)) || src == WakeCompression {
+		return Sink{}, false
+	}
+	return def, true
+}
+
+// ContentReachesSomeone reports whether text written as assistant content in
+// THIS turn's messages actually gets delivered. It mirrors the intermediate-
+// delivery gate in run.go's OnMessage: a destination exists, the sink is not
+// suppressed, and it is chunkable (an assistant message that also carries
+// tool_calls only delivers on chunkable sinks).
+//
+// dispatch uses it to decide whether content emitted alongside the tool_call is
+// a legitimate report to a human or text about to be dropped on the floor.
+func (t *Thread) ContentReachesSomeone() bool {
+	t.mu.Lock()
+	wakeSink := t.currentSink
+	t.mu.Unlock()
+	out, _ := t.contentSink(wakeSink)
+	return !out.IsZero() && out.Chunkable && !t.isSinkSuppressed()
+}
+
+// recordProactiveChat appends a bot-initiated message to the clean chat log.
+//
+// Proactive content (cron / peer session / progress) is delivered on the
+// channel sink, which bypasses the per-wake chat.jsonl sink. Recording it here
+// keeps the chat log — and therefore pre-think's recent-chat context — aware of
+// messages the bot started on its own. The origin field records what drove the
+// turn (the caller session key, or a non-user wake source like "cron") so
+// readers can tell a bot-initiated message from a plain reply.
+func (t *Thread) recordProactiveChat(body string) {
+	if t.mgr == nil {
+		return
 	}
 	t.mu.Lock()
-	sink := t.defaultSink
 	origin := t.currentCallerKey
-	if origin == "" && !msg.IsUserVisibleSource(t.lastWakeSource) {
+	if origin == "" {
 		origin = string(t.lastWakeSource)
 	}
 	t.mu.Unlock()
-	if sink.IsZero() {
-		return fmt.Errorf("session %q defaultSink is unset", t.sessionKey)
+	dir := t.mgr.SessionDir(t.sessionKey)
+	if dir == "" {
+		return
 	}
-	if err := sink.Send(ctx, body); err != nil {
-		return err
+	if err := session.AppendChat(dir, session.ChatRoleAssistant, origin, body, time.Now()); err != nil {
+		logger.Warn("chat.jsonl proactive write failed", "sessionKey", t.sessionKey, "err", err)
 	}
-	// to=user is the proactive path (heartbeat / cron / cross-session wakes):
-	// it delivers via defaultSink, which bypasses the per-wake chat.jsonl sink.
-	// Record the assistant message here so the clean chat log — and thus
-	// pre-think's recent-chat context — stays aware of messages the bot
-	// initiated on its own. The sender field records what drove the turn (the
-	// caller session key, or a non-user wake source like "cron") so readers can
-	// tell a bot-initiated message from a plain reply.
-	if t.mgr != nil {
-		if dir := t.mgr.SessionDir(t.sessionKey); dir != "" {
-			if err := session.AppendChat(dir, session.ChatRoleAssistant, origin, body, time.Now()); err != nil {
-				logger.Warn("chat.jsonl to=user write failed", "sessionKey", t.sessionKey, "err", err)
-			}
-		}
-	}
-	return nil
 }
 
 // IsUserFacing reports whether this session's defaultSink is a user-channel sink

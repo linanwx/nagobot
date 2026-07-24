@@ -81,7 +81,6 @@ func (t *Thread) run(ctx context.Context, userMessage string, media []string, si
 	t.mu.Lock()
 	t.currentSink = sink
 	t.currentCallerKey = callerKey
-	t.progressDispatchNudges = 0
 	t.mu.Unlock()
 	defer func() {
 		t.mu.Lock()
@@ -357,8 +356,13 @@ func (t *Thread) executeRunner(ctx, runCtx context.Context, p provider.Provider,
 			return
 		}
 
-		// 2. Delivery (non-streaming path).
-		if sink.IsZero() || t.isSinkSuppressed() || !isUserFacingContent(m.Content) {
+		// 2. Delivery (non-streaming path). Content is speech to this session's
+		// own human, so the destination comes from the wake source (see
+		// contentSink) rather than from the model — a heartbeat turn cannot
+		// reach the user however it phrases itself, and a cron or peer-session
+		// turn no longer needs dispatch(to=user) to be heard.
+		out, proactive := t.contentSink(sink)
+		if out.IsZero() || t.isSinkSuppressed() || !isUserFacingContent(m.Content) {
 			return
 		}
 		if streamer != nil && streamer.DidSend() {
@@ -366,15 +370,19 @@ func (t *Thread) executeRunner(ctx, runCtx context.Context, p provider.Provider,
 		}
 		if len(m.ToolCalls) > 0 {
 			// Intermediate: deliver for chunkable sinks only.
-			if sink.Chunkable {
-				if err := sink.Send(ctx, m.Content); err != nil {
-					logger.Warn("intermediate delivery failed", "key", t.sessionKey, "sink", sink.Label, "err", err)
+			if out.Chunkable {
+				if err := out.Send(ctx, m.Content); err != nil {
+					logger.Warn("intermediate delivery failed", "key", t.sessionKey, "sink", out.Label, "err", err)
+				} else if proactive {
+					t.recordProactiveChat(m.Content)
 				}
 			}
 		} else {
 			// Final response: deliver with retry.
-			if err := sink.WithRetry(3).Send(ctx, m.Content); err != nil {
-				logger.Warn("final delivery failed", "key", t.sessionKey, "sink", sink.Label, "err", err)
+			if err := out.WithRetry(3).Send(ctx, m.Content); err != nil {
+				logger.Warn("final delivery failed", "key", t.sessionKey, "sink", out.Label, "err", err)
+			} else if proactive {
+				t.recordProactiveChat(m.Content)
 			}
 		}
 	})
@@ -393,29 +401,22 @@ func (t *Thread) executeRunner(ctx, runCtx context.Context, p provider.Provider,
 		peerKey := t.currentCallerKey
 		t.mu.Unlock()
 
-		// WakeProgress: a progress turn must terminate via dispatch — dispatch(to=user)
-		// to surface a note, or dispatch({}) to end silently. Plain text is dropped by
-		// the progress monitor's sink (delivers nothing), so reject it: suppress the
-		// (dropped) delivery and re-iterate with a corrective reminder, capped at
-		// progressMaxDispatchNudges so a non-complying model can't burn the whole
-		// maxIterations budget on a low-value progress turn.
-		if src == WakeProgress {
-			t.SetSuppressSink()
-			t.mu.Lock()
-			n := t.progressDispatchNudges
-			t.progressDispatchNudges++
-			t.mu.Unlock()
-			if n >= progressMaxDispatchNudges {
-				return nil // give up: end the turn silently (text was dropped anyway)
-			}
-			return []provider.Message{{
-				Role:    "user",
-				Content: buildProgressDispatchRequiredPayload(time.Now().In(t.location())),
-				Source:  sourceProgressDispatchRequired,
-			}}
-		}
-
+		// WakeProgress needs no enforcement: on a user-facing ancestor the note
+		// is plain content and contentSink delivers it to the human, while
+		// dispatch({}) still ends the turn silently. This used to require an
+		// explicit dispatch(to=user) — the progress sink dropped plain text —
+		// and carried a capped nudge loop to correct models that wrote prose
+		// instead.
 		if !src.RequiresExplicitDispatch() {
+			return nil
+		}
+		// A user-facing session always has somewhere for plain content to go:
+		// its own human (see contentSink). Naive text is therefore a legitimate
+		// way to end the turn, and replying to the peer is what
+		// dispatch(to=caller:session) is for. Only sessions with no human of
+		// their own — subagents, forks, internal sessions — must keep iterating
+		// until they dispatch, since their content would otherwise go nowhere.
+		if t.IsUserFacing() {
 			return nil
 		}
 		if peerKey == "" {

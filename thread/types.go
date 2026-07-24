@@ -147,7 +147,6 @@ type Thread struct {
 	haltLoop               bool           // When true, Runner stops after current tool calls complete.
 	currentSink            Sink           // Current turn's active sink (set by run(), cleared on turn end). Used by dispatch(to=caller:*).
 	currentCallerKey       string         // Caller session key for the current wake; empty for user/system wakes.
-	progressDispatchNudges int            // Per-turn count of dispatch-required nudges injected for a WakeProgress turn (reset each turn; caps re-iteration).
 
 	execMetrics           *ExecMetrics // Non-nil only while a turn is executing.
 	lastCompressAttemptAt time.Time    // Last time tier 2 compression was enqueued (prevents duplicate enqueue).

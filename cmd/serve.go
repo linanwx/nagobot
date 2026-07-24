@@ -406,7 +406,7 @@ func buildDefaultSinkFor(chMgr *channel.Manager, cfg *config.Config, sessionsDir
 		// Child threads: route response back to parent thread. The parent wake
 		// carries a recursive paired sink so any naive parent reply routes back
 		// to this child session — the ping-pong recurses until one side halts
-		// via dispatch({}) or dispatch(to=user).
+		// via dispatch({}) or plain reply text.
 		if idx := strings.Index(sessionKey, ":threads:"); idx >= 0 {
 			parentKey := sessionKey[:idx]
 			return thread.Sink{

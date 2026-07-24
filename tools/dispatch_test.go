@@ -16,13 +16,12 @@ type mockDispatchHost struct {
 	callerKind      msg.CallerKind // "user" / "session" / "system" / "" (none)
 	callerKey       string         // non-empty only when callerKind == "session"
 	sinkLabel       string
-	userFacing      bool
+	contentReaches  bool // assistant content written alongside dispatch gets delivered
 	agents          map[string]bool
 	sessions        map[string]bool
 	halted          bool
 	suppressCleared bool
 	sentToCaller    string
-	sentToUser      string
 	subagentCalls   []subagentCall
 	forkCalls       []subagentCall
 	wokeSessions    []wakeCall
@@ -43,7 +42,7 @@ func (m *mockDispatchHost) CurrentSessionKey() string { return m.currentKey }
 func (m *mockDispatchHost) CallerInfo() (msg.CallerKind, string, string) {
 	return m.callerKind, m.callerKey, m.sinkLabel
 }
-func (m *mockDispatchHost) IsUserFacing() bool { return m.userFacing }
+func (m *mockDispatchHost) ContentReachesSomeone() bool { return m.contentReaches }
 func (m *mockDispatchHost) AgentExists(name string) bool {
 	return m.agents[name]
 }
@@ -52,10 +51,6 @@ func (m *mockDispatchHost) SessionExists(key string) bool {
 }
 func (m *mockDispatchHost) SendToCaller(_ context.Context, body string) error {
 	m.sentToCaller = body
-	return nil
-}
-func (m *mockDispatchHost) SendToUser(_ context.Context, body string) error {
-	m.sentToUser = body
 	return nil
 }
 func (m *mockDispatchHost) CreateOrWakeSubagent(_ context.Context, agent, taskID, body, overrideProvider, overrideModel string) (string, string, error) {
@@ -164,63 +159,43 @@ func TestDispatch_CallerSession_OK(t *testing.T) {
 	}
 }
 
-// dispatch(to=user) when caller is the channel user must NOT emit any
-// "redundant" or "noUserReminder" hint — the user did receive the message,
-// and forcing a single canonical delivery path is not nagobot's policy (naive
-// text and dispatch are equivalent).
-func TestDispatch_User_NoHintsWhenCallerIsUser(t *testing.T) {
+// to=user no longer exists: content is how a turn reaches its own human, and
+// dispatch routes only between agents/sessions. A model still emitting the old
+// target must be told so, not silently ignored.
+func TestDispatch_ToUserRejectedAsUnknownTarget(t *testing.T) {
 	host := &mockDispatchHost{
-		currentKey: "cli",
-		callerKind: "user",
-		userFacing: true,
+		currentKey:     "telegram:42",
+		callerKind:     "user",
+		contentReaches: true,
 	}
-	_, res := runDispatch(t, host, `{"sends": [{"to": "user", "body": "hi"}]}`)
-	if strings.Contains(res, "redundant") {
-		t.Errorf("redundant-delivery hint should be removed; got: %s", res)
+	outcome, res := runDispatch(t, host, `{"sends": [{"to": "user", "body": "hi"}]}`)
+	if outcome != "validation-error" {
+		t.Fatalf("outcome=%q; %s", outcome, res)
 	}
-}
-
-// Hint MUST NOT fire when caller is another session — sub-session replying back
-// to a user channel via to=user is legitimate, not redundant.
-func TestDispatch_User_NoHintWhenCallerIsSession(t *testing.T) {
-	host := &mockDispatchHost{
-		currentKey: "cli",
-		callerKind: "session",
-		callerKey:  "telegram:1",
-		userFacing: true,
+	if !strings.Contains(res, "unknown to") {
+		t.Errorf("expected unknown-to error, got: %s", res)
 	}
-	_, res := runDispatch(t, host, `{"sends": [{"to": "user", "body": "hi"}]}`)
-	if strings.Contains(res, "redundant") {
-		t.Errorf("hint should NOT fire for session caller; got: %s", res)
+	if !strings.Contains(res, "just write your message as your reply text") {
+		t.Errorf("error must point at plain content as the way to reach the human, got: %s", res)
 	}
-}
-
-// Hint MUST NOT fire when caller is system — system wakes don't auto-deliver.
-func TestDispatch_User_NoHintWhenCallerIsSystem(t *testing.T) {
-	host := &mockDispatchHost{
-		currentKey: "cli",
-		callerKind: "system",
-		userFacing: true,
-	}
-	_, res := runDispatch(t, host, `{"sends": [{"to": "user", "body": "hi"}]}`)
-	if strings.Contains(res, "redundant") {
-		t.Errorf("hint should NOT fire for system caller; got: %s", res)
+	if host.halted {
+		t.Error("validation error must not halt")
 	}
 }
 
 // caller:session rejected when actual caller is the channel user.
 func TestDispatch_CallerSession_MismatchUser(t *testing.T) {
 	host := &mockDispatchHost{
-		currentKey: "telegram:1",
-		callerKind: "user",
-		userFacing: true,
+		currentKey:     "telegram:1",
+		callerKind:     "user",
+		contentReaches: true,
 	}
 	_, res := runDispatch(t, host, `{"sends": [{"to": "caller:session", "body": "hi"}]}`)
 	if !strings.Contains(res, "validation-error") {
 		t.Errorf("expected validation-error, got: %s", res)
 	}
-	if !strings.Contains(res, "to=user") {
-		t.Errorf("error should suggest to=user; got: %s", res)
+	if !strings.Contains(res, "write your reply as content") {
+		t.Errorf("error should point at plain content; got: %s", res)
 	}
 }
 
@@ -241,7 +216,6 @@ func TestDispatch_BareCallerRejected(t *testing.T) {
 	host := &mockDispatchHost{
 		currentKey: "telegram:1",
 		callerKind: "user",
-		userFacing: true,
 	}
 	_, res := runDispatch(t, host, `{"sends": [{"to": "caller", "body": "hi"}]}`)
 	if !strings.Contains(res, "unknown to") {
@@ -252,109 +226,25 @@ func TestDispatch_BareCallerRejected(t *testing.T) {
 	}
 }
 
-func TestDispatch_User(t *testing.T) {
-	host := &mockDispatchHost{currentKey: "telegram:42", userFacing: true, callerKind: "user"}
-	outcome, _ := runDispatch(t, host, `{"sends": [{"to": "user", "body": "ping"}]}`)
-	if outcome != "turn-terminated" {
-		t.Fatalf("outcome=%q", outcome)
-	}
-	if host.sentToUser != "ping" {
-		t.Errorf("user delivery: %q", host.sentToUser)
-	}
-}
-
-func TestDispatch_UserRejectedForNonUserFacing(t *testing.T) {
-	host := &mockDispatchHost{currentKey: "cli:threads:bg", userFacing: false, callerKind: "session"}
-	_, res := runDispatch(t, host, `{"sends": [{"to": "user", "body": "ping"}]}`)
-	if !strings.Contains(res, "not user-facing") {
-		t.Errorf("expected not-user-facing error, got: %s", res)
-	}
-}
-
-// caller:session + to=user coexist: caller is another session, user is channel user.
-func TestDispatch_CallerSessionAndUserCoexist(t *testing.T) {
+// A user-facing session woken by a peer replies to that peer with
+// dispatch(to=caller:session) and reports to its own human with plain content.
+// Nothing forces a second send: there is no to=user target to demand.
+func TestDispatch_UserFacingSessionCallerNeedsNoUserTarget(t *testing.T) {
 	host := &mockDispatchHost{
-		currentKey: "telegram:42",
-		callerKind: "session",
-		callerKey:  "cli",
-		userFacing: true,
-	}
-	outcome, _ := runDispatch(t, host, `{"sends": [
-		{"to": "caller:session", "body": "back to waker"},
-		{"to": "user", "body": "to channel user"}
-	]}`)
-	if outcome != "turn-terminated" {
-		t.Fatalf("outcome=%q", outcome)
-	}
-	if host.sentToCaller != "back to waker" {
-		t.Errorf("caller: %q", host.sentToCaller)
-	}
-	if host.sentToUser != "to channel user" {
-		t.Errorf("user: %q", host.sentToUser)
-	}
-}
-
-// to=user reaches the channel user, so the "no to=user" reminder must NOT fire.
-func TestDispatch_NoReminderWhenReachedUser(t *testing.T) {
-	host := &mockDispatchHost{
-		currentKey: "telegram:42",
-		callerKind: "user",
-		userFacing: true,
-	}
-	_, res := runDispatch(t, host, `{"sends": [{"to": "user", "body": "hi"}]}`)
-	if strings.Contains(res, "no to=user entry") {
-		t.Errorf("noUserReminder must not fire when the user was reached; got:\n%s", res)
-	}
-}
-
-// caller:session goes to another session, NOT the user. The reminder must fire.
-// On a user-facing session woken by a peer (callerKind=session, e.g. parent
-// receiving child_completed), dispatch with no user-facing target is now a
-// hard validation error — the user must see progress. Previously this case
-// only emitted a soft "noUserReminder" appended to a successful result.
-func TestDispatch_UserFacingSessionCallerRejectedWithoutUserTarget(t *testing.T) {
-	host := &mockDispatchHost{
-		currentKey: "telegram:42",
-		callerKind: "session",
-		callerKey:  "cli",
-		userFacing: true,
+		currentKey:     "telegram:42",
+		callerKind:     "session",
+		callerKey:      "cli",
+		contentReaches: true,
 	}
 	outcome, res := runDispatch(t, host, `{"sends": [{"to": "caller:session", "body": "hi"}]}`)
-	if outcome != "validation-error" {
-		t.Fatalf("outcome=%q, want validation-error; full result:\n%s", outcome, res)
-	}
-	if !strings.Contains(res, "MUST include a to=user send") {
-		t.Errorf("expected user-progress rejection text; got:\n%s", res)
-	}
-	if host.halted {
-		t.Error("validation error must not halt the turn")
-	}
-	if host.sentToCaller != "" {
-		t.Errorf("rejected dispatch must not deliver; got sentToCaller=%q", host.sentToCaller)
-	}
-}
-
-// Adding a to=user send to the same scenario satisfies the user-progress rule
-// and the dispatch executes normally.
-func TestDispatch_UserFacingSessionCallerAcceptedWithUserTarget(t *testing.T) {
-	host := &mockDispatchHost{
-		currentKey: "telegram:42",
-		callerKind: "session",
-		callerKey:  "cli",
-		userFacing: true,
-	}
-	outcome, _ := runDispatch(t, host, `{"sends": [
-		{"to": "user", "body": "child reported back: ..."},
-		{"to": "caller:session", "body": "ack"}
-	]}`)
 	if outcome != "turn-terminated" {
-		t.Fatalf("outcome=%q, want turn-terminated", outcome)
+		t.Fatalf("outcome=%q, want turn-terminated; full result:\n%s", outcome, res)
 	}
-	if host.sentToUser == "" {
-		t.Error("expected to=user delivery to fire")
+	if host.sentToCaller != "hi" {
+		t.Errorf("expected caller delivery, got %q", host.sentToCaller)
 	}
-	if host.sentToCaller == "" {
-		t.Error("expected to=caller:session delivery to fire")
+	if strings.Contains(res, "to=user") {
+		t.Errorf("result must not reference the removed to=user target:\n%s", res)
 	}
 }
 
@@ -364,7 +254,6 @@ func TestDispatch_EmptySendsAllowedOnUserFacingSession(t *testing.T) {
 	host := &mockDispatchHost{
 		currentKey: "telegram:42",
 		callerKind: "user",
-		userFacing: true,
 	}
 	outcome, _ := runDispatch(t, host, `{"sends": []}`)
 	if outcome != "turn-terminated-silent" {
@@ -372,20 +261,6 @@ func TestDispatch_EmptySendsAllowedOnUserFacingSession(t *testing.T) {
 	}
 	if !host.halted {
 		t.Error("dispatch({}) must SignalHalt")
-	}
-}
-
-// Explicit to=user always suppresses the reminder regardless of caller kind.
-func TestDispatch_NoReminderWhenToUserExplicit(t *testing.T) {
-	host := &mockDispatchHost{
-		currentKey: "telegram:42",
-		callerKind: "session",
-		callerKey:  "cli",
-		userFacing: true,
-	}
-	_, res := runDispatch(t, host, `{"sends": [{"to": "user", "body": "hi"}]}`)
-	if strings.Contains(res, "no to=user entry") {
-		t.Errorf("noUserReminder must not fire when to=user is present; got:\n%s", res)
 	}
 }
 
@@ -518,9 +393,9 @@ func TestDispatch_SubagentModelOverride_RequiresBoth(t *testing.T) {
 
 // Model override on a non-subagent/fork target is rejected.
 func TestDispatch_ModelOverride_WrongTarget(t *testing.T) {
-	host := &mockDispatchHost{currentKey: "cli", callerKind: "user", userFacing: true}
+	host := &mockDispatchHost{currentKey: "cli", callerKind: "user"}
 	_, res := runDispatch(t, host,
-		`{"sends": [{"to": "user", "params": {"provider": "openrouter", "model": "anthropic/claude-opus-4.6"}, "body": "hi"}]}`)
+		`{"sends": [{"to": "caller:session", "params": {"provider": "openrouter", "model": "anthropic/claude-opus-4.6"}, "body": "hi"}]}`)
 	if !strings.Contains(res, "validation-error") || !strings.Contains(res, "override applies to to=subagent/fork only") {
 		t.Errorf("expected wrong-target validation error, got: %s", res)
 	}
@@ -581,14 +456,14 @@ func TestDispatch_SelfReferenceRejected(t *testing.T) {
 func TestDispatch_MultipleTargets(t *testing.T) {
 	host := &mockDispatchHost{
 		currentKey: "cli",
-		callerKind: "user",
-		userFacing: true,
+		callerKind: "session",
+		callerKey:  "cron:briefing",
 		agents:     map[string]bool{"search": true, "analyst": true},
 		sessions:   map[string]bool{"telegram:2": true},
 	}
 	outcome, res := runDispatch(t, host,
 		`{"sends": [
-			{"to": "user", "body": "working on it"},
+			{"to": "caller:session", "body": "working on it"},
 			{"to": "subagent", "params": {"agent": "search", "task_id": "bg"}, "body": "查"},
 			{"to": "fork", "params": {"agent": "analyst", "task_id": "hypo"}, "body": "branch"},
 			{"to": "session", "params": {"session_key": "telegram:2"}, "body": "sync"}
@@ -596,8 +471,8 @@ func TestDispatch_MultipleTargets(t *testing.T) {
 	if outcome != "turn-terminated" {
 		t.Fatalf("outcome=%q; %s", outcome, res)
 	}
-	if host.sentToUser != "working on it" {
-		t.Errorf("user body: %q", host.sentToUser)
+	if host.sentToCaller != "working on it" {
+		t.Errorf("user body: %q", host.sentToCaller)
 	}
 	if len(host.subagentCalls) != 1 || len(host.forkCalls) != 1 || len(host.wokeSessions) != 1 {
 		t.Errorf("unexpected call counts: sub=%d fork=%d wake=%d",
@@ -608,16 +483,16 @@ func TestDispatch_MultipleTargets(t *testing.T) {
 	}
 }
 
-// Two to=user sends in one batch collapse to the same target = duplicate.
-func TestDispatch_DuplicateUserInBatchRejected(t *testing.T) {
+// Two caller:session sends in one batch collapse to the same target = duplicate.
+func TestDispatch_DuplicateCallerInBatchRejected(t *testing.T) {
 	host := &mockDispatchHost{
 		currentKey: "telegram:1",
-		callerKind: "user",
-		userFacing: true,
+		callerKind: "session",
+		callerKey:  "cli",
 	}
 	_, res := runDispatch(t, host, `{"sends": [
-		{"to": "user", "body": "a"},
-		{"to": "user", "body": "b"}
+		{"to": "caller:session", "body": "a"},
+		{"to": "caller:session", "body": "b"}
 	]}`)
 	if !strings.Contains(res, "duplicate target in batch") {
 		t.Errorf("expected duplicate-target error, got: %s", res)
@@ -652,7 +527,7 @@ func TestDispatch_UnknownToRejected(t *testing.T) {
 func TestDispatch_BodyRequired(t *testing.T) {
 	host := &mockDispatchHost{currentKey: "cli", callerKind: "user"}
 	_, res := runDispatch(t, host,
-		`{"sends": [{"to": "user", "body": "  "}]}`)
+		`{"sends": [{"to": "caller:session", "body": "  "}]}`)
 	if !strings.Contains(res, "body is required") {
 		t.Errorf("expected body-required error, got: %s", res)
 	}
@@ -660,7 +535,7 @@ func TestDispatch_BodyRequired(t *testing.T) {
 
 func TestDispatch_ValidationErrorDoesNotHalt(t *testing.T) {
 	host := &mockDispatchHost{currentKey: "cli", callerKind: "user"}
-	runDispatch(t, host, `{"sends": [{"to": "user", "body": ""}]}`)
+	runDispatch(t, host, `{"sends": [{"to": "caller:session", "body": ""}]}`)
 	if host.halted {
 		t.Error("validation errors must not halt the turn — model needs to retry")
 	}
@@ -681,11 +556,11 @@ func TestDispatch_ResultIncludesInlineBody(t *testing.T) {
 }
 
 func TestDispatch_BodyPreviewTruncatesAt100Runes(t *testing.T) {
-	host := &mockDispatchHost{currentKey: "telegram:1", userFacing: true, callerKind: "user"}
+	host := &mockDispatchHost{currentKey: "telegram:1", callerKind: "session", callerKey: "cron:briefing"}
 	long := strings.Repeat("a", 150)
 	_, res := runDispatch(t, host,
-		fmt.Sprintf(`{"sends": [{"to": "user", "body": %q}]}`, long))
-	expected := `Sent "` + strings.Repeat("a", 100) + `..." to your channel user`
+		fmt.Sprintf(`{"sends": [{"to": "caller:session", "body": %q}]}`, long))
+	expected := `Replied "` + strings.Repeat("a", 100) + `..." to the caller session cron:briefing`
 	if !strings.Contains(res, expected) {
 		t.Errorf("expected truncated body inline, got:\n%s", res)
 	}
@@ -695,9 +570,9 @@ func TestDispatch_BodyPreviewTruncatesAt100Runes(t *testing.T) {
 }
 
 func TestDispatch_BodyPreviewCollapsesNewlines(t *testing.T) {
-	host := &mockDispatchHost{currentKey: "telegram:1", userFacing: true, callerKind: "user"}
+	host := &mockDispatchHost{currentKey: "telegram:1", callerKind: "session", callerKey: "cron:briefing"}
 	_, res := runDispatch(t, host,
-		`{"sends": [{"to": "user", "body": "line one\nline two\r\nline three"}]}`)
+		`{"sends": [{"to": "caller:session", "body": "line one\nline two\r\nline three"}]}`)
 	if !strings.Contains(res, `"line one line two line three"`) {
 		t.Errorf("expected newlines collapsed to spaces in inline body, got:\n%s", res)
 	}
@@ -728,12 +603,12 @@ func TestDispatch_ExecFailureHaltsButReportsErrors(t *testing.T) {
 // error so the model can see what to remove or move into a body.
 func TestDispatch_RejectsAssistantContent(t *testing.T) {
 	host := &mockDispatchHost{
-		currentKey: "telegram:123",
-		callerKind: "user",
-		userFacing: true,
+		currentKey: "cli:threads:bg",
+		callerKind: "session",
+		callerKey:  "cli",
 	}
 	outcome, res := runDispatchWithContent(t, host,
-		`{"sends": [{"to": "user", "body": "hi"}]}`,
+		`{"sends": [{"to": "caller:session", "body": "hi"}]}`,
 		"I will go check on that for you right now and report back with the full details shortly.")
 	if outcome != "validation-error" {
 		t.Fatalf("expected validation-error, got %q; %s", outcome, res)
@@ -741,8 +616,8 @@ func TestDispatch_RejectsAssistantContent(t *testing.T) {
 	if host.halted {
 		t.Error("turn should NOT halt on validation error — model should re-call")
 	}
-	if host.sentToUser != "" {
-		t.Errorf("no send should have executed, but sentToUser=%q", host.sentToUser)
+	if host.sentToCaller != "" {
+		t.Errorf("no send should have executed, but sentToCaller=%q", host.sentToCaller)
 	}
 	if !strings.Contains(res, "I will go check on that for you right now and report back with the full details shortly.") {
 		t.Errorf("expected offending content echoed in error, got: %s", res)
@@ -750,7 +625,7 @@ func TestDispatch_RejectsAssistantContent(t *testing.T) {
 	// The fix is singular: always move text into a send body. The old
 	// "just don't call dispatch / end with the assistant message" escape hatch
 	// must NOT be offered.
-	if !strings.Contains(res, "move ALL user-facing text into the appropriate send body") {
+	if !strings.Contains(res, "move ALL of that text into the appropriate send body") {
 		t.Errorf("error should mandate moving text into send body, got: %s", res)
 	}
 	for _, gone := range []string{"do NOT call dispatch at all", "Fix by ONE of", "end the turn with the assistant message"} {
@@ -763,25 +638,25 @@ func TestDispatch_RejectsAssistantContent(t *testing.T) {
 // Whitespace-only assistant content is treated as empty — dispatch proceeds.
 func TestDispatch_AllowsWhitespaceAssistantContent(t *testing.T) {
 	host := &mockDispatchHost{
-		currentKey: "telegram:123",
-		callerKind: "user",
-		userFacing: true,
+		currentKey: "cli:threads:bg",
+		callerKind: "session",
+		callerKey:  "cli",
 	}
 	outcome, res := runDispatchWithContent(t, host,
-		`{"sends": [{"to": "user", "body": "hi"}]}`,
+		`{"sends": [{"to": "caller:session", "body": "hi"}]}`,
 		"  \n\t\n  ")
 	if outcome != "turn-terminated" {
 		t.Fatalf("expected turn-terminated, got %q; %s", outcome, res)
 	}
-	if host.sentToUser != "hi" {
-		t.Errorf("expected send to execute, got sentToUser=%q", host.sentToUser)
+	if host.sentToCaller != "hi" {
+		t.Errorf("expected send to execute, got sentToCaller=%q", host.sentToCaller)
 	}
 }
 
 // dispatch({}) with substantial (>= 50-rune) content is still rejected — no
 // exception for silent termination, since the content still has no recipient.
 func TestDispatch_RejectsAssistantContent_EmptySends(t *testing.T) {
-	host := &mockDispatchHost{currentKey: "cli", callerKind: "user", userFacing: true}
+	host := &mockDispatchHost{currentKey: "cli:threads:bg", callerKind: "session", callerKey: "cli"}
 	outcome, _ := runDispatchWithContent(t, host, `{}`,
 		"thinking out loud about the whole architecture and what the right next step is")
 	if outcome != "validation-error" {
@@ -795,15 +670,15 @@ func TestDispatch_RejectsAssistantContent_EmptySends(t *testing.T) {
 // Short assistant content (< 50 runes) alongside a real send is tolerated: the
 // send delivers and the result carries a discard warning instead of rejecting.
 func TestDispatch_ShortAssistantContent_WarnsAndProceeds(t *testing.T) {
-	host := &mockDispatchHost{currentKey: "telegram:123", callerKind: "user", userFacing: true}
+	host := &mockDispatchHost{currentKey: "cli:threads:bg", callerKind: "session", callerKey: "cli"}
 	outcome, res := runDispatchWithContent(t, host,
-		`{"sends": [{"to": "user", "body": "hi"}]}`,
+		`{"sends": [{"to": "caller:session", "body": "hi"}]}`,
 		"ok on it")
 	if outcome != "turn-terminated" {
 		t.Fatalf("expected turn-terminated (send delivered), got %q; %s", outcome, res)
 	}
-	if host.sentToUser != "hi" {
-		t.Errorf("expected send to execute despite short content, got sentToUser=%q", host.sentToUser)
+	if host.sentToCaller != "hi" {
+		t.Errorf("expected send to execute despite short content, got sentToCaller=%q", host.sentToCaller)
 	}
 	if !strings.Contains(res, "DISCARDED") || !strings.Contains(res, "ok on it") {
 		t.Errorf("expected discard warning echoing the content, got: %s", res)
@@ -812,7 +687,7 @@ func TestDispatch_ShortAssistantContent_WarnsAndProceeds(t *testing.T) {
 
 // Short content with empty sends still terminates silently, plus the warning.
 func TestDispatch_ShortAssistantContent_EmptySends(t *testing.T) {
-	host := &mockDispatchHost{currentKey: "cli", callerKind: "user", userFacing: true}
+	host := &mockDispatchHost{currentKey: "cli:threads:bg", callerKind: "session", callerKey: "cli"}
 	outcome, res := runDispatchWithContent(t, host, `{}`, "hmm")
 	if outcome != "turn-terminated-silent" {
 		t.Fatalf("expected silent termination, got %q; %s", outcome, res)
@@ -827,15 +702,15 @@ func TestDispatch_ShortAssistantContent_EmptySends(t *testing.T) {
 
 // Threshold is >= 50 runes: exactly 50 rejects, 49 proceeds.
 func TestDispatch_AssistantContent_BoundaryAt50(t *testing.T) {
-	reject := &mockDispatchHost{currentKey: "cli", callerKind: "user", userFacing: true}
+	reject := &mockDispatchHost{currentKey: "cli:threads:bg", callerKind: "session", callerKey: "cli"}
 	outcome, _ := runDispatchWithContent(t, reject,
-		`{"sends": [{"to": "user", "body": "ok"}]}`, strings.Repeat("x", 50))
+		`{"sends": [{"to": "caller:session", "body": "ok"}]}`, strings.Repeat("x", 50))
 	if outcome != "validation-error" {
 		t.Fatalf("expected reject at exactly 50 runes, got %q", outcome)
 	}
-	proceed := &mockDispatchHost{currentKey: "cli", callerKind: "user", userFacing: true}
+	proceed := &mockDispatchHost{currentKey: "cli:threads:bg", callerKind: "session", callerKey: "cli"}
 	outcome2, res2 := runDispatchWithContent(t, proceed,
-		`{"sends": [{"to": "user", "body": "ok"}]}`, strings.Repeat("x", 49))
+		`{"sends": [{"to": "caller:session", "body": "ok"}]}`, strings.Repeat("x", 49))
 	if outcome2 != "turn-terminated" {
 		t.Fatalf("expected 49 runes to proceed, got %q; %s", outcome2, res2)
 	}
@@ -844,10 +719,10 @@ func TestDispatch_AssistantContent_BoundaryAt50(t *testing.T) {
 // Long content is truncated in the error preview to keep the validation
 // message bounded.
 func TestDispatch_RejectsAssistantContent_TruncatesPreview(t *testing.T) {
-	host := &mockDispatchHost{currentKey: "cli", callerKind: "user", userFacing: true}
+	host := &mockDispatchHost{currentKey: "cli:threads:bg", callerKind: "session", callerKey: "cli"}
 	long := strings.Repeat("a", 500)
 	_, res := runDispatchWithContent(t, host,
-		`{"sends": [{"to": "user", "body": "ok"}]}`,
+		`{"sends": [{"to": "caller:session", "body": "ok"}]}`,
 		long)
 	if !strings.Contains(res, "...") {
 		t.Error("expected long content to be truncated with ...")
@@ -993,18 +868,18 @@ func TestDispatch_ChannelRejectedOnSubagent(t *testing.T) {
 	}
 }
 
-func TestDispatch_ChannelRejectedOnUser(t *testing.T) {
-	host := &mockDispatchHost{currentKey: "telegram:1", callerKind: "user", userFacing: true}
+func TestDispatch_ChannelRejectedOnCallerSession(t *testing.T) {
+	host := &mockDispatchHost{currentKey: "telegram:1", callerKind: "user"}
 	outcome, result := runDispatch(t, host,
-		`{"sends": [{"to": "user", "params": {"channel": "telegram", "user_id": "999"}, "body": "hi"}]}`)
+		`{"sends": [{"to": "caller:session", "params": {"channel": "telegram", "user_id": "999"}, "body": "hi"}]}`)
 	if outcome != "validation-error" {
 		t.Fatalf("outcome=%q, result=%s", outcome, result)
 	}
 	if !strings.Contains(result, "does not accept") {
 		t.Errorf("expected a does-not-accept rejection, got: %s", result)
 	}
-	if host.sentToUser != "" {
-		t.Errorf("nothing may be delivered on a validation error, sent: %q", host.sentToUser)
+	if host.sentToCaller != "" {
+		t.Errorf("nothing may be delivered on a validation error, sent: %q", host.sentToCaller)
 	}
 }
 
@@ -1013,14 +888,14 @@ func TestDispatch_ChannelRejectedOnUser(t *testing.T) {
 // silently woke the target immediately while the model believed it had
 // scheduled a future wake.
 func TestDispatch_UnknownFieldInsideSendRejected(t *testing.T) {
-	host := &mockDispatchHost{currentKey: "cli", callerKind: "user", userFacing: true}
+	host := &mockDispatchHost{currentKey: "cli", callerKind: "user"}
 	_, result := runDispatch(t, host,
-		`{"sends": [{"to": "user", "body": "later", "delay": "1h"}]}`)
+		`{"sends": [{"to": "caller:session", "body": "later", "delay": "1h"}]}`)
 	if !strings.Contains(result, "sends[0].delay") {
 		t.Fatalf("expected sends[0].delay to be rejected with its path, got: %s", result)
 	}
-	if host.sentToUser != "" {
-		t.Errorf("nothing may be delivered, sent: %q", host.sentToUser)
+	if host.sentToCaller != "" {
+		t.Errorf("nothing may be delivered, sent: %q", host.sentToCaller)
 	}
 }
 
@@ -1067,14 +942,14 @@ func TestDispatch_SelfReferenceNotBypassableByWhitespace(t *testing.T) {
 // A model that cannot omit fields sends them as whitespace. That must read as
 // "not provided" everywhere, not as "provided" on the reject path.
 func TestDispatch_WhitespaceAgentTreatedAsAbsent(t *testing.T) {
-	host := &mockDispatchHost{currentKey: "telegram:1", callerKind: "user", userFacing: true}
+	host := &mockDispatchHost{currentKey: "telegram:1", callerKind: "session", callerKey: "cli"}
 	outcome, result := runDispatch(t, host,
-		`{"sends": [{"to": "user", "params": {"agent": " ", "task_id": ""}, "body": "hi"}]}`)
+		`{"sends": [{"to": "caller:session", "params": {"agent": " ", "task_id": ""}, "body": "hi"}]}`)
 	if outcome != "turn-terminated" {
 		t.Fatalf("whitespace agent must read as absent: outcome=%q, result=%s", outcome, result)
 	}
-	if host.sentToUser != "hi" {
-		t.Errorf("expected delivery to user, sent: %q", host.sentToUser)
+	if host.sentToCaller != "hi" {
+		t.Errorf("expected delivery to the caller session, sent: %q", host.sentToCaller)
 	}
 }
 
@@ -1093,18 +968,18 @@ func TestDispatch_WhitespaceAgentOnSubagentUsesSessionDefault(t *testing.T) {
 // --- params dictionary behaviors --------------------------------------------
 
 // The exact failure shape observed live (2026-07-13): a model emitted the old
-// flat layout with channel:"discord" on to=user. Flat addressing keys no
+// flat layout with channel:"discord" on a send. Flat addressing keys no
 // longer exist — parseArgs rejects them by path so the model sees exactly
 // which key is wrong and what the send object accepts.
 func TestDispatch_FlatAddressingKeysRejectedByPath(t *testing.T) {
-	host := &mockDispatchHost{currentKey: "discord:1474429571540582463", callerKind: "system", userFacing: true}
+	host := &mockDispatchHost{currentKey: "discord:1474429571540582463", callerKind: "system"}
 	_, res := runDispatch(t, host,
-		`{"sends":[{"agent":"","body":"💊 今晚已吃药 ✅","channel":"discord","model":"","provider":"","session_key":"","task_id":"","to":"user","user_id":""}]}`)
+		`{"sends":[{"agent":"","body":"💊 今晚已吃药 ✅","channel":"discord","model":"","provider":"","session_key":"","task_id":"","to":"caller:session","user_id":""}]}`)
 	if !strings.Contains(res, "sends[0].channel") || !strings.Contains(res, "params") {
 		t.Errorf("expected path-named rejection pointing at params, got: %s", res)
 	}
-	if host.sentToUser != "" {
-		t.Errorf("nothing may be delivered, sent: %q", host.sentToUser)
+	if host.sentToCaller != "" {
+		t.Errorf("nothing may be delivered, sent: %q", host.sentToCaller)
 	}
 }
 
@@ -1112,54 +987,56 @@ func TestDispatch_FlatAddressingKeysRejectedByPath(t *testing.T) {
 // An all-empty params dictionary must read as "no params", not as misplaced
 // addressing — this send must deliver.
 func TestDispatch_AllEmptyParamsTreatedAsAbsent(t *testing.T) {
-	host := &mockDispatchHost{currentKey: "discord:123", callerKind: "system", userFacing: true}
+	host := &mockDispatchHost{currentKey: "discord:123", callerKind: "session", callerKey: "cli"}
 	outcome, res := runDispatch(t, host,
-		`{"sends": [{"to": "user", "params": {"agent": "", "task_id": "", "provider": "", "model": "", "session_key": "", "channel": "", "user_id": ""}, "body": "💊 今晚已吃药 ✅"}]}`)
+		`{"sends": [{"to": "caller:session", "params": {"agent": "", "task_id": "", "provider": "", "model": "", "session_key": "", "channel": "", "user_id": ""}, "body": "💊 今晚已吃药 ✅"}]}`)
 	if outcome != "turn-terminated" {
 		t.Fatalf("all-empty params must be ignored: outcome=%q, result=%s", outcome, res)
 	}
-	if host.sentToUser != "💊 今晚已吃药 ✅" {
-		t.Errorf("expected delivery, sent: %q", host.sentToUser)
+	if host.sentToCaller != "💊 今晚已吃药 ✅" {
+		t.Errorf("expected delivery, sent: %q", host.sentToCaller)
 	}
 }
 
 // A misplaced non-empty params key on a to/body-only target is rejected with
 // copy-paste guidance: the corrected JSON to resend.
 func TestDispatch_MisplacedParamsGuidanceIncludesCorrectedJSON(t *testing.T) {
-	host := &mockDispatchHost{currentKey: "discord:123", callerKind: "system", userFacing: true}
+	host := &mockDispatchHost{currentKey: "discord:123", callerKind: "system"}
 	outcome, res := runDispatch(t, host,
-		`{"sends": [{"to": "user", "params": {"channel": "discord"}, "body": "hi"}]}`)
+		`{"sends": [{"to": "caller:session", "params": {"channel": "discord"}, "body": "hi"}]}`)
 	if outcome != "validation-error" {
 		t.Fatalf("outcome=%q, result=%s", outcome, res)
 	}
-	if !strings.Contains(res, `{"sends":[{"body":"hi","to":"user"}]}`) {
+	if !strings.Contains(res, `{"sends":[{"body":"hi","to":"caller:session"}]}`) {
 		t.Errorf("expected corrected JSON in guidance, got: %s", res)
 	}
 }
 
 // A params key no target understands is rejected by name with the valid key list.
 func TestDispatch_UnknownParamsKeyRejected(t *testing.T) {
-	host := &mockDispatchHost{currentKey: "cli", callerKind: "user", userFacing: true}
+	host := &mockDispatchHost{currentKey: "cli", callerKind: "user"}
 	_, res := runDispatch(t, host,
-		`{"sends": [{"to": "user", "params": {"delay": "1h"}, "body": "later"}]}`)
+		`{"sends": [{"to": "caller:session", "params": {"delay": "1h"}, "body": "later"}]}`)
 	if !strings.Contains(res, "unknown params key(s): delay") || !strings.Contains(res, "task_id") {
 		t.Errorf("expected unknown-key rejection with valid key list, got: %s", res)
 	}
-	if host.sentToUser != "" {
-		t.Errorf("nothing may be delivered, sent: %q", host.sentToUser)
+	if host.sentToCaller != "" {
+		t.Errorf("nothing may be delivered, sent: %q", host.sentToCaller)
 	}
 }
 
-// The to=session self-reference rejection points back to to=user with the
-// exact JSON — previously it dead-ended (the to=user error suggested
-// to=session, the to=session error rejected self-reference, and the model
-// ping-ponged between them).
-func TestDispatch_SelfReferenceGuidesToUser(t *testing.T) {
-	host := &mockDispatchHost{currentKey: "discord:123", callerKind: "system", userFacing: true}
+// Addressing your OWN session via to=session is a self-reference. The error
+// must not dead-end: it points at the one way that does reach this session's
+// human — plain content, no dispatch at all.
+func TestDispatch_SelfReferenceGuidesToContent(t *testing.T) {
+	host := &mockDispatchHost{currentKey: "discord:123", callerKind: "system"}
 	_, res := runDispatch(t, host,
 		`{"sends": [{"to": "session", "params": {"channel": "discord", "user_id": "123"}, "body": "ping"}]}`)
-	if !strings.Contains(res, "self-reference") || !strings.Contains(res, `{"sends":[{"body":"ping","to":"user"}]}`) {
-		t.Errorf("expected self-reference error with to=user corrected JSON, got: %s", res)
+	if !strings.Contains(res, "self-reference") {
+		t.Errorf("expected self-reference error, got: %s", res)
+	}
+	if !strings.Contains(res, "just write your message as your reply text") {
+		t.Errorf("error must point at plain content, got: %s", res)
 	}
 }
 
@@ -1182,10 +1059,9 @@ func runDispatchBatched(t *testing.T, host *mockDispatchHost, argsJSON string, b
 }
 
 func TestDispatch_BatchedSend_DeliversWithoutHalting(t *testing.T) {
-	// caller:session on a non-user-facing thread: SendToCaller suppresses the
-	// sink, and a batched dispatch must clear that so the turn's final text
-	// still reaches the sink. (Non-user-facing so the user-progress rule, which
-	// would demand a to=user send, does not apply.)
+	// caller:session on a subagent thread: SendToCaller suppresses the sink,
+	// and a batched dispatch must clear that so the turn's final text still
+	// reaches the sink.
 	host := &mockDispatchHost{
 		currentKey: "cli:threads:x",
 		callerKind: "session",
@@ -1223,10 +1099,10 @@ func TestDispatch_BatchedEmpty_IsNoOp(t *testing.T) {
 func TestDispatch_ExplicitBatchSizeOne_StillTerminates(t *testing.T) {
 	host := &mockDispatchHost{
 		currentKey: "telegram:123",
-		callerKind: "user",
-		userFacing: true,
+		callerKind: "session",
+		callerKey:  "cli",
 	}
-	outcome, _ := runDispatchBatched(t, host, `{"sends": [{"to": "user", "body": "done"}]}`, 1)
+	outcome, _ := runDispatchBatched(t, host, `{"sends": [{"to": "caller:session", "body": "done"}]}`, 1)
 	if outcome != "turn-terminated" {
 		t.Fatalf("outcome=%q", outcome)
 	}

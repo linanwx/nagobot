@@ -111,9 +111,9 @@ func (c *CronChannel) Start(ctx context.Context) error {
 				logger.Warn("cron: direct_wake without wake_session, skipping", "id", jobID)
 				return "", nil
 			}
-			delivery := "you were woken by cron (inject mode). Caller is cron — output to caller is dropped. " +
-				"Use dispatch(to=user) to message your user, or dispatch(to=session, params={session_key: ...}) " +
-				"to forward elsewhere."
+			delivery := "you were woken by cron (inject mode). Caller is cron — there is nobody to reply to, " +
+				"but your plain reply text IS delivered to this session's channel user. Write only what is worth " +
+				"sending; use dispatch({}) to stay silent, or dispatch(to=session, params={session_key: ...}) to forward elsewhere."
 			c.onDirectWake(target, msg.WakeCron, task, "", delivery)
 			return "", nil
 		}

@@ -42,7 +42,7 @@ This is a BACKGROUND task. You will NOT message the user.
          --wake-session {{SESSIONKEY}} --direct-wake
      ```
 
-   - Write `--task` so tomorrow-you can act on it directly: what to send and why, with enough context from today's conversation. It must also instruct: first look at the recent conversation — if the moment has passed (the user already brought it up, or the follow-up no longer feels natural), end silently with `dispatch({})`; otherwise send it via `dispatch(to=user)`.
+   - Write `--task` so tomorrow-you can act on it directly: what to send and why, with enough context from today's conversation. It must also instruct: first look at the recent conversation — if the moment has passed (the user already brought it up, or the follow-up no longer feels natural), end silently with `dispatch({})`; otherwise deliver it as your ordinary reply text (a cron wake on this session reaches the user).
    - No candidate scores high → schedule nothing. A day with no natural follow-up is normal; do not force one.
 
 6. **Tidy the workspace.** After the dream, run the file-track skill — `use_skill("file-track")` — and follow it to archive stale files and refresh `file-track.md`. Same nightly-maintenance spirit as the dream: keep this session's work files organized and catalogued. Do this even on a quiet night (it's about files on disk, not the conversation).

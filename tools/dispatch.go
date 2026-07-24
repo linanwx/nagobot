@@ -19,11 +19,10 @@ type DispatchTarget string
 const (
 	// TargetCallerSession replies to the caller AND asserts the caller is
 	// another session. Fails validation if the caller is the channel user or
-	// a system source. (There is no caller:user form: replying to a channel
-	// user who woke you is just to=user — the destinations are identical, so
-	// the redundant caller:user target was removed.)
+	// a system source. (There is no caller:user form, and no to=user target:
+	// speaking to your own human is done by writing content, not by
+	// dispatching — see Thread.contentSink.)
 	TargetCallerSession DispatchTarget = "caller:session"
-	TargetUser          DispatchTarget = "user"
 	TargetSubagent      DispatchTarget = "subagent"
 	TargetFork          DispatchTarget = "fork"
 	TargetSession       DispatchTarget = "session"
@@ -67,7 +66,6 @@ var dispatchParamKeys = []string{"agent", "task_id", "provider", "model", "sessi
 // acceptance while its intended delivery never happened.
 var acceptedFields = map[DispatchTarget]map[string]bool{
 	TargetCallerSession: {},
-	TargetUser:          {},
 	TargetSubagent:      {"agent": true, "task_id": true, "provider": true, "model": true},
 	TargetFork:          {"agent": true, "task_id": true, "provider": true, "model": true},
 	TargetSession:       {"session_key": true, "channel": true, "user_id": true},
@@ -203,13 +201,16 @@ type DispatchHost interface {
 	// sinkLabel — human-readable destination shown back to the LLM on
 	//             successful caller delivery.
 	CallerInfo() (kind msg.CallerKind, callerKey, sinkLabel string)
-	// IsUserFacing reports whether this session has a channel user sink
-	// (telegram/discord/cli/web/feishu/wecom). Required for to=user.
-	IsUserFacing() bool
+	// ContentReachesSomeone reports whether text the model writes as assistant
+	// content alongside this tool_call actually gets delivered. True on a
+	// user-facing session whose wake source routes content to its human (the
+	// channel user, a cron injection, a peer-session wake). False when the
+	// content would be dropped: heartbeat turns, suppressed sinks, and sessions
+	// with no human of their own (subagents, forks) whose sink is not chunkable.
+	ContentReachesSomeone() bool
 	AgentExists(name string) bool
 	SessionExists(key string) bool
 	SendToCaller(ctx context.Context, body string) error
-	SendToUser(ctx context.Context, body string) error
 	CreateOrWakeSubagent(ctx context.Context, agent, taskID, body, overrideProvider, overrideModel string) (sessionKey, note string, err error)
 	CreateOrWakeFork(ctx context.Context, agent, taskID, body, overrideProvider, overrideModel string) (sessionKey, note string, err error)
 	// ValidateModelOverride reports whether (provider, model) is a usable model
@@ -242,18 +243,17 @@ func (t *DispatchTool) Def() provider.ToolDef {
 		Type: "function",
 		Function: provider.FunctionDef{
 			Name: "dispatch",
-			Description: "Turn-terminating routing primitive. Call this at the end of every turn to declare where output goes. " +
-				"dispatch ends the turn ONLY when it is the sole tool call in your message. Batched alongside other tool calls, every send still delivers but the turn CONTINUES — you will see the other tools' results and keep working. Use that batched form deliberately to give the user a brief progress note while kicking off longer work (e.g. dispatch(to=user, \"Searching...\") + web_search in one message), then end the turn later with a final dispatch called alone or with plain text.\n" +
+			Description: "Routing primitive for reaching OTHER agents and sessions. It does NOT reach your own human: to speak to the human on this session's channel, simply write your reply as ordinary assistant text and end the turn — there is no to=user target. The server decides whether that text reaches the human from the wake source alone: a heartbeat or compression turn never reaches the human no matter what it writes, while a user, cron, or peer-session turn does. " +
+				"dispatch ends the turn ONLY when it is the sole tool call in your message. Batched alongside other tool calls, every send still delivers but the turn CONTINUES — you will see the other tools' results and keep working.\n" +
 				"Each entry in `sends` has a `to` field selecting the target:\n" +
-				"- user: message the human on this session's own channel. This is how you reply to a channel user who woke you (telegram/discord/cli/web/feishu/wecom), AND how you proactively message your user when a non-user source (cron/heartbeat/another session) woke you. Only valid for user-facing sessions. Takes only to/body: the destination is this session itself, so params stays empty.\n" +
 				"- caller:session — reply to the caller AND assert the caller is another session (cross-session wake; `caller_session_key` is present in wake YAML). Fails validation if the actual caller is the channel user or system.\n" +
 				"- subagent: spawn a new subagent thread, or wake existing at same task_id. Takes to/body plus params: task_id (required), agent?, provider?+model? (optional model override).\n" +
 				"- fork: branch current session as new agent thread, or wake existing at same task_id. Takes to/body plus the same params as subagent.\n" +
-				"- session: wake ANOTHER session's AI. The body becomes that session's wake message, processed by ITS AI (own agent/persona/history) — it is NOT delivered verbatim to that session's human user; the target AI decides what, if anything, to forward (typically via its own dispatch(to=user)). Takes to/body plus params in one of two mutually exclusive forms: (1) session_key — exact key of an EXISTING session (validation fails if it does not exist); (2) channel + user_id — address a channel endpoint directly, creating the session if missing. Use form 2 to initiate contact with a user who may never have talked to the bot. Either way, the target's dispatch(to=caller:session) routes back to YOUR session (ping-pong recurses until one side halts).\n\n" +
-				"Which form to pick when replying to whoever woke you: read `caller_session_key` in the wake YAML frontmatter. Present → to=caller:session (a peer session woke you); absent AND this session is user-facing → to=user (the channel user woke you); system sources (cron/heartbeat/compression) have no caller to reply to, use dispatch({}) or to=user instead. " +
+				"- session: wake ANOTHER session's AI. The body becomes that session's wake message, processed by ITS AI (own agent/persona/history) — it is NOT delivered verbatim to that session's human user; the target AI decides what, if anything, to say to its own human (by writing its reply text). Takes to/body plus params in one of two mutually exclusive forms: (1) session_key — exact key of an EXISTING session (validation fails if it does not exist); (2) channel + user_id — address a channel endpoint directly, creating the session if missing. Use form 2 to initiate contact with a user who may never have talked to the bot. Either way, the target's dispatch(to=caller:session) routes back to YOUR session (ping-pong recurses until one side halts).\n\n" +
+				"Which form to pick when replying to whoever woke you: read `caller_session_key` in the wake YAML frontmatter. Present → dispatch(to=caller:session) (a peer session woke you). Absent AND this session is user-facing → the channel user woke you: do NOT dispatch, just write your reply as ordinary text. System sources (cron/heartbeat/compression) have no caller to reply to — write your reply (delivered only if the source allows) or dispatch({}). " +
 				"Empty sends — dispatch({}) — is silent turn termination; nothing delivered, history recorded. Only use when you genuinely have nothing to say AND the caller does not need to know you finished. If you received a cross-session wake you believe was mis-routed, dispatch(to=caller:session) with an explanation — do NOT silently drop it via dispatch({}) (the caller never learns). " +
-				"IMPORTANT: when calling dispatch, the assistant message's content field MUST be empty. dispatch only delivers each send's `body`; any text written in content alongside this tool_call has no defined recipient and will be rejected. Either put all user-facing text into a send body, or skip dispatch entirely and let default delivery route your assistant content to the caller. " +
-				"Common mistakes to avoid: (a) do NOT use to=session to reply to whoever woke you — that is to=caller:session; to=session wakes a DIFFERENT session. (b) Do NOT use to=user to answer a cross-session caller — that messages your own human, not the caller; use to=caller:session. (c) On a user-facing session, a dispatch with no to=user send means the human sees NOTHING this turn, even if subagents ran. " +
+				"Assistant content alongside a dispatch call: dispatch itself delivers ONLY each send's `body`. The content field is your speech to your own human, and it is delivered independently whenever this turn's wake source allows it — so on a user-facing turn, reporting to your human in content while routing work with dispatch is the normal shape, and when you hand work off you SHOULD tell your human what you just did. Where content reaches nobody (a heartbeat turn, or a subagent/fork with no human of its own) it is rejected with a validation error so the text is not lost — move it into a send body. " +
+				"Common mistakes to avoid: (a) do NOT use to=session to reply to whoever woke you — that is to=caller:session; to=session wakes a DIFFERENT session. (b) Do NOT dispatch in order to reach your own human — there is no to=user; end the turn with plain text instead. (c) Do NOT use plain text to answer a cross-session caller — text goes to your own human, not the caller; use to=caller:session. " +
 				"On success the turn ends (if dispatch was the sole tool call). On validation error the turn continues — fix and re-call. " +
 				"dispatch fires NOW — it has no delay/schedule parameter. For any future or delayed wake (including a delayed self-wake), use the manage-cron skill, not dispatch.",
 			Parameters: map[string]any{
@@ -360,19 +360,23 @@ func (t *DispatchTool) run(ctx context.Context, args json.RawMessage) (result st
 		}
 	}()
 
-	// The content+dispatch combo: when the model emits text in the assistant
-	// content field alongside this dispatch tool_call, that text has no defined
-	// recipient — dispatch only delivers the explicit `body` of each send.
-	// Allowing it leaks content inconsistently across channels (chunkable sinks
-	// forward it as intermediate, non-chunkable drop it) and lets the model
-	// assume delivery that does not happen.
+	// The content+dispatch combo. Where content reaches someone — a user-facing
+	// session speaking to its own human — writing text alongside dispatch is the
+	// normal shape: the content is the report to the human, the sends are the
+	// routing to other agents. Nothing to check.
 	//
-	// Substantial content (>= 50 runes) is a real message the model meant to
-	// send — hard-reject so it moves the text into a send body. Short content
-	// (< 50 runes) is usually a stray fragment (an ack, an emoji); rejecting it
-	// would force a full turn re-run for no benefit, so it is dropped with a
-	// warning (appended via the defer above) and the dispatch proceeds.
-	if content := strings.TrimSpace(provider.AssistantContentFromContext(ctx)); content != "" {
+	// Where it does NOT reach anyone (heartbeat turns, subagents/forks whose sink
+	// is not chunkable), that text has no recipient — dispatch delivers only the
+	// explicit `body` of each send. Substantial content (>= 50 runes) is a real
+	// message the model meant to send, so hard-reject and make it pick a send.
+	// Short content (< 50 runes) is usually a stray fragment (an ack, an emoji);
+	// rejecting it would force a full turn re-run for no benefit, so it is
+	// dropped with a warning (appended via the defer above) and dispatch proceeds.
+	content := strings.TrimSpace(provider.AssistantContentFromContext(ctx))
+	if t.host.ContentReachesSomeone() {
+		content = ""
+	}
+	if content != "" {
 		preview := content
 		if runes := []rune(preview); len(runes) > previewMaxRunes {
 			preview = string(runes[:previewMaxRunes]) + "..."
@@ -382,9 +386,9 @@ func (t *DispatchTool) run(ctx context.Context, args json.RawMessage) (result st
 			return toolResult("dispatch", map[string]any{
 				"outcome": "validation-error",
 			}, "Validation failed — no sends were executed. Fix and re-call dispatch; the turn continues.\n\n"+
-				"Reason: this turn produced non-empty assistant content alongside the dispatch call. dispatch only delivers each send's `body` field — content emitted in the assistant message itself has no defined recipient and will not be delivered as you might expect.\n\n"+
+				"Reason: this turn produced non-empty assistant content alongside the dispatch call, and this session has nobody to deliver it to — there is no human reading this session's replies right now. dispatch only delivers each send's `body` field; the assistant message text is dropped.\n\n"+
 				"Offending content (preview): \""+preview+"\"\n\n"+
-				"Fix: move ALL user-facing text into the appropriate send body (e.g. dispatch(sends=[{to: \"user\", body: \"<your text>\"}])). When you call dispatch, the assistant message must carry no user-facing text — every word you want delivered goes in a send's `body`.\n"+
+				"Fix: move ALL of that text into the appropriate send body (e.g. dispatch(sends=[{to: \"caller:session\", body: \"<your text>\"}])), so it reaches whoever asked. If it was meant for nobody, drop it and call dispatch with the assistant message empty.\n"+
 				"Re-issue the turn with the text moved into the send body.")
 		}
 		droppedContentWarning = fmt.Sprintf(
@@ -423,24 +427,6 @@ func (t *DispatchTool) run(ctx context.Context, args json.RawMessage) (result st
 		return buildDispatchErrorResult(errs)
 	}
 
-	// User-progress enforcement: on a user-facing session woken
-	// "interactively" — by the channel user OR by another session (peer
-	// asking, child reporting back via child_completed) — a non-empty
-	// dispatch call MUST include a to=user send. Otherwise the user gets no
-	// progress update from this turn even though real work happened (subagents
-	// spawned, peers notified, etc.). System wakes (cron / heartbeat /
-	// compression / resume) are exempt — silent skip is part of their design.
-	//
-	// Escape valve: the model can still skip dispatch entirely and let
-	// naive assistant text auto-route to the user via the default sink, OR
-	// call dispatch({}) to deliberately stay silent (handled above).
-	callerKind, _, _ := t.host.CallerInfo()
-	enforceUserProgress := t.host.IsUserFacing() &&
-		(callerKind == msg.CallerKindUser || callerKind == msg.CallerKindSession)
-	if enforceUserProgress && !batchHasUserFacingSend(a.Sends) {
-		return buildUserDispatchRequiredResult(a.Sends)
-	}
-
 	// Execute. Partial failure possible — the halt decision (solo only) is
 	// the same either way: executed deliveries cannot be unrolled.
 	executed := make([]ExecutedItem, 0, len(a.Sends))
@@ -464,11 +450,10 @@ func (t *DispatchTool) run(ctx context.Context, args json.RawMessage) (result st
 	} else {
 		t.host.ClearSuppressSink()
 	}
-	isUserFacing := t.host.IsUserFacing()
 	if len(execErrs) > 0 {
-		return buildDispatchMixedResult(executed, execErrs, isUserFacing, solo)
+		return buildDispatchMixedResult(executed, execErrs, solo)
 	}
-	return buildDispatchSuccessResult(executed, isUserFacing, solo)
+	return buildDispatchSuccessResult(executed, solo)
 }
 
 // validateAll performs all static, existence, and dedup checks.
@@ -509,7 +494,7 @@ func (t *DispatchTool) validateOne(send DispatchSend, currentSession string) str
 	// entry, which makes this lookup the unknown-to check as well.
 	accepted, known := acceptedFields[send.To]
 	if !known {
-		return fmt.Sprintf("unknown to: %q (must be one of caller:session/user/subagent/fork/session)", send.To)
+		return fmt.Sprintf("unknown to: %q (must be one of caller:session/subagent/fork/session). To speak to your own human, do not dispatch at all — just write your message as your reply text.", send.To)
 	}
 	if detail := rejectBadParams(send, accepted); detail != "" {
 		return detail
@@ -524,15 +509,11 @@ func (t *DispatchTool) validateOne(send DispatchSend, currentSession string) str
 		case msg.CallerKindSession:
 			// OK
 		case msg.CallerKindUser:
-			return "to=caller:session but actual caller is the channel user. Use to=user for direct channel delivery."
+			return "to=caller:session but actual caller is the channel user. To answer your own human, just write your reply as content — no dispatch needed."
 		case msg.CallerKindSystem:
 			return "to=caller:session but actual caller is system (cron/heartbeat/compression — replies are dropped). This wake has no session caller; choose an explicit target instead."
 		default:
 			return "current wake has no routable caller"
-		}
-	case TargetUser:
-		if !t.host.IsUserFacing() {
-			return "current session is not user-facing — to=user is only valid for telegram/discord/cli/web/feishu/wecom sessions"
 		}
 	case TargetSubagent, TargetFork:
 		taskID := send.Params["task_id"]
@@ -562,7 +543,7 @@ func (t *DispatchTool) validateOne(send DispatchSend, currentSession string) str
 			return "session accepts either session_key OR channel+user_id, not both"
 		case hasKey:
 			if key == currentSession {
-				return fmt.Sprintf("session_key is the current session (self-reference not allowed). To message THIS session's own user, resend exactly: %s", correctedSendJSON(TargetUser, send.Body))
+				return "session_key is the current session (self-reference not allowed). To speak to THIS session's own human, do not dispatch at all — just write your message as your reply text."
 			}
 			if !t.host.SessionExists(key) {
 				return fmt.Sprintf("session %q not found — the session_key form requires an existing session. To contact a channel user who may have no session yet, use channel+user_id instead", key)
@@ -582,7 +563,7 @@ func (t *DispatchTool) validateOne(send DispatchSend, currentSession string) str
 				return "user_id cannot address subagent/fork sessions"
 			}
 			if ch+":"+uid == currentSession {
-				return fmt.Sprintf("channel+user_id resolves to the current session (self-reference not allowed). To message THIS session's own user, resend exactly: %s", correctedSendJSON(TargetUser, send.Body))
+				return "channel+user_id resolves to the current session (self-reference not allowed). To speak to THIS session's own human, do not dispatch at all — just write your message as your reply text."
 			}
 		default:
 			return "session requires params: either session_key (existing session) or channel+user_id (created if missing)"
@@ -596,8 +577,6 @@ func targetKey(send DispatchSend, currentSession string) string {
 	switch send.To {
 	case TargetCallerSession:
 		return "caller" // at most one caller per batch regardless of declared kind
-	case TargetUser:
-		return "user" // at most one user per batch
 	case TargetSubagent:
 		return currentSession + ":threads:" + send.Params["task_id"]
 	case TargetFork:
@@ -621,11 +600,6 @@ func (t *DispatchTool) execute(ctx context.Context, send DispatchSend) (Executed
 			SessionKey:  callerKey,
 			DeliveredTo: sinkLabel,
 		}, nil
-	case TargetUser:
-		if err := t.host.SendToUser(ctx, send.Body); err != nil {
-			return ExecutedItem{}, err
-		}
-		return ExecutedItem{To: TargetUser, SessionKey: t.host.CurrentSessionKey()}, nil
 	case TargetSubagent:
 		p := send.Params
 		key, note, err := t.host.CreateOrWakeSubagent(ctx, p["agent"], p["task_id"], send.Body, p["provider"], p["model"])
@@ -666,8 +640,6 @@ func describeExecuted(ex ExecutedItem) string {
 			return "Replied " + body + " to the caller session " + ex.SessionKey + " (resolved to: " + ex.DeliveredTo + ")."
 		}
 		return "Replied " + body + " to the caller session " + ex.SessionKey + "."
-	case TargetUser:
-		return "Sent " + body + " to your channel user (nothing else was sent to the user)."
 	case TargetSubagent:
 		note := ex.Note
 		if note == "" {
@@ -689,50 +661,6 @@ func describeExecuted(ex ExecutedItem) string {
 	return "Dispatched " + body + " to=" + string(ex.To) + " at session " + ex.SessionKey + "."
 }
 
-// hasReachedUser reports whether any executed send delivered directly to the
-// channel user this turn (to=user). Used to suppress the noUserReminder when
-// the reminder would be misleading.
-func hasReachedUser(executed []ExecutedItem) bool {
-	for _, ex := range executed {
-		if ex.To == TargetUser {
-			return true
-		}
-	}
-	return false
-}
-
-const noUserReminder = "Reminder: this dispatch had no to=user entry. Any reply above went to another AI session, not to your channel user. Unless you explicitly dispatch(to=user), nothing in this turn is visible to the human user."
-
-// batchHasUserFacingSend reports whether the batch contains at least one send
-// that delivers to the channel user (to=user). Empty batch is treated as not
-// user-facing.
-func batchHasUserFacingSend(sends []DispatchSend) bool {
-	for _, s := range sends {
-		if s.To == TargetUser {
-			return true
-		}
-	}
-	return false
-}
-
-// buildUserDispatchRequiredResult is the validation-error response when a
-// user-facing session (woken interactively by user or another session)
-// produced a non-empty dispatch with no user-facing target. The turn
-// continues so the model can re-call. Note: dispatch({}) is intentionally
-// allowed elsewhere as the silent-termination escape valve and never reaches
-// this function.
-func buildUserDispatchRequiredResult(sends []DispatchSend) string {
-	var sb strings.Builder
-	sb.WriteString("Validation failed — no sends were executed. Fix and re-call dispatch; the turn continues.\n\n")
-	fmt.Fprintf(&sb, "Reason: this is a user-facing session and the wake came from the user or a peer session, so any non-empty dispatch MUST include a to=user send so the user sees progress. Your batch had %d send(s) but none targeted the user — work happened (subagent / fork / session / caller:session) but the user got nothing.\n\n", len(sends))
-	sb.WriteString("Fix by ONE of:\n")
-	sb.WriteString("  1. Add a to=user send to the batch with a brief progress message — e.g. dispatch(sends=[{to: \"user\", body: \"Working on it — will report back.\"}, ...your other sends...]).\n")
-	sb.WriteString("  2. Skip dispatch entirely this turn and let your assistant text auto-deliver to the user (works for plain reply-to-user turns).\n")
-	sb.WriteString("  3. Genuinely have nothing to say AND nothing to spawn? Use dispatch({}) for silent termination (always allowed, highest priority).\n")
-	return toolResult("dispatch", map[string]any{
-		"outcome": "validation-error",
-	}, strings.TrimRight(sb.String(), "\n"))
-}
 
 func buildDispatchErrorResult(errs []DispatchError) string {
 	var sb strings.Builder
@@ -753,7 +681,7 @@ func buildDispatchErrorResult(errs []DispatchError) string {
 // Deliveries above it in the result are real — the model must not resend.
 const turnContinuesNote = "Turn NOT terminated: this dispatch was batched with other tool calls, and dispatch only ends the turn when it is the sole tool call in your message. The deliveries above are already sent — do NOT resend them. Continue working with the other tools' results; then end the turn with a final dispatch called alone, or with plain text (default delivery)."
 
-func buildDispatchSuccessResult(executed []ExecutedItem, isUserFacing, solo bool) string {
+func buildDispatchSuccessResult(executed []ExecutedItem, solo bool) string {
 	var sb strings.Builder
 	ending := "Turn ended."
 	if !solo {
@@ -771,10 +699,6 @@ func buildDispatchSuccessResult(executed []ExecutedItem, isUserFacing, solo bool
 		sb.WriteString("\n")
 		sb.WriteString(turnContinuesNote)
 	}
-	if isUserFacing && !hasReachedUser(executed) {
-		sb.WriteString("\n")
-		sb.WriteString(noUserReminder)
-	}
 	outcome := "turn-terminated"
 	if !solo {
 		outcome = "delivered-turn-continues"
@@ -784,7 +708,7 @@ func buildDispatchSuccessResult(executed []ExecutedItem, isUserFacing, solo bool
 	}, strings.TrimRight(sb.String(), "\n"))
 }
 
-func buildDispatchMixedResult(executed []ExecutedItem, errs []DispatchError, isUserFacing, solo bool) string {
+func buildDispatchMixedResult(executed []ExecutedItem, errs []DispatchError, solo bool) string {
 	var sb strings.Builder
 	ending := "Turn ended"
 	if !solo {
@@ -810,10 +734,6 @@ func buildDispatchMixedResult(executed []ExecutedItem, errs []DispatchError, isU
 	if !solo {
 		sb.WriteString("\n")
 		sb.WriteString(turnContinuesNote)
-	}
-	if isUserFacing && !hasReachedUser(executed) {
-		sb.WriteString("\n")
-		sb.WriteString(noUserReminder)
 	}
 	return toolResult("dispatch", map[string]any{
 		"outcome": "partial-failure",
