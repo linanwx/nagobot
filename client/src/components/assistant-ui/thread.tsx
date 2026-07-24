@@ -739,14 +739,29 @@ const AssistantMessage: FC = () => {
         >
           {({ part, children }) => {
             switch (part.type) {
+              // The chain-of-thought wrapper is the card; reasoning and tool
+              // groups render as ghost rows inside it, so a turn's thinking
+              // and its tool calls read as one native card rather than two
+              // stacked boxes. groupBy nests both under this part, so neither
+              // ever needs its own border.
               case "group-chainOfThought":
-                return <div data-slot="aui_chain-of-thought">{children}</div>;
+                return (
+                  <div
+                    data-slot="aui_chain-of-thought"
+                    // Row separator via an adjacent-sibling rule rather than
+                    // divide-y: the utility emits no border against these
+                    // children, so the rows would run together.
+                    className="border-border/80 bg-background/90 my-2 overflow-hidden rounded-xl border shadow-sm [&>*+*]:border-t"
+                  >
+                    {children}
+                  </div>
+                );
               case "group-tool":
                 if (ToolGroup) {
                   return <ToolGroup group={part}>{children}</ToolGroup>;
                 }
                 return (
-                  <ToolGroupRoot variant="ghost">
+                  <ToolGroupRoot variant="ghost" className="px-4 py-1">
                     <ToolGroupTrigger
                       count={part.indices.length}
                       active={part.status.type === "running"}
@@ -762,7 +777,11 @@ const AssistantMessage: FC = () => {
                 }
                 const running = part.status.type === "running";
                 return (
-                  <ReasoningRoot streaming={running}>
+                  <ReasoningRoot
+                    variant="ghost"
+                    className="px-4 py-1"
+                    streaming={running}
+                  >
                     <ReasoningTrigger active={running} />
                     <ReasoningContent aria-busy={running}>
                       <ReasoningText>{children}</ReasoningText>
