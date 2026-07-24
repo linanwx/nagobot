@@ -108,22 +108,29 @@ function SessionRow({
   // A summarized session is identified by its summary alone — the raw
   // session id adds nothing a human recognizes, so it moves to the tooltip.
   const label = session.summary || sessionLabel(session.key);
+  // Visuals mirror the assistant-ui thread-list item (bg-muted hover/active,
+  // rounded-md, aui_thread-list-* data-slots), but the row stays two-line:
+  // summaries are the only way a human tells sessions apart, and the native
+  // single-line h-8 truncate cut them too short.
   return (
     <button
       type="button"
       onClick={() => onSelect(session.key)}
       title={session.key}
+      data-slot="aui_thread-list-item"
+      data-active={active || undefined}
       className={cn(
-        "flex w-full flex-col gap-0.5 rounded-md px-2 py-1.5 text-left",
-        active
-          ? "bg-sidebar-accent text-sidebar-accent-foreground"
-          : "hover:bg-sidebar-accent/50",
+        "group relative flex w-full flex-col gap-0.5 rounded-md px-2.5 py-1.5 text-left transition-colors",
+        active ? "bg-muted" : "hover:bg-muted/60",
       )}
     >
-      {/* Smaller two-line label: summaries are the only way to tell sessions
-          apart, and a single truncated text-sm line cut them too short. */}
       <span className="flex items-baseline gap-2">
-        <span className="line-clamp-2 min-w-0 flex-1 text-xs">{label}</span>
+        <span
+          data-slot="aui_thread-list-item-title"
+          className="line-clamp-2 min-w-0 flex-1 text-xs"
+        >
+          {label}
+        </span>
         <span className="shrink-0 text-[10px] text-muted-foreground">
           {relativeTime(session.updated_at)}
         </span>
@@ -266,16 +273,6 @@ export function SessionSidebar({
         <Button
           variant="ghost"
           size="icon"
-          className="size-7 shrink-0"
-          onClick={onCreate}
-          title={t("sidebar.newSession")}
-        >
-          <Plus className="size-4" />
-          <span className="sr-only">{t("sidebar.newSession")}</span>
-        </Button>
-        <Button
-          variant="ghost"
-          size="icon"
           className="hidden size-7 shrink-0 md:inline-flex"
           onClick={() => setRailCollapsed(true)}
           title={t("sidebar.collapse")}
@@ -284,7 +281,22 @@ export function SessionSidebar({
           <span className="sr-only">{t("sidebar.collapse")}</span>
         </Button>
       </div>
-      <nav className="flex-1 overflow-y-auto overscroll-contain px-2 py-2">
+      <nav
+        data-slot="aui_thread-list-root"
+        className="flex flex-1 flex-col gap-0.5 overflow-y-auto overscroll-contain px-2 py-2"
+      >
+        {/* Native thread-list "New Thread" affordance: a full-width ghost row
+            with a leading Plus, at the top of the list rather than a header icon. */}
+        <Button
+          variant="ghost"
+          data-slot="aui_thread-list-new"
+          className="h-8 w-full justify-start gap-2 rounded-md px-2.5 text-sm font-normal hover:bg-muted"
+          onClick={onCreate}
+        >
+          <Plus className="size-4 shrink-0" />
+          <span className="whitespace-nowrap">{t("sidebar.newSession")}</span>
+        </Button>
+
         {error && <p className="px-2 py-1 text-xs text-destructive">{error}</p>}
 
         {folders.length === 0 ? (
@@ -306,10 +318,13 @@ export function SessionSidebar({
                 }
                 className="mb-1"
               >
-                <CollapsibleTrigger className="group flex w-full items-center gap-1 rounded-md px-1 py-1 text-xs font-medium uppercase tracking-wider text-muted-foreground hover:bg-sidebar-accent/50">
+                <CollapsibleTrigger
+                  data-slot="aui_thread-list-group-label"
+                  className="group flex w-full items-center gap-1 rounded-md px-2.5 py-1 text-xs font-medium text-muted-foreground transition-colors hover:bg-muted/60"
+                >
                   <ChevronRight className="size-3 transition-transform group-data-[state=open]:rotate-90" />
                   {folder.name}
-                  <span className="ml-auto pr-1 font-normal">
+                  <span className="ml-auto pr-0.5 font-normal tabular-nums">
                     {folder.sessions.length}
                   </span>
                 </CollapsibleTrigger>
