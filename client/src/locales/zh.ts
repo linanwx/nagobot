@@ -107,7 +107,7 @@ export const zh = {
     stopDictation: "停止听写",
     stopVoice: "停止语音输入",
     sendMessage: "发送消息",
-    stopGenerating: "停止生成",
+    queuedMessage: "已发送，等待确定在对话中的位置",
     exportMarkdown: "导出为 Markdown",
     reply: "引用回复",
     replyPending: "正在生成引用…",

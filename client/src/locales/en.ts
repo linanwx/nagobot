@@ -109,7 +109,7 @@ export const en = {
     stopDictation: "Stop dictation",
     stopVoice: "Stop voice input",
     sendMessage: "Send message",
-    stopGenerating: "Stop generating",
+    queuedMessage: "Sent — waiting for its place in the conversation",
     exportMarkdown: "Export as Markdown",
     reply: "Quote reply",
     replyPending: "Writing the quote…",

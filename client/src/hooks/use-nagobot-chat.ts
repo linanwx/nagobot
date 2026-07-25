@@ -1,6 +1,7 @@
 import {
   useExternalStoreRuntime,
   type AppendMessage,
+  type ExternalThreadQueueAdapter,
   type ThreadMessageLike,
 } from "@assistant-ui/react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -85,6 +86,42 @@ const historyPageSize = 300;
 // A turn with no response frame (e.g. a silent dispatch({}) end) would leave
 // the spinner on forever without this.
 const runningTimeoutMs = 180_000;
+
+// PendingMessage is a message the daemon has (the WS frame is out) but the
+// conversation has not placed yet — rendered as a composer chip, not a bubble.
+// See ComposerQueueBar for why placement has to wait for the server.
+type PendingMessage = {
+  id: string;
+  // What the chip shows: the typed text, without the folded-in quote line.
+  prompt: string;
+  // The wire form (quote included) — what to render once promoted, and what
+  // to look for when recognising this message in a history read.
+  text: string;
+  media?: MediaRef[];
+  createdAt: Date;
+};
+
+// How far back a chip looks for itself in a history read. Recognition is by
+// text because the server echoes no id we could match on, so an identical
+// message from earlier in the conversation must not retire a chip that is
+// still genuinely in flight.
+const pendingHistoryWindow = 6;
+
+// historyPlaced reports whether a persisted history read now contains this
+// pending message. `includes` rather than equality because tryMerge folds
+// consecutive wakes into one body (`"first\nsecond"`), which must retire both
+// chips.
+function historyPlaced(history: ChatMessage[], item: PendingMessage): boolean {
+  const recent = history
+    .filter((m) => m.role === "user" && m.kind !== "event")
+    .slice(-pendingHistoryWindow);
+  return recent.some((m) => {
+    if (item.text !== "") return m.text.includes(item.text);
+    return (item.media ?? []).every((want) =>
+      (m.media ?? []).some((got) => got.name === want.name),
+    );
+  });
+}
 
 let nextLocalID = 0;
 function localID(prefix: string): string {
@@ -330,6 +367,8 @@ export function useNagobotChat(
   onFirstSend?: (key: string) => void,
 ) {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
+  // Sent but not yet placed — see PendingMessage.
+  const [pending, setPending] = useState<PendingMessage[]>([]);
   // How many trailing entries of the full mapped history are rendered. The
   // pane is keyed by sessionKey, so a session switch resets this to one page.
   const [renderLimit, setRenderLimit] = useState(historyPageSize);
@@ -361,6 +400,35 @@ export function useNagobotChat(
   onFirstSendRef.current = onFirstSend;
   const firstSendNotified = useRef(false);
 
+  // The pending queue is read synchronously (a WS frame handler decides on the
+  // spot whether to promote chips) and rendered from state, so the ref is
+  // authoritative and the state mirrors it. Every mutation goes through here
+  // so the two can never disagree.
+  const pendingRef = useRef<PendingMessage[]>([]);
+  const updatePending = useCallback(
+    (fn: (prev: PendingMessage[]) => PendingMessage[]) => {
+      pendingRef.current = fn(pendingRef.current);
+      setPending(pendingRef.current);
+    },
+    [],
+  );
+
+  // takePending drains the queue and returns the chips as user bubbles, for
+  // the caller to splice in at the position the server has just revealed.
+  const takePending = useCallback((): ChatMessage[] => {
+    const items = pendingRef.current;
+    if (items.length === 0) return [];
+    updatePending(() => []);
+    return items.map((p) => ({
+      id: p.id,
+      role: "user" as const,
+      text: p.text,
+      createdAt: p.createdAt,
+      isMe: true,
+      media: p.media,
+    }));
+  }, [updatePending]);
+
   const stopRunning = useCallback(() => {
     setIsRunning(false);
     if (runningTimer.current) {
@@ -375,8 +443,13 @@ export function useNagobotChat(
     runningTimer.current = setTimeout(() => {
       runningTimer.current = null;
       setIsRunning(false);
+      // Nothing ever came back — every stream frame re-arms this timer, so
+      // reaching it means the turn is dead. Promote whatever is still queued
+      // rather than leaving the user's own words stranded in a chip forever.
+      const stranded = takePending();
+      if (stranded.length > 0) setMessages((prev) => [...prev, ...stranded]);
     }, runningTimeoutMs);
-  }, []);
+  }, [takePending]);
 
   // One socket per mounted chat pane. The pane is keyed by sessionKey, so a
   // session switch remounts and reconnects cleanly.
@@ -410,6 +483,35 @@ export function useNagobotChat(
       return !senderName;
     };
 
+    // syncGen serializes the history fetches below: an older response must
+    // never overwrite the list a newer one already installed.
+    let syncGen = 0;
+
+    // Set while the current turn has absorbed promoted chips. Their placement
+    // was a client-side guess — immediately above the turn — and the server may
+    // have put them INSIDE it instead: injectFn folds a message arriving
+    // mid-turn in at a tool-iteration boundary, between the tool chain and the
+    // final reply. Only the turn boundary can settle that, so the flag drives a
+    // reconcile there.
+    let promotedThisTurn = false;
+
+    // promotePending drains the queue for a caller that has just learned where
+    // the messages go, and remembers that the turn owes a reconcile.
+    const promotePending = (): ChatMessage[] => {
+      const promoted = takePending();
+      if (promoted.length > 0) promotedThisTurn = true;
+      return promoted;
+    };
+
+    // applyHistory installs a history read as the message list and retires
+    // every chip the server has now placed. Chips it does NOT find stay
+    // queued — the server has not committed them yet.
+    const applyHistory = (api: ApiMessage[]) => {
+      const history = sessionToChatMessages(api, isMe);
+      setMessages(history);
+      updatePending((prev) => prev.filter((p) => !historyPlaced(history, p)));
+    };
+
     // resync re-reads session.jsonl and REPLACES the message list. Messages
     // delivered while this page was disconnected (mobile OS froze the PWA,
     // server fell back to Web Push) exist only on disk — the reconnected
@@ -417,23 +519,42 @@ export function useNagobotChat(
     // its pre-freeze state forever. Live stream state is reset; an in-flight
     // turn rebuilds its message from the next snapshot-carrying frame.
     const resync = () => {
+      const gen = ++syncGen;
       fetchSession(sessionKey)
         .then((detail) => {
-          if (cancelled) return;
+          if (cancelled || gen !== syncGen) return;
           live.turnId = null;
           live.partCount = 0;
           live.thinkingIdx = null;
           live.textIdx = null;
           live.tools.clear();
-          // A turn_end missed while disconnected would leave the stop button
+          // A turn_end missed while disconnected would leave the spinner
           // stuck until the failsafe timeout. Clear the running state here;
           // a turn genuinely still in flight re-arms it on its next frame.
           live.active = false;
+          promotedThisTurn = false;
           stopRunning();
-          setMessages(sessionToChatMessages(detail.messages, isMe));
+          applyHistory(detail.messages);
         })
         .catch(() => {
           // Keep whatever is on screen; the next reconnect/visible retries.
+        });
+    };
+
+    // reconcile re-reads session.jsonl purely to place messages the server has
+    // already committed — it never touches live turn state, and it abandons
+    // its result if a turn opened while the fetch was in flight (that turn's
+    // own start promotes the remaining chips, and installing stale history
+    // over it would orphan its live parts).
+    const reconcile = () => {
+      const gen = ++syncGen;
+      fetchSession(sessionKey)
+        .then((detail) => {
+          if (cancelled || gen !== syncGen || live.active) return;
+          applyHistory(detail.messages);
+        })
+        .catch(() => {
+          // The next turn boundary or visibility change retries.
         });
     };
 
@@ -463,8 +584,14 @@ export function useNagobotChat(
       live.thinkingIdx = null;
       live.textIdx = null;
       live.tools.clear();
+      // A turn opening is the server telling us where the queued messages
+      // went: the daemon write-ahead-persists a turn's user messages before
+      // its first LLM call, so anything still queued when frames start
+      // arriving belongs immediately above this turn.
+      const promoted = promotePending();
       setMessages((prev) => [
         ...prev,
+        ...promoted,
         { id, role: "assistant", text: "", parts: [], createdAt: new Date() },
       ]);
     };
@@ -558,6 +685,15 @@ export function useNagobotChat(
           live.textIdx = null;
           live.tools.clear();
           stopRunning();
+          // Settle every message this client sent into the turn that just
+          // ended: chips promoted above it may in fact have been injected
+          // INSIDE it, and chips still queued belong to whatever the server
+          // does next. Either way the persisted file is the authority, and
+          // this is the one moment it can be read without racing a live turn.
+          if (promotedThisTurn || pendingRef.current.length > 0) {
+            promotedThisTurn = false;
+            reconcile();
+          }
           break;
         }
       }
@@ -597,8 +733,13 @@ export function useNagobotChat(
         // The next round (if any) opens a fresh text part.
         live.textIdx = null;
       } else {
+        // No stream opened this turn (non-streaming provider, or an older
+        // daemon), so ensureTurn never ran — this reply is the first sign of
+        // where the queued messages landed.
+        const promoted = promotePending();
         setMessages((prev) => [
           ...prev,
+          ...promoted,
           {
             id: localID("resp"),
             role: "assistant",
@@ -632,8 +773,12 @@ export function useNagobotChat(
       if (live.turnId) {
         appendPart({ type: "text", text: `⚠️ ${message}` });
       } else {
+        // Promote first: an error about a message the user cannot see reads
+        // as the bot failing at nothing.
+        const promoted = promotePending();
         setMessages((prev) => [
           ...prev,
+          ...promoted,
           {
             id: localID("err"),
             role: "assistant",
@@ -682,10 +827,15 @@ export function useNagobotChat(
       sock.close();
       socketRef.current = null;
     };
-  }, [sessionKey, stopRunning]);
+  }, [sessionKey, stopRunning, takePending, updatePending]);
 
-  const onNew = useCallback(
-    async (message: AppendMessage) => {
+  // enqueue is the send path. It puts the message on the wire immediately —
+  // nothing is held back, the daemon accepts messages mid-turn — but renders
+  // it as a composer chip rather than a bubble, because only the daemon knows
+  // where in the conversation it will land (see ComposerQueueBar). The chip is
+  // promoted to a real bubble the moment the server reveals that position.
+  const enqueue = useCallback(
+    (message: AppendMessage) => {
       const typed = message.content
         .filter((p) => p.type === "text")
         .map((p) => p.text)
@@ -720,36 +870,58 @@ export function useNagobotChat(
           text,
           media.map((m) => ({ name: m.name })),
         ) ?? false;
-      setMessages((prev) => [
+      if (!sent) {
+        // Never queued: the socket is down, so the daemon has nothing and
+        // there is no placement to wait for. Show the user's words and the
+        // failure together.
+        setMessages((prev) => [
+          ...prev,
+          {
+            id: localID("user"),
+            role: "user",
+            text,
+            createdAt: new Date(),
+            isMe: true,
+            media: media.length > 0 ? media : undefined,
+          },
+          {
+            id: localID("err"),
+            role: "assistant",
+            text: i18n.t("chat.notConnected"),
+            createdAt: new Date(),
+          },
+        ]);
+        return;
+      }
+
+      updatePending((prev) => [
         ...prev,
         {
-          id: localID("user"),
-          role: "user",
+          id: localID("queued"),
+          prompt: typed || media.map((m) => m.name).join(", "),
           text,
-          createdAt: new Date(),
-          isMe: true,
           media: media.length > 0 ? media : undefined,
+          createdAt: new Date(),
         },
-        ...(sent
-          ? []
-          : [
-              {
-                id: localID("err"),
-                role: "assistant" as const,
-                text: i18n.t("chat.notConnected"),
-                createdAt: new Date(),
-              },
-            ]),
       ]);
-      if (sent) {
-        startRunning();
-        if (!firstSendNotified.current) {
-          firstSendNotified.current = true;
-          onFirstSendRef.current?.(sessionKey);
-        }
+      startRunning();
+      if (!firstSendNotified.current) {
+        firstSendNotified.current = true;
+        onFirstSendRef.current?.(sessionKey);
       }
     },
-    [startRunning, sessionKey],
+    [startRunning, sessionKey, updatePending],
+  );
+
+  // With a queue adapter present the runtime routes composer sends to
+  // queue.enqueue and never calls onNew (external-store-thread-runtime-core's
+  // append() returns right after enqueueing). It stays wired to the same path
+  // so the two can never diverge if that ever changes.
+  const onNew = useCallback(
+    async (message: AppendMessage) => {
+      enqueue(message);
+    },
+    [enqueue],
   );
 
   // takeOver reclaims the session after another page displaced this one
@@ -769,11 +941,32 @@ export function useNagobotChat(
     setRenderLimit((limit) => limit + historyPageSize);
   }, []);
 
+  // Supplying `queue` is what keeps the composer usable during a run: it flips
+  // thread.capabilities.queue, which is the sole term letting useComposerSend
+  // and ComposerInput's Enter handler through while isRunning. Nothing here
+  // buffers — enqueue sends straight away; the queue is the pending-placement
+  // display, and the runtime's own message-queue driver is deliberately not
+  // used because it drops an item the moment it dispatches.
+  const queue = useMemo<ExternalThreadQueueAdapter>(
+    () => ({
+      items: pending.map((p) => ({ id: p.id, prompt: p.prompt })),
+      enqueue,
+      // Unreachable, and no-ops by design: the chips render no steer/remove
+      // control, and this runtime exposes no edit/reload/cancel for clear() to
+      // answer. A sent message cannot be recalled — the daemon already has it.
+      steer: () => {},
+      remove: () => {},
+      clear: () => {},
+    }),
+    [pending, enqueue],
+  );
+
   const runtime = useExternalStoreRuntime<ChatMessage>({
     messages: visibleMessages,
     isRunning,
     convertMessage,
     onNew,
+    queue,
     adapters: { attachments: imageAttachmentAdapter },
   });
 
@@ -787,8 +980,9 @@ export function useNagobotChat(
     // ingests external messages in a post-mount effect. The pane uses this to
     // suppress the welcome screen during that sync gap — otherwise a session
     // with history flashes "How can I help you today?" before the store
-    // catches up.
-    messageCount: visibleMessages.length,
+    // catches up. Queued messages count: the first send on a fresh session is
+    // a chip until the turn opens, and the welcome screen must not outlive it.
+    messageCount: visibleMessages.length + pending.length,
     // Entries above the rendered window (0 = everything is shown).
     earlierCount: messages.length - visibleMessages.length,
     loadEarlier,

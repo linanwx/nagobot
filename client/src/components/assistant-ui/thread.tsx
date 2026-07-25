@@ -7,6 +7,7 @@ import {
 } from "@/components/assistant-ui/attachment";
 import { ThreadFollowupSuggestions } from "@/components/assistant-ui/follow-up-suggestions";
 import { MarkdownImage } from "@/components/assistant-ui/markdown-image";
+import { ComposerQueueBar } from "@/components/assistant-ui/composer-queue";
 import { MarkdownText } from "@/components/assistant-ui/markdown-text";
 import { PinButton } from "@/components/assistant-ui/pin-message";
 import {
@@ -666,6 +667,7 @@ const Composer: FC = () => {
         >
           <ComposerAttachments />
           <ComposerQuoteBar />
+          <ComposerQueueBar />
           <ComposerPrimitive.Input
             placeholder={t("thread.sendPlaceholder")}
             className="aui-composer-input caret-primary placeholder:text-muted-foreground/80 max-h-32 min-h-10 w-full resize-none bg-transparent px-2.5 py-1 text-base outline-none"
@@ -719,34 +721,27 @@ const ComposerAction: FC = () => {
             </ComposerPrimitive.StopDictation>
           </AuiIf>
         </AuiIf>
-        <AuiIf condition={(s) => !s.thread.isRunning}>
-          <ComposerPrimitive.Send asChild>
-            <TooltipIconButton
-              tooltip={t("thread.sendMessage")}
-              side="bottom"
-              type="button"
-              variant="default"
-              size="icon"
-              className="aui-composer-send size-7 rounded-full"
-              aria-label={t("thread.sendMessage")}
-            >
-              <ArrowUpIcon className="aui-composer-send-icon size-4.5" />
-            </TooltipIconButton>
-          </ComposerPrimitive.Send>
-        </AuiIf>
-        <AuiIf condition={(s) => s.thread.isRunning}>
-          <ComposerPrimitive.Cancel asChild>
-            <Button
-              type="button"
-              variant="default"
-              size="icon"
-              className="aui-composer-cancel size-7 rounded-full"
-              aria-label={t("thread.stopGenerating")}
-            >
-              <SquareIcon className="aui-composer-cancel-icon size-3.5 fill-current" />
-            </Button>
-          </ComposerPrimitive.Cancel>
-        </AuiIf>
+        {/*
+          Send stays available during a run — the daemon accepts messages
+          mid-turn and merges or injects them (thread/wake.go), so there is no
+          reason to make the user wait. There is deliberately no stop button
+          in its place: this runtime supplies no onCancel, and the daemon
+          exposes no cancel path over the web channel, so the button that used
+          to sit here rendered permanently disabled and did nothing.
+        */}
+        <ComposerPrimitive.Send asChild>
+          <TooltipIconButton
+            tooltip={t("thread.sendMessage")}
+            side="bottom"
+            type="button"
+            variant="default"
+            size="icon"
+            className="aui-composer-send size-7 rounded-full"
+            aria-label={t("thread.sendMessage")}
+          >
+            <ArrowUpIcon className="aui-composer-send-icon size-4.5" />
+          </TooltipIconButton>
+        </ComposerPrimitive.Send>
       </div>
     </div>
   );
