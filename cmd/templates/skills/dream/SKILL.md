@@ -23,7 +23,13 @@ This is a BACKGROUND task. You will NOT message the user.
    - Write in the language the user predominantly uses in conversation.
    - Keep it focused — one coherent reflection, not a transcript. Aim for something that will genuinely help future-you understand and serve this user.
 
-4. **Refresh this session's one-line summary.** Distill the whole session — who this is, what it's about, its current state — into a factual summary of **at most 200 characters**, weighted toward recent activity, written in the language the conversation predominantly uses. Save it:
+4. **Refresh this session's one-line summary.** Distill the whole session — who this is, what it's about, its current state — into a factual summary of **at most 200 characters**, weighted toward recent activity, written in the language the conversation predominantly uses.
+
+   **One single line — no line breaks anywhere.** This one is absolute: the summary is injected into every agent's system prompt as one `- <session key>: <summary>` row, and an embedded newline splits that row so the tail reads as a separate session.
+
+   **Lead with a short title that names this session, then the gist** — guidance, not a rule. The web UI uses this summary AS the session's name (clamped to two lines in the sidebar, one in the header), so the opening words are the only thing a human has to pick the right session out of a list; spend them on identifying it rather than warming up to it. Usual shape: `<short title>. <what it is about and where it stands>`, e.g. `nagobot web client. Fixing the mobile paste crash and empty bubbles; v1.6.81 live on all three bots.` Judge each session on its own, though — a thin or barely-used session may be fully described by the title alone, and padding it out with filler is worse than a summary that is just three words.
+
+   Save it:
 
    ```
    exec: {{WORKSPACE}}/bin/nagobot set-summary {{SESSIONKEY}} "<summary>"

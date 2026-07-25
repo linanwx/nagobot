@@ -71,7 +71,11 @@ exec: {{WORKSPACE}}/bin/nagobot set-summary <key> <summary>
 ```
 
 - `<key>`: Session key
-- `<summary>`: Summary text (≤200 characters recommended)
+- `<summary>`: Summary text (≤200 characters recommended). Must be a single line
+  — it renders as one `- <key>: <summary>` row in every agent's system prompt, so
+  a line break splits the row. Prefer leading with a short title naming the
+  session, then the gist, since the web UI shows this text as the session's name
+  clamped to one or two lines; a thin session may need nothing but the title.
 
 Writes to `system/sessions_summary.json`. Automatically cleans up entries with `summary_at` older than 7 days and reports what was cleaned.
 
