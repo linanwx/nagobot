@@ -134,6 +134,16 @@ The load-bearing decision is **where the path is resolved**: entirely on the ser
 
 `img` is wired into all three renderer maps — `defaultComponents` (assistant), `userMarkdownComponents` and `eventMarkdownComponents` (both in `thread.tsx`). Missing any one of them leaves a class of message rendering raw broken images.
 
+### Republishing a hosted page (`cmd/upload_html.go`, `create-html` skill)
+
+`upload-html` puts a self-contained HTML file in R2 under `pages/<timestamp>-<rand>.html` and returns the public `pub-*.r2.dev` URL. Until 2026-07-25 that was the only thing it could do, so a revision meant a *second* page at a *second* URL — visible in the live workspace as `chester-sunday-map-20260621{,-v2,-v3}.html` and four overlapping cornwall guides among 112 files. `--replace <url|key>` now republishes over an existing key, keeping the URL.
+
+**R2 was never the obstacle; `Cache-Control` was.** PutObject on an existing key is an atomic replace (new ETag, no DELETE, no versioning) and the r2.dev edge does not cache at all — responses carry no `cf-cache-status`, so an overwrite is visible to a fresh client instantly. What broke was the **browser**: the old header was `public, max-age=31536000, immutable`, and measured in a real browser, after overwriting, a plain navigation back to the same URL still rendered the pre-overwrite page. Only a forced `location.reload()` saw the new one — and a user clicking the link you sent them does not hard-reload. Hence `r2CacheControl = "public, max-age=0, must-revalidate"`: the ETag makes an unchanged page a 304 with a zero-byte body (verified against r2.dev), so revalidating every navigation costs one conditional request and a changed page is never missed.
+
+**There is no rescue path if the header is wrong**, which is why it is a constant and not a flag: Cloudflare's Cache Purge API only covers zones, and `pub-*.r2.dev` is a managed domain with no zone. Pages published *before* this change carry a one-year immutable entry in every browser that opened them and can never be updated in place; that backlog was deliberately written off rather than special-cased.
+
+`--replace` takes the URL a previous upload returned (what the model actually has on hand) or the bare key, and `replaceTargetKey` rejects rather than guesses — foreign origin, another prefix, `..`, or a bare prefix all fail, since the value is model-supplied and a wrong key overwrites an unrelated page. A `HeadObject` existence check comes before the PUT: without it one garbled character silently publishes a phantom page and the command reports success. There is deliberately **no local registry and no page-id system** — the URL is the id, it is already in the transcript and already in the user's chat. The cost is bounded and accepted: once compression ages the URL out of context, that page can no longer be updated, and the model is told to publish a new one rather than guess a key.
+
 ### Agent Templates (`agent/`)
 
 Agents are markdown templates in `{workspace}/agents/{name}.md` with `{{PLACEHOLDER}}` syntax. Variables set via `agent.Set(key, value)` before `Build()`. Runtime vars (TOOLS, SKILLS, USER) are set per-turn in `thread/run.go`. `{{DATE}}` and `{{CALENDAR}}` are auto-resolved in `agent.Build()` at day-level granularity (no minutes/seconds).

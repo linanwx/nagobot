@@ -25,7 +25,17 @@ const (
 	r2EndpointTemplate = "https://%s.r2.cloudflarestorage.com"
 	r2KeyPrefix        = "pages/"
 	r2MaxBytes         = 200 << 20 // sensible 200 MiB cap, matches typical CDN limits
+
+	// r2CacheControl must let the browser revalidate on every navigation, because
+	// a page can be republished in place via --replace and r2.dev cannot be
+	// purged (Cloudflare's purge API only covers zones, not the managed
+	// pub-*.r2.dev domain). The ETag still makes an unchanged page a 304 with a
+	// zero-byte body, so revalidating costs one conditional request. Measured:
+	// with "immutable" a plain navigation kept rendering the pre-overwrite page.
+	r2CacheControl = "public, max-age=0, must-revalidate"
 )
+
+var uploadHTMLReplace string
 
 var uploadHTMLCmd = &cobra.Command{
 	Use:     "upload-html <file>",
@@ -36,6 +46,7 @@ var uploadHTMLCmd = &cobra.Command{
 }
 
 func init() {
+	uploadHTMLCmd.Flags().StringVar(&uploadHTMLReplace, "replace", "", "Republish over an already-published page, keeping its URL. Takes the URL that a previous upload-html returned. Empty publishes a new page at a new URL.")
 	rootCmd.AddCommand(uploadHTMLCmd)
 }
 
@@ -67,8 +78,6 @@ func runUploadHTML(cmd *cobra.Command, args []string) error {
 	}
 	defer f.Close()
 
-	key := r2KeyPrefix + r2ObjectKey(filepath.Base(path))
-
 	ctx, cancel := context.WithTimeout(cmd.Context(), 60*time.Second)
 	defer cancel()
 
@@ -84,12 +93,31 @@ func runUploadHTML(cmd *cobra.Command, args []string) error {
 		o.BaseEndpoint = aws.String(endpoint)
 	})
 
+	action := "created"
+	key := r2KeyPrefix + r2ObjectKey(filepath.Base(path))
+	if uploadHTMLReplace != "" {
+		key, err = replaceTargetKey(uploadHTMLReplace, r2.PublicBaseURL)
+		if err != nil {
+			return err
+		}
+		// The page must already exist. Without this, one garbled character in the
+		// URL silently publishes a phantom page nobody will ever visit, and the
+		// command reports success.
+		if _, err := client.HeadObject(ctx, &s3.HeadObjectInput{
+			Bucket: aws.String(r2.Bucket),
+			Key:    aws.String(key),
+		}); err != nil {
+			return fmt.Errorf("--replace target %s does not exist (drop --replace to publish a new page): %w", key, err)
+		}
+		action = "replaced"
+	}
+
 	if _, err := client.PutObject(ctx, &s3.PutObjectInput{
-		Bucket:      aws.String(r2.Bucket),
-		Key:         aws.String(key),
-		Body:        f,
-		ContentType: aws.String("text/html; charset=utf-8"),
-		CacheControl: aws.String("public, max-age=31536000, immutable"),
+		Bucket:       aws.String(r2.Bucket),
+		Key:          aws.String(key),
+		Body:         f,
+		ContentType:  aws.String("text/html; charset=utf-8"),
+		CacheControl: aws.String(r2CacheControl),
 	}); err != nil {
 		return fmt.Errorf("r2 PutObject: %w", err)
 	}
@@ -103,12 +131,40 @@ func runUploadHTML(cmd *cobra.Command, args []string) error {
 	fmt.Print(tools.CmdOutput([][2]string{
 		{"command", "upload-html"},
 		{"status", "ok"},
+		{"action", action},
 		{"url", publicURL},
 		{"key", key},
 		{"file", path},
 		{"size_bytes", fmt.Sprintf("%d", info.Size())},
 	}, publicURL) + "\n")
 	return nil
+}
+
+// replaceTargetKey turns the --replace value into an object key. It accepts the
+// full public URL a previous upload-html returned (what the model actually has
+// on hand) or the bare key it printed alongside it. Anything that does not
+// resolve to this bucket's pages/ prefix is an error rather than a guess: the
+// value is model-supplied and a wrong key would overwrite an unrelated page.
+func replaceTargetKey(replace, publicBaseURL string) (string, error) {
+	base := strings.TrimRight(publicBaseURL, "/")
+	key := strings.TrimSpace(replace)
+
+	if strings.HasPrefix(key, "http://") || strings.HasPrefix(key, "https://") {
+		if !strings.HasPrefix(key, base+"/") {
+			return "", fmt.Errorf("--replace URL %s is not on this bucket's public origin %s", replace, base)
+		}
+		key = strings.TrimPrefix(key, base+"/")
+	}
+
+	// A bare filename is unambiguous — there is only one prefix — so complete it.
+	// A path under some other prefix is not, so reject it.
+	if !strings.Contains(key, "/") {
+		key = r2KeyPrefix + key
+	}
+	if !strings.HasPrefix(key, r2KeyPrefix) || strings.Contains(key, "..") || key == r2KeyPrefix {
+		return "", fmt.Errorf("--replace %s does not name a page under %s", replace, r2KeyPrefix)
+	}
+	return key, nil
 }
 
 // r2ObjectKey builds a unique key like "20260502-143012-ab12cd.html" from the
