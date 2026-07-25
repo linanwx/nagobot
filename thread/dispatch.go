@@ -387,13 +387,23 @@ func (t *Thread) IsUserFacing() bool {
 }
 
 // isUserFacingKey reports whether a session key is a user-facing channel session
-// (telegram / discord / cli / web / feishu / wecom) with no subagent/fork infix.
+// (telegram / discord / cli / web / feishu / wecom) with no subagent/fork infix
+// and no internal-sibling suffix.
 func isUserFacingKey(key string) bool {
 	key = strings.TrimSpace(key)
 	if key == "" {
 		return false
 	}
 	if strings.Contains(key, session.ThreadsSessionInfix) || strings.Contains(key, session.ForkSessionInfix) {
+		return false
+	}
+	// Internal siblings ({key}:quote, :imagepreview, :audiopreview,
+	// :progresssummary, :prethink) hang off a user-facing key but have no human
+	// of their own — their entire output is a value returned to the caller via
+	// OnComplete. Treating them as user-facing sends that internal artifact to
+	// the channel user as proactive content: on web, where no page is ever bound
+	// to a sibling key, Send falls all the way through to a broadcast push.
+	if session.IsInternalSiblingSession(key) {
 		return false
 	}
 	if strings.HasPrefix(key, "cron:") || strings.HasPrefix(key, "heartbeat") {

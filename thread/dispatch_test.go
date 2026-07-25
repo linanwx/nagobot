@@ -47,6 +47,15 @@ func TestContentSinkRouting(t *testing.T) {
 		// separately requires an explicit dispatch.
 		{"subagent keeps wake sink", "cli:threads:job", WakeSession, "wake", false},
 		{"cron session keeps wake sink", "cron:tidyup", WakeCron, "wake", false},
+		// Internal sibling sessions ({key}:quote, :imagepreview, …) hang off a
+		// user-facing key but have no human — their whole output is a value
+		// returned to the caller via OnComplete. Routing it to defaultSink
+		// pushes an internal artifact to the channel user (on web, to every
+		// enrolled device, since no page is bound to the sibling key).
+		{"quote sibling keeps wake sink", "web:abc" + session.QuoteSessionSuffix, WakeQuote, "wake", false},
+		{"image preview sibling keeps wake sink", "web:abc" + session.ImagePreviewSessionSuffix, WakeImagePreview, "wake", false},
+		{"audio preview sibling keeps wake sink", "telegram:123" + session.AudioPreviewSessionSuffix, WakeAudioPreview, "wake", false},
+		{"progress summary sibling keeps wake sink", "web:abc" + session.ProgressSummarySessionSuffix, WakeProgressSum, "wake", false},
 	}
 
 	for _, tc := range cases {
