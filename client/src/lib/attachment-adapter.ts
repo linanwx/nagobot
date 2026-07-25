@@ -40,7 +40,11 @@ export const imageAttachmentAdapter: AttachmentAdapter = {
       name: file.name,
       contentType: file.type,
       file,
-      status: { type: "running", reason: "uploading", progress: 0 },
+      // Nothing is uploading yet: send() does that, and the composer only
+      // calls it once the user hits send. Saying "running/uploading" here
+      // paints a spinner over the thumbnail for as long as the image sits in
+      // the composer, which is a lie about work that has not started.
+      status: { type: "requires-action", reason: "composer-send" },
     };
   },
 
