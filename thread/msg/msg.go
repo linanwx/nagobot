@@ -153,6 +153,7 @@ const (
 	WakeImagePreview WakeSource = "imagepreview"
 	WakeProgress     WakeSource = "progress"        // progress scanner delivering a running child's AI-generated progress summary to its user-facing ancestor
 	WakeProgressSum  WakeSource = "progresssummary" // progress scanner asking the progress-summary sibling agent to summarize a running turn's tool activity
+	WakeQuote        WakeSource = "quote"           // a client asking the quote sibling agent to condense a message into a one-line markdown quote
 )
 
 // IsUserVisibleSource reports whether the given source represents a real

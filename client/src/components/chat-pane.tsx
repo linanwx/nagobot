@@ -1,7 +1,8 @@
 import { AssistantRuntimeProvider } from "@assistant-ui/react";
 import { ArrowUpLeft, FileJson, Menu, MoreHorizontal } from "lucide-react";
-import { useMemo, useState } from "react";
+import { useCallback, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
+import { QuoteReplyProvider } from "@/components/assistant-ui/quote-reply";
 import { Thread } from "@/components/assistant-ui/thread";
 import { SessionRawDialog } from "@/components/session-raw-dialog";
 import { Button } from "@/components/ui/button";
@@ -14,7 +15,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { useNagobotChat } from "@/hooks/use-nagobot-chat";
-import type { SessionEntry } from "@/lib/api";
+import { fetchQuote, type SessionEntry } from "@/lib/api";
 import { relativeTime } from "@/lib/sessions";
 import { cn } from "@/lib/utils";
 
@@ -73,6 +74,13 @@ export function ChatPane({
     [hasMessages],
   );
   const [rawOpen, setRawOpen] = useState(false);
+  // This pane is the only place that knows both the session and the endpoint;
+  // the reply components below take a plain text→text function and stay unaware
+  // of both, so swapping the generator never reaches into them.
+  const generateQuote = useCallback(
+    (text: string) => fetchQuote(sessionKey, text),
+    [sessionKey],
+  );
 
   const visibleChildren = childSessions.slice(0, childMenuLimit);
 
@@ -191,11 +199,13 @@ export function ChatPane({
           </div>
         ) : (
           <AssistantRuntimeProvider runtime={runtime}>
-            <Thread
-              components={threadComponents}
-              earlierCount={earlierCount}
-              onLoadEarlier={loadEarlier}
-            />
+            <QuoteReplyProvider generate={generateQuote}>
+              <Thread
+                components={threadComponents}
+                earlierCount={earlierCount}
+                onLoadEarlier={loadEarlier}
+              />
+            </QuoteReplyProvider>
           </AssistantRuntimeProvider>
         )}
       </div>

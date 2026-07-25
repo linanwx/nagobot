@@ -82,6 +82,7 @@ type WebChannel struct {
 	systemPromptFn  func(string) (string, bool)
 	toolDefsFn      func(string) ([]provider.ToolDef, bool)
 	contextBudgetFn func(string) (int, int, bool)
+	quoteFn         func(context.Context, string, string) (string, error)
 }
 
 type wsClient struct {
@@ -187,6 +188,15 @@ func (w *WebChannel) SetContextBudgetFn(fn func(string) (int, int, bool)) {
 	w.contextBudgetFn = fn
 }
 
+// SetQuoteFn sets the reply-quote generator behind POST /api/quote: given a
+// session key and the text being replied to, it returns ONE line of markdown
+// quote, leading "> " marker included. The channel treats it as an opaque
+// text→text function — it neither builds nor parses quote syntax — so replacing
+// the generator (today an LLM sibling turn) is a one-line change in serve.go.
+func (w *WebChannel) SetQuoteFn(fn func(context.Context, string, string) (string, error)) {
+	w.quoteFn = fn
+}
+
 // Name returns the channel name.
 func (w *WebChannel) Name() string { return "web" }
 
@@ -244,6 +254,7 @@ func (w *WebChannel) Start(ctx context.Context) error {
 	mux.Handle("/api/push/vapid-key", w.protected(w.handlePushKey))
 	mux.Handle("/api/push/subscribe", w.protected(w.handlePushSubscribe))
 	mux.Handle("/api/push/unsubscribe", w.protected(w.handlePushUnsubscribe))
+	mux.Handle("/api/quote", w.protected(w.handleQuote))
 	mux.Handle("/", staticCacheHandler(frontendFS))
 
 	// Compression + WS split. gzhttp wraps the whole API+static mux, but with an

@@ -242,6 +242,31 @@ export async function uploadMedia(file: File): Promise<{ name: string }> {
   return res.json();
 }
 
+// fetchQuote asks the daemon to condense text into ONE line of markdown quote,
+// leading "> " marker included, for a reply. The whole line comes back ready to
+// use: the client never builds or parses quote syntax, which is what keeps the
+// generator swappable — replacing it is a server-side change only.
+//
+// Errors are thrown, never smoothed over: there is no client-side fallback
+// quote, and a mangled one would be worse than telling the user it failed.
+export async function fetchQuote(
+  sessionKey: string,
+  text: string,
+): Promise<string> {
+  const res = await fetch("/api/quote", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ session_id: sessionKey, text }),
+  });
+  if (!res.ok) {
+    throw new Error((await res.text()).trim() || `quote failed (${res.status})`);
+  }
+  const data = await res.json();
+  const quote = typeof data?.quote === "string" ? data.quote.trim() : "";
+  if (!quote) throw new Error("quote came back empty");
+  return quote;
+}
+
 // splitSpeakerPrefix extracts the legacy "[Name]: " speaker prefix that group
 // chats prepend to message text (data written before `sender_name` existed).
 // Returns the name and the text without the prefix, or name "" when there is

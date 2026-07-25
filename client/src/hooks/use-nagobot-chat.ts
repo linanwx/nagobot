@@ -92,6 +92,15 @@ function localID(prefix: string): string {
   return `${prefix}-${nextLocalID}`;
 }
 
+// quoteText pulls the composer's pending quote off an outgoing message. The
+// composer stores it under metadata.custom.quote as {text, messageId}; only the
+// text is used — the quote is a piece of markdown, not a link to a message.
+function quoteText(message: AppendMessage): string {
+  const custom = message.metadata?.custom as { quote?: { text?: unknown } } | undefined;
+  const text = custom?.quote?.text;
+  return typeof text === "string" ? text.trim() : "";
+}
+
 // stripSpeaker resolves the speaker name for a user message: prefer the
 // structured sender, fall back to the legacy "[Name]: " content prefix, and
 // strip the prefix from the displayed text either way (the structured field
@@ -677,11 +686,19 @@ export function useNagobotChat(
 
   const onNew = useCallback(
     async (message: AppendMessage) => {
-      const text = message.content
+      const typed = message.content
         .filter((p) => p.type === "text")
         .map((p) => p.text)
         .join("\n")
         .trim();
+
+      // A composer quote rides along as metadata rather than being merged into
+      // the text — the composer never prepends it. Doing it here is the whole
+      // integration: from this point on the quote is just the first line of an
+      // ordinary markdown message, so it persists, reloads and renders with no
+      // quote-aware code anywhere downstream.
+      const quote = quoteText(message);
+      const text = quote && typed !== "" ? `${quote}\n\n${typed}` : typed;
 
       // Attachments are uploaded by the adapter before onNew runs; each carries
       // an image part whose `image` is /api/media/{name}. Recover the basename

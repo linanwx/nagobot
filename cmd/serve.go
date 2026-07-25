@@ -239,6 +239,7 @@ func runServe(cmd *cobra.Command, args []string) error {
 			webCh.SetSystemPromptFn(threadMgr.SystemPrompt)
 			webCh.SetToolDefsFn(threadMgr.ToolDefs)
 			webCh.SetContextBudgetFn(threadMgr.ContextBudget)
+			webCh.SetQuoteFn(threadMgr.Quote)
 		}
 	}
 

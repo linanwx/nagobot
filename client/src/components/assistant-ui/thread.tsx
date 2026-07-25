@@ -7,6 +7,10 @@ import {
 } from "@/components/assistant-ui/attachment";
 import { ThreadFollowupSuggestions } from "@/components/assistant-ui/follow-up-suggestions";
 import { MarkdownText } from "@/components/assistant-ui/markdown-text";
+import {
+  ComposerQuoteBar,
+  ReplyQuoteButton,
+} from "@/components/assistant-ui/quote-reply";
 import { Reasoning } from "@/components/assistant-ui/reasoning";
 import { ToolFallback } from "@/components/assistant-ui/tool-fallback";
 import { TooltipIconButton } from "@/components/assistant-ui/tooltip-icon-button";
@@ -26,12 +30,12 @@ import {
   ActionBarPrimitive,
   AuiIf,
   type AssistantState,
-  BranchPickerPrimitive,
   ComposerPrimitive,
   ErrorPrimitive,
   groupPartByType,
   MessagePrimitive,
   SuggestionPrimitive,
+  type TextMessagePartComponent,
   ThreadPrimitive,
   type ToolCallMessagePartComponent,
   useAuiState,
@@ -42,8 +46,6 @@ import {
   BrainIcon,
   CheckIcon,
   ChevronDownIcon,
-  ChevronLeftIcon,
-  ChevronRightIcon,
   CopyIcon,
   DownloadIcon,
   MicIcon,
@@ -392,6 +394,67 @@ const eventMarkdownComponents: Components = {
   td: (p) => <td className="border-border/40 border px-1.5 py-0.5" {...p} />,
 };
 
+// Markdown for user bubbles. The registry MarkdownText is unusable here for the
+// same reason as in event cards (it renders through the assistant message part
+// context) and for a second one: its aui-md palette assumes a page background,
+// so `code` and `blockquote` become unreadable inside the dark bg-primary
+// bubble. Every color below is therefore derived from `currentColor`, which the
+// bubble already sets correctly for both variants (light text on bg-primary for
+// the viewer, dark text on bg-muted for other people).
+const userMarkdownComponents: Components = {
+  h1: (p) => <h3 className="mt-2 mb-1.5 font-semibold first:mt-0" {...p} />,
+  h2: (p) => <h3 className="mt-2 mb-1.5 font-semibold first:mt-0" {...p} />,
+  h3: (p) => <h4 className="mt-2 mb-1.5 font-semibold first:mt-0" {...p} />,
+  p: (p) => <p className="mb-1.5 last:mb-0" {...p} />,
+  ul: (p) => <ul className="mb-1.5 list-disc ps-4 last:mb-0" {...p} />,
+  ol: (p) => <ol className="mb-1.5 list-decimal ps-4 last:mb-0" {...p} />,
+  li: (p) => <li className="mb-0.5 last:mb-0" {...p} />,
+  // The reply quote lands here: one line, first in the message.
+  blockquote: (p) => (
+    <blockquote
+      className="border-current/40 mb-2 border-s-2 ps-2 text-[0.92em] opacity-75 last:mb-0"
+      {...p}
+    />
+  ),
+  a: (p) => (
+    <a
+      className="underline underline-offset-2"
+      target="_blank"
+      rel="noreferrer"
+      {...p}
+    />
+  ),
+  code: (p) => (
+    <code className="bg-current/15 rounded px-1 py-px font-mono text-[0.9em]" {...p} />
+  ),
+  pre: (p) => (
+    <pre
+      className="bg-current/15 mb-1.5 overflow-x-auto rounded p-2 text-[0.85em] last:mb-0 [&_code]:bg-transparent [&_code]:p-0"
+      {...p}
+    />
+  ),
+  hr: () => <hr className="border-current/30 my-2" />,
+  table: (p) => (
+    <div className="mb-1.5 overflow-x-auto last:mb-0">
+      <table className="text-[0.9em]" {...p} />
+    </div>
+  ),
+  th: (p) => (
+    <th className="border-current/30 border px-1.5 py-0.5 text-start" {...p} />
+  ),
+  td: (p) => <td className="border-current/30 border px-1.5 py-0.5" {...p} />,
+};
+
+// UserMarkdownText renders a user message's text part as markdown. Users write
+// markdown (tables pasted from elsewhere, code, and — since reply quotes ride
+// in the text — a leading "> " line), so rendering it raw showed the syntax
+// instead of the formatting.
+const UserMarkdownText: TextMessagePartComponent = ({ text }) => (
+  <ReactMarkdown remarkPlugins={[remarkGfm]} components={userMarkdownComponents}>
+    {text}
+  </ReactMarkdown>
+);
+
 // splitLeadingQuote peels the "> Re: …" reply-quote lines off an event body so
 // they can render as a dim quote block instead of blending into the content.
 function splitLeadingQuote(text: string): { quote: string; body: string } {
@@ -598,6 +661,7 @@ const Composer: FC = () => {
           className="border-border/60 data-[dragging=true]:border-ring focus-within:border-border dark:border-muted-foreground/15 dark:focus-within:border-muted-foreground/30 flex w-full flex-col gap-2 rounded-(--composer-radius) border bg-(--composer-bg) p-(--composer-padding) shadow-[0_4px_16px_-8px_rgba(0,0,0,0.08),0_1px_2px_rgba(0,0,0,0.04)] transition-[border-color,box-shadow] focus-within:shadow-[0_6px_24px_-8px_rgba(0,0,0,0.12),0_1px_2px_rgba(0,0,0,0.05)] data-[dragging=true]:border-dashed data-[dragging=true]:bg-[color-mix(in_oklab,var(--color-accent)_50%,var(--color-background))] dark:shadow-none"
         >
           <ComposerAttachments />
+          <ComposerQuoteBar />
           <ComposerPrimitive.Input
             placeholder={t("thread.sendPlaceholder")}
             className="aui-composer-input caret-primary placeholder:text-muted-foreground/80 max-h-32 min-h-10 w-full resize-none bg-transparent px-2.5 py-1 text-base outline-none"
@@ -895,7 +959,6 @@ const AssistantMessage: FC = () => {
           data-slot="aui_assistant-message-footer"
           className={cn("ms-2 flex items-center", ACTION_BAR_HEIGHT)}
         >
-          <BranchPicker />
           <AssistantActionBar />
         </div>
       ) : null}
@@ -921,6 +984,7 @@ const AssistantActionBar: FC = () => {
           </AuiIf>
         </TooltipIconButton>
       </ActionBarPrimitive.Copy>
+      <ReplyQuoteButton />
       {/* Reload removed — regenerating a reply is not supported by the
           nagobot backend (the session log is append-only). */}
       <ActionBarMorePrimitive.Root>
@@ -1044,9 +1108,9 @@ const UserMessage: FC = () => {
                     : "bg-muted text-foreground",
                 )}
               >
-                {/* NOTE: do not swap Text for MarkdownText here — the registry
-                    MarkdownText renders empty outside assistant messages. */}
-                <MessagePrimitive.Parts />
+                <MessagePrimitive.Parts
+                  components={{ Text: UserMarkdownText }}
+                />
               </div>
             ) : null}
           </div>
@@ -1054,11 +1118,6 @@ const UserMessage: FC = () => {
         {/* Edit action bar removed — editing history is not supported by the
             nagobot backend (messages are an append-only session log). */}
       </div>
-
-      <BranchPicker
-        data-slot="aui_user-branch-picker"
-        className="col-span-full col-start-1 row-start-3 -me-1 justify-end"
-      />
     </MessagePrimitive.Root>
   );
 };
@@ -1096,33 +1155,20 @@ const EditComposer: FC = () => {
   );
 };
 
-const BranchPicker: FC<BranchPickerPrimitive.Root.Props> = ({
-  className,
-  ...rest
-}) => {
-  const { t } = useTranslation();
-  return (
-    <BranchPickerPrimitive.Root
-      hideWhenSingleBranch
-      className={cn(
-        "aui-branch-picker-root text-muted-foreground -ms-2 me-2 inline-flex items-center text-xs",
-        className,
-      )}
-      {...rest}
-    >
-      <BranchPickerPrimitive.Previous asChild>
-        <TooltipIconButton tooltip={t("thread.previous")}>
-          <ChevronLeftIcon />
-        </TooltipIconButton>
-      </BranchPickerPrimitive.Previous>
-      <span className="aui-branch-picker-state font-medium">
-        <BranchPickerPrimitive.Number /> / <BranchPickerPrimitive.Count />
-      </span>
-      <BranchPickerPrimitive.Next asChild>
-        <TooltipIconButton tooltip={t("thread.next")}>
-          <ChevronRightIcon />
-        </TooltipIconButton>
-      </BranchPickerPrimitive.Next>
-    </BranchPickerPrimitive.Root>
-  );
-};
+// NOTE: there is deliberately no BranchPicker in this file, and it must not be
+// reintroduced. A "branch" is a message with siblings, and nagobot never
+// produces one on purpose — session.jsonl is an append-only log with no edit or
+// regenerate path, and the runtime is never given `setMessages`, so
+// `switchToBranch` throws outright ("Runtime does not support switching
+// branches"). The picker was dead UI whose arrows raised on click.
+//
+// It still showed up — a stray "2 / 2" under a user bubble — because siblings
+// arise by accident. A message optimistically appended with a local id
+// (`localID("user")` in use-nagobot-chat.ts) is re-fetched by `resync()` under
+// its persisted id, and assistant-ui parents every message on the PREVIOUS
+// array entry: the same message thus enters the repository twice, under two
+// ids, as two children of one parent. Nothing reaps the ghost — the
+// messages-array path of ExternalStoreThreadRuntimeCore never prunes ids that
+// left the array (only the messageRepository path does), and `resetHead`
+// deletes the new head's descendants, never its siblings. Harmless as long as
+// nothing renders branch state.
