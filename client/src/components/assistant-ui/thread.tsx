@@ -6,6 +6,7 @@ import {
   UserMessageAttachments,
 } from "@/components/assistant-ui/attachment";
 import { ThreadFollowupSuggestions } from "@/components/assistant-ui/follow-up-suggestions";
+import { MarkdownImage } from "@/components/assistant-ui/markdown-image";
 import { MarkdownText } from "@/components/assistant-ui/markdown-text";
 import {
   ComposerQuoteBar,
@@ -392,6 +393,7 @@ const eventMarkdownComponents: Components = {
     <th className="border-border/40 border px-1.5 py-0.5 text-start" {...p} />
   ),
   td: (p) => <td className="border-border/40 border px-1.5 py-0.5" {...p} />,
+  img: (p) => <MarkdownImage {...p} />,
 };
 
 // Markdown for user bubbles. The registry MarkdownText is unusable here for the
@@ -443,6 +445,7 @@ const userMarkdownComponents: Components = {
     <th className="border-current/30 border px-1.5 py-0.5 text-start" {...p} />
   ),
   td: (p) => <td className="border-current/30 border px-1.5 py-0.5" {...p} />,
+  img: (p) => <MarkdownImage {...p} />,
 };
 
 // UserMarkdownText renders a user message's text part as markdown. Users write

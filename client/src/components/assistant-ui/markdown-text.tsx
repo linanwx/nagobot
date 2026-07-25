@@ -12,6 +12,7 @@ import remarkGfm from "remark-gfm";
 import { type FC, memo, useState } from "react";
 import { CheckIcon, CopyIcon } from "lucide-react";
 
+import { MarkdownImage } from "@/components/assistant-ui/markdown-image";
 import { TooltipIconButton } from "@/components/assistant-ui/tooltip-icon-button";
 import { cn } from "@/lib/utils";
 
@@ -236,6 +237,12 @@ const defaultComponents = memoizeMarkdownComponents({
       className={cn("aui-md-sup [&>a]:text-xs [&>a]:no-underline", className)}
       {...props}
     />
+  ),
+  // Without this the model's `![alt](path)` reached the DOM as a bare <img>
+  // pointing at a filesystem path, which the browser resolved against the site
+  // origin and could never fetch.
+  img: ({ className, ...props }) => (
+    <MarkdownImage className={cn("aui-md-img", className)} {...props} />
   ),
   pre: ({ className, ...props }) => (
     <pre

@@ -15,7 +15,14 @@ Standard Markdown:
 ```
 
 - `alt text` — short description (may be empty: `![](path)`)
-- `path` — an absolute filesystem path (e.g. `{{WORKSPACE}}/media/photo.jpg`)
+- `path` — the file's location, **which must be under `{{WORKSPACE}}/media/`** (subdirectories are fine: `media/covers/x.jpg`). Either form works and they mean the same file:
+  - absolute — `{{WORKSPACE}}/media/photo.jpg`
+  - relative to the workspace — `media/photo.jpg`
+
+An image anywhere else is not sendable. On web it renders as a visible "image
+unavailable" chip rather than the picture, because the file has no address the
+browser can fetch. Put the file under `media/` first — `image` and the other
+generators already save there by default.
 
 The image markdown can appear **anywhere** in your reply, including mid-paragraph. It does not need its own line.
 
@@ -55,17 +62,22 @@ The line above is shown to the user as plain text — no upload.
 
 | Channel | Image Send |
 |---|---|
-| Discord | supported |
-| WeCom | supported (≤10 MB per image) |
+| Discord | supported (native attachment, appears after the text) |
+| WeCom | supported (≤10 MB per image, appears after the text) |
+| Web | supported (rendered **inline**, exactly where you put it) |
 | Telegram | not yet |
 | Feishu | not yet |
-| Web / CLI / Socket | not yet |
+| CLI / Socket | not yet |
+
+Web is the only channel that honours placement: Discord and WeCom upload a
+separate attachment, which always lands at the end, so mid-sentence references
+lose their position there but keep it on web.
 
 On unsupported channels the markdown remains in the message and is rendered (or left as text) by the channel's normal Markdown handling. **No upload happens.** Don't reference image markdown when the user is on a channel that does not support image send.
 
 ## Important Rules
 
 - The original Markdown text is delivered to the user **unchanged**. The image is an additional attachment, not a replacement. Don't add notes like "(image attached)" — the user will see both the text and the image.
-- Use absolute paths or paths relative to `{{WORKSPACE}}`. Other relative roots will not resolve.
+- Use absolute paths or paths relative to `{{WORKSPACE}}`, and keep the file under `{{WORKSPACE}}/media/`. Other relative roots will not resolve, and files outside `media/` are refused.
 - The file must already exist and contain real image bytes (PNG / JPEG / GIF / WebP / etc.). Hallucinated paths fail silently — the markdown is delivered as text but no image is uploaded.
 - Do not URL-encode paths. Use the path as it appears on disk.

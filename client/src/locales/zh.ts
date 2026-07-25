@@ -135,6 +135,9 @@ export const zh = {
     deny: "拒绝",
     denyAlways: "总是拒绝",
   },
+  markdown: {
+    imageFailed: "图片无法显示",
+  },
   attachment: {
     image: "图片",
     document: "文档",

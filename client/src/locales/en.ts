@@ -138,6 +138,9 @@ export const en = {
     deny: "Deny",
     denyAlways: "Always deny",
   },
+  markdown: {
+    imageFailed: "Image unavailable",
+  },
   attachment: {
     image: "Image",
     document: "Document",
