@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"fmt"
+	"os"
 	"path/filepath"
 	"sort"
 	"strings"
@@ -187,7 +188,10 @@ func listModelRouting(cfg *config.Config) error {
 	// agent rule > first specialty (left-to-right) with a rule > default. A
 	// non-matching specialty falls through to the next, so multi-specialty
 	// agents do not show "default" just because an earlier specialty is unset.
-	fmt.Printf("\nAgent routing:\n")
+	workspace, _ := cfg.WorkspacePath()
+	agents, agentsFrom := scanAllAgents(workspace)
+
+	fmt.Printf("\nAgent routing (from %s):\n", agentsFrom)
 	fmt.Printf("  %-20s %-20s %s\n", "Agent", "Specialty", "Provider / Model")
 	fmt.Printf("  %-20s %-20s %s\n", "─────", "─────────", "────────────────")
 
@@ -204,7 +208,7 @@ func listModelRouting(cfg *config.Config) error {
 		return "", ""
 	}
 
-	for _, a := range scanAllAgents() {
+	for _, a := range agents {
 		specialtyLabel := strings.Join(a.Specialties, ", ")
 		if specialtyLabel == "" {
 			specialtyLabel = "(none)"
@@ -284,13 +288,65 @@ type agentSpecialties struct {
 	SourceSpecialties map[string][]string
 }
 
-// scanAllAgents reads all embedded agent templates, returning each agent with
-// its specialty list in frontmatter order (order matters for left-to-right
-// model resolution).
-func scanAllAgents() []agentSpecialties {
+// scanAllAgents returns every agent with its specialty list in frontmatter
+// order (order matters for left-to-right model resolution), read from the SAME
+// place the daemon reads at runtime.
+//
+// That last part is the whole point, and it used to be wrong: this scanned the
+// EMBEDDED templates while `agent.NewRegistry` loads `{workspace}/agents` then
+// `{workspace}/agents-builtin`. Whenever the two disagreed — a hand-edited
+// agent, or a workspace not yet re-synced after an update — the table
+// confidently printed a specialty the daemon was not using. Observed on the
+// deployment: `quote-summary` was routing through `fast` in the live logs while
+// this table still said `lowcost`. A routing inspector that contradicts the
+// router is worse than no inspector.
+//
+// The embedded set stays as a FALLBACK for the only case where the workspace
+// legitimately has nothing to say — a fresh install before `onboard`, where the
+// runtime has no agents either and printing an empty table would just look
+// broken. Once the workspace yields anything it is authoritative in full,
+// including agents the embedded set has and it does not: the daemon would not
+// see those either, so neither should this.
+//
+// Returns the agents and the directory they came from, for the caller to show.
+func scanAllAgents(workspace string) ([]agentSpecialties, string) {
+	// Same dirs, same order, same override semantics as agent.NewRegistry:
+	// agents-builtin is scanned last and wins over a stale user copy.
+	if workspace != "" {
+		byName := make(map[string]agentSpecialties)
+		for _, dir := range []string{
+			filepath.Join(workspace, "agents"),
+			filepath.Join(workspace, "agents-builtin"),
+		} {
+			entries, err := os.ReadDir(dir)
+			if err != nil {
+				continue
+			}
+			for _, e := range entries {
+				if e.IsDir() || !strings.HasSuffix(e.Name(), ".md") {
+					continue
+				}
+				raw, err := os.ReadFile(filepath.Join(dir, e.Name()))
+				if err != nil {
+					continue
+				}
+				a := parseAgentSpecialties(raw, e.Name())
+				byName[a.Name] = a
+			}
+		}
+		if len(byName) > 0 {
+			out := make([]agentSpecialties, 0, len(byName))
+			for _, a := range byName {
+				out = append(out, a)
+			}
+			sort.Slice(out, func(i, j int) bool { return out[i].Name < out[j].Name })
+			return out, filepath.Join(workspace, "agents-builtin")
+		}
+	}
+
 	entries, err := templateFS.ReadDir("templates/agents")
 	if err != nil {
-		return nil
+		return nil, ""
 	}
 	var out []agentSpecialties
 	for _, e := range entries {
@@ -301,26 +357,32 @@ func scanAllAgents() []agentSpecialties {
 		if err != nil {
 			continue
 		}
-		meta, _, _, _ := agent.ParseTemplate(string(raw))
-		name := strings.TrimSpace(meta.Name)
-		if name == "" {
-			name = strings.TrimSuffix(e.Name(), ".md")
-		}
-		var srcSpec map[string][]string
-		if len(meta.SourceSpecialties) > 0 {
-			srcSpec = make(map[string][]string, len(meta.SourceSpecialties))
-			for src, list := range meta.SourceSpecialties {
-				srcSpec[src] = []string(list)
-			}
-		}
-		out = append(out, agentSpecialties{
-			Name:              name,
-			Specialties:       []string(meta.Specialties),
-			SourceSpecialties: srcSpec,
-		})
+		out = append(out, parseAgentSpecialties(raw, e.Name()))
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].Name < out[j].Name })
-	return out
+	return out, "embedded templates (workspace not populated)"
+}
+
+// parseAgentSpecialties extracts the routing-relevant frontmatter from one agent
+// template. fileName is the fallback name when the template declares none.
+func parseAgentSpecialties(raw []byte, fileName string) agentSpecialties {
+	meta, _, _, _ := agent.ParseTemplate(string(raw))
+	name := strings.TrimSpace(meta.Name)
+	if name == "" {
+		name = strings.TrimSuffix(fileName, ".md")
+	}
+	var srcSpec map[string][]string
+	if len(meta.SourceSpecialties) > 0 {
+		srcSpec = make(map[string][]string, len(meta.SourceSpecialties))
+		for src, list := range meta.SourceSpecialties {
+			srcSpec[src] = []string(list)
+		}
+	}
+	return agentSpecialties{
+		Name:              name,
+		Specialties:       []string(meta.Specialties),
+		SourceSpecialties: srcSpec,
+	}
 }
 
 func listFallbackStatus(cfg *config.Config) error {

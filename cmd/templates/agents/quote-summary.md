@@ -1,7 +1,7 @@
 ---
 name: quote-summary
 description: Condenses one message into a single line of markdown quote for a reply, including the leading "> " marker. Receives the message text in its wake payload and returns the line as plain text. Driven by the system (web client reply button) only — not user-invokable.
-specialty: [lowcost]
+specialty: [fast]
 tier_lossy_mode: stateless
 disable_tools: true
 ---

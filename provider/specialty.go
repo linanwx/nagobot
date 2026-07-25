@@ -12,9 +12,14 @@ import (
 // is unrestricted: onboard offers every model the chosen provider supports.
 //
 // Currently empty. Its only member was "fast", which pinned the pre-think agent
-// to a DeepSeek "-instant" alias; pre-think no longer calls a model at all, so the
-// restriction has nothing left to restrict. The mechanism stays because it is the
-// hook for the next specialty that needs a hand-picked model list.
+// to a DeepSeek "-instant" alias; pre-think no longer calls a model at all, so
+// that restriction died with it. "fast" itself is live again — quote-summary
+// declares it — but deliberately UNrestricted this time: the whitelist existed
+// because pre-think blocked every user turn and could not tolerate a reasoning
+// model, whereas a quote is one bounded off-path call. Pinning it to one
+// provider's one model would leave every non-DeepSeek deployment unable to
+// choose anything. The mechanism stays as the hook for the next specialty that
+// genuinely needs a hand-picked list.
 var explicitSpecialtyModels = map[string][]string{}
 
 // specialtyCapability maps a capability specialty to its per-(provider, model)
@@ -38,9 +43,12 @@ func specialtyCapability(specialty string) func(providerName, model string) bool
 // default model. onboard offers enable/skip for these instead of forcing a
 // model.
 //
-// Also empty now, and for the same reason: "fast" gated pre-think, and pre-think
-// is local. An existing config.yaml may still carry a `type: specialty, name: fast`
-// rule — it is inert, not an error, and is left alone rather than migrated.
+// Also empty. "fast" was the only member, back when it gated pre-think and an
+// absent rule meant "run pre-think without a model". It must NOT be re-added
+// now that quote-summary owns the specialty: optional means an absent rule
+// DISABLES the feature, so a deployment that skipped the prompt would lose the
+// quote button outright. Left non-optional, an absent `fast` rule simply
+// cascades to the default model — a slower quote, not a broken one.
 var optionalSpecialties = map[string]bool{}
 
 // SpecialtyOptional reports whether a specialty is an on/off feature toggle

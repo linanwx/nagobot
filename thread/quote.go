@@ -12,7 +12,12 @@ import (
 
 const (
 	// quoteAgent is the tools-disabled stateless sibling agent
-	// (specialty: [lowcost]) that condenses a message into a one-line quote.
+	// (specialty: [fast]) that condenses a message into a one-line quote.
+	// It routes through `fast` rather than `lowcost` because the two optimize
+	// for different things: a human is watching a spinner, so latency beats
+	// price here, and a thinking model spends its reasoning budget on a task
+	// that needs none. Measured on the deployment, the same quote went from
+	// 4354ms / 298 reasoning tokens to 1929ms / 0 on a "-instant" alias.
 	quoteAgent = "quote-summary"
 	// quoteTimeout bounds one quote sibling turn. A human is watching a spinner
 	// while this runs, so the budget is much tighter than the background
