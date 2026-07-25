@@ -171,9 +171,35 @@ the most recent 20, and only those that already have a `summary`. Anything from
 another session, from further back, or not yet summarized is absent from your
 prompt entirely. Absence there says nothing about whether the fact exists. If
 the user asks about something that is not in your context, grep before you
-conclude it was never said.
+conclude it was never said. The global equivalent of that index is one grep
+away — see the next section.
 
-### How to search
+### The global index: grep the summary lines
+
+The `summary` frontmatter line is the whole file in one sentence, so grepping
+*only those lines* gives you an index of every session's every day — one line
+per file, across the entire tree. This is the global counterpart to the
+`memory_index` in your prompt, which covers this session alone:
+
+```
+grep(pattern: "^summary:.*(<topic>|<synonym>)", path: "{{WORKSPACE}}/sessions",
+     include: "20??-??-??.md", max_results: 60)
+```
+
+Each hit is `<path>:2:summary: …`, and the path names the session and the date.
+Drop the topic filter (`pattern: "^summary:"`, `max_results: 200`) to read the
+whole landscape instead — on a mature workspace that is on the order of a
+hundred lines covering ~20 sessions, which is a real but bounded cost. Do that
+only when you need the lay of the land, not to answer one question.
+
+**Use the index to find WHERE, never to find WHAT.** A summary is ~200
+characters standing in for a day of conversation; a date, a number, a name the
+user said once is almost never in it. So an empty index sweep is not evidence
+the fact is absent — it only means no *day* was mostly about that topic. Facts
+live in the body, which is the content search below. When the index does hit,
+you have narrowed the content search from the whole tree to one session.
+
+### How to search the content
 
 Use the `grep` tool. Restrict to memory files by filename, not by path — memory
 files are the only `.md` files named `YYYY-MM-DD`:
@@ -202,11 +228,16 @@ Rules that make the difference between one call and fifteen:
 
 ### Workflow
 
-1. **Sweep** — one `grep` over `{{WORKSPACE}}/sessions` with an alternation
-   pattern and `context_lines: 0`, to find which sessions and dates hold the topic.
-2. **Read** — `read_file` the promising `memory/<date>.md` in full. One file is a
+1. **Index, when you don't know where to look** — the `^summary:` sweep above,
+   to find which session and which period the topic belongs to. Skip this when
+   you already know the session, or when you are after one specific fact (a
+   summary would not carry it).
+2. **Sweep** — one `grep` over `{{WORKSPACE}}/sessions` (or the one session the
+   index pointed at) with an alternation pattern and `context_lines: 0`, to find
+   which dates hold the topic.
+3. **Read** — `read_file` the promising `memory/<date>.md` in full. One file is a
    few hundred lines and gives you the surrounding decisions, not just a line.
-3. **Only if you need the exact original wording** — the pre-compression
+4. **Only if you need the exact original wording** — the pre-compression
    snapshots in that session's `history/*.jsonl` hold the raw turns. Never read
    one whole (they are huge); grep them for a distinctive phrase, or for a
    message ID quoted in a `[compressed — …]` marker.

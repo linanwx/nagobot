@@ -170,8 +170,18 @@ func (t *GrepTool) buildRgArgs(a grepArgs, searchPath string) []string {
 	return args
 }
 
+// buildGrepArgs builds the fallback command for hosts without ripgrep.
+//
+// `-E` is load-bearing, not a style choice. Bare grep is BRE, where `|` and
+// `(` are LITERAL characters — so the alternation patterns this tool's
+// description and the session-ops skill both tell the model to write
+// (`护照|passport`) matched nothing at all on such a host, while the same
+// pattern under rg matched dozens of lines. The failure was silent and
+// indistinguishable from "the fact was never mentioned", which is the exact
+// conclusion the model then drew. ERE is the closest common dialect to
+// ripgrep's, so the two backends now answer the same question.
 func (t *GrepTool) buildGrepArgs(a grepArgs, searchPath string) []string {
-	args := []string{"-rn"}
+	args := []string{"-rnE"}
 	if a.Include != "" {
 		args = append(args, "--include="+a.Include)
 	}
