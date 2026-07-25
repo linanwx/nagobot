@@ -115,12 +115,28 @@ export const en = {
     replyPending: "Writing the quote…",
     replyFailed: "Quote failed: {{error}}",
     removeQuote: "Remove quote",
+    pin: "Pin this message",
+    pinPending: "Sending…",
+    pinQueued: "Queued — it will appear in Pins shortly",
+    pinFailed: "Pin failed: {{error}}",
     update: "Update",
     working: "Assistant is working",
     via: "via {{caller}}",
     eventFrom: "from {{caller}}",
     thinking: "Thinking",
     eventSystem: "System",
+  },
+  pins: {
+    title: "Pins",
+    count_one: "{{count}} pin",
+    count_other: "{{count}} pins",
+    empty:
+      "Nothing pinned yet. Use the pin button under a reply to keep it here.",
+    close: "Collapse",
+    delete: "Delete",
+    deleteTitle: "Delete this pin?",
+    deleteBody:
+      "“{{title}}” will be removed from this session's pins. This cannot be undone.",
   },
   reasoning: {
     label: "Reasoning",

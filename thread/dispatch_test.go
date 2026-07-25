@@ -56,6 +56,10 @@ func TestContentSinkRouting(t *testing.T) {
 		{"image preview sibling keeps wake sink", "web:abc" + session.ImagePreviewSessionSuffix, WakeImagePreview, "wake", false},
 		{"audio preview sibling keeps wake sink", "telegram:123" + session.AudioPreviewSessionSuffix, WakeAudioPreview, "wake", false},
 		{"progress summary sibling keeps wake sink", "web:abc" + session.ProgressSummarySessionSuffix, WakeProgressSum, "wake", false},
+		// The pin sibling's output is a one-line report of what it filed; the
+		// file on disk is the actual result. Routed to defaultSink it would
+		// push "created pins/foo.md" to the channel user after every pin.
+		{"pin sibling keeps wake sink", "web:abc" + session.PinSessionSuffix, WakePin, "wake", false},
 	}
 
 	for _, tc := range cases {

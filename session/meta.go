@@ -34,8 +34,12 @@ const ProgressSummarySessionSuffix = ":progresssummary"
 // (condensing a message into a one-line markdown quote for the composer).
 const QuoteSessionSuffix = ":quote"
 
+// PinSessionSuffix is the session key suffix for pin sibling sessions
+// (filing a pinned message into the parent session's pins/ directory).
+const PinSessionSuffix = ":pin"
+
 // IsInternalSiblingSession reports whether the key is an internal helper sibling
-// session (pre-think / media-preview / progress-summary / quote). These run
+// session (pre-think / media-preview / progress-summary / quote / pin). These run
 // auxiliary agents on behalf of a parent session and carry no standalone
 // conversation, so they must be excluded from session-summary and other "real
 // session" enumerations.
@@ -44,7 +48,8 @@ func IsInternalSiblingSession(key string) bool {
 		strings.HasSuffix(key, AudioPreviewSessionSuffix) ||
 		strings.HasSuffix(key, ImagePreviewSessionSuffix) ||
 		strings.HasSuffix(key, ProgressSummarySessionSuffix) ||
-		strings.HasSuffix(key, QuoteSessionSuffix)
+		strings.HasSuffix(key, QuoteSessionSuffix) ||
+		strings.HasSuffix(key, PinSessionSuffix)
 }
 
 // ForkSessionInfix is the infix used in fork session keys: {parent}:fork:{purpose}.

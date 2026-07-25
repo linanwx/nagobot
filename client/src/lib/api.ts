@@ -267,6 +267,80 @@ export async function fetchQuote(
   return quote;
 }
 
+// --- pins ({sessionDir}/pins/*.md) ---
+
+export type PinEntry = {
+  // File name inside the session's pins directory; the id everywhere else.
+  name: string;
+  // Frontmatter `title`, or the file name when the pin has none.
+  title: string;
+  summary?: string;
+  size: number;
+  modified: string;
+};
+
+export type PinDetail = PinEntry & { content: string };
+
+// createPin asks the daemon to file a message into the session's pins. The
+// answer is an acknowledgement, not a result: the write happens in an agentic
+// turn afterwards, so a freshly pinned message shows up in the list a little
+// later (which is what the panel's polling is for).
+export async function createPin(
+  sessionKey: string,
+  text: string,
+): Promise<void> {
+  const res = await fetch("/api/pin", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ session_id: sessionKey, text }),
+  });
+  if (!res.ok) {
+    throw new Error((await res.text()).trim() || `pin failed (${res.status})`);
+  }
+}
+
+export async function fetchPins(sessionKey: string): Promise<PinEntry[]> {
+  const res = await fetch(
+    `/api/pins?session_id=${encodeURIComponent(sessionKey)}`,
+  );
+  // 404 = daemon predates the endpoint; an empty collection reads the same to
+  // the user and beats an error banner on every poll.
+  if (res.status === 404) return [];
+  if (!res.ok) throw new Error(`GET /api/pins: ${res.status}`);
+  const data = await res.json();
+  return Array.isArray(data?.pins) ? (data.pins as PinEntry[]) : [];
+}
+
+export async function fetchPin(
+  sessionKey: string,
+  name: string,
+): Promise<PinDetail> {
+  const res = await fetch(
+    `/api/pins?session_id=${encodeURIComponent(sessionKey)}&name=${encodeURIComponent(name)}`,
+  );
+  if (!res.ok) {
+    throw new Error(
+      (await res.text()).trim() || `GET /api/pins/${name}: ${res.status}`,
+    );
+  }
+  return res.json();
+}
+
+export async function deletePin(
+  sessionKey: string,
+  name: string,
+): Promise<void> {
+  const res = await fetch(
+    `/api/pins?session_id=${encodeURIComponent(sessionKey)}&name=${encodeURIComponent(name)}`,
+    { method: "DELETE" },
+  );
+  if (!res.ok) {
+    throw new Error(
+      (await res.text()).trim() || `delete pin failed (${res.status})`,
+    );
+  }
+}
+
 // splitSpeakerPrefix extracts the legacy "[Name]: " speaker prefix that group
 // chats prepend to message text (data written before `sender_name` existed).
 // Returns the name and the text without the prefix, or name "" when there is

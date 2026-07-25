@@ -62,6 +62,7 @@ const (
 	WakeProgress     = msg.WakeProgress
 	WakeProgressSum  = msg.WakeProgressSum
 	WakeQuote        = msg.WakeQuote
+	WakePin          = msg.WakePin
 )
 
 // threadState represents the runtime state of a thread.

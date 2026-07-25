@@ -1,9 +1,11 @@
 import { AssistantRuntimeProvider } from "@assistant-ui/react";
-import { ArrowUpLeft, FileJson, Menu, MoreHorizontal } from "lucide-react";
+import { ArrowUpLeft, FileJson, Menu, MoreHorizontal, Pin } from "lucide-react";
 import { useCallback, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
+import { PinProvider } from "@/components/assistant-ui/pin-message";
 import { QuoteReplyProvider } from "@/components/assistant-ui/quote-reply";
 import { Thread } from "@/components/assistant-ui/thread";
+import { PinsDialog } from "@/components/pins-dialog";
 import { SessionRawDialog } from "@/components/session-raw-dialog";
 import { Button } from "@/components/ui/button";
 import {
@@ -15,7 +17,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { useNagobotChat } from "@/hooks/use-nagobot-chat";
-import { fetchQuote, type SessionEntry } from "@/lib/api";
+import { createPin, fetchQuote, type SessionEntry } from "@/lib/api";
 import { relativeTime } from "@/lib/sessions";
 import { cn } from "@/lib/utils";
 
@@ -74,11 +76,17 @@ export function ChatPane({
     [hasMessages],
   );
   const [rawOpen, setRawOpen] = useState(false);
+  const [pinsOpen, setPinsOpen] = useState(false);
   // This pane is the only place that knows both the session and the endpoint;
-  // the reply components below take a plain text→text function and stay unaware
-  // of both, so swapping the generator never reaches into them.
+  // the reply and pin components below take a plain function of the message
+  // text and stay unaware of both, so swapping either backend never reaches
+  // into them.
   const generateQuote = useCallback(
     (text: string) => fetchQuote(sessionKey, text),
+    [sessionKey],
+  );
+  const filePin = useCallback(
+    (text: string) => createPin(sessionKey, text),
     [sessionKey],
   );
 
@@ -119,6 +127,10 @@ export function ChatPane({
             </Button>
           </DropdownMenuTrigger>
           <DropdownMenuContent align="end" className="w-72">
+            <DropdownMenuItem onSelect={() => setPinsOpen(true)}>
+              <Pin className="size-4" />
+              {t("pins.title")}
+            </DropdownMenuItem>
             <DropdownMenuItem onSelect={() => setRawOpen(true)}>
               <FileJson className="size-4" />
               {t("chat.rawSessionData")}
@@ -172,6 +184,11 @@ export function ChatPane({
           open={rawOpen}
           onOpenChange={setRawOpen}
         />
+        <PinsDialog
+          sessionKey={sessionKey}
+          open={pinsOpen}
+          onOpenChange={setPinsOpen}
+        />
       </header>
       {historyError && (
         <p className="border-b bg-destructive/10 px-4 py-1 text-xs text-destructive">
@@ -200,11 +217,13 @@ export function ChatPane({
         ) : (
           <AssistantRuntimeProvider runtime={runtime}>
             <QuoteReplyProvider generate={generateQuote}>
-              <Thread
-                components={threadComponents}
-                earlierCount={earlierCount}
-                onLoadEarlier={loadEarlier}
-              />
+              <PinProvider file={filePin}>
+                <Thread
+                  components={threadComponents}
+                  earlierCount={earlierCount}
+                  onLoadEarlier={loadEarlier}
+                />
+              </PinProvider>
             </QuoteReplyProvider>
           </AssistantRuntimeProvider>
         )}

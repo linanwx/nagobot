@@ -83,6 +83,10 @@ type WebChannel struct {
 	toolDefsFn      func(string) ([]provider.ToolDef, bool)
 	contextBudgetFn func(string) (int, int, bool)
 	quoteFn         func(context.Context, string, string) (string, error)
+	// pinFn queues a message for filing into the session's pins directory. It
+	// takes no context: the call returns as soon as the filing is enqueued, so
+	// there is nothing for a request-scoped context to cancel.
+	pinFn func(string, string) error
 }
 
 type wsClient struct {
@@ -255,6 +259,8 @@ func (w *WebChannel) Start(ctx context.Context) error {
 	mux.Handle("/api/push/subscribe", w.protected(w.handlePushSubscribe))
 	mux.Handle("/api/push/unsubscribe", w.protected(w.handlePushUnsubscribe))
 	mux.Handle("/api/quote", w.protected(w.handleQuote))
+	mux.Handle("/api/pin", w.protected(w.handlePin))
+	mux.Handle("/api/pins", w.protected(w.handlePins))
 	mux.Handle("/", staticCacheHandler(frontendFS))
 
 	// Compression + WS split. gzhttp wraps the whole API+static mux, but with an

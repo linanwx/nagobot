@@ -8,6 +8,7 @@ import {
 import { ThreadFollowupSuggestions } from "@/components/assistant-ui/follow-up-suggestions";
 import { MarkdownImage } from "@/components/assistant-ui/markdown-image";
 import { MarkdownText } from "@/components/assistant-ui/markdown-text";
+import { PinButton } from "@/components/assistant-ui/pin-message";
 import {
   ComposerQuoteBar,
   ReplyQuoteButton,
@@ -988,6 +989,7 @@ const AssistantActionBar: FC = () => {
         </TooltipIconButton>
       </ActionBarPrimitive.Copy>
       <ReplyQuoteButton />
+      <PinButton />
       {/* Reload removed — regenerating a reply is not supported by the
           nagobot backend (the session log is append-only). */}
       <ActionBarMorePrimitive.Root>
