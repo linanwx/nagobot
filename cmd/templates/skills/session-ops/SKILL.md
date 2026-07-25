@@ -1,6 +1,6 @@
 ---
 name: session-ops
-description: Use when the user wants to review past conversations, search session history or memory, check context usage/compression stats, inspect which model/provider a session is using (model resolution chain), inspect session metadata, or configure session settings (switch agent, set timezone). Also use when asking "what model am I using" or debugging model routing.
+description: Use when you need to recall something from a past conversation that is not in your current context — "when did I last ...", "what did we decide about ...", "have I told you about ..." — or to review past conversations and search session memory across sessions. Also for context usage/compression stats, inspecting which model/provider a session is using (model resolution chain), session metadata, and session settings (switch agent, set timezone), including "what model am I using" and debugging model routing.
 ---
 # Session Operations
 
@@ -116,45 +116,104 @@ Output: JSON with fields:
 
 Use `model_resolution` to determine the exact model a session is using and debug routing issues. The `steps` array shows exactly which config entries were consulted and whether each step hit or fell back to a default.
 
-## search-memory
+## Recalling something from a past conversation
 
-Search across all session messages (current + history backups, merged and deduplicated by message ID). Searches original message content for all roles (user, assistant, tool).
+There is no search command. Past conversations are searched with the ordinary
+`grep` tool over the memory files on disk. Read this whole section before you
+start guessing keywords — the layout is what makes the search cheap.
 
-```
-exec: {{WORKSPACE}}/bin/nagobot search-memory <keyword1> [keyword2] ... [--days N] [--limit N] [--session <key>]
-```
+### Where the memory lives
 
-- `<keywords>`: One or more search keywords (AND logic — all must match). Case-insensitive.
-- `--days N`: Only search sessions active within N days (default: 30)
-- `--limit N`: Maximum results to return (default: 20)
-- `--session <key>`: Limit search to a specific session key
-- `--after <date>`: Only include messages after this date (YYYY-MM-DD or RFC3339)
-- `--before <date>`: Only include messages before this date (YYYY-MM-DD or RFC3339)
-
-Output: JSON with fields:
-- `query`: Original search query
-- `hits[]`: Matching messages, each with `session_key`, `message_id`, `role`, `timestamp`, `snippet`, `score`
-- `total`: Total matches found
-- `shown`: Number returned (capped by limit)
-- `scanned`: Total messages scanned
-
-### Context browse mode
-
-Browse messages around a specific message ID (from search results).
+Every session keeps one dated file per compression:
 
 ```
-exec: {{WORKSPACE}}/bin/nagobot search-memory --context <message-id> [--window N]
+{{WORKSPACE}}/sessions/<session key, ":" replaced by "/">/memory/YYYY-MM-DD.md
 ```
 
-- `--context <id>`: Message ID to center on (session key is derived from the ID)
-- `--window N`: Number of messages before and after the target (default: 5)
+So `discord:1474429571540582463` is `{{WORKSPACE}}/sessions/discord/1474429571540582463/memory/`,
+and `cli` is `{{WORKSPACE}}/sessions/cli/memory/`. Every session that has ever
+been compressed has such a directory, so `{{WORKSPACE}}/sessions` is the whole
+searchable past of every channel and every person, in one tree.
 
-Output: JSON with `target_id`, `session_key`, `messages[]` (each with `message_id`, `role`, `timestamp`, `content`, `is_target`), `position`, `total`.
+### What one file contains
+
+YAML frontmatter with a one-line `summary`, then the compression report:
+
+```
+---
+summary: <one line, ~200 chars, the whole file in a sentence>
+---
+
+## Compression <HH:MM>
+
+# Session Compression — <session key>
+Coverage: <start> ~ <end> <timezone>
+Participants: <who>
+
+## 1. Primary intent        <- what this stretch of conversation was about
+## 2. Decisions & constraints <- rules, preferences, settled facts, config values
+## 3. Files & paths         <- every path / ID / command touched
+## 4. Errors & fixes
+## 5. All user messages     <- near-verbatim user turns, grouped by date
+## 6. Current work
+## 7. Next step
+```
+
+Section 5 is the one that matters most for recall: it keeps the user's own
+sentences, close to verbatim, with dates. A fact the user stated once — a
+date, a number, a name, a decision — is in section 5 of some file if it is
+anywhere.
+
+### Why you must grep, not rely on your prompt
+
+Your `memory_index` section lists only **this session's** memory files, and only
+the most recent 20, and only those that already have a `summary`. Anything from
+another session, from further back, or not yet summarized is absent from your
+prompt entirely. Absence there says nothing about whether the fact exists. If
+the user asks about something that is not in your context, grep before you
+conclude it was never said.
+
+### How to search
+
+Use the `grep` tool. Restrict to memory files by filename, not by path — memory
+files are the only `.md` files named `YYYY-MM-DD`:
+
+```
+grep(pattern: "<regex>", path: "{{WORKSPACE}}/sessions", include: "20??-??-??.md",
+     context_lines: 2, max_results: 60)
+```
+
+Rules that make the difference between one call and fifteen:
+
+- **`pattern` is a regex — put the alternatives in it.** One call with
+  `护照|passport|passeport` beats three calls with one word each. Do the same for
+  synonyms and for Chinese/English pairs.
+- **Start wide, then narrow.** First call: the bare subject
+  (`passport`). Only if that returns too much do you add the qualifier
+  (`passport.*(issued|expiry|签发|到期)`).
+- **`context_lines` costs budget.** Each context line counts against
+  `max_results`, so `context_lines: 2` with `max_results: 60` gives you roughly
+  12 matches, not 60. Use `context_lines: 0` for a first sweep to see *which
+  files* hold the topic, then read those files.
+- **Never loop on failed keywords.** Two or three well-formed patterns that all
+  come back empty is a real answer: the fact is not on disk. Say so instead of
+  trying a fourth phrasing.
+- **`case_insensitive: true`** for anything Latin-script.
 
 ### Workflow
 
-1. Use keyword search to find relevant messages
-2. Use `--context` with a message ID from the results to see surrounding conversation
+1. **Sweep** — one `grep` over `{{WORKSPACE}}/sessions` with an alternation
+   pattern and `context_lines: 0`, to find which sessions and dates hold the topic.
+2. **Read** — `read_file` the promising `memory/<date>.md` in full. One file is a
+   few hundred lines and gives you the surrounding decisions, not just a line.
+3. **Only if you need the exact original wording** — the pre-compression
+   snapshots in that session's `history/*.jsonl` hold the raw turns. Never read
+   one whole (they are huge); grep them for a distinctive phrase, or for a
+   message ID quoted in a `[compressed — …]` marker.
+
+To scope a search to one person or channel, point `path` at that session's
+directory instead of `{{WORKSPACE}}/sessions` — orders of magnitude less to scan.
+Use `list-sessions` above if you need to find the right session key first.
 
 ## set-agent
 

@@ -73,7 +73,7 @@ Most of what is on disk is runtime machinery, not knowledge to re-read. Sort eve
 - `dream.md` — the latest nightly reflection over the past day (injected in full as `dream_reflection`).
 - `file-track.md` — the catalog of this session's working files (injected in full as `file_track`). This is your routing table: it tells you which working file to open for a given topic, so consult the copy already in your prompt instead of listing the directory.
 - `heartbeat.md` — heartbeat follow-up notes (injected as `heartbeat_information`; often empty).
-- `memory/` — dated compression summaries (`YYYY-MM-DD.md`). Only each file's one-line `summary` is injected (as `memory_index`, most recent 20). Read a specific `memory/<date>.md` in full **only** when you need the detail behind a summary; prefer `nagobot search-memory` to locate it.
+- `memory/` — dated compression summaries (`YYYY-MM-DD.md`). Only each file's one-line `summary` is injected (as `memory_index`, most recent 20). Read a specific `memory/<date>.md` in full **only** when you need the detail behind a summary. To recall something from a session whose files are NOT in your `memory_index` — anything from another session, or from before the most recent 20 — `grep` across all sessions' `memory/*.md`; the session-ops skill has the recipes.
 
 **Read on demand — the actual knowledge content.** These are the only files worth opening during a turn:
 
@@ -85,7 +85,7 @@ Most of what is on disk is runtime machinery, not knowledge to re-read. Sort eve
 - `session.jsonl` — the conversation itself; it already *is* your context. Never open it.
 - `chat.jsonl` — a render log of user-visible messages.
 - `meta.json` / `channel.json` — session bookkeeping (agent binding, token ratios, channel info).
-- `history/` — timestamped snapshots of `session.jsonl` taken before compression (use `search-memory` to search past turns, don't read these directly).
+- `history/` — timestamped snapshots of `session.jsonl` taken before compression. Never read one whole; they are raw JSONL and huge. Reach for them only to recover the verbatim text of one specific old message, by grepping for it (see the session-ops skill) — `memory/*.md` is the searchable form of the same conversations.
 - `threads/`, `rephrase/` — data for subagent and output-rephrase child sessions.
 - `prethink/` — leftover from when pre-think was an LLM call. Nothing writes here any more; it is analyzed locally now.
 - `imagepreview/`, `audiopreview/` — cached media-recognition previews.

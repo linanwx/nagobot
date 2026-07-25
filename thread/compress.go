@@ -17,8 +17,13 @@ const (
 	softTrimHeadRunes      = 1500 // runes kept from start of result
 	softTrimTailRunes      = 1500 // runes kept from end of result
 
-	compressedHintFmt  = "[compressed — use search-memory --context %s --full to see content if needed, use skill session-ops to see more]"
-	compressedHintNoID = "[compressed — use search-memory with session key and timeframe to find original content, or use skill session-ops to see more]"
+	// Recovery hints embedded in every compressed message, so they stay short.
+	// They used to point at `search-memory --context <id>`, which no longer
+	// exists; the surviving paths are the pre-compression snapshots (a message
+	// ID is greppable there verbatim) and the day's memory/ summary. The
+	// session-ops skill carries the actual recipes.
+	compressedHintFmt  = "[compressed — original: grep %s in history/*.jsonl; see skill session-ops]"
+	compressedHintNoID = "[compressed — originals in history/*.jsonl, day summaries in memory/; see skill session-ops]"
 
 	compressExpireAge = 2 * time.Hour // unified age threshold for tier-1 compression
 )

@@ -18,14 +18,22 @@ import (
 
 const maxMemoryFiles = 3
 
+var listMemoryFilesSession string
+
 var listMemoryFilesCmd = &cobra.Command{
-	Use:     "list-memory-files",
-	Short:   "List memory files that need summaries",
+	Use:   "list-memory-files",
+	Short: "List memory files that still need a summary",
+	Long: `List memory files (compression summaries) that have no "summary" frontmatter yet,
+newest first, at most ` + fmt.Sprint(maxMemoryFiles) + ` per call. Today's file is skipped — it may still grow.
+
+Pass --session to scope the scan to one session; the nightly dream uses this to
+summarize its own backlog.`,
 	GroupID: "internal",
 	RunE:    runListMemoryFiles,
 }
 
 func init() {
+	listMemoryFilesCmd.Flags().StringVar(&listMemoryFilesSession, "session", "", "Only list files belonging to this session key")
 	rootCmd.AddCommand(listMemoryFilesCmd)
 }
 
@@ -52,8 +60,12 @@ func runListMemoryFiles(_ *cobra.Command, _ []string) error {
 		return fmt.Errorf("failed to get sessions dir: %w", err)
 	}
 
+	// No date cutoff. The old 30-day window existed only to bound the global
+	// nightly cron sweep; that cron is gone, and the window silently made every
+	// file older than it permanently unreachable — a memory file with no summary
+	// is invisible to memory_index, so the backlog could never be drained.
 	today := time.Now().Format("2006-01-02")
-	cutoff := time.Now().AddDate(0, 0, -30).Format("2006-01-02")
+	wantSession := strings.TrimSpace(listMemoryFilesSession)
 
 	var candidates []memoryFileEntry
 	scanned := 0
@@ -67,10 +79,17 @@ func runListMemoryFiles(_ *cobra.Command, _ []string) error {
 			return nil
 		}
 
+		sessionDir := filepath.Dir(dir)
+		key := deriveSessionKey(sessionsDir, filepath.Join(sessionDir, session.SessionFileName))
+		if wantSession != "" && key != wantSession {
+			return nil
+		}
+
 		scanned++
 		date := strings.TrimSuffix(d.Name(), ".md")
 
-		if date == today || date < cutoff {
+		// Today's file may still be appended to by a later compression.
+		if date == today {
 			return nil
 		}
 		if hasMemorySummary(path) {
@@ -81,10 +100,6 @@ func runListMemoryFiles(_ *cobra.Command, _ []string) error {
 		if err != nil {
 			return nil
 		}
-
-		sessionDir := filepath.Dir(dir)
-		sessionFile := filepath.Join(sessionDir, session.SessionFileName)
-		key := deriveSessionKey(sessionsDir, sessionFile)
 
 		candidates = append(candidates, memoryFileEntry{
 			SessionKey: key,

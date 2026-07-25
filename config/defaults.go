@@ -26,12 +26,9 @@ func defaultCronSeeds() []cronpkg.Job {
 			Task:  `You must call use_skill("tidyup-dispatcher") and follow its instructions. use_skill function can not skip.`,
 			Agent: "tidyup",
 		},
-		{
-			ID:    "memory-summary",
-			Expr:  "0 0 * * *",
-			Task:  `You must call use_skill("memory-summary-dispatcher") and follow its instructions. use_skill function can not skip.`,
-			Agent: "memory-summary",
-		},
+		// No memory-summary job: each session's nightly dream now summarizes its
+		// own memory/ backlog, so the summary is written by the session that owns
+		// the conversation instead of by one global cron.
 		{
 			ID:    "world-knowledge",
 			Expr:  "0 0 * * *",
