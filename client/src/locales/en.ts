@@ -9,6 +9,8 @@ export const en = {
     continue: "Continue",
     cancel: "Cancel",
     copy: "Copy",
+    copied: "Copied",
+    refresh: "Refresh",
     more: "More",
     showMore: "Show more ▼",
     showLess: "Show less ▲",
@@ -86,6 +88,11 @@ export const en = {
     openSessionList: "Open session list",
     sessionMenu: "Session menu",
     rawSessionData: "Raw session data",
+    systemPrompt: "System prompt",
+    systemPromptLive:
+      "Rebuilt now from live thread state — close to, but not a recording of, what any past turn sent.",
+    systemPromptUnavailable:
+      "No thread is loaded for this session, so there is no prompt to build. Threads are collected after 3h idle — send a message to load one, then refresh.",
     backTo: "Back to {{key}}",
     childSessions: "Child sessions",
     noChildSessions: "No child sessions",

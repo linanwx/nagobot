@@ -71,6 +71,31 @@ export async function fetchSession(key: string): Promise<SessionDetail> {
   return res.json();
 }
 
+// --- live system prompt (rebuilt from the in-memory thread) ---
+
+export type SystemPromptInfo = {
+  key: string;
+  prompt: string;
+  // False when no thread is loaded for the key — threads are GC'd after 3h
+  // idle, and the prompt only exists as a build off live thread state.
+  available: boolean;
+  tokens: number;
+};
+
+export async function fetchSystemPrompt(key: string): Promise<SystemPromptInfo> {
+  const res = await fetch(`/api/sessions/${sessionPath(key)}/system-prompt`);
+  if (!res.ok) {
+    throw new Error(`GET /api/sessions/${key}/system-prompt: ${res.status}`);
+  }
+  const data = await res.json();
+  return {
+    key,
+    prompt: typeof data?.prompt === "string" ? data.prompt : "",
+    available: data?.available === true,
+    tokens: typeof data?.tokens === "number" ? data.tokens : 0,
+  };
+}
+
 // --- daemon configuration (read-only, secrets redacted server-side) ---
 
 export async function fetchConfig(): Promise<unknown> {

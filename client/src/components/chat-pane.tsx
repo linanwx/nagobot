@@ -1,5 +1,12 @@
 import { AssistantRuntimeProvider } from "@assistant-ui/react";
-import { ArrowUpLeft, FileJson, Menu, MoreHorizontal, Pin } from "lucide-react";
+import {
+  ArrowUpLeft,
+  FileJson,
+  Menu,
+  MoreHorizontal,
+  Pin,
+  ScrollText,
+} from "lucide-react";
 import { useCallback, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { PinProvider } from "@/components/assistant-ui/pin-message";
@@ -7,6 +14,7 @@ import { QuoteReplyProvider } from "@/components/assistant-ui/quote-reply";
 import { Thread } from "@/components/assistant-ui/thread";
 import { PinsDialog } from "@/components/pins-dialog";
 import { SessionRawDialog } from "@/components/session-raw-dialog";
+import { SystemPromptDialog } from "@/components/system-prompt-dialog";
 import { Button } from "@/components/ui/button";
 import {
   DropdownMenu,
@@ -77,6 +85,7 @@ export function ChatPane({
   );
   const [rawOpen, setRawOpen] = useState(false);
   const [pinsOpen, setPinsOpen] = useState(false);
+  const [promptOpen, setPromptOpen] = useState(false);
   // This pane is the only place that knows both the session and the endpoint;
   // the reply and pin components below take a plain function of the message
   // text and stay unaware of both, so swapping either backend never reaches
@@ -135,6 +144,10 @@ export function ChatPane({
               <FileJson className="size-4" />
               {t("chat.rawSessionData")}
             </DropdownMenuItem>
+            <DropdownMenuItem onSelect={() => setPromptOpen(true)}>
+              <ScrollText className="size-4" />
+              {t("chat.systemPrompt")}
+            </DropdownMenuItem>
             <DropdownMenuSeparator />
             {parentSession && (
               <>
@@ -188,6 +201,11 @@ export function ChatPane({
           sessionKey={sessionKey}
           open={pinsOpen}
           onOpenChange={setPinsOpen}
+        />
+        <SystemPromptDialog
+          sessionKey={sessionKey}
+          open={promptOpen}
+          onOpenChange={setPromptOpen}
         />
       </header>
       {historyError && (

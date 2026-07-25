@@ -9,6 +9,8 @@ export const zh = {
     continue: "继续",
     cancel: "取消",
     copy: "复制",
+    copied: "已复制",
+    refresh: "刷新",
     more: "更多",
     showMore: "展开 ▼",
     showLess: "收起 ▲",
@@ -84,6 +86,11 @@ export const zh = {
     openSessionList: "打开会话列表",
     sessionMenu: "会话菜单",
     rawSessionData: "会话原始数据",
+    systemPrompt: "系统提示词",
+    systemPromptLive:
+      "基于线程当前状态实时重建 —— 与历史某一轮实际发送的内容接近，但并非其录像。",
+    systemPromptUnavailable:
+      "该会话没有加载中的线程，因而无从构建提示词。线程空闲 3 小时后会被回收 —— 发一条消息让它加载，然后点刷新。",
     backTo: "返回 {{key}}",
     childSessions: "子会话",
     noChildSessions: "暂无子会话",
