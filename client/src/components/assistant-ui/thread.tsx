@@ -715,12 +715,28 @@ const ChainRow: FC<PropsWithChildren<{ icon: React.ReactNode }>> = ({
 // collapses when the turn ends, and the first manual toggle takes over from
 // then on — same auto/manual handover as ReasoningRoot, which this replaces
 // at the group level.
-const ChainOfThoughtCard: FC<PropsWithChildren<{ running: boolean }>> = ({
-  running,
-  children,
-}) => {
+//
+// "Running" is derived from the MESSAGE, not from the group's own status.
+// GroupedParts sets a group's status to its LAST contained part's status, and a
+// tool-call part flips to "complete" the instant its result lands — so every
+// tool result inside a still-running turn read as "the chain ended" and slammed
+// the card shut, only for the next reasoning delta to reopen it. The message's
+// own status is the thing that actually tracks the turn. The trailing-group test
+// keeps the behaviour that motivated the original status read: once the model
+// starts writing its reply, parts appear AFTER this group and the chain stops
+// being the live edge, so it collapses even though the message is still running.
+const ChainOfThoughtCard: FC<
+  PropsWithChildren<{ indices: readonly number[] }>
+> = ({ indices, children }) => {
   const { t } = useTranslation();
   const [userOpen, setUserOpen] = useState<boolean | null>(null);
+  // Two primitive subscriptions rather than one closure over `indices`: the
+  // selector then never changes identity as the group grows.
+  const messageRunning = useAuiState(
+    (s) => s.message.status?.type === "running",
+  );
+  const partCount = useAuiState((s) => s.message.parts.length);
+  const running = messageRunning && indices.at(-1) === partCount - 1;
   const open = userOpen ?? running;
 
   return (
@@ -811,9 +827,7 @@ const AssistantMessage: FC = () => {
               // separately-collapsible "Reasoning" and "N tool calls" boxes.
               case "group-chainOfThought":
                 return (
-                  <ChainOfThoughtCard
-                    running={part.status.type === "running"}
-                  >
+                  <ChainOfThoughtCard indices={part.indices}>
                     {children}
                   </ChainOfThoughtCard>
                 );

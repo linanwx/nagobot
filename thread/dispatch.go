@@ -235,20 +235,120 @@ func (t *Thread) contentSink(wakeSink Sink) (Sink, bool) {
 	return def, true
 }
 
+// previewLogRunes caps the assistant content echoed into a Warn line. Undelivered
+// text must be recoverable from the log, but a full turn's prose does not belong
+// in one log record.
+const previewLogRunes = 300
+
 // ContentReachesSomeone reports whether text written as assistant content in
-// THIS turn's messages actually gets delivered. It mirrors the intermediate-
-// delivery gate in run.go's OnMessage: a destination exists, the sink is not
-// suppressed, and it is chunkable (an assistant message that also carries
-// tool_calls only delivers on chunkable sinks).
+// THIS turn's messages actually gets delivered — a destination exists and the
+// sink is not suppressed.
 //
-// dispatch uses it to decide whether content emitted alongside the tool_call is
-// a legitimate report to a human or text about to be dropped on the floor.
+// Chunkability is deliberately NOT part of the test. run.go's OnMessage only
+// delivers a tool_call-bearing assistant message on chunkable sinks (it assumes
+// a plain final message will follow), but a turn-ending dispatch means no such
+// message is coming — SettleTurnContent covers that gap. So a non-chunkable
+// destination still reaches its reader; only a zero sink (heartbeat /
+// compression) reaches nobody.
+//
+// dispatch uses it for one thing: never demand text that this turn could not
+// deliver anyway.
 func (t *Thread) ContentReachesSomeone() bool {
 	t.mu.Lock()
 	wakeSink := t.currentSink
 	t.mu.Unlock()
 	out, _ := t.contentSink(wakeSink)
-	return !out.IsZero() && out.Chunkable && !t.isSinkSuppressed()
+	return !out.IsZero() && !t.isSinkSuppressed()
+}
+
+// CallerIsOwnChild reports whether the session that woke this turn is a subagent
+// or fork spawned BY this session — i.e. this is the return leg of work we
+// handed off, not a peer asking us something.
+//
+// Both arrive as WakeSession / CallerKindSession and are indistinguishable by
+// wake source, but child session keys are built as {parent}{infix}{taskID}
+// (CreateOrWakeSubagent / CreateOrWakeFork), so the key prefix decides it.
+func (t *Thread) CallerIsOwnChild() bool {
+	t.mu.Lock()
+	callerKey := t.currentCallerKey
+	t.mu.Unlock()
+	callerKey = strings.TrimSpace(callerKey)
+	self := strings.TrimSpace(t.sessionKey)
+	if callerKey == "" || self == "" {
+		return false
+	}
+	return strings.HasPrefix(callerKey, self+session.ThreadsSessionInfix) ||
+		strings.HasPrefix(callerKey, self+session.ForkSessionInfix)
+}
+
+// SettleTurnContent decides what happens to assistant content the model wrote
+// alongside a dispatch call, once dispatch knows how the turn ends.
+//
+// The runner delivers such content from OnMessage, but only on chunkable sinks:
+// a message carrying tool_calls is normally an intermediate one, and a plain
+// final message is expected to follow. A turn-ending dispatch breaks that
+// assumption — no final message follows, so on a non-chunkable destination the
+// text falls in the gap between "not delivered now" and "no later chance".
+// This closes that gap.
+//
+//	deliver=true  — a routing dispatch: the content is this session's report to
+//	                its own reader, so send it if the runner did not.
+//	deliver=false — dispatch({}), or a batched call where the turn continues:
+//	                never send, only account for text that went nowhere.
+//
+// Returns (destination, dropped): destination is the sink label when this call
+// delivered the text, dropped reports text that reached nobody (already logged
+// at Warn — content is never discarded silently). Both zero means there was
+// nothing to do, either because there was no content or because the runner
+// already delivered it.
+func (t *Thread) SettleTurnContent(ctx context.Context, content string, deliver bool) (string, bool) {
+	content = strings.TrimSpace(content)
+	if !isUserFacingContent(content) {
+		return "", false
+	}
+	t.mu.Lock()
+	wakeSink := t.currentSink
+	t.mu.Unlock()
+	out, proactive := t.contentSink(wakeSink)
+
+	// Chunkable destinations belong to the runner: OnMessage (or the streamer
+	// above it) already pushed this text out when the assistant message
+	// arrived, before any tool ran. Touching it here would double-deliver.
+	if out.Chunkable {
+		return "", false
+	}
+	// Suppressed means an executed send already spoke on this very sink — for a
+	// subagent, contentSink and dispatch(to=caller:session) share one
+	// destination, and waking the caller twice is worse than dropping prose.
+	if !deliver || out.IsZero() || t.isSinkSuppressed() {
+		logger.Warn("assistant content not delivered",
+			"key", t.sessionKey, "reason", settleDropReason(deliver, out, t.isSinkSuppressed()),
+			"content", truncateStr(content, previewLogRunes))
+		return "", true
+	}
+	if err := out.WithRetry(3).Send(ctx, content); err != nil {
+		logger.Warn("assistant content delivery failed",
+			"key", t.sessionKey, "sink", out.Label, "err", err,
+			"content", truncateStr(content, previewLogRunes))
+		return "", true
+	}
+	if proactive {
+		t.recordProactiveChat(content)
+	}
+	return out.Label, false
+}
+
+// settleDropReason names why SettleTurnContent discarded text, for the log line.
+func settleDropReason(deliver bool, out Sink, suppressed bool) string {
+	switch {
+	case out.IsZero():
+		return "no content sink for this wake source"
+	case !deliver:
+		return "turn ended silently via dispatch({}) or the call was batched"
+	case suppressed:
+		return "sink already used by an executed send"
+	}
+	return "unknown"
 }
 
 // recordProactiveChat appends a bot-initiated message to the clean chat log.

@@ -202,12 +202,29 @@ type DispatchHost interface {
 	//             successful caller delivery.
 	CallerInfo() (kind msg.CallerKind, callerKey, sinkLabel string)
 	// ContentReachesSomeone reports whether text the model writes as assistant
-	// content alongside this tool_call actually gets delivered. True on a
-	// user-facing session whose wake source routes content to its human (the
-	// channel user, a cron injection, a peer-session wake). False when the
-	// content would be dropped: heartbeat turns, suppressed sinks, and sessions
-	// with no human of their own (subagents, forks) whose sink is not chunkable.
+	// content alongside this tool_call actually gets delivered — to its human on
+	// a user-facing session, or to the caller on a subagent/fork. False only when
+	// the content would be dropped outright: heartbeat/compression turns and
+	// suppressed sinks. dispatch uses it for exactly one thing: never demand text
+	// this turn could not deliver anyway.
 	ContentReachesSomeone() bool
+	// CallerIsOwnChild reports whether the session that woke this turn is a
+	// subagent or fork this session spawned — the return leg of delegated work,
+	// as opposed to a peer session asking a question. Both arrive as
+	// CallerKindSession and are indistinguishable by wake source.
+	CallerIsOwnChild() bool
+	// SettleTurnContent disposes of the assistant content emitted alongside this
+	// tool_call, now that dispatch knows how the turn ends. deliver=true asks it
+	// to send the text if the runner did not (the runner only auto-delivers a
+	// tool_call-bearing message on chunkable sinks, assuming a final message will
+	// follow — a turn-ending dispatch means none will). deliver=false only
+	// accounts for text that goes nowhere.
+	//
+	// Returns the destination label when this call delivered the text, and
+	// whether it was dropped (already logged host-side — content is never
+	// discarded silently). Both zero means nothing to do: no content, or the
+	// runner already delivered it.
+	SettleTurnContent(ctx context.Context, content string, deliver bool) (destination string, dropped bool)
 	AgentExists(name string) bool
 	SessionExists(key string) bool
 	SendToCaller(ctx context.Context, body string) error
@@ -339,7 +356,7 @@ func (t *DispatchTool) Run(ctx context.Context, args json.RawMessage) string {
 	})
 }
 
-func (t *DispatchTool) run(ctx context.Context, args json.RawMessage) (result string) {
+func (t *DispatchTool) run(ctx context.Context, args json.RawMessage) string {
 	var a dispatchArgs
 	if errMsg := parseArgs(args, &a); errMsg != "" {
 		return errMsg
@@ -349,55 +366,16 @@ func (t *DispatchTool) run(ctx context.Context, args json.RawMessage) (result st
 	}
 	normalizeSends(a.Sends)
 
-	// Short assistant content alongside dispatch is tolerated but dropped; the
-	// warning built in the content check below is appended here to whatever
-	// result this call ultimately produces (silent termination, success, mixed,
-	// or a later validation error). It is only ever set on the < 50-rune path,
-	// so the long-content hard-reject return sees it empty and is unaffected.
-	var droppedContentWarning string
-	defer func() {
-		if droppedContentWarning != "" {
-			result += droppedContentWarning
-		}
-	}()
-
-	// The content+dispatch combo. Where content reaches someone — a user-facing
-	// session speaking to its own human — writing text alongside dispatch is the
-	// normal shape: the content is the report to the human, the sends are the
-	// routing to other agents. Nothing to check.
-	//
-	// Where it does NOT reach anyone (heartbeat turns, subagents/forks whose sink
-	// is not chunkable), that text has no recipient — dispatch delivers only the
-	// explicit `body` of each send. Substantial content (>= 50 runes) is a real
-	// message the model meant to send, so hard-reject and make it pick a send.
-	// Short content (< 50 runes) is usually a stray fragment (an ack, an emoji);
-	// rejecting it would force a full turn re-run for no benefit, so it is
-	// dropped with a warning (appended via the defer above) and dispatch proceeds.
+	// Content written alongside a dispatch call is the normal shape, not an
+	// error: the content is this session's report to its own reader, the sends
+	// are the routing to other agents. Whether it actually goes out is settled
+	// once the turn's ending is known (see settleContent below) — there is no
+	// content check here. The old rule that hard-rejected >= 50 runes of content
+	// was written when dispatch(to=user) existed and a send body could carry
+	// text to one's own human; without that target its instruction ("move it
+	// into a send body") is unsatisfiable, so it was deleted with the target.
 	rawContent := strings.TrimSpace(provider.AssistantContentFromContext(ctx))
 	contentReaches := t.host.ContentReachesSomeone()
-	content := rawContent
-	if contentReaches {
-		content = ""
-	}
-	if content != "" {
-		preview := content
-		if runes := []rune(preview); len(runes) > previewMaxRunes {
-			preview = string(runes[:previewMaxRunes]) + "..."
-		}
-		preview = strings.ReplaceAll(preview, "\n", " ")
-		if len([]rune(content)) >= 50 {
-			return toolResult("dispatch", map[string]any{
-				"outcome": "validation-error",
-			}, "Validation failed — no sends were executed. Fix and re-call dispatch; the turn continues.\n\n"+
-				"Reason: this turn produced non-empty assistant content alongside the dispatch call, and this session has nobody to deliver it to — there is no human reading this session's replies right now. dispatch only delivers each send's `body` field; the assistant message text is dropped.\n\n"+
-				"Offending content (preview): \""+preview+"\"\n\n"+
-				"Fix: move ALL of that text into the appropriate send body (e.g. dispatch(sends=[{to: \"caller:session\", body: \"<your text>\"}])), so it reaches whoever asked. If it was meant for nobody, drop it and call dispatch with the assistant message empty.\n"+
-				"Re-issue the turn with the text moved into the send body.")
-		}
-		droppedContentWarning = fmt.Sprintf(
-			"\n\n⚠️ Warning: assistant content was DISCARDED — dispatch delivers only each send's `body`, never the assistant message text. Discarded content: %q. If it was meant for the recipient, move it into a send body.",
-			preview)
-	}
 
 	// Solo = dispatch is the only tool call in this assistant message.
 	// Batched with other tool calls, sends still deliver but the turn
@@ -418,7 +396,11 @@ func (t *DispatchTool) run(ctx context.Context, args json.RawMessage) (result st
 		t.host.SignalHalt()
 		return toolResult("dispatch", map[string]any{
 			"outcome": "turn-terminated-silent",
-		}, "Turn terminated silently. No delivery; history recorded.")
+		}, "Turn terminated silently. No delivery; history recorded."+
+			// deliver=false: dispatch({}) is a deliberate choice to say nothing,
+			// so any content it carried is meant to go nowhere. Still settled,
+			// so the drop is logged rather than vanishing.
+			t.settleContent(ctx, rawContent, false))
 	}
 
 	// Validate entire batch first (all-or-nothing on validation): a batch that
@@ -428,31 +410,40 @@ func (t *DispatchTool) run(ctx context.Context, args json.RawMessage) (result st
 		return buildDispatchErrorResult(errs)
 	}
 
-	// A solo dispatch ENDS the turn. When the human just spoke and this turn
-	// routes the work somewhere else without saying a word to them, they asked a
-	// question and got silence — the reply exists, but it went to a subagent or
-	// a peer session instead. Content is the ONLY channel to one's own human
-	// (there is no to=user), so demand it before letting the turn close.
+	// A solo dispatch ENDS the turn. When someone is waiting on this turn and it
+	// routes the work somewhere else without saying a word, they asked a question
+	// and got silence — the reply exists, but it went to a subagent or a peer
+	// session instead. Content is the ONLY channel to one's own reader (there is
+	// no to=user), so demand it before letting the turn close.
 	//
-	// Deliberately narrow, on three axes:
+	// Two wakes have someone waiting:
+	//   - the human just spoke (CallerKindUser), or
+	//   - our own subagent/fork just reported back (CallerKindSession + the
+	//     caller key is our child). That is the return leg of work WE delegated:
+	//     somewhere up the chain a human asked turn 1's question and is still
+	//     waiting. Ending silently on the answer's arrival strands them.
+	// A peer session asking us something is excluded — nobody is waiting on a
+	// human-facing reply there, and narrating every peer exchange would be worse
+	// than silence.
+	//
+	// Narrow on two more axes:
 	//   - solo only: batched with other tool calls the turn continues, so the
 	//     model still gets its chance to speak.
-	//   - user wakes only (CallerKindUser == IsUserVisibleSource): on a peer or
-	//     cron wake nobody is waiting on a reply, and staying quiet is a real
-	//     design — e.g. dream's next-day follow-up drops itself when the moment
-	//     has passed. Narrating every peer interaction to the human is worse.
 	//   - contentReaches only: never demand text this turn cannot deliver
-	//     (heartbeat, subagent/fork, and web sessions whose defaultSink is not
-	//     chunkable), or the model would be trapped in an unsatisfiable loop.
+	//     (heartbeat/compression turns), or the model would be trapped in an
+	//     unsatisfiable loop.
 	// Empty dispatch({}) is exempt by construction — it returns above, and it is
 	// the model explicitly choosing silence rather than forgetting to speak.
 	if solo && contentReaches && rawContent == "" {
-		if kind, _, _ := t.host.CallerInfo(); kind == msg.CallerKindUser {
+		kind, _, _ := t.host.CallerInfo()
+		waiting := kind == msg.CallerKindUser ||
+			(kind == msg.CallerKindSession && t.host.CallerIsOwnChild())
+		if waiting {
 			return toolResult("dispatch", map[string]any{
 				"outcome": "validation-error",
 			}, "Validation failed — no sends were executed. Fix and re-call dispatch; the turn continues.\n\n"+
-				"Reason: this dispatch is the only tool call in your message, so it ENDS the turn — but your message carries no assistant text, and the human on this session is waiting for a reply. They would see nothing at all while the work was handed to someone else.\n\n"+
-				"Fix: write what you want the human to know as ordinary assistant text in the SAME message as this dispatch call (e.g. \"Looking into it — I've asked the research subagent.\"), then re-issue the dispatch unchanged. Content is the only way to reach your own human; dispatch delivers each send's `body` to OTHER agents.\n"+
+				"Reason: this dispatch is the only tool call in your message, so it ENDS the turn — but your message carries no assistant text, and someone is waiting on a reply from this session. They would see nothing at all while the work was handed to someone else.\n\n"+
+				"Fix: write what you want them to know as ordinary assistant text in the SAME message as this dispatch call (e.g. \"Looking into it — I've asked the research subagent.\"), then re-issue the dispatch unchanged. Content is the only way to reach this session's own reader; dispatch delivers each send's `body` to OTHER agents.\n"+
 				"If you truly mean to say nothing to them, call dispatch({}) with no sends instead — that ends the turn silently on purpose.")
 		}
 	}
@@ -475,15 +466,43 @@ func (t *DispatchTool) run(ctx context.Context, args json.RawMessage) (result st
 		executed = append(executed, item)
 	}
 
+	// Settle AFTER execution, and before the halt. After, because an executed
+	// to=caller:session suppresses the sink — on a subagent that is the very same
+	// destination content would go to, and waking the caller twice is worse than
+	// dropping prose. Before the halt only for clarity; the runner reads the halt
+	// flag once tools finish either way.
+	//
+	// deliver only on the solo path: a batched dispatch leaves the turn running,
+	// so the eventual final assistant message is what speaks.
+	note := t.settleContent(ctx, rawContent, solo)
+
 	if solo {
 		t.host.SignalHalt()
 	} else {
 		t.host.ClearSuppressSink()
 	}
 	if len(execErrs) > 0 {
-		return buildDispatchMixedResult(executed, execErrs, solo)
+		return buildDispatchMixedResult(executed, execErrs, solo) + note
 	}
-	return buildDispatchSuccessResult(executed, solo)
+	return buildDispatchSuccessResult(executed, solo) + note
+}
+
+// settleContent hands the turn's assistant content to the host now that the
+// ending is known, and turns the outcome into a note appended to the tool
+// result. Empty note means there was nothing to say: no content, or the runner
+// already delivered it live.
+func (t *DispatchTool) settleContent(ctx context.Context, content string, deliver bool) string {
+	if content == "" {
+		return ""
+	}
+	dest, dropped := t.host.SettleTurnContent(ctx, content, deliver)
+	switch {
+	case dest != "":
+		return "\n\nYour message text was delivered — " + dest + "."
+	case dropped:
+		return "\n\n⚠️ Warning: the text in this message was NOT delivered to anyone — this turn has no reader for assistant content. Only each send's `body` went out. If that text was meant for someone, put it in a send body."
+	}
+	return ""
 }
 
 // validateAll performs all static, existence, and dedup checks.
