@@ -55,6 +55,7 @@ export const zh = {
       "此设备不支持通行密钥 — {{username}} 今后将使用密码登录。",
   },
   sidebar: {
+    title: "会话",
     expand: "展开侧栏",
     collapse: "收起侧栏",
     filter: "筛选会话",
@@ -80,7 +81,7 @@ export const zh = {
     online: "在线",
     reconnecting: "重连中…",
     inactive: "已停用",
-    backToList: "返回会话列表",
+    openSessionList: "打开会话列表",
     sessionMenu: "会话菜单",
     rawSessionData: "会话原始数据",
     backTo: "返回 {{key}}",

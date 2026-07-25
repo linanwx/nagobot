@@ -15,6 +15,7 @@ import {
   DropdownMenuLabel,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+import { Sheet, SheetContent, SheetTitle } from "@/components/ui/sheet";
 import type { SessionEntry } from "@/lib/api";
 import { relativeTime } from "@/lib/sessions";
 import { cn } from "@/lib/utils";
@@ -23,6 +24,10 @@ const collapseStorageKey = "sidebar-collapsed-folders";
 const filterStorageKey = "sidebar-filter-settings";
 // Desktop-only: whether the whole sidebar is collapsed to a thin rail.
 const railStorageKey = "sidebar-rail-collapsed";
+
+// Tailwind's `md` breakpoint, the line where the drawer gives way to the
+// permanent column.
+const desktopQuery = "(min-width: 48rem)";
 
 // The sidebar exists to reach ACTIVE conversations quickly, so by default it
 // hides maintenance noise: cron sessions (knowledge updates, tidyup), CLI
@@ -108,10 +113,10 @@ function SessionRow({
   // A summarized session is identified by its summary alone — the raw
   // session id adds nothing a human recognizes, so it moves to the tooltip.
   const label = session.summary || sessionLabel(session.key);
-  // Visuals mirror the assistant-ui thread-list item (bg-muted hover/active,
-  // rounded-md, aui_thread-list-* data-slots), but the row stays two-line:
-  // summaries are the only way a human tells sessions apart, and the native
-  // single-line h-8 truncate cut them too short.
+  // Geometry and colors copied from the assistant-ui thread-list item: h-8,
+  // rounded-md, muted hover/active fill, title truncated to one line. The
+  // trailing timestamp sits where the native row keeps its "..." menu, which
+  // this list does not have (there is no session delete/archive endpoint).
   return (
     <button
       type="button"
@@ -120,20 +125,18 @@ function SessionRow({
       data-slot="aui_thread-list-item"
       data-active={active || undefined}
       className={cn(
-        "group relative flex w-full flex-col gap-0.5 rounded-md px-2.5 py-1.5 text-left transition-colors",
-        active ? "bg-muted" : "hover:bg-muted/60",
+        "group relative flex h-8 w-full items-center gap-2 rounded-md px-2.5 text-start text-sm transition-colors focus-visible:outline-none",
+        active ? "bg-muted" : "hover:bg-muted focus-visible:bg-muted",
       )}
     >
-      <span className="flex items-baseline gap-2">
-        <span
-          data-slot="aui_thread-list-item-title"
-          className="line-clamp-2 min-w-0 flex-1 text-xs"
-        >
-          {label}
-        </span>
-        <span className="shrink-0 text-[10px] text-muted-foreground">
-          {relativeTime(session.updated_at)}
-        </span>
+      <span
+        data-slot="aui_thread-list-item-title"
+        className="min-w-0 flex-1 truncate"
+      >
+        {label}
+      </span>
+      <span className="shrink-0 text-[10px] text-muted-foreground">
+        {relativeTime(session.updated_at)}
       </span>
     </button>
   );
@@ -145,7 +148,8 @@ export function SessionSidebar({
   onSelect,
   onCreate,
   error,
-  hiddenOnMobile,
+  sheetOpen,
+  onSheetOpenChange,
 }: {
   sessions: SessionEntry[];
   selected: string;
@@ -153,8 +157,10 @@ export function SessionSidebar({
   // Start a fresh browser-created session (random web:* key).
   onCreate: () => void;
   error: string | null;
-  // Mobile shows list OR chat, never both; md+ always shows the sidebar.
-  hiddenOnMobile?: boolean;
+  // Mobile only: the sidebar rides in a drawer opened from the chat header.
+  // md+ ignores both and renders the permanent column.
+  sheetOpen: boolean;
+  onSheetOpenChange: (open: boolean) => void;
 }) {
   const { t } = useTranslation();
   const [collapsed, setCollapsed] = useState<Record<string, boolean>>(loadCollapsed);
@@ -174,6 +180,19 @@ export function SessionSidebar({
     localStorage.setItem(filterStorageKey, JSON.stringify(filters));
   }, [filters]);
 
+  // A drawer opened on a phone must not survive a rotate or resize into the
+  // desktop layout: its only trigger is the md:hidden hamburger, so nothing
+  // would be left to dismiss the overlay and the page would sit behind it.
+  useEffect(() => {
+    const mq = window.matchMedia(desktopQuery);
+    const closeOnDesktop = () => {
+      if (mq.matches) onSheetOpenChange(false);
+    };
+    closeOnDesktop();
+    mq.addEventListener("change", closeOnDesktop);
+    return () => mq.removeEventListener("change", closeOnDesktop);
+  }, [onSheetOpenChange]);
+
   const visible = useMemo(() => {
     const cutoff = Date.now() - oldSessionMs;
     return sessions.filter((s) => {
@@ -190,36 +209,11 @@ export function SessionSidebar({
   const folders = useMemo(() => groupByFolder(visible), [visible]);
   const hiddenCount = sessions.length - visible.length;
 
-  return (
-    <aside
-      className={cn(
-        "h-full w-full shrink-0 flex-col border-r bg-sidebar text-sidebar-foreground md:flex",
-        hiddenOnMobile ? "hidden" : "flex",
-        railCollapsed ? "md:w-12" : "md:w-72",
-      )}
-    >
-      {/* Collapsed rail — desktop only. A single button re-expands the sidebar. */}
-      {railCollapsed && (
-        <div className="hidden h-full shrink-0 flex-col items-center py-2 md:flex">
-          <Button
-            variant="ghost"
-            size="icon"
-            className="size-7"
-            onClick={() => setRailCollapsed(false)}
-            title={t("sidebar.expand")}
-          >
-            <PanelLeftOpen className="size-4" />
-            <span className="sr-only">{t("sidebar.expand")}</span>
-          </Button>
-        </div>
-      )}
-      {/* Full sidebar — always on mobile; on desktop only when not collapsed. */}
-      <div
-        className={cn(
-          "min-h-0 flex-1 flex-col",
-          railCollapsed ? "flex md:hidden" : "flex",
-        )}
-      >
+  // One body, two shells (permanent column on desktop, drawer on mobile).
+  // Radix unmounts a closed Sheet, so only one copy is ever in the DOM and the
+  // collapse/filter state above is shared by both.
+  const body = (
+    <>
       <div className="flex h-12 shrink-0 items-center gap-2 border-b px-3">
         <span className="text-sm font-semibold tracking-wide">nagobot</span>
         <span className="flex-1" />
@@ -344,7 +338,63 @@ export function SessionSidebar({
         )}
       </nav>
       <SidebarFooter />
-      </div>
-    </aside>
+    </>
+  );
+
+  return (
+    <>
+      {/* Desktop: a permanent column, collapsible to a rail. Collapsing is a
+          width transition on ONE element with the body always mounted —
+          swapping between two different subtrees leaves the browser nothing to
+          interpolate, which is why this used to snap. The body keeps its full
+          w-72 so narrowing the aside CLIPS it instead of reflowing every row
+          mid-animation; it fades out and goes inert on the way. */}
+      <aside
+        className={cn(
+          "relative hidden h-full shrink-0 overflow-hidden border-r bg-sidebar text-sidebar-foreground transition-[width] duration-200 md:block",
+          railCollapsed ? "md:w-12" : "md:w-72",
+        )}
+      >
+        <div
+          className={cn(
+            "flex h-full w-72 flex-col transition-opacity duration-150",
+            railCollapsed && "pointer-events-none opacity-0",
+          )}
+          inert={railCollapsed}
+        >
+          {body}
+        </div>
+        {/* Rail affordance, fading in over the body once it has cleared out. */}
+        <div
+          className={cn(
+            "absolute inset-y-0 left-0 flex w-12 flex-col items-center py-2 transition-opacity duration-200",
+            railCollapsed ? "opacity-100 delay-100" : "pointer-events-none opacity-0",
+          )}
+          inert={!railCollapsed}
+        >
+          <Button
+            variant="ghost"
+            size="icon"
+            className="size-7"
+            onClick={() => setRailCollapsed(false)}
+            title={t("sidebar.expand")}
+          >
+            <PanelLeftOpen className="size-4" />
+            <span className="sr-only">{t("sidebar.expand")}</span>
+          </Button>
+        </div>
+      </aside>
+
+      {/* Mobile: the same body in a drawer over the chat. */}
+      <Sheet open={sheetOpen} onOpenChange={onSheetOpenChange}>
+        <SheetContent
+          aria-describedby={undefined}
+          className="bg-sidebar text-sidebar-foreground"
+        >
+          <SheetTitle className="sr-only">{t("sidebar.title")}</SheetTitle>
+          {body}
+        </SheetContent>
+      </Sheet>
+    </>
   );
 }

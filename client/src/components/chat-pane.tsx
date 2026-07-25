@@ -1,5 +1,5 @@
 import { AssistantRuntimeProvider } from "@assistant-ui/react";
-import { ArrowUpLeft, ChevronLeft, FileJson, MoreHorizontal } from "lucide-react";
+import { ArrowUpLeft, FileJson, Menu, MoreHorizontal } from "lucide-react";
 import { useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { Thread } from "@/components/assistant-ui/thread";
@@ -40,8 +40,7 @@ export function ChatPane({
   childSessions,
   parentSession,
   onOpenSession,
-  onBack,
-  hiddenOnMobile,
+  onOpenSidebar,
   onFirstSend,
 }: {
   sessionKey: string;
@@ -51,9 +50,8 @@ export function ChatPane({
   childSessions: SessionEntry[];
   parentSession: string | null;
   onOpenSession: (key: string) => void;
-  // Returns to the session list on mobile (list and chat are two views there).
-  onBack: () => void;
-  hiddenOnMobile?: boolean;
+  // Opens the session-list drawer on mobile; desktop has the list permanently.
+  onOpenSidebar: () => void;
   // Fired once, after this pane's first successful send, so the sidebar can
   // surface a session that until now existed only in this browser.
   onFirstSend?: (key: string) => void;
@@ -79,21 +77,16 @@ export function ChatPane({
   const visibleChildren = childSessions.slice(0, childMenuLimit);
 
   return (
-    <div
-      className={cn(
-        "h-full min-w-0 flex-1 flex-col md:flex",
-        hiddenOnMobile ? "hidden" : "flex",
-      )}
-    >
+    <div className="flex h-full min-w-0 flex-1 flex-col">
       <header className="flex h-12 shrink-0 items-center gap-2 border-b px-2 md:px-4">
         <Button
           variant="ghost"
           size="icon"
           className="size-7 md:hidden"
-          onClick={onBack}
+          onClick={onOpenSidebar}
         >
-          <ChevronLeft className="size-4" />
-          <span className="sr-only">{t("chat.backToList")}</span>
+          <Menu className="size-4" />
+          <span className="sr-only">{t("chat.openSessionList")}</span>
         </Button>
         <span
           className="min-w-0 flex-1 truncate text-sm font-medium"

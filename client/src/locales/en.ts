@@ -55,6 +55,7 @@ export const en = {
       "This device has no passkey support — a password is how {{username}} will sign in.",
   },
   sidebar: {
+    title: "Sessions",
     expand: "Expand sidebar",
     collapse: "Collapse sidebar",
     filter: "Filter sessions",
@@ -82,7 +83,7 @@ export const en = {
     online: "online",
     reconnecting: "reconnecting…",
     inactive: "inactive",
-    backToList: "Back to session list",
+    openSessionList: "Open session list",
     sessionMenu: "Session menu",
     rawSessionData: "Raw session data",
     backTo: "Back to {{key}}",

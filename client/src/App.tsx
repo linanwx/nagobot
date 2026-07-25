@@ -28,9 +28,9 @@ export default function App() {
   // sidebar until the server list includes them.
   const [draftSessions, setDraftSessions] = useState<SessionEntry[]>([]);
   const [sessionsError, setSessionsError] = useState<string | null>(null);
-  // On narrow screens the list and the chat are two full-screen views; this
-  // picks which one is showing. Desktop (md+) always shows both side by side.
-  const [mobilePane, setMobilePane] = useState<"list" | "chat">("list");
+  // On narrow screens the chat owns the viewport and the session list rides in
+  // a drawer over it. Desktop (md+) ignores this and shows both side by side.
+  const [sheetOpen, setSheetOpen] = useState(false);
 
   const refreshSessions = useCallback(() => {
     fetchSessions()
@@ -73,7 +73,7 @@ export default function App() {
 
   const openSession = (key: string) => {
     setSessionKey(key);
-    setMobilePane("chat");
+    setSheetOpen(false);
   };
 
   // The open session just sent its first message, so it now exists (or is about
@@ -134,7 +134,8 @@ export default function App() {
         onSelect={openSession}
         onCreate={createSession}
         error={sessionsError}
-        hiddenOnMobile={mobilePane === "chat"}
+        sheetOpen={sheetOpen}
+        onSheetOpenChange={setSheetOpen}
       />
       {/* key remounts the pane so each session gets a fresh socket + history */}
       <ChatPane
@@ -145,8 +146,7 @@ export default function App() {
         childSessions={children}
         parentSession={parent}
         onOpenSession={openSession}
-        onBack={() => setMobilePane("list")}
-        hiddenOnMobile={mobilePane === "list"}
+        onOpenSidebar={() => setSheetOpen(true)}
       />
     </div>
   );
