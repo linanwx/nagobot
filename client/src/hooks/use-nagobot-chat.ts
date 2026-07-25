@@ -81,6 +81,20 @@ export type MessageMeta = {
 // Rendered-history page size: the Thread view is not virtualized, and old
 // sessions can hold thousands of entries, so the pane starts with the last
 // page and a "load earlier" control extends the window one page at a time.
+//
+// The window's top edge is pinned to a MESSAGE ID, not to a count, and this is
+// load-bearing: a count-based trailing window (`slice(-limit)`) slides forward
+// on every append, dropping the oldest rendered entry. assistant-ui renders
+// messages under INDEX-based keys, so a slide rewrites the content of every
+// rendered slot and changes the content height ABOVE the viewport. Chrome
+// papers over that with CSS scroll anchoring; WebKit has no `overflow-anchor`
+// at all (`CSS.supports("overflow-anchor", "auto")` is false there), so on iOS
+// every send threw the viewport thousands of pixels back into old history for
+// a few hundred ms, until the top-anchor's pin scroll dragged it forward again
+// (measured on a 425-entry session in WebKit at 390x844: the message sitting at
+// the top edge jumped from -651px to +6368px on send; with the window pinned it
+// never leaves the top edge). Pinning by id means the window only ever grows
+// downward as messages arrive, and only "load earlier" moves its top edge.
 const historyPageSize = 300;
 
 // A turn with no response frame (e.g. a silent dispatch({}) end) would leave
@@ -369,9 +383,10 @@ export function useNagobotChat(
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   // Sent but not yet placed — see PendingMessage.
   const [pending, setPending] = useState<PendingMessage[]>([]);
-  // How many trailing entries of the full mapped history are rendered. The
-  // pane is keyed by sessionKey, so a session switch resets this to one page.
-  const [renderLimit, setRenderLimit] = useState(historyPageSize);
+  // Id of the oldest rendered entry — the window's top edge. null until the
+  // first history settles. The pane is keyed by sessionKey, so a session switch
+  // resets this to one page.
+  const [windowStartID, setWindowStartID] = useState<string | null>(null);
   const [isRunning, setIsRunning] = useState(false);
   const [status, setStatus] = useState<SocketStatus>("connecting");
   const [historyError, setHistoryError] = useState<string | null>(null);
@@ -930,16 +945,41 @@ export function useNagobotChat(
     socketRef.current?.resume();
   }, []);
 
-  // Only the trailing window is handed to the (non-virtualized) thread view;
-  // "load earlier" widens the window a page at a time. Live updates target
-  // recent messages, so they are always inside the window.
-  const visibleMessages = useMemo(
-    () => (messages.length > renderLimit ? messages.slice(-renderLimit) : messages),
-    [messages, renderLimit],
-  );
+  // Only the pinned window is handed to the (non-virtualized) thread view;
+  // "load earlier" widens it a page at a time. Live updates target recent
+  // messages, so they are always inside the window.
+  const visibleMessages = useMemo(() => {
+    if (windowStartID !== null) {
+      const start = messages.findIndex((m) => m.id === windowStartID);
+      if (start >= 0) return messages.slice(start);
+    }
+    // Before the pin is placed, and if the pinned entry ever disappears (Tier-2
+    // compression rewrites ids), fall back to the trailing page — the effect
+    // below re-pins on the next commit.
+    return messages.length > historyPageSize
+      ? messages.slice(-historyPageSize)
+      : messages;
+  }, [messages, windowStartID]);
+
+  // Place the pin once the history has settled, and re-place it if the pinned
+  // entry is gone. Deliberately NOT placed on the first message to arrive: a
+  // live message can land before the history fetch resolves, and pinning there
+  // would hide the whole history the fetch then prepends.
+  useEffect(() => {
+    if (historyLoading || messages.length === 0) return;
+    if (windowStartID !== null && messages.some((m) => m.id === windowStartID))
+      return;
+    const start = Math.max(0, messages.length - historyPageSize);
+    setWindowStartID(messages[start]!.id);
+  }, [historyLoading, messages, windowStartID]);
+
   const loadEarlier = useCallback(() => {
-    setRenderLimit((limit) => limit + historyPageSize);
-  }, []);
+    const start = Math.max(
+      0,
+      messages.length - visibleMessages.length - historyPageSize,
+    );
+    setWindowStartID(messages[start]?.id ?? null);
+  }, [messages, visibleMessages.length]);
 
   // Supplying `queue` is what keeps the composer usable during a run: it flips
   // thread.capabilities.queue, which is the sole term letting useComposerSend
