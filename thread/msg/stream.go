@@ -3,6 +3,8 @@ package msg
 import (
 	"sync"
 	"time"
+
+	"github.com/linanwx/nagobot/provider"
 )
 
 // StreamEventType identifies the kind of rich streaming event a turn emits
@@ -16,6 +18,19 @@ const (
 	StreamToolResult StreamEventType = "tool_result" // tool execution finished
 	StreamRoundEnd   StreamEventType = "round_end"   // one LLM call's stream closed
 	StreamTurnEnd    StreamEventType = "turn_end"    // the whole turn finished
+
+	// StreamMessageStart announces the id of the assistant message this round
+	// is about to stream, before any of its content exists. Every delta of the
+	// round carries the same id, and the entry eventually written to
+	// session.jsonl carries it too — so a client addresses one message from
+	// first token to persisted entry without ever re-keying it.
+	StreamMessageStart StreamEventType = "message_start"
+
+	// StreamMessage carries an entry that has just been written to
+	// session.jsonl. It is how a client learns a message EXISTS: membership and
+	// order of the conversation are the server's to declare, and guessing where
+	// a message landed is what this event exists to end.
+	StreamMessage StreamEventType = "message"
 )
 
 // StreamEvent is one unit of live turn activity. Text-bearing events carry
@@ -31,6 +46,14 @@ type StreamEvent struct {
 	Args       string // tool_call: arguments JSON; tool_result: result preview
 	IsError    bool   // tool_result: the tool returned an error
 	Seq        int    // per-pipe monotonic sequence, stamped by StreamPipe
+	// MessageID names the message the event belongs to. On message_start /
+	// message it is that message's id; on every in-round event (thinking, text,
+	// tool_call, tool_result, round_end) it is the id of the assistant message
+	// the round is building, so live content patches a message the client has
+	// already been told about instead of creating one of its own.
+	MessageID string
+	// Message is the persisted entry, set on message events only.
+	Message *provider.Message
 }
 
 // streamCoalesceDelay is how long the drain goroutine sleeps between batches,

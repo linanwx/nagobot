@@ -134,6 +134,30 @@ The load-bearing decision is **where the path is resolved**: entirely on the ser
 
 `img` is wired into all three renderer maps — `defaultComponents` (assistant), `userMarkdownComponents` and `eventMarkdownComponents` (both in `thread.tsx`). Missing any one of them leaves a class of message rendering raw broken images.
 
+### The web message list has one author: the server (`thread/run.go`, `channel/web.go`, `client/src/hooks/use-nagobot-chat.ts`)
+
+Which messages exist in a web session, and in what order, is decided **only** by `session.jsonl` and announced over the WS stream. The client renders that list; it never invents an entry, never guesses a position, and never re-keys one.
+
+Two stream events carry existence, and nothing else does:
+
+- **`message`** — an entry that has just been written to `session.jsonl`, carried whole (the same JSON a history read returns, `newMessageWithTok`, so both paths feed one list). Emitted by `Thread.emitStreamMessage` at write-ahead of the turn's user messages, from the runner's `OnMessage` for every assistant and tool entry, and from `persistPostInjections`.
+- **`message_start`** — the id an assistant message WILL have, announced before its first token (`session.NewMessageID`, random suffix because there is no content to hash). Every in-round frame then carries that id in `message_id`, and the entry finally written to disk carries it too, so one message is addressed by one id from first token to persisted entry.
+
+Everything else (`thinking`, `text`, `tool_call`, `tool_result`, `round_end`) decorates a message the client has already been told about. The client patches `thinking`/`text` snapshots onto that id and **ignores `tool_call`/`tool_result`/`round_end` entirely** — the authoritative `message` frames already carry the assistant's `tool_calls` and each tool's result, and they arrive *first*. Two writers for one piece of state is the bug class this removes.
+
+What this replaced was **dual authority**: the client built its own live turn out of decoration frames, promoted queued messages to a guessed position on the first frame, and re-read the whole file at `turn_end` to correct itself. The concrete failure was a second message sent *during* a running turn — the daemon injects it at a tool-iteration boundary (`injectFn`), the client had already drained its queue, and the turn-end reconcile never fired, so the user's own words vanished from the page until the next resync. They were on disk the whole time.
+
+Load-bearing details:
+
+- **The client mints the id of its own message** (`clientMessageID`, `web-<uuid>`) and the server persists it verbatim after shape validation (`sanitizeClientMessageID` — prefix, charset, length; a rejected id logs a Warn and the message still goes through with a store-assigned one). This is what lets a composer chip retire on *identity* rather than on text matching.
+- **`tryMerge` is why a text fallback still exists.** Consecutive same-source wakes fold into ONE entry that keeps only the first message's id, so the second chip has no entry of its own; `entryPlacesPending` falls back to body containment for exactly that case.
+- **`resync()` is a fallback, not a step.** Reconnect, tab-visible, and the 180s dead-turn failsafe. The failsafe deliberately re-reads instead of forcing queued chips onto the screen: a chip that stays a chip is the honest report that the message never landed.
+- **`peer_message` is no longer consumed by the client.** Another viewer's message arrives as a `message` frame at the position the daemon chose; rendering the echo too would place a second copy at a guessed position. The cost is latency, not loss — a peer speaking mid-turn appears when the next turn write-ahead-persists the queue.
+- **A `message` frame must not re-arm the running spinner.** Post-turn hook injections are persisted, and announced, *after* `turn_end`; every other frame kind re-arms the failsafe timeout, `message` does not.
+- **Errors and unsendable messages are "notices"**, a separate list rendered after the derived one. They are not conversation entries and never will be — the socket was down, so the daemon has nothing.
+- **A live turn re-derives the whole projection ~12 times a second**, and assistant-ui keys its conversion and render caches on object identity. `reuseIdentity` carries the previous render's objects forward wherever the new projection is value-equal (string compares are reference hits when the source `ApiMessage` did not change), so only the streaming tail re-renders. Without it, every message in the rendered window re-converts on every token.
+- **One projection, live and reloaded.** `sessionToChatMessages` is the only path; its `liveID` parameter exists solely so an unanswered tool call on the *currently streaming* entry renders as running, while one anywhere else renders as a turn that died before answering. Verified end-to-end: a streamed turn and the same turn re-read from disk produce identical DOM.
+
 ### Republishing a hosted page (`cmd/upload_html.go`, `create-html` skill)
 
 `upload-html` puts a self-contained HTML file in R2 under `pages/<timestamp>-<rand>.html` and returns the public `pub-*.r2.dev` URL. Until 2026-07-25 that was the only thing it could do, so a revision meant a *second* page at a *second* URL — visible in the live workspace as `chester-sunday-map-20260621{,-v2,-v3}.html` and four overlapping cornwall guides among 112 files. `--replace <url|key>` now republishes over an existing key, keeping the URL.

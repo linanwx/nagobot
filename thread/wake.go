@@ -299,7 +299,7 @@ func (t *Thread) RunOnce(ctx context.Context) {
 		CallerSessionKey: msg.CallerSessionKey,
 		IsUserFacing:     t.IsUserFacing(),
 		FinalReply:       response,
-	}), msg.Source)
+	}), msg.Source, sink)
 
 	t.checkAndResetSinkSuppressed()
 

@@ -45,8 +45,19 @@ func (t *Thread) run(ctx context.Context, userMessage, userMessageID string, med
 				turnUserMessages[i].Source = wakeSource
 			}
 		}
+		// Assign ids here rather than letting Append do it: the ids have to be
+		// known to announce them, and Append leaves a non-empty id alone.
+		session.EnsureMessageIDs(t.sessionKey, turnUserMessages)
 		if err := cfg.Sessions.Append(t.sessionKey, turnUserMessages...); err != nil {
 			logger.Warn("write-ahead save failed", "key", t.sessionKey, "err", err)
+		}
+		// Announce them. This is the moment a client's queued message stops
+		// being a guess: it learns the id it minted is now an entry on disk,
+		// and where in the conversation it sits. Messages nobody sent from this
+		// page (another viewer's, another channel's, a mid-turn injection)
+		// arrive by exactly the same route.
+		for _, m := range turnUserMessages {
+			t.emitStreamMessage(sink, m)
 		}
 	}
 
@@ -245,6 +256,17 @@ func (t *Thread) buildMessageHistory(ctx context.Context, systemPrompt, userMess
 	return messages, turnUserMessages
 }
 
+// emitStreamMessage announces a persisted entry on a rich-stream sink. Gated
+// exactly like the other stream events: a sink with no Stream func, a heartbeat
+// turn, or a suppressed sink means nobody is watching this turn live, and the
+// entry is still on disk for the next history read.
+func (t *Thread) emitStreamMessage(sink Sink, m provider.Message) {
+	if sink.Stream == nil || t.IsHeartbeatWake() || t.isSinkSuppressed() {
+		return
+	}
+	sink.Stream(StreamEvent{Type: sysmsg.StreamMessage, MessageID: m.ID, Message: &m})
+}
+
 // executeRunner runs the agentic loop with streaming and message callbacks.
 func (t *Thread) executeRunner(ctx, runCtx context.Context, p provider.Provider, metrics *ExecMetrics, messages []provider.Message, sink Sink, injectFn func() []provider.Message, persistMsg func(provider.Message)) (response string, intermediates []provider.Message, usage provider.Usage, quota *provider.Quota, providerLabel string, modelLabel string, err error) {
 	contextWindowTokens := t.contextBudget().ContextWindow
@@ -285,18 +307,42 @@ func (t *Thread) executeRunner(ctx, runCtx context.Context, p provider.Provider,
 	// the tool/round events and resets the buffers at round boundaries.
 	var thinkBuf, textBuf strings.Builder
 	richStream := sink.Stream != nil && !t.IsHeartbeatWake()
+
+	// The id of the assistant message this round is building. It is minted
+	// before the first token and announced, so every live frame addresses a
+	// message the client already knows about, and the entry that lands on disk
+	// at the end of the round carries the same id — no re-keying, and no
+	// correspondence for the client to infer. roundClosed defers clearing it:
+	// the tool_call and tool_result events of a finished round still belong to
+	// that round's message, so the id survives until the NEXT round opens.
+	roundMsgID := ""
+	roundClosed := false
+	ensureRoundMsgID := func() string {
+		if roundClosed {
+			roundMsgID, roundClosed = "", false
+		}
+		if roundMsgID == "" {
+			roundMsgID = session.NewMessageID(t.sessionKey)
+			if richStream && !t.isSinkSuppressed() {
+				sink.Stream(StreamEvent{Type: sysmsg.StreamMessageStart, MessageID: roundMsgID})
+			}
+		}
+		return roundMsgID
+	}
+
 	if richStream {
 		runner.OnDelta(func(d provider.StreamDelta) {
 			if ctx.Err() != nil || t.isSinkSuppressed() {
 				return
 			}
+			id := ensureRoundMsgID()
 			switch d.Type {
 			case provider.DeltaReasoning:
 				thinkBuf.WriteString(d.Text)
-				sink.Stream(StreamEvent{Type: sysmsg.StreamThinking, Delta: d.Text, Snapshot: thinkBuf.String()})
+				sink.Stream(StreamEvent{Type: sysmsg.StreamThinking, Delta: d.Text, Snapshot: thinkBuf.String(), MessageID: id})
 			case provider.DeltaText:
 				textBuf.WriteString(d.Text)
-				sink.Stream(StreamEvent{Type: sysmsg.StreamText, Delta: d.Text, Snapshot: textBuf.String()})
+				sink.Stream(StreamEvent{Type: sysmsg.StreamText, Delta: d.Text, Snapshot: textBuf.String(), MessageID: id})
 			}
 		})
 	}
@@ -322,11 +368,28 @@ func (t *Thread) executeRunner(ctx, runCtx context.Context, p provider.Provider,
 
 	// OnMessage: persistence + suppression + delivery for every message.
 	runner.OnMessage(func(m provider.Message) {
-		// 1. Persist all messages.
+		// 1. Persist all messages. An assistant message closes the round that
+		// has been streaming, so it takes that round's announced id — this is
+		// what makes the live message and the persisted entry the same message
+		// rather than two the client has to match up. A round that produced no
+		// deltas (non-streaming provider) mints its id here.
+		if m.Role == "assistant" {
+			m.ID = ensureRoundMsgID()
+			// The next round must mint a fresh id. This round's tool events,
+			// emitted below and while its tools run, still read roundMsgID
+			// directly — roundClosed only bites on the next ensure.
+			roundClosed = true
+		}
+		// Tool results and anything else get their id here for the same reason
+		// the write-ahead does: it has to be known to be announced.
+		withID := []provider.Message{m}
+		session.EnsureMessageIDs(t.sessionKey, withID)
+		m = withID[0]
 		intermediates = append(intermediates, m)
 		if persistMsg != nil {
 			persistMsg(m)
 		}
+		t.emitStreamMessage(sink, m)
 
 		// Rich streaming: round boundaries and tool lifecycle. The assistant
 		// message arrives when its LLM call finished — close the live text
@@ -335,7 +398,7 @@ func (t *Thread) executeRunner(ctx, runCtx context.Context, p provider.Provider,
 		if richStream && !t.isSinkSuppressed() {
 			switch m.Role {
 			case "assistant":
-				sink.Stream(StreamEvent{Type: sysmsg.StreamRoundEnd})
+				sink.Stream(StreamEvent{Type: sysmsg.StreamRoundEnd, MessageID: roundMsgID})
 				thinkBuf.Reset()
 				textBuf.Reset()
 				for _, tc := range m.ToolCalls {
@@ -344,6 +407,7 @@ func (t *Thread) executeRunner(ctx, runCtx context.Context, p provider.Provider,
 						Tool:       tc.Function.Name,
 						ToolCallID: tc.ID,
 						Args:       truncateStr(tc.Function.Arguments, streamToolFieldRunes),
+						MessageID:  roundMsgID,
 					})
 				}
 			case "tool":
@@ -353,6 +417,7 @@ func (t *Thread) executeRunner(ctx, runCtx context.Context, p provider.Provider,
 					ToolCallID: m.ToolCallID,
 					Args:       truncateStr(m.Content, streamToolFieldRunes),
 					IsError:    tools.IsToolError(m.Content),
+					MessageID:  roundMsgID,
 				})
 			}
 		}

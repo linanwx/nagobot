@@ -106,40 +106,51 @@ const historyPageSize = 300;
 // the spinner on forever without this.
 const runningTimeoutMs = 180_000;
 
-// PendingMessage is a message the daemon has (the WS frame is out) but the
-// conversation has not placed yet — rendered as a composer chip, not a bubble.
+// PendingMessage is a message the daemon has (the WS frame is out) but has not
+// written to session.jsonl yet — rendered as a composer chip, not a bubble.
 // See ComposerQueueBar for why placement has to wait for the server.
 type PendingMessage = {
   id: string;
   // What the chip shows: the typed text, without the folded-in quote line.
   prompt: string;
-  // The wire form (quote included) — what to render once promoted, and what
-  // to look for when recognising this message in a history read.
+  // The wire form (quote included) — what to look for when the server's own
+  // entry does not carry this chip's id (see entryPlacesPending).
   text: string;
   media?: MediaRef[];
   createdAt: Date;
 };
 
-// How far back a chip looks for itself in a history read. Recognition is by
-// text because the server echoes no id we could match on, so an identical
-// message from earlier in the conversation must not retire a chip that is
-// still genuinely in flight.
+// How far back a chip looks for itself in a full history read. The text
+// fallback below is not id-exact, so an identical message from earlier in the
+// conversation must not retire a chip that is still genuinely in flight.
 const pendingHistoryWindow = 6;
 
-// historyPlaced reports whether a persisted history read now contains this
-// pending message. `includes` rather than equality because tryMerge folds
-// consecutive wakes into one body (`"first\nsecond"`), which must retire both
-// chips.
-function historyPlaced(history: ChatMessage[], item: PendingMessage): boolean {
-  const recent = history
-    .filter((m) => m.role === "user" && m.kind !== "event")
-    .slice(-pendingHistoryWindow);
-  return recent.some((m) => {
-    if (item.text !== "") return m.text.includes(item.text);
-    return (item.media ?? []).every((want) =>
-      (m.media ?? []).some((got) => got.name === want.name),
-    );
-  });
+// entryPlacesPending reports whether a persisted entry IS this pending message.
+// Id equality is the normal case — the client minted the id and the server
+// persists it verbatim. The text fallback exists for exactly one situation:
+// tryMerge folds consecutive same-source wakes into ONE entry, which keeps only
+// the first message's id, so the second chip has no entry of its own and would
+// otherwise never retire.
+function entryPlacesPending(entry: ApiMessage, item: PendingMessage): boolean {
+  if (entry.role !== "user") return false;
+  if (entry.id && entry.id === item.id) return true;
+  const wake = parseWakePayload(entry.content ?? "");
+  // A system-sender wake is never a human's queued message, however its body
+  // reads.
+  if (wake.sender && wake.sender !== "user") return false;
+  if (item.text !== "") return wake.body.includes(item.text);
+  const media = extractMediaRefs(entry.media, wake.media);
+  return (item.media ?? []).every((want) =>
+    media.some((got) => got.name === want.name),
+  );
+}
+
+// historyPlaced runs entryPlacesPending over the tail of a full history read.
+function historyPlaced(api: ApiMessage[], item: PendingMessage): boolean {
+  return api
+    .filter((m) => m.role === "user")
+    .slice(-pendingHistoryWindow)
+    .some((m) => entryPlacesPending(m, item));
 }
 
 let nextLocalID = 0;
@@ -207,9 +218,19 @@ function capToolText(text: string): string {
 //   - system-sender wakes (cron / heartbeat / compression / cross-session)
 //     → subdued event cards, never mistaken for human speech
 //   - human wakes → user bubbles, "me" resolved via sender_id
+//
+// It is the ONLY projection: a live turn and a reloaded one take this same
+// path, because the live stream now patches session.jsonl entries by id rather
+// than building a parallel message of its own.
+//
+// liveID, when set, names the assistant entry currently being streamed. Its
+// tool calls have not been answered YET (the result rides a later entry), so
+// they render as running; a missing result anywhere else means the turn died
+// before answering and renders as settled-with-no-output.
 export function sessionToChatMessages(
   api: ApiMessage[],
   isMe: IsMeFn,
+  liveID?: string | null,
 ): ChatMessage[] {
   const out: ChatMessage[] = [];
   // Tool results, keyed by the tool call they answer, so each tool part can
@@ -278,12 +299,13 @@ export function sessionToChatMessages(
         const name = tc.function?.name;
         if (!name) continue;
         const result = tc.id ? toolResults.get(tc.id) : undefined;
+        const pendingResult = !result && m.id !== undefined && m.id === liveID;
         turnParts(m, createdAt).push({
           type: "tool",
           callId: tc.id || localID("tool"),
           toolName: name,
           argsText: prettyArgs(tc.function?.arguments),
-          resultText: result?.content ?? "",
+          resultText: pendingResult ? undefined : (result?.content ?? ""),
         });
       }
       continue;
@@ -338,6 +360,70 @@ export function sessionToChatMessages(
   });
 }
 
+// samePart / sameChatMessage compare two projections of the same message by
+// value. Every string they touch comes from the same ApiMessage object when
+// nothing changed, so the comparisons are reference hits and cost nothing.
+function samePart(a: TurnPart, b: TurnPart): boolean {
+  if (a.type !== b.type) return false;
+  if (a.type === "tool" && b.type === "tool") {
+    return (
+      a.callId === b.callId &&
+      a.toolName === b.toolName &&
+      a.argsText === b.argsText &&
+      a.resultText === b.resultText
+    );
+  }
+  if (a.type === "tool" || b.type === "tool") return false;
+  return a.text === b.text;
+}
+
+function sameChatMessage(a: ChatMessage, b: ChatMessage): boolean {
+  if (
+    a.role !== b.role ||
+    a.text !== b.text ||
+    a.kind !== b.kind ||
+    a.source !== b.source ||
+    a.senderName !== b.senderName ||
+    a.isMe !== b.isMe ||
+    a.caller !== b.caller ||
+    a.target !== b.target ||
+    a.compressed !== b.compressed ||
+    a.createdAt?.getTime() !== b.createdAt?.getTime()
+  )
+    return false;
+  const am = a.media ?? [];
+  const bm = b.media ?? [];
+  if (am.length !== bm.length) return false;
+  if (am.some((m, i) => m.name !== bm[i]!.name || m.kind !== bm[i]!.kind))
+    return false;
+  const ap = a.parts;
+  const bp = b.parts;
+  if ((ap === undefined) !== (bp === undefined)) return false;
+  if (ap && bp) {
+    if (ap.length !== bp.length) return false;
+    if (ap.some((p, i) => !samePart(p, bp[i]!))) return false;
+  }
+  return true;
+}
+
+// reuseIdentity carries the previous render's objects forward wherever the new
+// projection is value-equal. assistant-ui keys its conversion and render caches
+// on object identity, and a live turn re-derives the WHOLE list ~12 times a
+// second — without this, every message in the rendered window would re-convert
+// and re-render on every token, when only the streaming tail actually changed.
+function reuseIdentity(
+  cache: Map<string, ChatMessage>,
+  next: ChatMessage[],
+): ChatMessage[] {
+  const out = next.map((m) => {
+    const prev = cache.get(m.id);
+    return prev && sameChatMessage(prev, m) ? prev : m;
+  });
+  cache.clear();
+  for (const m of out) cache.set(m.id, m);
+  return out;
+}
+
 // toNativeContent maps TurnParts onto assistant-ui's native content parts.
 // A missing tool result stays undefined — on a running message that is what
 // drives the tool's spinner; empty text/reasoning parts are dropped by
@@ -385,7 +471,22 @@ export function useNagobotChat(
   sessionKey: string,
   onFirstSend?: (key: string) => void,
 ) {
-  const [messages, setMessages] = useState<ChatMessage[]>([]);
+  // session.jsonl, as the server has revealed it — the single authority for
+  // which messages exist and in what order. A history read installs it and the
+  // live `message` frames extend it; nothing else may insert an entry. Bubbles
+  // are DERIVED from this (see `messages` below), so the live turn and a
+  // reloaded one are the same data through the same projection.
+  const [rawMessages, setRawMessages] = useState<ApiMessage[]>([]);
+  // Id of the assistant entry currently streaming, from its message_start to
+  // turn_end. Only used to decide whether an unanswered tool call is still
+  // running.
+  const [liveID, setLiveID] = useState<string | null>(null);
+  // UI-only lines that are not conversation entries and never will be:
+  // transport errors, and the user's own words when the socket was down so the
+  // daemon never received them. They render after the derived list and are
+  // deliberately never cleared — an error the user tabbed away from must still
+  // be there when they come back.
+  const [notices, setNotices] = useState<ChatMessage[]>([]);
   // Sent but not yet placed — see PendingMessage.
   const [pending, setPending] = useState<PendingMessage[]>([]);
   // Id of the oldest rendered entry — the window's top edge. null until the
@@ -408,11 +509,25 @@ export function useNagobotChat(
     for (const id of me?.identities ?? []) keys.add(id);
     return keys;
   }, [me]);
-  const meKeysRef = useRef(meKeys);
-  meKeysRef.current = meKeys;
+  // isMe: with a known sender_id, match against the viewer's identity keys.
+  // Without one (data predating sender_id, or auth disabled), fall back to the
+  // shape of the data: single-user messages carry no sender_name and read as
+  // the viewer's own; named group-chat speakers stay "others".
+  const isMe = useCallback<IsMeFn>(
+    (senderID, senderName) => {
+      if (senderID) return meKeys.has(senderID);
+      return !senderName;
+    },
+    [meKeys],
+  );
 
   const socketRef = useRef<NagobotSocket | null>(null);
   const runningTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // Assigned by the socket effect; the failsafe timeout below needs to reach
+  // the effect's resync without being torn down with it.
+  const resyncRef = useRef<() => void>(() => {});
+  // Last render's projection, by message id — see reuseIdentity.
+  const identityCache = useRef(new Map<string, ChatMessage>());
 
   // Held in refs so onNew keeps a stable identity: the pane is remounted per
   // session (key={sessionKey}), so "first send" is naturally per-session.
@@ -433,22 +548,6 @@ export function useNagobotChat(
     [],
   );
 
-  // takePending drains the queue and returns the chips as user bubbles, for
-  // the caller to splice in at the position the server has just revealed.
-  const takePending = useCallback((): ChatMessage[] => {
-    const items = pendingRef.current;
-    if (items.length === 0) return [];
-    updatePending(() => []);
-    return items.map((p) => ({
-      id: p.id,
-      role: "user" as const,
-      text: p.text,
-      createdAt: p.createdAt,
-      isMe: true,
-      media: p.media,
-    }));
-  }, [updatePending]);
-
   const stopRunning = useCallback(() => {
     setIsRunning(false);
     if (runningTimer.current) {
@@ -464,12 +563,14 @@ export function useNagobotChat(
       runningTimer.current = null;
       setIsRunning(false);
       // Nothing ever came back — every stream frame re-arms this timer, so
-      // reaching it means the turn is dead. Promote whatever is still queued
-      // rather than leaving the user's own words stranded in a chip forever.
-      const stranded = takePending();
-      if (stranded.length > 0) setMessages((prev) => [...prev, ...stranded]);
+      // reaching it means the turn is dead. Ask the file who is right instead
+      // of forcing the queued chips onto the screen: if the daemon did persist
+      // them they become bubbles at their real position, and if it did not, a
+      // chip that stays a chip is the honest report that the message never
+      // landed.
+      resyncRef.current();
     }, runningTimeoutMs);
-  }, [takePending]);
+  }, []);
 
   // One socket per mounted chat pane. The pane is keyed by sessionKey, so a
   // session switch remounts and reconnects cleanly.
@@ -477,82 +578,72 @@ export function useNagobotChat(
     const sock = new NagobotSocket();
     socketRef.current = sock;
 
-    // Live turn state (per socket, so a session switch resets it). The whole
-    // in-flight turn is ONE assistant message whose parts array grows as
-    // frames arrive — thinking → reasoning part, tool_call/tool_result →
-    // tool part, text → text part. Indices point into that parts array
-    // (parts are append-only within a turn, so indices are stable).
-    // All message updates are immutable — assistant-ui caches conversions by
-    // object identity, so a mutated-in-place message would never re-render.
-    const live = {
-      active: false,
-      turnId: null as string | null,
-      partCount: 0,
-      thinkingIdx: null as number | null,
-      textIdx: null as number | null,
-      tools: new Map<string, number>(),
-    };
+    // Live turn state (per socket, so a session switch resets it). It is now
+    // only "is a turn in flight" — everything the turn PRODUCES lands in
+    // rawMessages, addressed by the ids the server hands out.
+    const live = { active: false };
 
     let cancelled = false;
-    // isMe: with a known sender_id, match against the viewer's identity keys.
-    // Without one (data predating sender_id, or auth disabled), fall back to
-    // the shape of the data: single-user messages carry no sender_name and
-    // read as the viewer's own; named group-chat speakers stay "others".
-    const isMe: IsMeFn = (senderID, senderName) => {
-      if (senderID) return meKeysRef.current.has(senderID);
-      return !senderName;
-    };
 
     // syncGen serializes the history fetches below: an older response must
     // never overwrite the list a newer one already installed.
     let syncGen = 0;
 
-    // Set while the current turn has absorbed promoted chips. Their placement
-    // was a client-side guess — immediately above the turn — and the server may
-    // have put them INSIDE it instead: injectFn folds a message arriving
-    // mid-turn in at a tool-iteration boundary, between the tool chain and the
-    // final reply. Only the turn boundary can settle that, so the flag drives a
-    // reconcile there.
-    let promotedThisTurn = false;
-
-    // promotePending drains the queue for a caller that has just learned where
-    // the messages go, and remembers that the turn owes a reconcile.
-    const promotePending = (): ChatMessage[] => {
-      const promoted = takePending();
-      if (promoted.length > 0) promotedThisTurn = true;
-      return promoted;
+    // upsertRaw is the only way an entry enters the list. Replacing by id in
+    // place rather than appending is what lets a streamed assistant message
+    // become its persisted self without moving: its id was announced before
+    // its first token, so every later frame — and the authoritative entry —
+    // addresses the slot it already occupies.
+    const upsertRaw = (entry: ApiMessage) => {
+      setRawMessages((prev) => {
+        const i = entry.id ? prev.findIndex((m) => m.id === entry.id) : -1;
+        if (i < 0) return [...prev, entry];
+        const next = prev.slice();
+        next[i] = entry;
+        return next;
+      });
+    };
+    // patchRaw edits an entry the server has already announced. An unknown id
+    // is dropped, never created: a delta for a message we were not told about
+    // means we missed its message_start, and inventing a slot for it would put
+    // it at the end instead of wherever the server actually placed it. The next
+    // authoritative frame (or resync) repairs that.
+    const patchRaw = (id: string, patch: Partial<ApiMessage>) => {
+      setRawMessages((prev) => {
+        const i = prev.findIndex((m) => m.id === id);
+        if (i < 0) return prev;
+        const next = prev.slice();
+        next[i] = { ...next[i]!, ...patch };
+        return next;
+      });
+    };
+    const retirePlaced = (entry: ApiMessage) => {
+      updatePending((prev) => prev.filter((p) => !entryPlacesPending(entry, p)));
     };
 
-    // applyHistory installs a history read as the message list and retires
-    // every chip the server has now placed. Chips it does NOT find stay
-    // queued — the server has not committed them yet.
+    // applyHistory installs a history read as the whole list and retires every
+    // chip the server has now placed. Chips it does NOT find stay queued — the
+    // server has not committed them yet.
     const applyHistory = (api: ApiMessage[]) => {
-      const history = sessionToChatMessages(api, isMe);
-      setMessages(history);
-      updatePending((prev) => prev.filter((p) => !historyPlaced(history, p)));
+      setRawMessages(api);
+      updatePending((prev) => prev.filter((p) => !historyPlaced(api, p)));
     };
 
-    // resync re-reads session.jsonl and REPLACES the message list. Messages
-    // delivered while this page was disconnected (mobile OS froze the PWA,
-    // server fell back to Web Push) exist only on disk — the reconnected
-    // socket never replays them, so without this the page resumes showing
-    // its pre-freeze state forever. Live stream state is reset; an in-flight
-    // turn rebuilds its message from the next snapshot-carrying frame.
+    // resync re-reads session.jsonl and REPLACES the list. It is a fallback,
+    // not a step of normal operation: messages delivered while this page was
+    // disconnected (mobile OS froze the PWA, server fell back to Web Push)
+    // exist only on disk, and the reconnected socket never replays them, so
+    // without this the page resumes showing its pre-freeze state forever.
     const resync = () => {
       const gen = ++syncGen;
       fetchSession(sessionKey)
         .then((detail) => {
           if (cancelled || gen !== syncGen) return;
-          live.turnId = null;
-          live.partCount = 0;
-          live.thinkingIdx = null;
-          live.textIdx = null;
-          live.tools.clear();
-          // A turn_end missed while disconnected would leave the spinner
-          // stuck until the failsafe timeout. Clear the running state here;
-          // a turn genuinely still in flight re-arms it on its next frame.
+          // A turn_end missed while disconnected would leave the spinner stuck
+          // until the failsafe timeout. Clear the running state here; a turn
+          // genuinely still in flight re-arms it on its next frame.
           live.active = false;
-          promotedThisTurn = false;
+          setLiveID(null);
           stopRunning();
           applyHistory(detail.messages);
         })
@@ -560,23 +651,7 @@ export function useNagobotChat(
           // Keep whatever is on screen; the next reconnect/visible retries.
         });
     };
-
-    // reconcile re-reads session.jsonl purely to place messages the server has
-    // already committed — it never touches live turn state, and it abandons
-    // its result if a turn opened while the fetch was in flight (that turn's
-    // own start promotes the remaining chips, and installing stale history
-    // over it would orphan its live parts).
-    const reconcile = () => {
-      const gen = ++syncGen;
-      fetchSession(sessionKey)
-        .then((detail) => {
-          if (cancelled || gen !== syncGen || live.active) return;
-          applyHistory(detail.messages);
-        })
-        .catch(() => {
-          // The next turn boundary or visibility change retries.
-        });
-    };
+    resyncRef.current = resync;
 
     // Resync on every reconnect after the first successful open, and whenever
     // the tab returns to the foreground (an iOS resume often revives the page
@@ -594,134 +669,75 @@ export function useNagobotChat(
     };
     document.addEventListener("visibilitychange", onVisibility);
 
-    // ensureTurn opens the turn's single assistant message on the first
-    // frame; every later frame edits its parts array in place (immutably).
-    const ensureTurn = () => {
-      if (live.turnId) return;
-      const id = localID("live-turn");
-      live.turnId = id;
-      live.partCount = 0;
-      live.thinkingIdx = null;
-      live.textIdx = null;
-      live.tools.clear();
-      // A turn opening is the server telling us where the queued messages
-      // went: the daemon write-ahead-persists a turn's user messages before
-      // its first LLM call, so anything still queued when frames start
-      // arriving belongs immediately above this turn.
-      const promoted = promotePending();
-      setMessages((prev) => [
-        ...prev,
-        ...promoted,
-        { id, role: "assistant", text: "", parts: [], createdAt: new Date() },
-      ]);
-    };
-    const appendPart = (part: TurnPart): number => {
-      ensureTurn();
-      const id = live.turnId;
-      const idx = live.partCount++;
-      setMessages((prev) =>
-        prev.map((m) =>
-          m.id === id ? { ...m, parts: [...(m.parts ?? []), part] } : m,
-        ),
-      );
-      return idx;
-    };
-    const patchPart = (idx: number, patch: Partial<TurnPart>) => {
-      const id = live.turnId;
-      if (!id) return;
-      setMessages((prev) =>
-        prev.map((m) =>
-          m.id === id
-            ? {
-                ...m,
-                parts: (m.parts ?? []).map((p, i) =>
-                  i === idx ? ({ ...p, ...patch } as TurnPart) : p,
-                ),
-              }
-            : m,
-        ),
-      );
-    };
-
     sock.onStream = (ev: StreamFrame) => {
-      live.active = true;
-      startRunning(); // a turn is visibly in flight; each event re-arms the timeout
+      // A turn is visibly in flight; each event re-arms the failsafe timeout.
+      // `message` is excluded deliberately — it is the one frame that also
+      // arrives outside a turn: post-turn hook injections are persisted, and
+      // announced, AFTER turn_end, and re-arming there would leave the spinner
+      // running on a turn that is over.
+      if (ev.kind !== "message") {
+        live.active = true;
+        startRunning();
+      }
       switch (ev.kind) {
+        case "message": {
+          // An entry has just been written to session.jsonl. This is the only
+          // frame that adds a message, and it carries the entry itself — the
+          // same shape a history read returns.
+          if (!ev.message) break;
+          upsertRaw(ev.message);
+          retirePlaced(ev.message);
+          break;
+        }
+        case "message_start": {
+          // The id of the assistant message about to stream. Claiming its slot
+          // now is what gives the deltas below something to patch; the
+          // authoritative entry replaces this placeholder in place when the
+          // round closes.
+          if (!ev.message_id) break;
+          setLiveID(ev.message_id);
+          upsertRaw({
+            role: "assistant",
+            id: ev.message_id,
+            content: "",
+            timestamp: new Date().toISOString(),
+          });
+          break;
+        }
         case "thinking": {
-          const snap = ev.snapshot ?? "";
-          if (snap === "") break;
-          if (live.thinkingIdx !== null) {
-            patchPart(live.thinkingIdx, { text: snap });
-          } else {
-            live.thinkingIdx = appendPart({ type: "reasoning", text: snap });
-          }
+          if (!ev.message_id || !ev.snapshot) break;
+          patchRaw(ev.message_id, { reasoning_content: ev.snapshot });
           break;
         }
         case "text": {
-          const snap = ev.snapshot ?? "";
-          if (snap === "") break;
-          if (live.textIdx !== null) {
-            patchPart(live.textIdx, { text: snap });
-          } else {
-            live.textIdx = appendPart({ type: "text", text: snap });
-          }
-          break;
-        }
-        case "tool_call": {
-          if (!ev.tool) break;
-          const idx = appendPart({
-            type: "tool",
-            callId: ev.tool_call_id || localID("live-tool"),
-            toolName: ev.tool,
-            argsText: prettyArgs(ev.args),
-          });
-          if (ev.tool_call_id) live.tools.set(ev.tool_call_id, idx);
-          break;
-        }
-        case "tool_result": {
-          const idx = ev.tool_call_id
-            ? live.tools.get(ev.tool_call_id)
-            : undefined;
-          if (idx === undefined) break;
-          if (ev.tool_call_id) live.tools.delete(ev.tool_call_id);
-          patchPart(idx, { resultText: ev.args ?? "" });
-          break;
-        }
-        case "round_end": {
-          // The LLM call finished: the next round's thinking/text open fresh
-          // parts. The current text part stays addressable — the
-          // authoritative "response" frame replaces its content.
-          live.thinkingIdx = null;
+          if (!ev.message_id || !ev.snapshot) break;
+          patchRaw(ev.message_id, { content: ev.snapshot });
           break;
         }
         case "turn_end": {
           // Spinners stop by themselves: once isRunning drops, the message
-          // status goes complete and every part renders settled — pending
-          // tool parts included. The turn message itself stays as-is until
-          // the next resync replaces it with the persisted form.
+          // status goes complete and every part renders settled. Clearing
+          // liveID settles the tool cards too — anything still unanswered was
+          // abandoned, not running.
           live.active = false;
-          live.turnId = null;
-          live.thinkingIdx = null;
-          live.textIdx = null;
-          live.tools.clear();
+          setLiveID(null);
           stopRunning();
-          // Settle every message this client sent into the turn that just
-          // ended: chips promoted above it may in fact have been injected
-          // INSIDE it, and chips still queued belong to whatever the server
-          // does next. Either way the persisted file is the authority, and
-          // this is the one moment it can be read without racing a live turn.
-          if (promotedThisTurn || pendingRef.current.length > 0) {
-            promotedThisTurn = false;
-            reconcile();
-          }
           break;
         }
+        // tool_call / tool_result / round_end are deliberately not handled.
+        // The authoritative `message` frames carry both the assistant's
+        // tool_calls and each tool's result, and they arrive FIRST — acting on
+        // the decorations too would make two writers for one piece of state,
+        // which is the whole class of bug this design removes.
       }
     };
 
     sock.onResponse = (text) => {
+      // The reply text itself already arrived as an authoritative `message`
+      // frame; this frame is only a turn-completion signal now.
+      //
       // Streamed turns end on turn_end; a lone response (non-streaming
-      // provider or older daemon) still closes the spinner.
+      // provider) still closes the spinner.
       if (!live.active) stopRunning();
       // Desktop nicety: tab open but hidden → system notification. Web Push
       // (sw.js) covers the no-tab case; this covers the backgrounded tab,
@@ -740,73 +756,26 @@ export function useNagobotChat(
           // Some platforms (Android Chrome) only allow SW-shown notifications.
         }
       }
-      // Replace the live streamed text part in place (authoritative content
-      // for the same round); otherwise append — into the live turn when one
-      // is open (keeps the turn a single message, which the anchored layout
-      // depends on), as a standalone bubble when not.
-      if (live.turnId) {
-        if (live.textIdx !== null) {
-          patchPart(live.textIdx, { text });
-        } else {
-          appendPart({ type: "text", text });
-        }
-        // The next round (if any) opens a fresh text part.
-        live.textIdx = null;
-      } else {
-        // No stream opened this turn (non-streaming provider, or an older
-        // daemon), so ensureTurn never ran — this reply is the first sign of
-        // where the queued messages landed.
-        const promoted = promotePending();
-        setMessages((prev) => [
-          ...prev,
-          ...promoted,
-          {
-            id: localID("resp"),
-            role: "assistant",
-            text,
-            createdAt: new Date(),
-          },
-        ]);
-      }
     };
-    // Another person watching this session spoke — show their bubble right
-    // away (their page rendered it locally; ours would otherwise only see
-    // the reply stream). The next resync replaces it with the persisted form.
-    sock.onPeerMessage = (text, sender) => {
-      setMessages((prev) => [
-        ...prev,
-        {
-          id: localID("peer"),
-          role: "user",
-          text,
-          createdAt: new Date(),
-          senderName: sender || undefined,
-          isMe: false,
-        },
-      ]);
-    };
+
+    // peer_message is deliberately not handled. Another viewer's message
+    // reaches us as a `message` frame the moment the daemon writes it, at the
+    // position the daemon chose; rendering the peer echo too would put a second
+    // copy of it at a position we guessed. The cost is latency, not loss: a
+    // peer speaking mid-turn shows up when the next turn write-ahead-persists
+    // the queue.
 
     sock.onError = (message) => {
       stopRunning();
-      // Fold the error into the open live turn when there is one — a
-      // standalone message after the turn would break the anchored layout.
-      if (live.turnId) {
-        appendPart({ type: "text", text: `⚠️ ${message}` });
-      } else {
-        // Promote first: an error about a message the user cannot see reads
-        // as the bot failing at nothing.
-        const promoted = promotePending();
-        setMessages((prev) => [
-          ...prev,
-          ...promoted,
-          {
-            id: localID("err"),
-            role: "assistant",
-            text: `⚠️ ${message}`,
-            createdAt: new Date(),
-          },
-        ]);
-      }
+      setNotices((prev) => [
+        ...prev,
+        {
+          id: localID("err"),
+          role: "assistant",
+          text: `⚠️ ${message}`,
+          createdAt: new Date(),
+        },
+      ]);
     };
 
     sock.bind(sessionKey);
@@ -814,22 +783,23 @@ export function useNagobotChat(
 
     setHistoryError(null);
     setHistoryLoading(true);
-    // setHistoryLoading(false) lives in the SAME callback as setMessages —
+    // setHistoryLoading(false) lives in the SAME callback as setRawMessages —
     // not a .finally — so both land in one React commit. Split across two
     // promise callbacks they can commit separately, and the in-between frame
     // (loading done, messages still empty) flashes the welcome screen.
     fetchSession(sessionKey)
       .then((detail) => {
         if (cancelled) return;
-        // Prepend history in front of whatever arrived live while the fetch
-        // was in flight. Overwriting instead would orphan the stream state
-        // machine's ids (live.textId etc. point at wiped messages), leaving
-        // every later snapshot a no-op — the turn looks frozen after a
-        // close-and-reopen mid-response.
-        setMessages((prev) => [
-          ...sessionToChatMessages(detail.messages, isMe),
-          ...prev,
-        ]);
+        // Prepend history in front of whatever arrived live while the fetch was
+        // in flight, skipping entries the live feed already delivered — the
+        // read may well include them. Overwriting instead would drop the live
+        // turn's placeholder, leaving its remaining deltas with nothing to
+        // patch: the turn would look frozen after a close-and-reopen
+        // mid-response.
+        setRawMessages((prev) => {
+          const seen = new Set(prev.map((m) => m.id).filter(Boolean));
+          return [...detail.messages.filter((m) => !seen.has(m.id)), ...prev];
+        });
         setHistoryLoading(false);
       })
       .catch((err: unknown) => {
@@ -847,7 +817,7 @@ export function useNagobotChat(
       sock.close();
       socketRef.current = null;
     };
-  }, [sessionKey, stopRunning, takePending, updatePending]);
+  }, [sessionKey, startRunning, stopRunning, updatePending]);
 
   // enqueue is the send path. It puts the message on the wire immediately —
   // nothing is held back, the daemon accepts messages mid-turn — but renders
@@ -897,10 +867,11 @@ export function useNagobotChat(
           media.map((m) => ({ name: m.name })),
         ) ?? false;
       if (!sent) {
-        // Never queued: the socket is down, so the daemon has nothing and
-        // there is no placement to wait for. Show the user's words and the
-        // failure together.
-        setMessages((prev) => [
+        // Never queued: the socket is down, so the daemon has nothing, this
+        // message will never appear in session.jsonl, and there is no
+        // placement to wait for. Show the user's words and the failure
+        // together as notices — they are not conversation entries.
+        setNotices((prev) => [
           ...prev,
           {
             id: localID("user"),
@@ -955,6 +926,17 @@ export function useNagobotChat(
   const takeOver = useCallback(() => {
     socketRef.current?.resume();
   }, []);
+
+  // The rendered conversation, derived from session.jsonl and nothing else.
+  // Notices (transport errors, unsendable messages) trail it — they have no
+  // place in the file and never will.
+  const messages = useMemo(() => {
+    const base = reuseIdentity(
+      identityCache.current,
+      sessionToChatMessages(rawMessages, isMe, liveID),
+    );
+    return notices.length > 0 ? [...base, ...notices] : base;
+  }, [rawMessages, isMe, liveID, notices]);
 
   // Only the pinned window is handed to the (non-virtualized) thread view;
   // "load earlier" widens it a page at a time. Live updates target recent

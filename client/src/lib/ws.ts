@@ -6,9 +6,14 @@
 //                  | {type: "error", error} | {type: "stream", kind, ...}
 //                  | {type: "peer_message", text, sender}
 //
-// "stream" frames carry live turn activity: thinking/text deltas (with the
-// round-accumulated snapshot for self-healing), tool lifecycle, and round/
-// turn boundaries.
+// "stream" frames carry live turn activity. Two of them declare what EXISTS —
+// `message` (an entry just written to session.jsonl) and `message_start` (the
+// id an assistant message will carry, announced before its first token) — and
+// the rest decorate a message the client has already been told about, addressed
+// by `message_id`: thinking/text deltas (with the round-accumulated snapshot
+// for self-healing), tool lifecycle, and round/turn boundaries.
+
+import type { ApiMessage } from "@/lib/api";
 
 // "replaced": another page bound this session and the server closed us with
 // code 4001. Auto-reconnecting would kick that page right back, so the socket
@@ -19,6 +24,8 @@ const closeCodeReplaced = 4001;
 
 export type StreamFrame = {
   kind:
+    | "message"
+    | "message_start"
     | "thinking"
     | "text"
     | "tool_call"
@@ -32,6 +39,13 @@ export type StreamFrame = {
   args?: string;
   is_error?: boolean;
   seq?: number;
+  // The message this frame belongs to: the entry's own id on message /
+  // message_start, and the id of the assistant message the round is building on
+  // every in-round frame.
+  message_id?: string;
+  // The persisted entry, on kind:"message" only — the same shape a history read
+  // returns, so both paths feed one list.
+  message?: ApiMessage;
 };
 
 // Media the client already uploaded via POST /api/media, referenced by the

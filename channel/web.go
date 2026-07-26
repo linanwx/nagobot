@@ -127,7 +127,7 @@ type webOutboundMessage struct {
 	Sender string `json:"sender,omitempty"`
 
 	// type:"stream" — live turn activity (see thread/msg.StreamEvent).
-	Kind       string `json:"kind,omitempty"`         // thinking | text | tool_call | tool_result | round_end | turn_end
+	Kind       string `json:"kind,omitempty"`         // thinking | text | tool_call | tool_result | round_end | turn_end | message_start | message
 	Delta      string `json:"delta,omitempty"`        // thinking/text increment
 	Snapshot   string `json:"snapshot,omitempty"`     // round-accumulated text (self-heal)
 	Tool       string `json:"tool,omitempty"`         // tool name
@@ -135,6 +135,16 @@ type webOutboundMessage struct {
 	Args       string `json:"args,omitempty"`         // tool args / result preview
 	IsError    bool   `json:"is_error,omitempty"`     // tool_result error flag
 	Seq        int    `json:"seq,omitempty"`          // per-turn monotonic sequence
+
+	// MessageID names the message a frame belongs to: on message_start/message
+	// it is that message's id, and on every in-round frame it is the id of the
+	// assistant message being streamed, so live content patches a known message
+	// instead of creating one.
+	MessageID string `json:"message_id,omitempty"`
+	// Message carries a just-persisted session.jsonl entry (kind:"message") in
+	// the SAME shape GET /api/sessions/{key} returns, so a client parses the
+	// history and the live feed with one code path.
+	Message *messageWithTok `json:"message,omitempty"`
 }
 
 // NewWebChannel creates a new web channel from config. authMgr guards the
@@ -440,6 +450,10 @@ func (w *WebChannel) StreamTo(ctx context.Context, replyTo string, ev thread.Str
 		Args:       ev.Args,
 		IsError:    ev.IsError,
 		Seq:        ev.Seq,
+		MessageID:  ev.MessageID,
+	}
+	if ev.Message != nil {
+		payload.Message = newMessageWithTok(*ev.Message)
 	}
 
 	for _, client := range w.boundClients(sessionID) {
@@ -1063,6 +1077,16 @@ type messageWithTok struct {
 	CompressedTokens int `json:"compressed_tokens,omitempty"`
 }
 
+// newMessageWithTok wraps a session entry in the shape the session API serves,
+// so the live message feed and a history read are one format for the client.
+func newMessageWithTok(m provider.Message) *messageWithTok {
+	mt := &messageWithTok{Message: m, Tokens: thread.EstimateMessageTokens(m)}
+	if m.Compressed != "" || m.ReasoningTrimmed || m.HeartbeatTrim {
+		mt.CompressedTokens = thread.EstimateMessageTokens(thread.ApplyCompressedMessage(m))
+	}
+	return mt
+}
+
 func (w *WebChannel) handleSessionMessages(rw http.ResponseWriter, r *http.Request) {
 	if w.workspace == "" {
 		http.Error(rw, "workspace is not configured", http.StatusInternalServerError)
@@ -1125,15 +1149,7 @@ func (w *WebChannel) handleSessionMessages(rw http.ResponseWriter, r *http.Reque
 
 	msgs := make([]messageWithTok, len(s.Messages))
 	for i, m := range s.Messages {
-		mt := messageWithTok{
-			Message: m,
-			Tokens:  thread.EstimateMessageTokens(m),
-		}
-		if m.Compressed != "" || m.ReasoningTrimmed || m.HeartbeatTrim {
-			applied := thread.ApplyCompressedMessage(m)
-			mt.CompressedTokens = thread.EstimateMessageTokens(applied)
-		}
-		msgs[i] = mt
+		msgs[i] = *newMessageWithTok(m)
 	}
 
 	rw.Header().Set("Content-Type", "application/json")

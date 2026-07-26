@@ -8,6 +8,7 @@ import (
 
 	"github.com/linanwx/nagobot/logger"
 	"github.com/linanwx/nagobot/provider"
+	"github.com/linanwx/nagobot/session"
 )
 
 // sourceCrossThreadDispatchRequired is the `source:` frontmatter tag used on
@@ -107,9 +108,12 @@ func runSinglePostHook(ctx context.Context, h postTurnHook, ptc postTurnContext,
 }
 
 // persistPostInjections appends each non-empty payload to session.jsonl as a
-// user-role message tagged with the given source. Silently skips when no
-// session manager is configured. Called by RunOnce after runPostHooks.
-func (t *Thread) persistPostInjections(payloads []string, source WakeSource) {
+// user-role message tagged with the given source, and announces each on the
+// turn's sink — these land after turn_end, so without the announcement a
+// watching client would not learn they exist until its next history read.
+// Silently skips when no session manager is configured. Called by RunOnce
+// after runPostHooks.
+func (t *Thread) persistPostInjections(payloads []string, source WakeSource, sink Sink) {
 	if len(payloads) == 0 {
 		return
 	}
@@ -129,12 +133,16 @@ func (t *Thread) persistPostInjections(payloads []string, source WakeSource) {
 	if len(msgs) == 0 {
 		return
 	}
+	session.EnsureMessageIDs(t.sessionKey, msgs)
 	if err := cfg.Sessions.Append(t.sessionKey, msgs...); err != nil {
 		logger.Warn("post-turn hook append failed",
 			"threadID", t.id,
 			"sessionKey", t.sessionKey,
 			"err", err,
 		)
+	}
+	for _, m := range msgs {
+		t.emitStreamMessage(sink, m)
 	}
 }
 

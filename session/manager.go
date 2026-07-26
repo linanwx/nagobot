@@ -3,6 +3,7 @@ package session
 import (
 	"errors"
 	"fmt"
+	"math/rand/v2"
 	"os"
 	"path/filepath"
 	"strings"
@@ -16,6 +17,16 @@ import (
 // Format: sessionKey:unixMillis:hash (e.g. "telegram:123456:1709571234567:000001").
 func generateMessageID(sessionKey string, ts time.Time, seq int) string {
 	return fmt.Sprintf("%s:%d:%06d", sessionKey, ts.UnixMilli(), seq)
+}
+
+// NewMessageID mints an id for a message whose content does not exist yet — a
+// streaming assistant turn announces the id its message WILL have before its
+// first token, so every live frame can address that message and the entry that
+// finally lands on disk needs no re-keying. The suffix is random because there
+// is no content to hash; that is the only way it differs from an id
+// EnsureMessageIDs would assign.
+func NewMessageID(sessionKey string) string {
+	return generateMessageID(normalizeSessionKey(sessionKey), time.Now(), rand.IntN(1000000))
 }
 
 // EnsureMessageIDs assigns timestamps and IDs to messages that lack them.
