@@ -249,7 +249,7 @@ func runServe(cmd *cobra.Command, args []string) error {
 	// model must dispatch() explicitly. The deliveryLabel is mode-specific
 	// guidance rendered in the wake frontmatter.
 	cronCh.SetDirectWake(func(sessionKey string, source thread.WakeSource, message, agentName, deliveryLabel string) {
-		dropSink := thread.Sink{
+		dropSink := thread.NewSinks(thread.SessionSink{
 			Label: deliveryLabel,
 			Send: func(_ context.Context, response string) error {
 				if strings.TrimSpace(response) != "" {
@@ -258,12 +258,12 @@ func runServe(cmd *cobra.Command, args []string) error {
 				}
 				return nil
 			},
-		}
+		})
 		threadMgr.Wake(sessionKey, &thread.WakeMessage{
 			Source:    source,
 			Message:   message,
 			AgentName: agentName,
-			Sink:      dropSink,
+			Sinks:     dropSink,
 		})
 	})
 
@@ -390,8 +390,8 @@ func isDiscordSnowflake(s string) bool {
 	return true
 }
 
-func internalDiscordSink(sessionKey string) thread.Sink {
-	return thread.Sink{
+func internalDiscordSink(sessionKey string) thread.SinkSet {
+	return thread.NewSinks(thread.SessionSink{
 		Label: "internal discord session - result will not be delivered",
 		Send: func(_ context.Context, response string) error {
 			if strings.TrimSpace(response) != "" {
@@ -399,19 +399,36 @@ func internalDiscordSink(sessionKey string) thread.Sink {
 			}
 			return nil
 		},
+	})
+}
+
+// buildDefaultSinkFor returns a factory that resolves the fallback sinks for a
+// given session key: the channel the session lives on, plus the web mirror for
+// any browser watching it.
+func buildDefaultSinkFor(chMgr *channel.Manager, cfg *config.Config, sessionsDir string, threadMgr *thread.Manager, cronJobFn func(string) (cronpkg.Job, bool)) func(string) thread.SinkSet {
+	channelSink := buildDefaultChannelSinkFor(chMgr, cfg, sessionsDir, threadMgr, cronJobFn)
+	return func(sessionKey string) thread.SinkSet {
+		set := channelSink(sessionKey)
+		observer, ok := webObserverSink(chMgr, sessionKey)
+		if !ok {
+			return set
+		}
+		return set.With(observer)
 	}
 }
 
-// buildDefaultSinkFor returns a factory that resolves the fallback sink for a given session key.
-func buildDefaultSinkFor(chMgr *channel.Manager, cfg *config.Config, sessionsDir string, threadMgr *thread.Manager, cronJobFn func(string) (cronpkg.Job, bool)) func(string) thread.Sink {
-	return func(sessionKey string) thread.Sink {
+// buildDefaultChannelSinkFor resolves the one sink that belongs to the channel
+// a session lives on. Kept separate from the mirror so each branch below stays a
+// straight session-key → channel mapping.
+func buildDefaultChannelSinkFor(chMgr *channel.Manager, cfg *config.Config, sessionsDir string, threadMgr *thread.Manager, cronJobFn func(string) (cronpkg.Job, bool)) func(string) thread.SinkSet {
+	return func(sessionKey string) thread.SinkSet {
 		// Child threads: route response back to parent thread. The parent wake
 		// carries a recursive paired sink so any naive parent reply routes back
 		// to this child session — the ping-pong recurses until one side halts
 		// via dispatch({}) or plain reply text.
 		if idx := strings.Index(sessionKey, ":threads:"); idx >= 0 {
 			parentKey := sessionKey[:idx]
-			return thread.Sink{
+			return thread.NewSinks(thread.SessionSink{
 				Label: "your response will be forwarded to parent thread " + parentKey,
 				Send: func(ctx context.Context, response string) error {
 					if strings.TrimSpace(response) == "" {
@@ -424,11 +441,11 @@ func buildDefaultSinkFor(chMgr *channel.Manager, cfg *config.Config, sessionsDir
 						Source:           thread.WakeSession,
 						Message:          wakeMsg,
 						CallerSessionKey: sessionKey,
-						Sink:             thread.BuildPairedSessionSink(threadMgr, parentKey, sessionKey),
+						Sinks:            thread.BuildPairedSessionSink(threadMgr, parentKey, sessionKey),
 					})
 					return nil
 				},
-			}
+			})
 		}
 
 		// Cron sessions: defaultSink drops. Cron fires always attach an
@@ -436,7 +453,7 @@ func buildDefaultSinkFor(chMgr *channel.Manager, cfg *config.Config, sessionsDir
 		// only matters for wakes that target cron:<ID> from other sources
 		// (rare — typically only dispatch(to=session, session_key="cron:...")).
 		if strings.HasPrefix(sessionKey, "cron:") {
-			return thread.Sink{
+			return thread.NewSinks(thread.SessionSink{
 				Label: "cron session — caller output is dropped. Use dispatch(to=session, ...) to deliver explicitly.",
 				Send: func(_ context.Context, response string) error {
 					if strings.TrimSpace(response) != "" {
@@ -444,23 +461,22 @@ func buildDefaultSinkFor(chMgr *channel.Manager, cfg *config.Config, sessionsDir
 					}
 					return nil
 				},
-			}
+			})
 		}
 
 		// telegram:{chatID} or telegram:{userID} → send to that chat.
 		if strings.HasPrefix(sessionKey, "telegram:") {
 			userID := strings.TrimPrefix(sessionKey, "telegram:")
 			if userID != "" {
-				return thread.Sink{
-					Label:     "your response will be sent to telegram user " + userID,
-					Chunkable: true,
+				return thread.NewSinks(thread.SessionSink{
+					Label: "your response will be sent to telegram user " + userID,
 					Send: func(ctx context.Context, response string) error {
 						if strings.TrimSpace(response) == "" {
 							return nil
 						}
 						return chMgr.SendTo(ctx, "telegram", response, userID)
 					},
-				}
+				}.Chunked())
 			}
 		}
 
@@ -468,16 +484,15 @@ func buildDefaultSinkFor(chMgr *channel.Manager, cfg *config.Config, sessionsDir
 		if strings.HasPrefix(sessionKey, "feishu:") {
 			openID := strings.TrimPrefix(sessionKey, "feishu:")
 			if openID != "" {
-				return thread.Sink{
-					Label:     "your response will be sent to feishu user " + openID,
-					Chunkable: true,
+				return thread.NewSinks(thread.SessionSink{
+					Label: "your response will be sent to feishu user " + openID,
 					Send: func(ctx context.Context, response string) error {
 						if strings.TrimSpace(response) == "" {
 							return nil
 						}
 						return chMgr.SendTo(ctx, "feishu", response, "p2p:"+openID)
 					},
-				}
+				}.Chunked())
 			}
 		}
 
@@ -491,16 +506,15 @@ func buildDefaultSinkFor(chMgr *channel.Manager, cfg *config.Config, sessionsDir
 			if r := readSessionMeta(sessionsDir, sessionKey); r.DiscordDM != nil && r.DiscordDM.ReplyTo != "" {
 				replyTo = r.DiscordDM.ReplyTo
 			}
-			return thread.Sink{
-				Label:     "your response will be sent to discord channel " + channelID,
-				Chunkable: true,
+			return thread.NewSinks(thread.SessionSink{
+				Label: "your response will be sent to discord channel " + channelID,
 				Send: func(ctx context.Context, response string) error {
 					if strings.TrimSpace(response) == "" {
 						return nil
 					}
 					return chMgr.SendTo(ctx, "discord", response, replyTo)
 				},
-			}
+			}.Chunked())
 		}
 
 		// wecom:{userID} or wecom:group:{chatID} → send to that user/group.
@@ -511,9 +525,8 @@ func buildDefaultSinkFor(chMgr *channel.Manager, cfg *config.Config, sessionsDir
 				if strings.HasPrefix(target, "group:") {
 					label = "your response will be sent to wecom group " + strings.TrimPrefix(target, "group:")
 				}
-				return thread.Sink{
-					Label:     label,
-					Chunkable: true,
+				return thread.NewSinks(thread.SessionSink{
+					Label: label,
 					Send: func(ctx context.Context, response string) error {
 						if strings.TrimSpace(response) == "" {
 							return nil
@@ -523,7 +536,7 @@ func buildDefaultSinkFor(chMgr *channel.Manager, cfg *config.Config, sessionsDir
 							ReplyTo: target,
 						})
 					},
-				}
+				}.Chunked())
 			}
 		}
 
@@ -532,7 +545,7 @@ func buildDefaultSinkFor(chMgr *channel.Manager, cfg *config.Config, sessionsDir
 		// connected, so sinkless wakes (cross-session dispatch, cron) can
 		// still reach the user.
 		if strings.HasPrefix(sessionKey, "web:") {
-			return thread.Sink{
+			return thread.NewSinks(thread.SessionSink{
 				Label: "your response will be sent to the web client for session " + sessionKey,
 				Send: func(ctx context.Context, response string) error {
 					if strings.TrimSpace(response) == "" {
@@ -543,26 +556,25 @@ func buildDefaultSinkFor(chMgr *channel.Manager, cfg *config.Config, sessionsDir
 						ReplyTo: sessionKey,
 					})
 				},
-			}
+			})
 		}
 
 		// "cli" → socket channel.
 		if sessionKey == "cli" {
 			if _, ok := chMgr.Get("socket"); ok {
-				return thread.Sink{
-					Label:     "your response will be sent to the CLI client via socket",
-					Chunkable: true,
+				return thread.NewSinks(thread.SessionSink{
+					Label: "your response will be sent to the CLI client via socket",
 					Send: func(ctx context.Context, response string) error {
 						if strings.TrimSpace(response) == "" {
 							return nil
 						}
 						return chMgr.SendTo(ctx, "socket", response, "")
 					},
-				}
+				}.Chunked())
 			}
 		}
 
-		return thread.Sink{}
+		return thread.SinkSet{}
 	}
 }
 

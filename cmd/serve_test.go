@@ -113,8 +113,8 @@ func TestBuildDefaultSinkFor_DiscordInvalidSessionKeysAreSilent(t *testing.T) {
 			if sink.IsZero() {
 				t.Fatal("expected a silent sink, got zero sink")
 			}
-			if !strings.Contains(sink.Label, "internal") {
-				t.Errorf("label %q should mark the session as internal/non-deliverable", sink.Label)
+			if !strings.Contains(sink.Label(), "internal") {
+				t.Errorf("label %q should mark the session as internal/non-deliverable", sink.Label())
 			}
 
 			if err := sink.Send(context.Background(), "assistant output"); err != nil {

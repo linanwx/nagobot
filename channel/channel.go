@@ -48,6 +48,26 @@ type Streamer interface {
 	StreamTo(ctx context.Context, replyTo string, ev msg.StreamEvent) error
 }
 
+// Observer is an optional interface for a channel that can show a session whose
+// conversation lives somewhere else — a browser watching a Discord group, say.
+//
+// It is deliberately separate from Send/StreamTo rather than a flag on
+// Response, because an observed session has a different notion of failure:
+//   - Nobody watching is the NORMAL case, not an error. Every turn on every
+//     channel is mirrored, and almost none of them have a page open.
+//   - Only participants may be notified. Send's fallback for a session with no
+//     participant record is a broadcast push to every enrolled device; applied
+//     to observation that would ping everyone about a conversation they are not
+//     part of, on every message of every channel.
+type Observer interface {
+	// Observe mirrors one authoritative message. Returns nil when nobody is
+	// watching and nobody is owed a notification.
+	Observe(ctx context.Context, sessionKey, text string) error
+	// ObserveStream mirrors one live stream event. Same drop-when-unwatched
+	// semantics as StreamTo.
+	ObserveStream(ctx context.Context, sessionKey string, ev msg.StreamEvent) error
+}
+
 // Channel is the interface for messaging channels.
 type Channel interface {
 	// Name returns the channel name (e.g., "telegram", "cli", "webhook").

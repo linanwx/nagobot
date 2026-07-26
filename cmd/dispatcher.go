@@ -90,7 +90,7 @@ func (d *Dispatcher) dispatch(ctx context.Context, ch channel.Channel, msg *chan
 	if sd, err := d.cfg.SessionsDir(); err == nil {
 		persistChannelRouting(sd, sessionKey, msg)
 	}
-	sink := d.buildSink(ch, msg, sessionKey)
+	sink, msgSink := d.buildSinks(ch, msg, sessionKey)
 	agentName, vars := d.resolveAgentName(sessionKey, msg)
 	userMessage := d.preprocessMessage(msg)
 	source := d.wakeSource(ch)
@@ -146,7 +146,8 @@ func (d *Dispatcher) dispatch(ctx context.Context, ch channel.Channel, msg *chan
 		Source:       source,
 		Message:      userMessage,
 		ID:           msg.Metadata["client_msg_id"], // already validated at the channel boundary; empty for channels that don't mint one
-		Sink:         sink,
+		Sinks:        sink,
+		MessageSink:  msgSink,
 		AgentName:    agentName,
 		Vars:         vars,
 		SenderName:   senderName,
@@ -181,7 +182,7 @@ func (d *Dispatcher) handleInit(ctx context.Context, ch channel.Channel, msg *ch
 		}
 	}
 
-	sink := d.buildSink(ch, msg, d.route(msg))
+	sink, _ := d.buildSinks(ch, msg, d.route(msg))
 	if !sink.IsZero() {
 		_ = sink.Send(ctx, response)
 	}
@@ -251,16 +252,17 @@ func (d *Dispatcher) routeChatChannel(msg *channel.Message, prefix string, group
 	return msg.ChannelID
 }
 
-// buildSink creates a per-wake sink that delivers the response back to the
-// originating channel.
-func (d *Dispatcher) buildSink(ch channel.Channel, msg *channel.Message, sessionKey string) thread.Sink {
+// buildSinks creates the per-wake delivery for a channel message: the session
+// sink that carries this turn's output back to the originating channel, plus
+// the message-specific sink that can react on the very message that woke us.
+func (d *Dispatcher) buildSinks(ch channel.Channel, msg *channel.Message, sessionKey string) (thread.SinkSet, thread.MessageSink) {
 	if ch.Name() == "cron" {
-		return d.buildCronSink(msg)
+		return d.buildCronSink(msg), thread.MessageSink{}
 	}
 
 	manager := d.channels
 	if manager == nil || msg == nil {
-		return thread.Sink{}
+		return thread.SinkSet{}, thread.MessageSink{}
 	}
 
 	channelName := ch.Name()
@@ -278,9 +280,8 @@ func (d *Dispatcher) buildSink(ch channel.Channel, msg *channel.Message, session
 	var bufMu sync.Mutex
 	var buf strings.Builder
 
-	sink := thread.Sink{
-		Label:     "your response will be sent to the user via " + channelName,
-		Chunkable: true,
+	sink := thread.SessionSink{
+		Label: "your response will be sent to the user via " + channelName,
 		Send: func(ctx context.Context, response string) error {
 			if strings.TrimSpace(response) == "" {
 				return nil
@@ -324,18 +325,34 @@ func (d *Dispatcher) buildSink(ch channel.Channel, msg *channel.Message, session
 			pipe.Flush()
 			return innerSend(ctx, response)
 		}
+		// A streaming channel renders the turn live and takes no chunks: its
+		// deltas already deliver the text, and the persisted entries arrive as
+		// message frames. Registering both — which is what the old Chunkable
+		// bool did on web — sent every intermediate assistant message a second
+		// time, producing a redundant push per tool round.
+	} else {
+		sink = sink.Chunked()
 	}
 
-	// Build React closure for channels that support it.
-	sink.React = d.buildReactFunc(channelName, manager, msg)
-	return sink
+	sinks := []thread.SessionSink{sink}
+	// Mirror to any browser watching this session, unless the message came from
+	// the browser (that page is already the sink above).
+	if channelName != "web" {
+		if observer, ok := webObserverSink(manager, sessionKey); ok {
+			sinks = append(sinks, observer)
+		}
+	}
+
+	return thread.NewSinks(sinks...), thread.MessageSink{
+		React: d.buildReactFunc(channelName, manager, msg),
+	}
 }
 
 // buildCronSink returns a drop sink for cron-channel messages.
 // Cron-triggered turns must explicitly dispatch() to deliver output; naive
 // text output is discarded. This path is the legacy channel-message fallback;
 // the primary path is onDirectWake in serve.go, which also uses a drop sink.
-func (d *Dispatcher) buildCronSink(msg *channel.Message) thread.Sink {
+func (d *Dispatcher) buildCronSink(msg *channel.Message) thread.SinkSet {
 	reportTo := ""
 	if msg != nil {
 		reportTo = strings.TrimSpace(msg.Metadata["wake_session"])
@@ -346,7 +363,7 @@ func (d *Dispatcher) buildCronSink(msg *channel.Message) thread.Sink {
 	} else {
 		label = "cron caller output is dropped. No delivery target configured; use dispatch explicitly if you need to forward results."
 	}
-	return thread.Sink{
+	return thread.NewSinks(thread.SessionSink{
 		Label: label,
 		Send: func(_ context.Context, response string) error {
 			if strings.TrimSpace(response) != "" {
@@ -354,7 +371,7 @@ func (d *Dispatcher) buildCronSink(msg *channel.Message) thread.Sink {
 			}
 			return nil
 		},
-	}
+	})
 }
 
 // Per-platform emoji mapping for ReactEvents.

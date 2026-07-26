@@ -365,15 +365,40 @@ func (w *WebChannel) Send(ctx context.Context, resp *Response) error {
 	if resp == nil {
 		return fmt.Errorf("response is nil")
 	}
+	return w.deliver(ctx, resp.ReplyTo, resp.Text, false)
+}
 
-	sessionID := sanitizeSessionKey(resp.ReplyTo)
+// Observe implements Observer: mirror one authoritative message of a session
+// whose conversation lives on another channel. See the Observer doc for why
+// this is not Send with a flag.
+func (w *WebChannel) Observe(ctx context.Context, sessionKey, text string) error {
+	return w.deliver(ctx, sessionKey, text, true)
+}
+
+// ObserveStream implements Observer. Live frames need no special casing:
+// StreamTo already drops silently when no page is bound, which is the normal
+// case for an observed session.
+func (w *WebChannel) ObserveStream(ctx context.Context, sessionKey string, ev thread.StreamEvent) error {
+	return w.StreamTo(ctx, sessionKey, ev)
+}
+
+// deliver multicasts text to every page bound to the session and pings the
+// participants who are not watching.
+//
+// observed=true means the conversation lives on another channel and this is a
+// mirror: nobody watching is success rather than an error, and a session with
+// no participant record notifies nobody at all — the broadcast fallback below
+// exists for sessions that ARE web sessions, and applying it to a mirror would
+// ping every enrolled device about a conversation they never joined.
+func (w *WebChannel) deliver(ctx context.Context, replyTo, text string, observed bool) error {
+	sessionID := sanitizeSessionKey(replyTo)
 	if sessionID == "" {
 		sessionID = webMainSessionID
 	}
 
 	payload := webOutboundMessage{
 		Type: "response",
-		Text: resp.Text,
+		Text: text,
 	}
 
 	// Multicast to every page watching the session. A viewer whose write
@@ -394,7 +419,7 @@ func (w *WebChannel) Send(ctx context.Context, resp *Response) error {
 
 	notification := push.Notification{
 		Title:   "nagobot · " + sessionID,
-		Body:    truncateRunes(resp.Text, 140),
+		Body:    truncateRunes(text, 140),
 		Session: sessionID,
 	}
 
@@ -407,18 +432,23 @@ func (w *WebChannel) Send(ctx context.Context, resp *Response) error {
 			}
 		}
 		pushed := w.pushMgr.SendTo(notification, members)
-		if delivered > 0 || pushed > 0 {
+		if delivered > 0 || pushed > 0 || observed {
 			return nil
 		}
 		return fmt.Errorf("web session not connected: %s", sessionID)
 	}
 
-	// No participant record (pre-existing session, or auth-off deployment):
-	// keep the legacy behavior — broadcast push only when no page at all is
-	// watching.
 	if delivered > 0 {
 		return nil
 	}
+	// A mirrored session with no participant record has nobody to tell: see
+	// the observed doc above.
+	if observed {
+		return nil
+	}
+	// No participant record (pre-existing session, or auth-off deployment):
+	// keep the legacy behavior — broadcast push only when no page at all is
+	// watching.
 	if w.pushMgr.HasSubscriptions() {
 		w.pushMgr.Send(notification)
 		return nil

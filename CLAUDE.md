@@ -220,6 +220,31 @@ Tools implement `Def() ToolDef` + `Run(ctx, args) string`. Registered in a `Regi
 
 `dispatch` is the routing tool for reaching OTHER agents (4 targets: caller:session / subagent / fork / session). **There is no `to=user`** — speaking to your own human is not a dispatch, it is just the turn's plain content, routed by `Thread.contentSink` (see below). The caller:session form asserts the caller is another session — a mismatch fails validation so the LLM can't silently misroute. `to=session` has two mutually exclusive addressing forms: `session_key` (must exist on disk — typo protection) and `channel`+`user_id` (endpoint form; channel is enum-validated against `endpointChannels`, the derived `channel:user_id` session is created if missing — the deliberate first-contact path; body is a wake message for the target session's AI, never verbatim text to the human). `dispatch({})` with empty sends ends a turn silently. **Solo rule**: dispatch terminates the turn only when it is the sole tool call in the assistant message (runner passes the batch size via `provider.WithToolBatchSize`); batched with other tool calls it still delivers every send but the turn continues (outcome `delivered-turn-continues`, empty batched dispatch → `no-op`) — halting would discard the sibling tools' results. A batched caller:* delivery also calls `ClearSuppressSink` so the turn's eventual final text still reaches the sink. For delayed self-wakes (replacing the old `sleep_thread(duration=...)`), use the `manage-cron` skill to create a one-time `set-at --direct-wake` job into the current session.
 
+### A session's output goes to a SET of sinks (`thread/msg/sink.go`)
+
+Delivery used to be one `Sink` struct carrying five unrelated things: where the session's output goes, whether that place accepts intermediate chunks (`Chunkable bool`), a rich-stream hook, an end-of-turn flush, and an emoji reaction on the *inbound* message. It is now split along the two axes that actually differ:
+
+- **`SessionSink`** — one durable view of a session. `Label`, `Send` (authoritative, every sink has it), `Flush`, plus **at most one** live mode: `Chunk` (intermediate whole messages — telegram/discord/feishu/wecom/socket) or `Stream` (rich frames — web). A sink with neither is a terminal destination: paired session sinks, cron/heartbeat drop sinks, the callback sinks of internal siblings — exactly the set `SettleTurnContent` exists for.
+- **`SinkSet`** — a session's fan-out, zero or more SessionSinks. Everything broadcasts. `NewSinks` drops a member with no `Send`, because `IsZero` is what every "does anyone read this turn" check rests on and admitting a Send-less sink would make it lie.
+- **`MessageSink`** — the parts that address ONE inbound message and therefore cannot be broadcast or rebuilt from a session key. Today that is only `React`.
+
+**The runner calls both live modes unconditionally; each sink decides what fires.** `useStreaming` is `sink.HasChunk()` — it deliberately no longer carries the old `&& !richStream` term. That term was correct while a session had one sink; with a mirror attached it would have silently stopped a Discord user's text from streaming the moment someone opened a web page on that session. Same reason the `streamer.DidSend()` guard in `OnMessage` now subtracts the chunk sinks (`WithoutChunkSinks`) instead of returning: the chunked destination already has the text, the mirror does not.
+
+**Broadcast error semantics: one dead destination must not silence the others.** `SinkSet.Send` returns an error only when *every* registered sink failed — that is the one case the caller must know about, and the caller logs it. A partial failure returns nil and is logged at Warn inside `deliver` with the labels that missed out, since the caller is about to be told everything went fine.
+
+`Chunkable bool` is gone. A chunkable destination registers `Chunk` — in practice always `.Chunked()`, which aliases it to `Send`. The bool could not express "this sink already received the text" separately from "this sink wants intermediates", which is why `SettleTurnContent` read it for the former.
+
+### The web console is a window onto every session (`cmd/web_observer_sink.go`)
+
+Every eligible session's SinkSet carries a second member: a **web observer sink** that mirrors the session to whatever browser is watching it. This is what closes the hole where a page opened on a Discord group received **zero frames** while that group's turn ran — three independent reasons at once (the wake's sink had no `Stream`, so `richStream` was false and no deltas were produced, and `StreamTo` routed by the originating channel name). The page only caught up on its next history read.
+
+It is wired in both places a sink is resolved — `Dispatcher.buildSinks` (per wake, skipped when the message itself came from web) and `buildDefaultSinkFor` (per session, via `SinkSet.With`) — because `contentSink` picks the wake's set for a user-visible wake and the default set for a proactive one.
+
+- **Its `Label` is empty**, so it contributes nothing to the wake's `delivery` field. That field tells the model where its words go; a mirror is not a routing choice, and naming it would add noise to every turn on every channel for something the model must not reason about. `SinkSet.Label()` joins only non-empty labels, which is what makes this work — and it also keeps `canMerge`'s label comparison unchanged.
+- **Silence is success**, which is why the seam is `channel.Observer` (`Observe` / `ObserveStream`) and not `Send` with a flag. Almost no turn has a page open on it. `WebChannel.Send`'s "nobody connected" is an error and its fallback for a session with no participant record is a **broadcast push to every enrolled device** — applied to mirroring, that would ping everyone about a conversation they never joined, on every message of every channel. `deliver(…, observed=true)` returns nil in both cases; participants who are not watching still get their push.
+- `observableSession` excludes `web:` sessions (already delivered there — a second sink would double-send), internal siblings (`:quote`, `:pin`, `:imagepreview`, …, whose output is a value returned via `OnComplete`, not speech — the same class of bug as the old `contentSink` sibling leak), and `:threads:` / `:fork:` children (addressed to a parent that is itself mirrored). **Cron sessions are kept on purpose**: their output is dropped by design, but a browser open on one is how you watch a scheduled job run.
+- The web channel no longer registers `Chunk`. It used to (via `Chunkable: true`), which sent every intermediate assistant message a second time on top of the stream frames — one redundant delivery, and one redundant push, per tool round.
+
 ### Content delivery is decided by the wake source, not the model (`Thread.contentSink`)
 
 Plain assistant content is speech to the session's OWN human. `thread/dispatch.go:contentSink` picks its destination from the wake source and the session, and the model has no say:
@@ -379,7 +404,7 @@ Heartbeat source matching uses `strings.HasPrefix(source, "heartbeat")` to cover
 ## Key Patterns
 
 - **Hot-reload config**: Provider keys use `KeyFn` closures that call `config.Load()` each invocation. `Available()` checks at call time, not registration time. Channels (Telegram/Discord/Feishu) are hot-reloaded every 10s — adding a token to config auto-starts the channel.
-- **Per-wake sink**: Each WakeMessage carries its own Sink callback for response delivery. Zero Sink falls back to thread default.
+- **Per-wake sinks**: Each WakeMessage carries its own `Sinks SinkSet` for response delivery plus a `MessageSink` for reactions on the source message. A zero `Sinks` falls back to the thread's default set.
 - **Agent override**: `WakeMessage.AgentName` overrides the thread's agent for that turn only.
 - **Async child threads**: `SpawnChild()` is fully async. Child completion wakes parent via Sink → Enqueue.
 - **Template workspace**: Canonical templates live in `cmd/templates/`. `onboard --sync` copies to `~/.nagobot/workspace/`. `cleanAndCopyEmbeddedDir` removes deleted templates. Never edit workspace files directly.
