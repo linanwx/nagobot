@@ -111,9 +111,18 @@ func (c *CronChannel) Start(ctx context.Context) error {
 				logger.Warn("cron: direct_wake without wake_session, skipping", "id", jobID)
 				return "", nil
 			}
+			// Inject mode targets an arbitrary session and the target is never
+			// validated, so only the thread knows whether it has a human. On a
+			// user-facing target the thread's contentSink routes plain content
+			// to the channel user and replaces this label with that sink's own;
+			// what remains here is therefore what a NON-user-facing target
+			// (cron:/subagent/sibling) sees, where the caller sink drops. This
+			// used to assert channel-user delivery unconditionally, which was
+			// backwards for every --direct-wake into such a session. The
+			// WakeCron action hint carries the conditional form.
 			delivery := "you were woken by cron (inject mode). Caller is cron — there is nobody to reply to, " +
-				"but your plain reply text IS delivered to this session's channel user. Write only what is worth " +
-				"sending; use dispatch({}) to stay silent, or dispatch(to=session, params={session_key: ...}) to forward elsewhere."
+				"and this session has no channel user of its own, so plain reply text is dropped. " +
+				"Use dispatch(to=session, params={session_key: ...}) to deliver results, or dispatch({}) to end silently."
 			c.onDirectWake(target, msg.WakeCron, task, "", delivery)
 			return "", nil
 		}

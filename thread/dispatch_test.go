@@ -82,6 +82,63 @@ func TestContentSinkRouting(t *testing.T) {
 	}
 }
 
+// TestDeliveryLabelMatchesContentSink pins the wake payload's `delivery` field to
+// the destination contentSink actually picked, for every case where the two used
+// to disagree.
+//
+// `delivery` is the only place a turn is told where its output goes
+// (how-nagobot-works.md), but it was read straight off the wake sink's label —
+// resolved when the wake was built, before contentSink got a say. So on a
+// user-facing session woken by a peer, `delivery` named the caller
+// ("reply to caller session … via dispatch(to=caller:session)") while plain
+// content went to the channel user, contradicting the wake's own action hint in
+// the same frontmatter block.
+func TestDeliveryLabelMatchesContentSink(t *testing.T) {
+	const channel = "your response will be sent to the web client for session web:a7a8bbb9"
+	def := Sink{Label: channel, Send: func(context.Context, string) error { return nil }}
+
+	// The wake sink a subagent's completion attaches to its parent — the exact
+	// shape reported in the wild.
+	childKey := "web:a7a8bbb9" + session.ThreadsSessionInfix + "best-chili-sauce"
+	pairedToChild := Sink{
+		Label: "reply to caller session " + childKey + " via dispatch(to=caller:session)",
+		Send:  func(context.Context, string) error { return nil },
+	}
+
+	cases := []struct {
+		name       string
+		sessionKey string
+		source     WakeSource
+		wakeSink   Sink
+		want       string
+	}{
+		// The regression: our own subagent reports back, we are user-facing, so
+		// the answer reaches the human who has been waiting — not the child.
+		{"own child reporting back names the human", "web:a7a8bbb9", WakeSession, pairedToChild, channel},
+		// Same override for the other two proactive sources.
+		{"cron names the human", "web:a7a8bbb9", WakeCron, wakeSink(), channel},
+		{"progress names the human", "web:a7a8bbb9", WakeProgress, wakeSink(), channel},
+		// Maintenance reaches nobody, and must say so rather than fall through
+		// to whichever sink the scheduler happened to attach.
+		{"heartbeat names nobody", "web:a7a8bbb9", WakeHeartbeat, wakeSink(), noDeliveryLabel},
+		{"compression names nobody", "web:a7a8bbb9", WakeCompression, wakeSink(), noDeliveryLabel},
+		// Unchanged: the human just spoke, so the wake's own sink is the target.
+		{"user message names the wake sink", "web:a7a8bbb9", WakeWeb, wakeSink(), "wake"},
+		// Unchanged: no human of its own, content stays on the wake sink — and
+		// there the paired label is the truth, which is why it is kept.
+		{"subagent names its caller", childKey, WakeSession, pairedToChild, pairedToChild.Label},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			th := &Thread{sessionKey: tc.sessionKey, defaultSink: def, lastWakeSource: tc.source}
+			if got := th.resolveDeliveryLabel(tc.wakeSink); got != tc.want {
+				t.Fatalf("delivery = %q, want %q", got, tc.want)
+			}
+		})
+	}
+}
+
 // TestRecordProactiveChatWritesChatLog verifies bot-initiated content is written
 // to the clean chat log. It is delivered on the channel sink, which bypasses the
 // per-wake chat.jsonl sink — without this, cron follow-ups and progress notes

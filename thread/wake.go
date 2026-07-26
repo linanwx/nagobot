@@ -149,6 +149,34 @@ func (t *Thread) dequeue() (*WakeMessage, bool) {
 	}
 }
 
+// noDeliveryLabel is the `delivery` value for a turn whose plain content reaches
+// nobody: heartbeat and compression on a user-facing session, where contentSink
+// returns a zero sink on purpose, plus any thread with no sink configured at all.
+// It names dispatch because routing to another session still works on such a
+// turn — only speaking to a human of one's own does not.
+const noDeliveryLabel = "no auto-delivery — nothing you write this turn reaches anyone; " +
+	"use dispatch(to=session, ...) if something must be sent"
+
+// resolveDeliveryLabel renders the wake payload's `delivery` field: a
+// natural-language statement of where this turn's plain content goes.
+//
+// It reads that destination from the SAME function that routes the content
+// (contentSink) — never from the raw wake sink. The two diverge on every
+// proactive source: a peer-session / cron / progress wake on a user-facing
+// session carries a sink pointing back at whoever woke us, while contentSink
+// sends plain content to the channel user instead. Naming the wake sink there
+// told the turn its output went to the caller, which is false, and contradicted
+// two things at once — the wake's own action hint ("Plain text goes to your own
+// human instead") and how-nagobot-works.md, which names `delivery` as the one
+// place a turn learns where its output goes.
+func (t *Thread) resolveDeliveryLabel(wakeSink Sink) string {
+	out, _ := t.contentSink(wakeSink)
+	if out.IsZero() || out.Label == "" {
+		return noDeliveryLabel
+	}
+	return out.Label
+}
+
 // RunOnce dequeues one WakeMessage and executes a single turn.
 func (t *Thread) RunOnce(ctx context.Context) {
 	msg, ok := t.dequeue()
@@ -206,13 +234,7 @@ func (t *Thread) RunOnce(ctx context.Context) {
 		sink = sink.WithoutStreaming()
 	}
 
-	// Resolve delivery label for the AI prompt.
-	deliveryLabel := ""
-	if !msg.Sink.IsZero() {
-		deliveryLabel = msg.Sink.Label
-	} else if !t.defaultSink.IsZero() {
-		deliveryLabel = t.defaultSink.Label
-	}
+	deliveryLabel := t.resolveDeliveryLabel(sink)
 
 	loc := t.location()
 	prov, mod := t.resolvedProviderModel()
@@ -347,7 +369,7 @@ func buildWakePayload(source WakeSource, message, threadID, sessionKey, sessionD
 
 	delivery := deliveryLabel
 	if delivery == "" {
-		delivery = "no auto-delivery, use tools to send messages if needed"
+		delivery = noDeliveryLabel
 	}
 
 	header := wakeHeader{
