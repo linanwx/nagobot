@@ -211,6 +211,7 @@ func CallerKindFromSource(source WakeSource) CallerKind {
 type WakeMessage struct {
 	Source           WakeSource            // Wake source.
 	Message          string                // Wake payload text.
+	ID               string                // Optional client-supplied message id, validated at the channel boundary. Persisted verbatim as the user message's ID so the sender can address the message by the same id before and after it lands on disk. Empty = the session store assigns one.
 	Media            []string              // Optional media markers (<<media:mime:path>>) attached to the first user message of this wake, delivered natively in user content (no read_file). Dropped with a warning if the resolved model lacks the matching capability.
 	Sink             Sink                  // Per-wake sink. Zero value = no per-wake delivery.
 	AgentName        string                // Optional agent name override for this wake.

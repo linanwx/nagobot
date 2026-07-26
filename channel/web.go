@@ -579,6 +579,22 @@ func (w *WebChannel) handleWS(rw http.ResponseWriter, r *http.Request) {
 				username = client.person.Username
 				metadata["person_id"] = client.person.ID
 			}
+			// The page names its own message before sending it, and that name
+			// becomes the persisted message ID — so the id it holds while the
+			// message is still queued is the same id the message has on disk.
+			// Message.ID is not the carrier: it is a per-process counter used
+			// for reactions, and every channel fills it with its own platform
+			// ids.
+			if raw := strings.TrimSpace(req.ID); raw != "" {
+				if id := sanitizeClientMessageID(raw); id != "" {
+					metadata["client_msg_id"] = id
+				} else {
+					logger.Warn("rejected client message id",
+						"session", sessionID,
+						"id", truncateRunes(raw, 80),
+					)
+				}
+			}
 			msg := &Message{
 				ID:        fmt.Sprintf("web-%d", atomic.AddInt64(&w.msgID, 1)),
 				ChannelID: channelID,
@@ -854,6 +870,31 @@ func (w *WebChannel) loadHistory() ([]webHistoryMessage, error) {
 		out = append(out, webHistoryMessage{Role: role, Content: content})
 	}
 	return out, nil
+}
+
+// clientMessageIDPrefix marks an id as minted by a browser rather than by the
+// session store. It keeps provenance visible in session.jsonl and, together
+// with the charset below, makes it impossible for a client to mint something
+// shaped like a store-assigned id ("{sessionKey}:{unixMillis}:{hash}").
+const clientMessageIDPrefix = "web-"
+
+// sanitizeClientMessageID validates a browser-supplied message id. The id is
+// persisted verbatim as the user message's ID, so this is the trust boundary:
+// bounded length, no separators, no colons. Returns "" for anything it does not
+// recognize — the caller logs that and lets the store assign an id instead,
+// which costs the client its stable handle but never its message.
+func sanitizeClientMessageID(raw string) string {
+	s := strings.TrimSpace(raw)
+	if s == "" || len(s) > 64 || !strings.HasPrefix(s, clientMessageIDPrefix) {
+		return ""
+	}
+	for _, r := range s {
+		if (r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z') || (r >= '0' && r <= '9') || r == '-' || r == '_' {
+			continue
+		}
+		return ""
+	}
+	return s
 }
 
 // sanitizeSessionKey validates a session key (allows colons for keys like "telegram:12345").

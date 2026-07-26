@@ -80,6 +80,11 @@ func (t *Thread) tryMerge(first *WakeMessage) *WakeMessage {
 				if first.SenderID != next.SenderID {
 					first.SenderID = ""
 				}
+				// Message ids do NOT fold: N wakes become one persisted
+				// message, so only the first id can name it. The sender of a
+				// later one never sees its id on disk — its text is inside the
+				// first one's message, which is also how the web client retires
+				// its queued chips (text containment, not id equality).
 				merged++
 			} else {
 				deferred = append(deferred, next)
@@ -260,7 +265,12 @@ func (t *Thread) RunOnce(ctx context.Context) {
 					payload := buildWakePayload(next.Source, next.Message, t.id, t.sessionKey, sessionDir, deliveryLabel, modelLabel, agentName, loc, senderOrDefault(next.Sender, next.Source), next.SenderName, next.SenderID, next.MediaInfo, next.MediaPreview, next.CallerSessionKey, next.EnqueuedAt, "", next.RecentChat)
 					if payload != "" {
 						payload = markInjected(payload)
-						injected = append(injected, provider.UserMessage(payload))
+						// An injected message IS its own persisted entry (it is
+						// not folded into the turn's user message), so it keeps
+						// the sender's own id.
+						injectedMsg := provider.UserMessage(payload)
+						injectedMsg.ID = next.ID
+						injected = append(injected, injectedMsg)
 						logger.Info("injected mid-execution message",
 							"threadID", t.id,
 							"sessionKey", t.sessionKey,
@@ -277,7 +287,7 @@ func (t *Thread) RunOnce(ctx context.Context) {
 		}
 	}
 
-	response, err := t.run(ctx, userMessage, msg.Media, sink, msg.CallerSessionKey, injectFn, string(msg.Source))
+	response, err := t.run(ctx, userMessage, msg.ID, msg.Media, sink, msg.CallerSessionKey, injectFn, string(msg.Source))
 
 	// Run post-turn hooks BEFORE consuming the per-turn flags so hooks see
 	// the state accurately. Returned strings are persisted as user-role

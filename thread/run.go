@@ -20,7 +20,7 @@ import (
 
 // run executes one thread turn. Called by RunOnce; callers must not invoke
 // this directly.
-func (t *Thread) run(ctx context.Context, userMessage string, media []string, sink Sink, callerKey string, injectFn func() []provider.Message, wakeSource string) (string, error) {
+func (t *Thread) run(ctx context.Context, userMessage, userMessageID string, media []string, sink Sink, callerKey string, injectFn func() []provider.Message, wakeSource string) (string, error) {
 	userMessage = strings.TrimSpace(userMessage)
 	if userMessage == "" {
 		return "", nil
@@ -36,7 +36,7 @@ func (t *Thread) run(ctx context.Context, userMessage string, media []string, si
 	t.clearIfStateless(cfg)
 
 	sess := t.loadSession()
-	messages, turnUserMessages := t.buildMessageHistory(ctx, systemPrompt, userMessage, media, sess)
+	messages, turnUserMessages := t.buildMessageHistory(ctx, systemPrompt, userMessage, userMessageID, media, sess)
 
 	// Write-ahead: persist user messages before LLM call so they survive a crash.
 	if sess != nil {
@@ -179,7 +179,7 @@ func (t *Thread) buildSystemPrompt() string {
 // buildMessageHistory assembles the full message list for the LLM request,
 // including system prompt, session history, user message, and hook injections.
 // Returns the full messages slice and the turn-specific user messages (for write-ahead).
-func (t *Thread) buildMessageHistory(ctx context.Context, systemPrompt, userMessage string, media []string, sess *session.Session) ([]provider.Message, []provider.Message) {
+func (t *Thread) buildMessageHistory(ctx context.Context, systemPrompt, userMessage, userMessageID string, media []string, sess *session.Session) ([]provider.Message, []provider.Message) {
 	messages := make([]provider.Message, 0, 2)
 	messages = append(messages, provider.SystemMessage(systemPrompt))
 
@@ -195,6 +195,11 @@ func (t *Thread) buildMessageHistory(ctx context.Context, systemPrompt, userMess
 
 	turnUserMessages := make([]provider.Message, 0, 4)
 	userMsg := provider.UserMessage(userMessage)
+	// A sender that named its own message keeps that name on disk:
+	// session.EnsureMessageIDs only fills ids that are empty, so this survives
+	// the write-ahead untouched. The web client relies on it to hold one id for
+	// a message from the moment it is typed to long after it is persisted.
+	userMsg.ID = userMessageID
 	if kept := t.keepSupportedMedia(media); len(kept) > 0 {
 		userMsg.Media = kept
 	}

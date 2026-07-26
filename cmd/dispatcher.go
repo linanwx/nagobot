@@ -145,6 +145,7 @@ func (d *Dispatcher) dispatch(ctx context.Context, ch channel.Channel, msg *chan
 	d.threads.Wake(sessionKey, &thread.WakeMessage{
 		Source:       source,
 		Message:      userMessage,
+		ID:           msg.Metadata["client_msg_id"], // already validated at the channel boundary; empty for channels that don't mint one
 		Sink:         sink,
 		AgentName:    agentName,
 		Vars:         vars,

@@ -245,6 +245,40 @@ func TestAppendCreatesFileAndUpdatesCache(t *testing.T) {
 	}
 }
 
+// The web client mints its own message id and holds it from the moment the
+// message is typed until long after it lands on disk. Append is the write-ahead
+// path that turn takes, so a preset id must survive it verbatim — reassigning
+// one here would silently re-key the message under the sender.
+func TestAppendPreservesClientAssignedID(t *testing.T) {
+	sessionsDir := filepath.Join(t.TempDir(), "sessions")
+	mgr, err := NewManager(sessionsDir)
+	if err != nil {
+		t.Fatalf("NewManager() error = %v", err)
+	}
+
+	const clientID = "web-0189a7c1-4f2e-7c3a-9b11-2d5e8f6a0c34"
+	named := provider.UserMessage("named by the sender")
+	named.ID = clientID
+	unnamed := provider.UserMessage("named by the store")
+	if err := mgr.Append("web:idtest", named, unnamed); err != nil {
+		t.Fatalf("Append() error = %v", err)
+	}
+
+	reloaded, err := mgr.Reload("web:idtest")
+	if err != nil {
+		t.Fatalf("Reload() error = %v", err)
+	}
+	if len(reloaded.Messages) != 2 {
+		t.Fatalf("expected 2 messages on disk, got %d", len(reloaded.Messages))
+	}
+	if got := reloaded.Messages[0].ID; got != clientID {
+		t.Errorf("client-assigned id rewritten on disk: got %q, want %q", got, clientID)
+	}
+	if reloaded.Messages[1].ID == "" {
+		t.Error("message without an id should have been assigned one")
+	}
+}
+
 func TestReadFileAndWriteFileRoundTrip(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "test.jsonl")

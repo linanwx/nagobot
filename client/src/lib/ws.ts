@@ -1,7 +1,7 @@
 // WebSocket client for the nagobot web channel (/ws).
 //
 // Protocol (see channel/web.go):
-//   client → server: {type: "bind", session_id} | {type: "message", text}
+//   client → server: {type: "bind", session_id} | {type: "message", id, text}
 //   server → client: {type: "response", text} | {type: "bound", text}
 //                  | {type: "error", error} | {type: "stream", kind, ...}
 //                  | {type: "peer_message", text, sender}
@@ -43,6 +43,13 @@ type OutboundFrame =
   | {
       type: "message";
       text: string;
+      // The id this message will carry on disk. The server validates its shape
+      // and persists it verbatim, so the caller holds one id from the moment
+      // the message is typed until long after it is written to session.jsonl —
+      // no re-keying when the queued chip becomes a real message, and none when
+      // a later history read replaces it. Rejected ids fall back to a
+      // store-assigned one (the message still goes through).
+      id: string;
       // Stamped on every message so routing never depends on the server having
       // already processed our bind frame.
       session_id: string;
@@ -61,6 +68,21 @@ type InboundFrame = {
 } & Partial<StreamFrame>;
 
 const maxBackoffMs = 15_000;
+
+// clientMessageID mints the id a message will carry on disk. The "web-" prefix
+// and the [A-Za-z0-9_-] charset are the server's validation rule
+// (sanitizeClientMessageID in channel/web.go) — an id outside it is rejected
+// there and the message silently reverts to a store-assigned id, so the two
+// must stay in sync. crypto.randomUUID needs a secure context, which a plain
+// http:// LAN deployment is not; the fallback keeps enough entropy that two
+// pages of the same session cannot collide.
+export function clientMessageID(): string {
+  const uuid =
+    typeof crypto !== "undefined" && "randomUUID" in crypto
+      ? crypto.randomUUID()
+      : `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 12)}`;
+  return `web-${uuid}`;
+}
 
 // browserTimezone returns the device's IANA zone (e.g. "Asia/Shanghai"), or ""
 // if the runtime can't report it. Sent with each message so the server renders
@@ -161,9 +183,12 @@ export class NagobotSocket {
   }
 
   // send returns false when the socket is not open; the message is not queued.
-  send(text: string, media?: OutboundMedia[]): boolean {
+  // `id` is minted by the caller (see clientMessageID) because the caller is
+  // what needs to remember it.
+  send(id: string, text: string, media?: OutboundMedia[]): boolean {
     return this.sendFrame({
       type: "message",
+      id,
       text,
       session_id: this.session,
       ...(media && media.length > 0 ? { media } : {}),

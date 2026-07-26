@@ -14,7 +14,12 @@ import {
   type ApiMessage,
   type MediaRef,
 } from "@/lib/api";
-import { NagobotSocket, type SocketStatus, type StreamFrame } from "@/lib/ws";
+import {
+  clientMessageID,
+  NagobotSocket,
+  type SocketStatus,
+  type StreamFrame,
+} from "@/lib/ws";
 import { imageAttachmentAdapter } from "@/lib/attachment-adapter";
 import i18n from "@/i18n";
 
@@ -880,8 +885,14 @@ export function useNagobotChat(
 
       if (text === "" && media.length === 0) return;
 
+      // Name the message before sending it. The server persists this id
+      // verbatim, so the chip below, the bubble it becomes when the server
+      // reveals its placement, and the entry a later history read returns are
+      // all the same id — the message is never re-keyed.
+      const id = clientMessageID();
       const sent =
         socketRef.current?.send(
+          id,
           text,
           media.map((m) => ({ name: m.name })),
         ) ?? false;
@@ -912,7 +923,7 @@ export function useNagobotChat(
       updatePending((prev) => [
         ...prev,
         {
-          id: localID("queued"),
+          id,
           prompt: typed || media.map((m) => m.name).join(", "),
           text,
           media: media.length > 0 ? media : undefined,
