@@ -548,21 +548,16 @@ export function useNagobotChat(
     [],
   );
 
-  const stopRunning = useCallback(() => {
-    setIsRunning(false);
-    if (runningTimer.current) {
-      clearTimeout(runningTimer.current);
-      runningTimer.current = null;
-    }
-  }, []);
-
-  const startRunning = useCallback(() => {
-    setIsRunning(true);
+  // armFailsafe restarts the "we have something outstanding and have not heard
+  // anything in a long time" watchdog. Outstanding means a queued chip OR a
+  // running turn — the two are armed separately because a message can sit in
+  // the daemon's queue for minutes while nothing is running.
+  const armFailsafe = useCallback(() => {
     if (runningTimer.current) clearTimeout(runningTimer.current);
     runningTimer.current = setTimeout(() => {
       runningTimer.current = null;
       setIsRunning(false);
-      // Nothing ever came back — every stream frame re-arms this timer, so
+      // Nothing ever came back — every turn frame re-arms this timer, so
       // reaching it means the turn is dead. Ask the file who is right instead
       // of forcing the queued chips onto the screen: if the daemon did persist
       // them they become bubbles at their real position, and if it did not, a
@@ -571,6 +566,34 @@ export function useNagobotChat(
       resyncRef.current();
     }, runningTimeoutMs);
   }, []);
+
+  const stopRunning = useCallback(() => {
+    setIsRunning(false);
+    // A turn ending does not mean nothing is outstanding: messages sent into a
+    // busy turn are still queued and their turn has not started yet.
+    if (pendingRef.current.length > 0) {
+      armFailsafe();
+      return;
+    }
+    if (runningTimer.current) {
+      clearTimeout(runningTimer.current);
+      runningTimer.current = null;
+    }
+  }, [armFailsafe]);
+
+  // isRunning means "a turn is actually running", NOT "the user just sent
+  // something", and the distinction is load-bearing rather than pedantic:
+  // assistant-ui's top-anchor engages on `isRunning && messages.at(-2) is user
+  // && messages.at(-1) is assistant` (MessageRoot.useIsTopAnchorUser). During
+  // the queue phase our own message is not in the list yet, so the last two
+  // entries are the PREVIOUS turn's user+assistant — every condition matches
+  // and the viewport scrolls to the previous turn. Measured: a 215px backward
+  // scroll 91ms after Enter, before the message even existed. So only a turn
+  // frame may set this.
+  const startRunning = useCallback(() => {
+    setIsRunning(true);
+    armFailsafe();
+  }, [armFailsafe]);
 
   // One socket per mounted chat pane. The pane is keyed by sessionKey, so a
   // session switch remounts and reconnects cleanly.
@@ -901,13 +924,18 @@ export function useNagobotChat(
           createdAt: new Date(),
         },
       ]);
-      startRunning();
+      // Deliberately NOT startRunning(): the message is queued, not running.
+      // See the comment on startRunning — claiming a turn here anchors the
+      // viewport to the PREVIOUS turn and scrolls backward. The watchdog is
+      // armed on its own, because a queued message can wait minutes for a busy
+      // thread and still deserves a dead-daemon check.
+      armFailsafe();
       if (!firstSendNotified.current) {
         firstSendNotified.current = true;
         onFirstSendRef.current?.(sessionKey);
       }
     },
-    [startRunning, sessionKey, updatePending],
+    [armFailsafe, sessionKey, updatePending],
   );
 
   // With a queue adapter present the runtime routes composer sends to
