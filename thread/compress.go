@@ -216,10 +216,10 @@ func (m *Manager) tryAICompress(sessionKey string, tier3 bool) {
 	t.Enqueue(&WakeMessage{
 		Source:  WakeCompression,
 		Message: instruction,
-		Sink: Sink{
+		Sinks: NewSinks(SessionSink{
 			Label: "maintenance task, response will not be delivered to any user",
 			Send:  func(_ context.Context, _ string) error { return nil },
-		},
+		}),
 	})
 
 	logger.Info(label+" compress: AI compression wake enqueued",

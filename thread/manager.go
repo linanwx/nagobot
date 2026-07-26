@@ -226,7 +226,7 @@ func (m *Manager) NewThread(sessionKey, agentName string) (*Thread, error) {
 }
 
 // SetDefaultSinkFor configures a factory that returns the fallback sink for a given session key.
-func (m *Manager) SetDefaultSinkFor(fn func(string) Sink) {
+func (m *Manager) SetDefaultSinkFor(fn func(string) SinkSet) {
 	m.cfg.DefaultSinkFor = fn
 }
 

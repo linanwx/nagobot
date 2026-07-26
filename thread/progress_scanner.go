@@ -222,10 +222,10 @@ func (p *ProgressScanner) summarize(ctx context.Context, info msg.ThreadInfo) st
 		Source:    WakeProgressSum,
 		Message:   buildSummaryRequest(info),
 		AgentName: progressSummaryAgent,
-		Sink: Sink{
+		Sinks: NewSinks(SessionSink{
 			Label: "progress-summary session — result returns via callback, never delivered to a channel",
 			Send:  func(context.Context, string) error { return nil },
-		},
+		}),
 		OnComplete: func(response string) { ch <- response },
 	})
 
@@ -310,7 +310,7 @@ func (p *ProgressScanner) deliverToAncestor(childKey, ancestor string, info msg.
 		Source:  WakeProgress,
 		Message: body,
 		Sender:  "system",
-		Sink: Sink{
+		Sinks: NewSinks(SessionSink{
 			Label: "Caller is progress monitor — reply to caller is dropped",
 			Send: func(_ context.Context, response string) error {
 				if strings.TrimSpace(response) != "" {
@@ -318,7 +318,7 @@ func (p *ProgressScanner) deliverToAncestor(childKey, ancestor string, info msg.
 				}
 				return nil
 			},
-		},
+		}),
 	})
 }
 

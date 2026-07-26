@@ -59,7 +59,7 @@ func (t *Thread) EnqueueInject(body string) error {
 
 // tryMerge drains the inbox for consecutive messages with the same
 // Source + AgentName + Vars, concatenating their Message fields and
-// keeping the last Sink.  Non-mergeable messages are stored in t.pending
+// keeping the last message's sinks.  Non-mergeable messages are stored in t.pending
 // (instead of requeuing to the channel) to avoid deadlock when the inbox
 // buffer is full.
 func (t *Thread) tryMerge(first *WakeMessage) *WakeMessage {
@@ -70,7 +70,10 @@ func (t *Thread) tryMerge(first *WakeMessage) *WakeMessage {
 		case next := <-t.inbox:
 			if canMerge(first, next) {
 				first.Message += "\n" + next.Message
-				first.Sink = next.Sink
+				first.Sinks = next.Sinks
+				// The reaction targets ONE inbound message; the merged turn is
+				// answered as a whole, so it reacts on the last one merged.
+				first.MessageSink = next.MessageSink
 				// The merged turn renders ONE frontmatter header, so media
 				// fields from later messages must fold in or they vanish.
 				first.MediaInfo = joinNonEmpty(first.MediaInfo, next.MediaInfo)
@@ -117,9 +120,9 @@ func canMerge(a, b *WakeMessage) bool {
 	if a.OverrideProvider != b.OverrideProvider || a.OverrideModel != b.OverrideModel {
 		return false
 	}
-	// Don't merge messages with different Sinks to prevent cross-delivery
+	// Don't merge messages with different sinks to prevent cross-delivery
 	// (e.g. cron results leaking to a user's channel sink).
-	if a.Sink.Label != b.Sink.Label {
+	if a.Sinks.Label() != b.Sinks.Label() {
 		return false
 	}
 	if len(a.Vars) != len(b.Vars) {
@@ -169,12 +172,12 @@ const noDeliveryLabel = "no auto-delivery — nothing you write this turn reache
 // two things at once — the wake's own action hint ("Plain text goes to your own
 // human instead") and how-nagobot-works.md, which names `delivery` as the one
 // place a turn learns where its output goes.
-func (t *Thread) resolveDeliveryLabel(wakeSink Sink) string {
+func (t *Thread) resolveDeliveryLabel(wakeSink SinkSet) string {
 	out, _ := t.contentSink(wakeSink)
-	if out.IsZero() || out.Label == "" {
+	if out.IsZero() || out.Label() == "" {
 		return noDeliveryLabel
 	}
-	return out.Label
+	return out.Label()
 }
 
 // RunOnce dequeues one WakeMessage and executes a single turn.
@@ -223,15 +226,16 @@ func (t *Thread) RunOnce(ctx context.Context) {
 		t.Set(k, v)
 	}
 
-	// Use per-wake sink; fall back to thread's default sink.
-	sink := msg.Sink
+	// Use per-wake sinks; fall back to the thread's default set.
+	sink := msg.Sinks
 	if sink.IsZero() {
 		sink = t.defaultSink
 	}
-	// System-initiated wakes: disable streaming (Chunkable=false) so only
-	// non-streaming delivery in OnMessage fires.
+	// System-initiated wakes: disable chunked delivery so only the final message
+	// reaches a channel. Rich streaming is deliberately left alone — a client
+	// watching this session still follows a system-initiated turn live.
 	if messageSender(msg.Source) == "system" {
-		sink = sink.WithoutStreaming()
+		sink = sink.WithoutChunking()
 	}
 
 	deliveryLabel := t.resolveDeliveryLabel(sink)
@@ -309,7 +313,7 @@ func (t *Thread) RunOnce(ctx context.Context) {
 		}
 	}
 
-	response, err := t.run(ctx, userMessage, msg.ID, msg.Media, sink, msg.CallerSessionKey, injectFn, string(msg.Source))
+	response, err := t.run(ctx, userMessage, msg.ID, msg.Media, sink, msg.MessageSink, msg.CallerSessionKey, injectFn, string(msg.Source))
 
 	// Run post-turn hooks BEFORE consuming the per-turn flags so hooks see
 	// the state accurately. Returned strings are persisted as user-role
@@ -335,10 +339,8 @@ func (t *Thread) RunOnce(ctx context.Context) {
 		}
 	}
 
-	if sink.Flush != nil {
-		if flushErr := sink.Flush(ctx); flushErr != nil {
-			logger.Warn("sink flush failed", "threadID", t.id, "sessionKey", t.sessionKey, "err", flushErr)
-		}
+	if flushErr := sink.Flush(ctx); flushErr != nil {
+		logger.Warn("sink flush failed", "threadID", t.id, "sessionKey", t.sessionKey, "err", flushErr)
 	}
 
 	if msg.OnComplete != nil {

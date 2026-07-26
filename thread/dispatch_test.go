@@ -13,15 +13,15 @@ import (
 
 // wakeSink is a recognizable stand-in for the per-wake sink, so a test can tell
 // which of the two sinks contentSink picked.
-func wakeSink() Sink {
-	return Sink{Label: "wake", Send: func(context.Context, string) error { return nil }}
+func wakeSink() SinkSet {
+	return NewSinks(SessionSink{Label: "wake", Send: func(context.Context, string) error { return nil }})
 }
 
 // TestContentSinkRouting pins the delivery policy that replaced dispatch(to=user):
 // the destination of plain content is decided by the wake source and the
 // session, never by the model.
 func TestContentSinkRouting(t *testing.T) {
-	def := Sink{Label: "channel", Send: func(context.Context, string) error { return nil }}
+	def := NewSinks(SessionSink{Label: "channel", Send: func(context.Context, string) error { return nil }})
 
 	cases := []struct {
 		name       string
@@ -71,12 +71,12 @@ func TestContentSinkRouting(t *testing.T) {
 			}
 			if tc.want == "" {
 				if !got.IsZero() {
-					t.Fatalf("contentSink = %q, want zero sink (silent)", got.Label)
+					t.Fatalf("contentSink = %q, want zero sink (silent)", got.Label())
 				}
 				return
 			}
-			if got.Label != tc.want {
-				t.Fatalf("contentSink = %q, want %q", got.Label, tc.want)
+			if got.Label() != tc.want {
+				t.Fatalf("contentSink = %q, want %q", got.Label(), tc.want)
 			}
 		})
 	}
@@ -95,21 +95,21 @@ func TestContentSinkRouting(t *testing.T) {
 // the same frontmatter block.
 func TestDeliveryLabelMatchesContentSink(t *testing.T) {
 	const channel = "your response will be sent to the web client for session web:a7a8bbb9"
-	def := Sink{Label: channel, Send: func(context.Context, string) error { return nil }}
+	def := NewSinks(SessionSink{Label: channel, Send: func(context.Context, string) error { return nil }})
 
 	// The wake sink a subagent's completion attaches to its parent — the exact
 	// shape reported in the wild.
 	childKey := "web:a7a8bbb9" + session.ThreadsSessionInfix + "best-chili-sauce"
-	pairedToChild := Sink{
+	pairedToChild := NewSinks(SessionSink{
 		Label: "reply to caller session " + childKey + " via dispatch(to=caller:session)",
 		Send:  func(context.Context, string) error { return nil },
-	}
+	})
 
 	cases := []struct {
 		name       string
 		sessionKey string
 		source     WakeSource
-		wakeSink   Sink
+		wakeSink   SinkSet
 		want       string
 	}{
 		// The regression: our own subagent reports back, we are user-facing, so
@@ -126,7 +126,7 @@ func TestDeliveryLabelMatchesContentSink(t *testing.T) {
 		{"user message names the wake sink", "web:a7a8bbb9", WakeWeb, wakeSink(), "wake"},
 		// Unchanged: no human of its own, content stays on the wake sink — and
 		// there the paired label is the truth, which is why it is kept.
-		{"subagent names its caller", childKey, WakeSession, pairedToChild, pairedToChild.Label},
+		{"subagent names its caller", childKey, WakeSession, pairedToChild, pairedToChild.Label()},
 	}
 
 	for _, tc := range cases {

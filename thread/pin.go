@@ -88,10 +88,10 @@ func (mgr *Manager) Pin(parentKey, text string) error {
 		Source:    WakePin,
 		Message:   fmt.Sprintf(pinPrompt, pinsDir, truncateStr(text, pinInputCap)),
 		AgentName: pinAgent,
-		Sink: Sink{
+		Sinks: NewSinks(SessionSink{
 			Label: "pin session — the pin is written to disk by the agent, never delivered to a channel",
 			Send:  func(context.Context, string) error { return nil },
-		},
+		}),
 		OnComplete: func(response string) {
 			logger.Info("pin filed",
 				"sessionKey", parentKey,

@@ -98,10 +98,10 @@ func (mgr *Manager) mediaPreview(ctx context.Context, parentKey, marker string, 
 		Media:      []string{marker},
 		AgentName:  spec.agent,
 		RecentChat: recentChat,
-		Sink: Sink{
+		Sinks: NewSinks(SessionSink{
 			Label: spec.label + "-preview session — result returns via callback, never delivered to a channel",
 			Send:  func(context.Context, string) error { return nil },
-		},
+		}),
 		OnComplete: func(response string) { ch <- response },
 	})
 

@@ -71,10 +71,10 @@ func (mgr *Manager) Quote(ctx context.Context, parentKey, text string) (string, 
 		Source:    WakeQuote,
 		Message:   "Message to quote:\n\n" + truncateStr(text, quoteInputCap),
 		AgentName: quoteAgent,
-		Sink: Sink{
+		Sinks: NewSinks(SessionSink{
 			Label: "quote session — result returns via callback, never delivered to a channel",
 			Send:  func(context.Context, string) error { return nil },
-		},
+		}),
 		OnComplete: func(response string) { ch <- response },
 	})
 

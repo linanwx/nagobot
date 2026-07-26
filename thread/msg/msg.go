@@ -63,49 +63,6 @@ func (r ReactFunc) Do(ctx context.Context, event ReactEvent) {
 	}
 }
 
-// Sink defines how thread output is delivered.
-type Sink struct {
-	Label     string
-	Send      func(ctx context.Context, response string) error
-	React     ReactFunc                       // Optional: fire-and-forget emoji reaction on the source message.
-	Chunkable bool                            // True for sinks that accept chunked streaming delivery (telegram, discord, feishu, cli).
-	Stream    func(ev StreamEvent)            // Optional: rich live streaming (thinking/text deltas, tool events). Must never block — back it with a StreamPipe. Sinks with Stream get final content via Send and skip chunked delivery.
-	Flush     func(ctx context.Context) error // Optional: signals end-of-turn; recorders use this to commit buffered output.
-}
-
-// IsZero reports whether the sink has no delivery function.
-func (s Sink) IsZero() bool { return s.Send == nil }
-
-// WithoutStreaming returns a copy with Chunkable disabled, suppressing
-// streaming deltas and intermediate content delivery while keeping
-// final response delivery intact.
-func (s Sink) WithoutStreaming() Sink {
-	s.Chunkable = false
-	return s
-}
-
-// WithRetry wraps the sink's Send with exponential-backoff retry logic.
-func (s Sink) WithRetry(maxAttempts int) Sink {
-	original := s.Send
-	s.Send = func(ctx context.Context, response string) error {
-		var err error
-		for i := 0; i < maxAttempts; i++ {
-			if err = original(ctx, response); err == nil {
-				return nil
-			}
-			if i < maxAttempts-1 {
-				select {
-				case <-ctx.Done():
-					return ctx.Err()
-				case <-time.After(time.Duration(1<<i) * time.Second):
-				}
-			}
-		}
-		return err
-	}
-	return s
-}
-
 // ToolCallRecord records a single tool invocation during a turn.
 type ToolCallRecord struct {
 	Name          string `json:"name"`
@@ -213,7 +170,8 @@ type WakeMessage struct {
 	Message          string                // Wake payload text.
 	ID               string                // Optional client-supplied message id, validated at the channel boundary. Persisted verbatim as the user message's ID so the sender can address the message by the same id before and after it lands on disk. Empty = the session store assigns one.
 	Media            []string              // Optional media markers (<<media:mime:path>>) attached to the first user message of this wake, delivered natively in user content (no read_file). Dropped with a warning if the resolved model lacks the matching capability.
-	Sink             Sink                  // Per-wake sink. Zero value = no per-wake delivery.
+	Sinks            SinkSet               // Per-wake session sinks. Zero value = no per-wake delivery (the thread's default set is used).
+	MessageSink      MessageSink           // Per-wake message-specific delivery (reactions on the source message). Zero value = nothing message-specific.
 	AgentName        string                // Optional agent name override for this wake.
 	OverrideProvider string                // Optional model override (subagent/fork dispatch only): provider name. Set together with OverrideModel; applied per-wake at highest routing precedence.
 	OverrideModel    string                // Optional model override (subagent/fork dispatch only): model type. Set together with OverrideProvider.

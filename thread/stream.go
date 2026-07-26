@@ -8,9 +8,10 @@ import (
 )
 
 // MarkdownStreamer buffers text deltas from streaming LLM generation and
-// sends complete markdown blocks to a Sink as they become available.
+// sends complete markdown blocks to the chunk-accepting sinks as they become
+// available.
 type MarkdownStreamer struct {
-	sink      Sink
+	sink      SinkSet
 	ctx       context.Context
 	buf       strings.Builder
 	sent      int  // byte offset of content already sent
@@ -20,7 +21,7 @@ type MarkdownStreamer struct {
 
 // NewMarkdownStreamer creates a streamer that sends markdown blocks to sink
 // once the unsent buffer exceeds threshold bytes.
-func NewMarkdownStreamer(sink Sink, ctx context.Context, threshold int) *MarkdownStreamer {
+func NewMarkdownStreamer(sink SinkSet, ctx context.Context, threshold int) *MarkdownStreamer {
 	return &MarkdownStreamer{
 		sink:      sink,
 		ctx:       ctx,
@@ -45,7 +46,7 @@ func (s *MarkdownStreamer) OnDelta(delta string) {
 	}
 
 	chunk := text[:splitPos]
-	if err := s.sink.Send(s.ctx, chunk); err != nil {
+	if err := s.sink.Chunk(s.ctx, chunk); err != nil {
 		logger.Error("streamer send error", "err", err)
 		return
 	}
@@ -58,7 +59,7 @@ func (s *MarkdownStreamer) OnDelta(delta string) {
 func (s *MarkdownStreamer) Flush() {
 	remaining := s.buf.String()[s.sent:]
 	if remaining != "" {
-		if err := s.sink.Send(s.ctx, remaining); err != nil {
+		if err := s.sink.Chunk(s.ctx, remaining); err != nil {
 			logger.Error("streamer flush error", "err", err)
 		} else {
 			s.didSend = true

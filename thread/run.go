@@ -20,7 +20,7 @@ import (
 
 // run executes one thread turn. Called by RunOnce; callers must not invoke
 // this directly.
-func (t *Thread) run(ctx context.Context, userMessage, userMessageID string, media []string, sink Sink, callerKey string, injectFn func() []provider.Message, wakeSource string) (string, error) {
+func (t *Thread) run(ctx context.Context, userMessage, userMessageID string, media []string, sink SinkSet, msgSink MessageSink, callerKey string, injectFn func() []provider.Message, wakeSource string) (string, error) {
 	userMessage = strings.TrimSpace(userMessage)
 	if userMessage == "" {
 		return "", nil
@@ -95,7 +95,7 @@ func (t *Thread) run(ctx context.Context, userMessage, userMessageID string, med
 	t.mu.Unlock()
 	defer func() {
 		t.mu.Lock()
-		t.currentSink = Sink{}
+		t.currentSink = SinkSet{}
 		t.currentCallerKey = ""
 		t.mu.Unlock()
 	}()
@@ -117,7 +117,7 @@ func (t *Thread) run(ctx context.Context, userMessage, userMessageID string, med
 		}
 	}
 
-	response, _, usage, _, providerLabel, modelLabel, err := t.executeRunner(ctx, runCtx, p, metrics, messages, sink, injectFn, persistMsg)
+	response, _, usage, _, providerLabel, modelLabel, err := t.executeRunner(ctx, runCtx, p, metrics, messages, sink, msgSink, injectFn, persistMsg)
 	if err != nil {
 		t.recordTurn(metrics, "", "", "", wakeSource, usage, true)
 		return "", err
@@ -260,15 +260,15 @@ func (t *Thread) buildMessageHistory(ctx context.Context, systemPrompt, userMess
 // exactly like the other stream events: a sink with no Stream func, a heartbeat
 // turn, or a suppressed sink means nobody is watching this turn live, and the
 // entry is still on disk for the next history read.
-func (t *Thread) emitStreamMessage(sink Sink, m provider.Message) {
-	if sink.Stream == nil || t.IsHeartbeatWake() || t.isSinkSuppressed() {
+func (t *Thread) emitStreamMessage(sink SinkSet, m provider.Message) {
+	if !sink.HasStream() || t.IsHeartbeatWake() || t.isSinkSuppressed() {
 		return
 	}
 	sink.Stream(StreamEvent{Type: sysmsg.StreamMessage, MessageID: m.ID, Message: &m})
 }
 
 // executeRunner runs the agentic loop with streaming and message callbacks.
-func (t *Thread) executeRunner(ctx, runCtx context.Context, p provider.Provider, metrics *ExecMetrics, messages []provider.Message, sink Sink, injectFn func() []provider.Message, persistMsg func(provider.Message)) (response string, intermediates []provider.Message, usage provider.Usage, quota *provider.Quota, providerLabel string, modelLabel string, err error) {
+func (t *Thread) executeRunner(ctx, runCtx context.Context, p provider.Provider, metrics *ExecMetrics, messages []provider.Message, sink SinkSet, msgSink MessageSink, injectFn func() []provider.Message, persistMsg func(provider.Message)) (response string, intermediates []provider.Message, usage provider.Usage, quota *provider.Quota, providerLabel string, modelLabel string, err error) {
 	contextWindowTokens := t.contextBudget().ContextWindow
 	maxCompletionTokens := t.cfg().MaxCompletionTokens
 	loopBudget := contextLoopBudget(contextWindowTokens, maxCompletionTokens)
@@ -286,17 +286,19 @@ func (t *Thread) executeRunner(ctx, runCtx context.Context, p provider.Provider,
 		})
 	}
 
-	// Reaction: connect lifecycle events to sink reaction.
-	if !sink.React.IsZero() && !t.IsHeartbeatWake() {
+	// Reaction: connect lifecycle events to the source message's reaction. This
+	// is message-specific, not session-wide — it targets the very message that
+	// woke us, so it rides the MessageSink and is never broadcast.
+	if !msgSink.React.IsZero() && !t.IsHeartbeatWake() {
 		runner.OnEvent(func(event RunnerEvent, _ string) {
 			if t.isSinkSuppressed() {
 				return
 			}
 			switch event {
 			case EventToolCalls:
-				sink.React.Do(ctx, ReactToolCalls)
+				msgSink.React.Do(ctx, ReactToolCalls)
 			case EventStreaming:
-				sink.React.Do(ctx, ReactStreaming)
+				msgSink.React.Do(ctx, ReactStreaming)
 			}
 		})
 	}
@@ -306,7 +308,7 @@ func (t *Thread) executeRunner(ctx, runCtx context.Context, p provider.Provider,
 	// carries a snapshot the client can self-heal from; OnMessage below emits
 	// the tool/round events and resets the buffers at round boundaries.
 	var thinkBuf, textBuf strings.Builder
-	richStream := sink.Stream != nil && !t.IsHeartbeatWake()
+	richStream := sink.HasStream() && !t.IsHeartbeatWake()
 
 	// The id of the assistant message this round is building. It is minted
 	// before the first token and announced, so every live frame addresses a
@@ -347,11 +349,14 @@ func (t *Thread) executeRunner(ctx, runCtx context.Context, p provider.Provider,
 		})
 	}
 
-	// Streaming: register OnStream for chunkable sinks on non-heartbeat turns.
-	// Rich-stream sinks skip the chunked path — deltas already deliver the
-	// content live; the authoritative text still arrives via Send below.
+	// Chunked streaming: register OnStream whenever ANY destination takes
+	// chunks. The two live modes are independent — a session can be read on
+	// Discord (chunks) and mirrored to a browser (rich frames) at the same
+	// time, and each destination gets only what it registered. Gating this on
+	// !richStream, as the Chunkable bool did, would silently stop the Discord
+	// user's text from streaming the moment someone opened a web page on it.
 	var streamer *MarkdownStreamer
-	useStreaming := !t.IsHeartbeatWake() && !sink.IsZero() && sink.Chunkable && !richStream
+	useStreaming := !t.IsHeartbeatWake() && sink.HasChunk()
 	if useStreaming {
 		streamer = NewMarkdownStreamer(sink, ctx, streamFlushThreshold)
 		runner.OnStream(func(streamID, delta string) {
@@ -435,22 +440,33 @@ func (t *Thread) executeRunner(ctx, runCtx context.Context, p provider.Provider,
 		if out.IsZero() || t.isSinkSuppressed() || !isUserFacingContent(m.Content) {
 			return
 		}
+		// The chunk streamer already pushed this text to the destinations that
+		// take chunks — but only to those. Drop them from the set rather than
+		// returning: a session mirrored to a browser must still get the
+		// authoritative message (that is what raises a push), and before the
+		// set existed there was only one destination, so returning was the same
+		// thing.
 		if streamer != nil && streamer.DidSend() {
-			return // streaming already delivered this content
+			out = out.WithoutChunkSinks()
+			if out.IsZero() {
+				return
+			}
 		}
 		if len(m.ToolCalls) > 0 {
-			// Intermediate: deliver for chunkable sinks only.
-			if out.Chunkable {
-				if err := out.Send(ctx, m.Content); err != nil {
-					logger.Warn("intermediate delivery failed", "key", t.sessionKey, "sink", out.Label, "err", err)
-				} else if proactive {
-					t.recordProactiveChat(m.Content)
-				}
+			// Intermediate: only destinations that registered for chunks get it.
+			// Chunk is a no-op on a set where none did.
+			if !out.HasChunk() {
+				return
+			}
+			if err := out.Chunk(ctx, m.Content); err != nil {
+				logger.Warn("intermediate delivery failed", "key", t.sessionKey, "sink", out.Label(), "err", err)
+			} else if proactive {
+				t.recordProactiveChat(m.Content)
 			}
 		} else {
 			// Final response: deliver with retry.
 			if err := out.WithRetry(3).Send(ctx, m.Content); err != nil {
-				logger.Warn("final delivery failed", "key", t.sessionKey, "sink", out.Label, "err", err)
+				logger.Warn("final delivery failed", "key", t.sessionKey, "sink", out.Label(), "err", err)
 			} else if proactive {
 				t.recordProactiveChat(m.Content)
 			}

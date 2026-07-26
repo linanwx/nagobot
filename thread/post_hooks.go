@@ -113,7 +113,7 @@ func runSinglePostHook(ctx context.Context, h postTurnHook, ptc postTurnContext,
 // watching client would not learn they exist until its next history read.
 // Silently skips when no session manager is configured. Called by RunOnce
 // after runPostHooks.
-func (t *Thread) persistPostInjections(payloads []string, source WakeSource, sink Sink) {
+func (t *Thread) persistPostInjections(payloads []string, source WakeSource, sink SinkSet) {
 	if len(payloads) == 0 {
 		return
 	}

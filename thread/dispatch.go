@@ -39,7 +39,7 @@ func (t *Thread) CallerInfo() (kind msg.CallerKind, callerKey, sinkLabel string)
 	if t.currentSink.IsZero() && t.lastWakeSource == "" {
 		return msg.CallerKindNone, "", ""
 	}
-	return msg.CallerKindFromSource(t.lastWakeSource), t.currentCallerKey, t.currentSink.Label
+	return msg.CallerKindFromSource(t.lastWakeSource), t.currentCallerKey, t.currentSink.Label()
 }
 
 // AgentExists reports whether a template with the given name is registered.
@@ -152,7 +152,7 @@ func (t *Thread) WakeSession(_ context.Context, sessionKey, body string) error {
 	t.mgr.Wake(sessionKey, &WakeMessage{
 		Source:           WakeSession,
 		Message:          body,
-		Sink:             BuildPairedSessionSink(t.mgr, sessionKey, t.sessionKey),
+		Sinks:            BuildPairedSessionSink(t.mgr, sessionKey, t.sessionKey),
 		CallerSessionKey: t.sessionKey,
 	})
 	return nil
@@ -160,7 +160,7 @@ func (t *Thread) WakeSession(_ context.Context, sessionKey, body string) error {
 
 // buildSinkToCaller returns a recursive paired sink attached to a wake going
 // from THIS thread to `targetSession`. See BuildPairedSessionSink for semantics.
-func (t *Thread) buildSinkToCaller(targetSession string) Sink {
+func (t *Thread) buildSinkToCaller(targetSession string) SinkSet {
 	return BuildPairedSessionSink(t.mgr, targetSession, t.sessionKey)
 }
 
@@ -177,8 +177,8 @@ func (t *Thread) buildSinkToCaller(targetSession string) Sink {
 //     via contentSink instead of continuing the exchange
 //   - dispatch(to=<any>) with SignalHalt — any explicit dispatch suppresses
 //     the per-wake sink via SetSuppressSink
-func BuildPairedSessionSink(mgr *Manager, selfKey, peerKey string) Sink {
-	return Sink{
+func BuildPairedSessionSink(mgr *Manager, selfKey, peerKey string) SinkSet {
+	return NewSinks(SessionSink{
 		Label: "reply to caller session " + peerKey + " via dispatch(to=caller:session)",
 		Send: func(_ context.Context, response string) error {
 			response = strings.TrimSpace(response)
@@ -189,11 +189,11 @@ func BuildPairedSessionSink(mgr *Manager, selfKey, peerKey string) Sink {
 				Source:           WakeSession,
 				Message:          response,
 				CallerSessionKey: selfKey,
-				Sink:             BuildPairedSessionSink(mgr, peerKey, selfKey),
+				Sinks:            BuildPairedSessionSink(mgr, peerKey, selfKey),
 			})
 			return nil
 		},
-	}
+	})
 }
 
 // contentSink resolves where this turn's plain assistant content is delivered.
@@ -218,7 +218,7 @@ func BuildPairedSessionSink(mgr *Manager, selfKey, peerKey string) Sink {
 // wake's own sink, which therefore bypasses that sink's chat.jsonl write (see
 // recordProactiveChat). It is returned rather than recomputed by the caller so
 // lastWakeSource is only ever read under the lock.
-func (t *Thread) contentSink(wakeSink Sink) (Sink, bool) {
+func (t *Thread) contentSink(wakeSink SinkSet) (SinkSet, bool) {
 	t.mu.Lock()
 	src := t.lastWakeSource
 	def := t.defaultSink
@@ -230,7 +230,7 @@ func (t *Thread) contentSink(wakeSink Sink) (Sink, bool) {
 	// Prefix match: existing sessions carry legacy "heartbeat_reflect" /
 	// "heartbeat_wake" sources alongside the current "heartbeat".
 	if strings.HasPrefix(string(src), string(WakeHeartbeat)) || src == WakeCompression {
-		return Sink{}, false
+		return SinkSet{}, false
 	}
 	return def, true
 }
@@ -311,35 +311,38 @@ func (t *Thread) SettleTurnContent(ctx context.Context, content string, deliver 
 	t.mu.Unlock()
 	out, proactive := t.contentSink(wakeSink)
 
-	// Chunkable destinations belong to the runner: OnMessage (or the streamer
-	// above it) already pushed this text out when the assistant message
-	// arrived, before any tool ran. Touching it here would double-deliver.
-	if out.Chunkable {
+	// Destinations that take live delivery belong to the runner: OnMessage (or
+	// the streamer above it) already pushed this text out when the assistant
+	// message arrived, before any tool ran. Touching them here would
+	// double-deliver, so only the destinations with neither registration are
+	// still settleable.
+	settle := out.WithoutLiveDelivery()
+	if !out.IsZero() && settle.IsZero() {
 		return "", false
 	}
 	// Suppressed means an executed send already spoke on this very sink — for a
 	// subagent, contentSink and dispatch(to=caller:session) share one
 	// destination, and waking the caller twice is worse than dropping prose.
-	if !deliver || out.IsZero() || t.isSinkSuppressed() {
+	if !deliver || settle.IsZero() || t.isSinkSuppressed() {
 		logger.Warn("assistant content not delivered",
 			"key", t.sessionKey, "reason", settleDropReason(deliver, out, t.isSinkSuppressed()),
 			"content", truncateStr(content, previewLogRunes))
 		return "", true
 	}
-	if err := out.WithRetry(3).Send(ctx, content); err != nil {
+	if err := settle.WithRetry(3).Send(ctx, content); err != nil {
 		logger.Warn("assistant content delivery failed",
-			"key", t.sessionKey, "sink", out.Label, "err", err,
+			"key", t.sessionKey, "sink", settle.Label(), "err", err,
 			"content", truncateStr(content, previewLogRunes))
 		return "", true
 	}
 	if proactive {
 		t.recordProactiveChat(content)
 	}
-	return out.Label, false
+	return settle.Label(), false
 }
 
 // settleDropReason names why SettleTurnContent discarded text, for the log line.
-func settleDropReason(deliver bool, out Sink, suppressed bool) string {
+func settleDropReason(deliver bool, out SinkSet, suppressed bool) string {
 	switch {
 	case out.IsZero():
 		return "no content sink for this wake source"
@@ -505,7 +508,7 @@ func (t *Thread) createOrWake(key, agentName, body string, isFork bool, forkFrom
 		AgentName:        agentName,
 		OverrideProvider: overrideProvider,
 		OverrideModel:    overrideModel,
-		Sink:             t.buildSinkToCaller(key),
+		Sinks:            t.buildSinkToCaller(key),
 		CallerSessionKey: t.sessionKey,
 	})
 	return note, nil

@@ -353,10 +353,10 @@ func (s *heartbeatScheduler) maybeFirePulse(key string, now time.Time, lastActiv
 		s.mgr.Wake(key, &thread.WakeMessage{
 			Source:  thread.WakeHeartbeat,
 			Message: message,
-			Sink: thread.Sink{
+			Sinks: thread.NewSinks(thread.SessionSink{
 				Label: "heartbeat pulse — nothing produced this turn reaches the user, by design",
 				Send:  func(_ context.Context, _ string) error { return nil },
-			},
+			}),
 		})
 		if dream {
 			s.recordDream(key, now)
