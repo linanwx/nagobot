@@ -157,7 +157,8 @@ type Thread struct {
 	modelOverrideModel     string         // Per-wake model override model type; paired with modelOverrideProvider.
 	suppressSink           bool           // When true, RunOnce skips sink delivery (reset after each turn).
 	haltLoop               bool           // When true, Runner stops after current tool calls complete.
-	currentSink            SinkSet        // Current turn's active sinks (set by run(), cleared on turn end). Used by dispatch(to=caller:*).
+	currentSink            SinkSet        // Current turn's session destinations (set by run(), cleared on turn end).
+	currentCallerSink      SessionSink    // Current turn's reply-to-caller destination (set by run(), cleared on turn end). One place, never broadcast. Used by dispatch(to=caller:*).
 	currentCallerKey       string         // Caller session key for the current wake; empty for user/system wakes.
 
 	execMetrics           *ExecMetrics // Non-nil only while a turn is executing.

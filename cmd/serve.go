@@ -249,7 +249,7 @@ func runServe(cmd *cobra.Command, args []string) error {
 	// model must dispatch() explicitly. The deliveryLabel is mode-specific
 	// guidance rendered in the wake frontmatter.
 	cronCh.SetDirectWake(func(sessionKey string, source thread.WakeSource, message, agentName, deliveryLabel string) {
-		dropSink := thread.NewSinks(thread.SessionSink{
+		dropSink := thread.SessionSink{
 			Label: deliveryLabel,
 			Send: func(_ context.Context, response string) error {
 				if strings.TrimSpace(response) != "" {
@@ -258,12 +258,12 @@ func runServe(cmd *cobra.Command, args []string) error {
 				}
 				return nil
 			},
-		})
+		}
 		threadMgr.Wake(sessionKey, &thread.WakeMessage{
-			Source:    source,
-			Message:   message,
-			AgentName: agentName,
-			Sinks:     dropSink,
+			Source:     source,
+			Message:    message,
+			AgentName:  agentName,
+			CallerSink: dropSink,
 		})
 	})
 
@@ -392,7 +392,8 @@ func isDiscordSnowflake(s string) bool {
 
 func internalDiscordSink(sessionKey string) thread.SinkSet {
 	return thread.NewSinks(thread.SessionSink{
-		Label: "internal discord session - result will not be delivered",
+		Channel: "discord",
+		Label:   "internal discord session - result will not be delivered",
 		Send: func(_ context.Context, response string) error {
 			if strings.TrimSpace(response) != "" {
 				logger.Debug("internal discord default sink dropped", "session", sessionKey, "bytes", len(response))
@@ -408,6 +409,16 @@ func internalDiscordSink(sessionKey string) thread.SinkSet {
 func buildDefaultSinkFor(chMgr *channel.Manager, cfg *config.Config, sessionsDir string, threadMgr *thread.Manager, cronJobFn func(string) (cronpkg.Job, bool)) func(string) thread.SinkSet {
 	channelSink := buildDefaultChannelSinkFor(chMgr, cfg, sessionsDir, threadMgr, cronJobFn)
 	return func(sessionKey string) thread.SinkSet {
+		// Internal sibling sessions ({key}:quote, :pin, :imagepreview, …) have no
+		// destination of their own: their whole output is a value handed back to
+		// the caller via OnComplete, not speech. An empty set is the honest
+		// answer, and it is load-bearing now that a wake's sinks are unioned OVER
+		// this set rather than replacing it — the web: prefix branch below would
+		// otherwise hand `web:abc:quote` a web sink, find no page bound to that
+		// key, and fall through to a broadcast push of "created pins/foo.md".
+		if session.IsInternalSiblingSession(sessionKey) {
+			return thread.SinkSet{}
+		}
 		set := channelSink(sessionKey)
 		observer, ok := webObserverSink(chMgr, sessionKey)
 		if !ok {
@@ -441,7 +452,7 @@ func buildDefaultChannelSinkFor(chMgr *channel.Manager, cfg *config.Config, sess
 						Source:           thread.WakeSession,
 						Message:          wakeMsg,
 						CallerSessionKey: sessionKey,
-						Sinks:            thread.BuildPairedSessionSink(threadMgr, parentKey, sessionKey),
+						CallerSink:       thread.BuildPairedSessionSink(threadMgr, parentKey, sessionKey),
 					})
 					return nil
 				},
@@ -469,7 +480,8 @@ func buildDefaultChannelSinkFor(chMgr *channel.Manager, cfg *config.Config, sess
 			userID := strings.TrimPrefix(sessionKey, "telegram:")
 			if userID != "" {
 				return thread.NewSinks(thread.SessionSink{
-					Label: "your response will be sent to telegram user " + userID,
+					Channel: "telegram",
+					Label:   "your response will be sent to telegram user " + userID,
 					Send: func(ctx context.Context, response string) error {
 						if strings.TrimSpace(response) == "" {
 							return nil
@@ -485,7 +497,8 @@ func buildDefaultChannelSinkFor(chMgr *channel.Manager, cfg *config.Config, sess
 			openID := strings.TrimPrefix(sessionKey, "feishu:")
 			if openID != "" {
 				return thread.NewSinks(thread.SessionSink{
-					Label: "your response will be sent to feishu user " + openID,
+					Channel: "feishu",
+					Label:   "your response will be sent to feishu user " + openID,
 					Send: func(ctx context.Context, response string) error {
 						if strings.TrimSpace(response) == "" {
 							return nil
@@ -507,7 +520,8 @@ func buildDefaultChannelSinkFor(chMgr *channel.Manager, cfg *config.Config, sess
 				replyTo = r.DiscordDM.ReplyTo
 			}
 			return thread.NewSinks(thread.SessionSink{
-				Label: "your response will be sent to discord channel " + channelID,
+				Channel: "discord",
+				Label:   "your response will be sent to discord channel " + channelID,
 				Send: func(ctx context.Context, response string) error {
 					if strings.TrimSpace(response) == "" {
 						return nil
@@ -526,7 +540,8 @@ func buildDefaultChannelSinkFor(chMgr *channel.Manager, cfg *config.Config, sess
 					label = "your response will be sent to wecom group " + strings.TrimPrefix(target, "group:")
 				}
 				return thread.NewSinks(thread.SessionSink{
-					Label: label,
+					Channel: "wecom",
+					Label:   label,
 					Send: func(ctx context.Context, response string) error {
 						if strings.TrimSpace(response) == "" {
 							return nil
@@ -546,7 +561,8 @@ func buildDefaultChannelSinkFor(chMgr *channel.Manager, cfg *config.Config, sess
 		// still reach the user.
 		if strings.HasPrefix(sessionKey, "web:") {
 			return thread.NewSinks(thread.SessionSink{
-				Label: "your response will be sent to the web client for session " + sessionKey,
+				Channel: "web",
+				Label:   "your response will be sent to the web client for session " + sessionKey,
 				Send: func(ctx context.Context, response string) error {
 					if strings.TrimSpace(response) == "" {
 						return nil
@@ -563,7 +579,8 @@ func buildDefaultChannelSinkFor(chMgr *channel.Manager, cfg *config.Config, sess
 		if sessionKey == "cli" {
 			if _, ok := chMgr.Get("socket"); ok {
 				return thread.NewSinks(thread.SessionSink{
-					Label: "your response will be sent to the CLI client via socket",
+					Channel: "socket",
+					Label:   "your response will be sent to the CLI client via socket",
 					Send: func(ctx context.Context, response string) error {
 						if strings.TrimSpace(response) == "" {
 							return nil

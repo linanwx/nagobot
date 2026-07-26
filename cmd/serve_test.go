@@ -91,10 +91,12 @@ func TestBuildDefaultSinkFor_DiscordInvalidSessionKeysAreSilent(t *testing.T) {
 	tests := []struct {
 		name       string
 		sessionKey string
+		emptySet   bool
 	}{
 		{
 			name:       "prethink sibling",
 			sessionKey: "discord:1502707848944287895:prethink",
+			emptySet:   true,
 		},
 		{
 			name:       "non snowflake",
@@ -110,6 +112,18 @@ func TestBuildDefaultSinkFor_DiscordInvalidSessionKeysAreSilent(t *testing.T) {
 
 			fn := buildDefaultSinkFor(chMgr, nil, t.TempDir(), nil, nil)
 			sink := fn(tt.sessionKey)
+
+			// An internal sibling has no destination of its own at all: its
+			// output is a value handed back via OnComplete, not speech. The
+			// empty set is load-bearing — a wake's sinks are unioned OVER this
+			// one, so anything here would become a real delivery target.
+			if tt.emptySet {
+				if !sink.IsZero() {
+					t.Fatalf("internal sibling must have no destination, got %q", sink.Label())
+				}
+				return
+			}
+
 			if sink.IsZero() {
 				t.Fatal("expected a silent sink, got zero sink")
 			}

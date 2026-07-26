@@ -27,11 +27,18 @@ import (
 // callback sinks of the internal sibling sessions. Those are precisely the
 // destinations SettleTurnContent exists for.
 type SessionSink struct {
-	Label  string
-	Send   func(ctx context.Context, response string) error // Authoritative delivery of a complete message. Every sink implements this one.
-	Chunk  func(ctx context.Context, text string) error     // Optional; see above.
-	Stream func(ev StreamEvent)                             // Optional; see above. Must never block — back it with a StreamPipe.
-	Flush  func(ctx context.Context) error                  // Optional: end-of-turn signal; recorders commit buffered output here.
+	// Channel names the transport this sink delivers on ("discord", "web",
+	// "wecom", …). It is the sink's IDENTITY, and Union is what needs it: a
+	// session's own channel sink and the sink built for an inbound message on
+	// that same channel are two objects for one destination, and unioning them
+	// would deliver every reply twice. Empty for sinks that are not a channel
+	// (paired session sinks, drop sinks) — those are never deduplicated.
+	Channel string
+	Label   string
+	Send    func(ctx context.Context, response string) error // Authoritative delivery of a complete message. Every sink implements this one.
+	Chunk   func(ctx context.Context, text string) error     // Optional; see above.
+	Stream  func(ev StreamEvent)                             // Optional; see above. Must never block — back it with a StreamPipe.
+	Flush   func(ctx context.Context) error                  // Optional: end-of-turn signal; recorders commit buffered output here.
 }
 
 // Chunked returns a copy that accepts intermediate chunked delivery through the
@@ -63,6 +70,36 @@ func NewSinks(list ...SessionSink) SinkSet {
 	return out
 }
 
+// Union returns this set plus every member of fallback whose Channel is not
+// already represented here. THIS set wins on a collision.
+//
+// It is how a turn's destinations are assembled: the sink built for the inbound
+// message (the channel the human spoke on) unioned over the session's own
+// standing destinations. A WeCom message aimed at a Discord session therefore
+// answers on WeCom, in the Discord channel, and on any web page watching —
+// while a Discord message aimed at the same session does NOT answer on Discord
+// twice, because the inbound sink already covers that channel and it is the
+// better of the two (it carries the turn's chat.jsonl buffer and Flush).
+//
+// Sinks with no Channel are never deduplicated — a paired session sink or a
+// drop sink is not a transport and has no counterpart to collide with.
+func (s SinkSet) Union(fallback SinkSet) SinkSet {
+	taken := make(map[string]bool, len(s.sinks))
+	for _, k := range s.sinks {
+		if k.Channel != "" {
+			taken[k.Channel] = true
+		}
+	}
+	out := SinkSet{sinks: append([]SessionSink(nil), s.sinks...)}
+	for _, k := range fallback.sinks {
+		if k.Send == nil || (k.Channel != "" && taken[k.Channel]) {
+			continue
+		}
+		out.sinks = append(out.sinks, k)
+	}
+	return out
+}
+
 // With returns a copy of the set with more destinations appended, applying the
 // same admission rule as NewSinks.
 func (s SinkSet) With(extra ...SessionSink) SinkSet {
@@ -81,6 +118,16 @@ func (s SinkSet) IsZero() bool { return len(s.sinks) == 0 }
 
 // Len returns the number of destinations.
 func (s SinkSet) Len() int { return len(s.sinks) }
+
+// ChannelAt returns the Channel of the i-th destination, or "" when out of
+// range. Exists so a test can assert the composition of a resolved set without
+// exporting the slice.
+func (s SinkSet) ChannelAt(i int) string {
+	if i < 0 || i >= len(s.sinks) {
+		return ""
+	}
+	return s.sinks[i].Channel
+}
 
 // Label renders the set's destinations as one human-readable string — the value
 // the wake payload's `delivery` field shows the model.

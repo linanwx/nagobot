@@ -170,7 +170,8 @@ type WakeMessage struct {
 	Message          string                // Wake payload text.
 	ID               string                // Optional client-supplied message id, validated at the channel boundary. Persisted verbatim as the user message's ID so the sender can address the message by the same id before and after it lands on disk. Empty = the session store assigns one.
 	Media            []string              // Optional media markers (<<media:mime:path>>) attached to the first user message of this wake, delivered natively in user content (no read_file). Dropped with a warning if the resolved model lacks the matching capability.
-	Sinks            SinkSet               // Per-wake session sinks. Zero value = no per-wake delivery (the thread's default set is used).
+	Sinks            SinkSet               // The channel this wake arrived on. Unioned over the session's own destinations at RunOnce — it does not replace them.
+	CallerSink       SessionSink           // Where a reply to WHOEVER WOKE US goes (dispatch(to=caller:session), SendToCaller). One place, never broadcast: the caller is a property of this wake, not a view of the session.
 	MessageSink      MessageSink           // Per-wake message-specific delivery (reactions on the source message). Zero value = nothing message-specific.
 	AgentName        string                // Optional agent name override for this wake.
 	OverrideProvider string                // Optional model override (subagent/fork dispatch only): provider name. Set together with OverrideModel; applied per-wake at highest routing precedence.

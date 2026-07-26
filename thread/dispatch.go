@@ -36,10 +36,10 @@ func (t *Thread) CurrentSessionKey() string {
 func (t *Thread) CallerInfo() (kind msg.CallerKind, callerKey, sinkLabel string) {
 	t.mu.Lock()
 	defer t.mu.Unlock()
-	if t.currentSink.IsZero() && t.lastWakeSource == "" {
+	if t.currentCallerSink.Send == nil && t.lastWakeSource == "" {
 		return msg.CallerKindNone, "", ""
 	}
-	return msg.CallerKindFromSource(t.lastWakeSource), t.currentCallerKey, t.currentSink.Label()
+	return msg.CallerKindFromSource(t.lastWakeSource), t.currentCallerKey, t.currentCallerSink.Label
 }
 
 // AgentExists reports whether a template with the given name is registered.
@@ -73,16 +73,20 @@ func (t *Thread) SessionExists(key string) bool {
 	return err == nil
 }
 
-// SendToCaller delivers body directly to the current wake's sink —
-// the same path as the default end-of-turn response delivery. Equivalent to
-// "reply to whoever woke me". Suppresses the runner's end-of-turn sink delivery
-// (via SetSuppressSink) so body is not double-delivered.
+// SendToCaller delivers body to whoever woke this turn. Equivalent to "reply to
+// the caller". Suppresses the runner's end-of-turn session delivery (via
+// SetSuppressSink) so body is not also broadcast to the session's own channels.
+//
+// It deliberately reads the CALLER sink, not the session set: replying to a peer
+// is one message to one place. Before the two were separated this went through
+// the turn's sink and, once a session's destinations became a broadcast set, a
+// subagent's report back would also have been shouted into the parent's channel.
 func (t *Thread) SendToCaller(ctx context.Context, body string) error {
 	t.mu.Lock()
-	sink := t.currentSink
+	sink := t.currentCallerSink
 	t.mu.Unlock()
-	if sink.IsZero() {
-		return fmt.Errorf("current wake has no sink (cron/heartbeat/child source)")
+	if sink.Send == nil {
+		return fmt.Errorf("current wake has no caller sink (cron/heartbeat/child source)")
 	}
 	t.SetSuppressSink()
 	return sink.Send(ctx, body)
@@ -152,7 +156,7 @@ func (t *Thread) WakeSession(_ context.Context, sessionKey, body string) error {
 	t.mgr.Wake(sessionKey, &WakeMessage{
 		Source:           WakeSession,
 		Message:          body,
-		Sinks:            BuildPairedSessionSink(t.mgr, sessionKey, t.sessionKey),
+		CallerSink:       BuildPairedSessionSink(t.mgr, sessionKey, t.sessionKey),
 		CallerSessionKey: t.sessionKey,
 	})
 	return nil
@@ -160,7 +164,7 @@ func (t *Thread) WakeSession(_ context.Context, sessionKey, body string) error {
 
 // buildSinkToCaller returns a recursive paired sink attached to a wake going
 // from THIS thread to `targetSession`. See BuildPairedSessionSink for semantics.
-func (t *Thread) buildSinkToCaller(targetSession string) SinkSet {
+func (t *Thread) buildSinkToCaller(targetSession string) SessionSink {
 	return BuildPairedSessionSink(t.mgr, targetSession, t.sessionKey)
 }
 
@@ -177,8 +181,8 @@ func (t *Thread) buildSinkToCaller(targetSession string) SinkSet {
 //     via contentSink instead of continuing the exchange
 //   - dispatch(to=<any>) with SignalHalt — any explicit dispatch suppresses
 //     the per-wake sink via SetSuppressSink
-func BuildPairedSessionSink(mgr *Manager, selfKey, peerKey string) SinkSet {
-	return NewSinks(SessionSink{
+func BuildPairedSessionSink(mgr *Manager, selfKey, peerKey string) SessionSink {
+	return SessionSink{
 		Label: "reply to caller session " + peerKey + " via dispatch(to=caller:session)",
 		Send: func(_ context.Context, response string) error {
 			response = strings.TrimSpace(response)
@@ -189,11 +193,11 @@ func BuildPairedSessionSink(mgr *Manager, selfKey, peerKey string) SinkSet {
 				Source:           WakeSession,
 				Message:          response,
 				CallerSessionKey: selfKey,
-				Sinks:            BuildPairedSessionSink(mgr, peerKey, selfKey),
+				CallerSink:       BuildPairedSessionSink(mgr, peerKey, selfKey),
 			})
 			return nil
 		},
-	})
+	}
 }
 
 // contentSink resolves where this turn's plain assistant content is delivered.
@@ -203,36 +207,37 @@ func BuildPairedSessionSink(mgr *Manager, selfKey, peerKey string) SinkSet {
 // dispatch(to=user): a turn reaches the human by simply producing content, and
 // dispatch is left to route between agents.
 //
-//   - user-visible wake (the human just spoke): the wake's own sink, untouched —
-//     it carries per-wake context (stream binding, chat.jsonl, reply threading).
-//   - non-user-facing session (subagent / fork / cron's own session): the wake's
-//     sink. Such a turn has no human of its own; the runner separately requires
-//     an explicit dispatch there, so this is only a fallback.
-//   - heartbeat / compression on a user-facing session: nothing. Nightly
-//     maintenance must never speak, and this no longer depends on the model
-//     remembering to call dispatch({}) — nor on the scheduler happening to
-//     attach a drop sink.
-//   - anything else on a user-facing session (cron, peer session, progress):
-//     the channel sink, i.e. speak to my human.
-// The bool reports a proactive delivery: content going somewhere other than the
-// wake's own sink, which therefore bypasses that sink's chat.jsonl write (see
-// recordProactiveChat). It is returned rather than recomputed by the caller so
-// lastWakeSource is only ever read under the lock.
-func (t *Thread) contentSink(wakeSink SinkSet) (SinkSet, bool) {
+// The turn's own set is already the answer — RunOnce assembled it as the
+// session's standing destinations unioned under the channel this wake arrived
+// on, so there is no longer a second set to choose between. What remains here
+// is one safety gate and one bookkeeping flag.
+//
+// The gate: heartbeat and compression deliver nowhere. RunOnce already gives
+// those sources an empty set, so this is deliberately redundant — a nightly
+// maintenance turn speaking to the user is the most expensive leak this system
+// has, and a second check on that path costs nothing.
+//
+// The bool reports a proactive delivery: content reaching a human without an
+// inbound message of theirs to answer, so no origin sink's Flush writes it to
+// chat.jsonl and recordProactiveChat has to.
+func (t *Thread) contentSink(turnSinks SinkSet) (SinkSet, bool) {
 	t.mu.Lock()
 	src := t.lastWakeSource
-	def := t.defaultSink
 	t.mu.Unlock()
 
-	if msg.IsUserVisibleSource(src) || !t.IsUserFacing() {
-		return wakeSink, false
-	}
-	// Prefix match: existing sessions carry legacy "heartbeat_reflect" /
-	// "heartbeat_wake" sources alongside the current "heartbeat".
-	if strings.HasPrefix(string(src), string(WakeHeartbeat)) || src == WakeCompression {
+	if isSilentSource(src) {
 		return SinkSet{}, false
 	}
-	return def, true
+	return turnSinks, t.IsUserFacing() && !msg.IsUserVisibleSource(src)
+}
+
+// isSilentSource reports whether a wake source produces no channel output at
+// all. Such a turn gets an EMPTY sink set: there is nothing to deliver to, so
+// nothing is delivered — rather than something downstream having to remember to
+// suppress it. Prefix match because existing sessions carry legacy
+// "heartbeat_reflect" / "heartbeat_wake" sources alongside "heartbeat".
+func isSilentSource(src WakeSource) bool {
+	return strings.HasPrefix(string(src), string(WakeHeartbeat)) || src == WakeCompression
 }
 
 // previewLogRunes caps the assistant content echoed into a Warn line. Undelivered
@@ -508,7 +513,7 @@ func (t *Thread) createOrWake(key, agentName, body string, isFork bool, forkFrom
 		AgentName:        agentName,
 		OverrideProvider: overrideProvider,
 		OverrideModel:    overrideModel,
-		Sinks:            t.buildSinkToCaller(key),
+		CallerSink:       t.buildSinkToCaller(key),
 		CallerSessionKey: t.sessionKey,
 	})
 	return note, nil

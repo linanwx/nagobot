@@ -310,7 +310,7 @@ func (p *ProgressScanner) deliverToAncestor(childKey, ancestor string, info msg.
 		Source:  WakeProgress,
 		Message: body,
 		Sender:  "system",
-		Sinks: NewSinks(SessionSink{
+		CallerSink: SessionSink{
 			Label: "Caller is progress monitor — reply to caller is dropped",
 			Send: func(_ context.Context, response string) error {
 				if strings.TrimSpace(response) != "" {
@@ -318,7 +318,7 @@ func (p *ProgressScanner) deliverToAncestor(childKey, ancestor string, info msg.
 				}
 				return nil
 			},
-		}),
+		},
 	})
 }
 

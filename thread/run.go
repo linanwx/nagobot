@@ -20,7 +20,7 @@ import (
 
 // run executes one thread turn. Called by RunOnce; callers must not invoke
 // this directly.
-func (t *Thread) run(ctx context.Context, userMessage, userMessageID string, media []string, sink SinkSet, msgSink MessageSink, callerKey string, injectFn func() []provider.Message, wakeSource string) (string, error) {
+func (t *Thread) run(ctx context.Context, userMessage, userMessageID string, media []string, sink SinkSet, callerSink SessionSink, msgSink MessageSink, callerKey string, injectFn func() []provider.Message, wakeSource string) (string, error) {
 	userMessage = strings.TrimSpace(userMessage)
 	if userMessage == "" {
 		return "", nil
@@ -91,11 +91,13 @@ func (t *Thread) run(ctx context.Context, userMessage, userMessageID string, med
 	t.resetHaltLoop()
 	t.mu.Lock()
 	t.currentSink = sink
+	t.currentCallerSink = callerSink
 	t.currentCallerKey = callerKey
 	t.mu.Unlock()
 	defer func() {
 		t.mu.Lock()
 		t.currentSink = SinkSet{}
+		t.currentCallerSink = SessionSink{}
 		t.currentCallerKey = ""
 		t.mu.Unlock()
 	}()

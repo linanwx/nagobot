@@ -60,6 +60,52 @@ func TestSinkSetPartialFailure(t *testing.T) {
 	}
 }
 
+// TestSinkSetUnion pins the assembly rule for a turn's destinations: the
+// inbound channel's sink over the session's standing ones, deduplicated by
+// Channel with the inbound side winning.
+func TestSinkSetUnion(t *testing.T) {
+	var log []string
+	ch := func(name string) SessionSink {
+		s := recordingSink(name, &log, nil)
+		s.Channel = strings.SplitN(name, "/", 2)[0]
+		return s
+	}
+	session := NewSinks(ch("discord/standing"), ch("web/mirror"))
+
+	channels := func(s SinkSet) []string {
+		out := make([]string, 0, s.Len())
+		for i := range s.Len() {
+			out = append(out, s.ChannelAt(i))
+		}
+		return out
+	}
+
+	// Foreign channel: three real destinations, nothing deduplicated.
+	got := NewSinks(ch("wecom/inbound")).Union(session)
+	if want := "wecom,discord,web"; strings.Join(channels(got), ",") != want {
+		t.Fatalf("wecom union = %v, want %s", channels(got), want)
+	}
+
+	// Same channel: one destination, and it must be the INBOUND one — that is
+	// the sink carrying this turn's chat.jsonl buffer.
+	got = NewSinks(ch("discord/inbound")).Union(session)
+	if want := "discord,web"; strings.Join(channels(got), ",") != want {
+		t.Fatalf("discord union = %v, want %s", channels(got), want)
+	}
+	log = nil
+	_ = got.Send(context.Background(), "x")
+	if strings.Join(log, ",") != "discord/inbound:send:x,web/mirror:send:x" {
+		t.Fatalf("the inbound sink must win the collision, got %v", log)
+	}
+
+	// A sink with no Channel is not a transport and is never deduplicated.
+	paired := SessionSink{Label: "paired", Send: func(context.Context, string) error { return nil }}
+	got = NewSinks(paired).Union(NewSinks(paired))
+	if got.Len() != 2 {
+		t.Fatalf("channel-less sinks must not deduplicate, got %d", got.Len())
+	}
+}
+
 // TestSinkSetDropsSinkWithoutSend pins that a member with no authoritative
 // delivery is not a destination — admitting it would make IsZero lie, and
 // IsZero is what every "does anyone read this turn" check rests on.

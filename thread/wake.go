@@ -71,6 +71,7 @@ func (t *Thread) tryMerge(first *WakeMessage) *WakeMessage {
 			if canMerge(first, next) {
 				first.Message += "\n" + next.Message
 				first.Sinks = next.Sinks
+				first.CallerSink = next.CallerSink
 				// The reaction targets ONE inbound message; the merged turn is
 				// answered as a whole, so it reacts on the last one merged.
 				first.MessageSink = next.MessageSink
@@ -123,6 +124,14 @@ func canMerge(a, b *WakeMessage) bool {
 	// Don't merge messages with different sinks to prevent cross-delivery
 	// (e.g. cron results leaking to a user's channel sink).
 	if a.Sinks.Label() != b.Sinks.Label() {
+		return false
+	}
+	// Two peers asking us things are two conversations, and a merged turn keeps
+	// one caller. The paired sink's label used to carry this distinction into the
+	// comparison above; with the caller sink split out of Sinks it has to be
+	// stated, or wakes from different sessions would fold into one turn that can
+	// only answer one of them.
+	if a.CallerSessionKey != b.CallerSessionKey {
 		return false
 	}
 	if len(a.Vars) != len(b.Vars) {
@@ -180,6 +189,34 @@ func (t *Thread) resolveDeliveryLabel(wakeSink SinkSet) string {
 	return out.Label()
 }
 
+// resolveTurnSinks decides where a turn's output goes: the channel this wake
+// arrived on, unioned OVER the session's own standing destinations.
+//
+// Union, not replacement — a session's output always reaches the channel it
+// lives on, whoever prompted the turn. A WeCom message aimed at a Discord
+// session therefore answers on WeCom, in the Discord channel, and on any web
+// page watching it; a Discord message aimed at the same session does not answer
+// on Discord twice, because Union deduplicates by SessionSink.Channel and the
+// inbound sink wins (it carries the turn's chat.jsonl buffer).
+//
+// A silent source gets the empty set and keeps it. That is why the old "an empty
+// wake sink falls back to the default set" rule is gone: an empty set now means
+// something, and filling it back in would hand a heartbeat turn the user's
+// channel.
+func resolveTurnSinks(source WakeSource, wakeSinks, defaultSinks SinkSet) SinkSet {
+	if isSilentSource(source) {
+		return SinkSet{}
+	}
+	out := wakeSinks.Union(defaultSinks)
+	// System-initiated wakes: no chunked delivery, so only the final message
+	// reaches a channel. Rich streaming is deliberately left alone — a client
+	// watching this session still follows a system-initiated turn live.
+	if messageSender(source) == "system" {
+		out = out.WithoutChunking()
+	}
+	return out
+}
+
 // RunOnce dequeues one WakeMessage and executes a single turn.
 func (t *Thread) RunOnce(ctx context.Context) {
 	msg, ok := t.dequeue()
@@ -226,17 +263,7 @@ func (t *Thread) RunOnce(ctx context.Context) {
 		t.Set(k, v)
 	}
 
-	// Use per-wake sinks; fall back to the thread's default set.
-	sink := msg.Sinks
-	if sink.IsZero() {
-		sink = t.defaultSink
-	}
-	// System-initiated wakes: disable chunked delivery so only the final message
-	// reaches a channel. Rich streaming is deliberately left alone — a client
-	// watching this session still follows a system-initiated turn live.
-	if messageSender(msg.Source) == "system" {
-		sink = sink.WithoutChunking()
-	}
+	sink := resolveTurnSinks(msg.Source, msg.Sinks, t.defaultSink)
 
 	deliveryLabel := t.resolveDeliveryLabel(sink)
 
@@ -313,7 +340,7 @@ func (t *Thread) RunOnce(ctx context.Context) {
 		}
 	}
 
-	response, err := t.run(ctx, userMessage, msg.ID, msg.Media, sink, msg.MessageSink, msg.CallerSessionKey, injectFn, string(msg.Source))
+	response, err := t.run(ctx, userMessage, msg.ID, msg.Media, sink, msg.CallerSink, msg.MessageSink, msg.CallerSessionKey, injectFn, string(msg.Source))
 
 	// Run post-turn hooks BEFORE consuming the per-turn flags so hooks see
 	// the state accurately. Returned strings are persisted as user-role

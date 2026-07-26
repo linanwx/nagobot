@@ -57,6 +57,11 @@ func webObserverSink(chMgr *channel.Manager, sessionKey string) (thread.SessionS
 	})
 
 	return thread.SessionSink{
+		// Identifies this as the web destination so Union deduplicates it: a
+		// message that ARRIVED from a browser already carries a web sink (with
+		// the turn's chat.jsonl buffer), and adding the mirror on top of it
+		// would deliver every reply to the page twice.
+		Channel: "web",
 		Send: func(ctx context.Context, response string) error {
 			if strings.TrimSpace(response) == "" {
 				return nil
