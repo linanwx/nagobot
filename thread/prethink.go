@@ -141,8 +141,15 @@ func localPreThink(traceCtx context.Context, userMsg, recentChat string, cands [
 		if subject := destructiveSubject(userMsg, recentChat); subject != userMsg {
 			texts = append(texts, preThinkQuery(model, subject))
 		}
-		ectx, espan := obs.Start(traceCtx, "prethink.embed", obs.Int("inputs", len(texts)))
-		if err := embedder.prefetch(ectx, texts...); err != nil {
+		// The span is parented to traceCtx, but the CALL runs on the budget
+		// context. Those are two different contexts on purpose and the
+		// distinction is load-bearing: traceCtx is the turn's, and it carries no
+		// deadline, so prefetching on it puts an unbounded remote call on the
+		// user's critical path ahead of every classifier. Observed in
+		// production before this was separated: prethink spans of 10.8s and
+		// 31.9s against a 3s budget.
+		_, espan := obs.Start(traceCtx, "prethink.embed", obs.Int("inputs", len(texts)))
+		if err := embedder.prefetch(ctx, texts...); err != nil {
 			espan.Fail(err)
 		}
 		espan.End()

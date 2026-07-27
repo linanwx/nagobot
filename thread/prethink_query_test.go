@@ -6,6 +6,7 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 )
 
 var errNoTestBackend = errors.New("no backend (test)")
@@ -158,6 +159,47 @@ func TestLocalPreThinkMakesOneEmbeddingRoundTrip(t *testing.T) {
 		if got := f.calls(); got > 1 {
 			t.Fatalf("%q made %d embedding round trips, want at most 1; batches=%v", msg, got, f.batches)
 		}
+	}
+}
+
+// TestLocalPreThinkPrefetchHonoursTheBudget is a production regression.
+//
+// The shared prefetch runs BEFORE any classifier, so if it is not bound by the
+// budget it is an unbounded remote call sitting on the user's critical path
+// with nothing to stop it. Shipped that way for one deploy and immediately
+// produced prethink spans of 10.8s and 31.9s against a 3s budget, because the
+// call was made on the trace context (the turn's, no deadline) rather than the
+// budget context.
+func TestLocalPreThinkPrefetchHonoursTheBudget(t *testing.T) {
+	blocked := make(chan struct{})
+	orig := preThinkEmbedFn
+	preThinkEmbedFn = func() embedFn {
+		return func(ctx context.Context, _ []string) ([][]float64, error) {
+			close(blocked)
+			<-ctx.Done() // a backend that never answers
+			return nil, ctx.Err()
+		}
+	}
+	defer func() { preThinkEmbedFn = orig }()
+
+	done := make(chan time.Duration, 1)
+	go func() {
+		_, took := localPreThink(context.Background(), "帮我把旧日志删了", "", nil)
+		done <- took
+	}()
+
+	select {
+	case <-blocked:
+	case <-time.After(5 * time.Second):
+		t.Fatal("prefetch never ran")
+	}
+	select {
+	case took := <-done:
+		if took > preThinkBudget+time.Second {
+			t.Fatalf("localPreThink took %v against a %v budget — the prefetch is not bound by it", took, preThinkBudget)
+		}
+	case <-time.After(preThinkBudget + 5*time.Second):
+		t.Fatalf("localPreThink never returned — the prefetch outlived the %v budget", preThinkBudget)
 	}
 }
 
