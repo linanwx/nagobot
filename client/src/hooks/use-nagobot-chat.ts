@@ -100,7 +100,20 @@ export type MessageMeta = {
 // the top edge jumped from -651px to +6368px on send; with the window pinned it
 // never leaves the top edge). Pinning by id means the window only ever grows
 // downward as messages arrive, and only "load earlier" moves its top edge.
-const historyPageSize = 300;
+//
+// The size is a render budget, and it was measured rather than guessed. Opening
+// a 1176-entry session (460 chat messages after the projection) on an M-series
+// Mac took 860ms from click to a settled DOM, of which the fetch was 47ms and
+// JSON.parse 5ms — everything else was React mounting the page. Widening by 160
+// more messages cost a further 616ms, so the cost is linear at roughly 3ms per
+// message with no virtualization to flatten it. At 300 that first paint was the
+// single largest term in the whole load: larger than the network leg and an
+// order of magnitude larger than the server, which answers a full history read
+// in 25-67ms. 60 still fills more than a screenful, and the price is that a
+// reader walking back through a long session clicks "load earlier" more often —
+// which is cheap, because it moves an id rather than fetching anything (the
+// whole session is already in memory).
+const historyPageSize = 60;
 
 // A turn with no response frame (e.g. a silent dispatch({}) end) would leave
 // the spinner on forever without this.
