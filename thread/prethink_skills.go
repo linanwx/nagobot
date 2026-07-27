@@ -117,19 +117,19 @@ var skillNoneAnchors = []string{
 	"an ordinary factual question with no tool or capability involved",
 }
 
-// qwen3Instruct is the query-side prefix Qwen3-Embedding is trained with for
-// asymmetric retrieval. It is worth real points, especially cross-lingually
-// (the drink-water reminder above goes from rank 2 to rank 1, and the Japanese
-// image request from 0.48 to 0.72). Other models get the bare query — a prefix
-// they were not trained on is just noise.
-const qwen3Instruct = "Instruct: Given a user request to an AI assistant, retrieve the skill whose description says it should handle this request.\nQuery: "
-
-func skillQueryText(model, msg string) string {
-	if strings.Contains(strings.ToLower(model), "qwen3-embedding") {
-		return qwen3Instruct + msg
-	}
-	return msg
-}
+// The query side carries the instruction prefix Qwen3-Embedding is trained with
+// for asymmetric retrieval; the anchors (skill descriptions and the "none"
+// class) stay raw. The prefix is worth real points, especially cross-lingually
+// — the drink-water reminder above goes from rank 2 to rank 1, and the Japanese
+// image request from 0.48 to 0.72.
+//
+// Skill retrieval used to spell its own instruction ("retrieve the skill whose
+// description says it should handle this request"), which is what forced it to
+// spend a second remote call on a message the other three classifiers had
+// already embedded. It now shares preThinkQueryTask with them, measured before
+// the change on the real skill pool and the hand set: at the operating margin
+// recall stays 31/31 and all 8 negatives are rejected, with 2.05 slugs returned
+// on average instead of 2.23. The plateau is 0.03–0.08 under either wording.
 
 const (
 	maxRelatedSkills = 3
@@ -266,18 +266,13 @@ func rankSkills(ctx context.Context, msg string, cands []skillCandidate) (ranked
 		return nil, 0, false
 	}
 
-	if r := []rune(msg); len(r) > searchEmbedMaxRunes {
-		msg = string(r[:searchEmbedMaxRunes])
-	}
 	qCtx, qCancel := context.WithTimeout(ctx, skillQueryTimeout)
 	defer qCancel()
-	qs, err := searchEmbed.client.Embed(qCtx, []string{skillQueryText(skillIndex.model, msg)})
+	q, err := queryVector(qCtx, searchEmbed.client.Embed, preThinkQuery(skillIndex.model, msg))
 	if err != nil {
 		logger.Warn("pre-think skill index: query embedding failed", "err", err)
 		return nil, 0, false
 	}
-	q := qs[0]
-	normalize(q)
 
 	ranked = make([]scoredSkill, 0, len(skillIndex.slugs))
 	for i, group := range skillIndex.groups {

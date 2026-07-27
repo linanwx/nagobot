@@ -150,10 +150,11 @@ var destructiveNegAnchors = []string{
 }
 
 // destructiveEmbedTask is the instruction the destructive classifier embeds
-// its anchors and queries under (see qwen3Instructed). Validated in the 4B
-// migration bench: raw-text 4B scored 2 misses / 13∕15 held-out, instructed 4B
-// 0 misses / 15∕15.
-const destructiveEmbedTask = "Given a user message to an AI assistant, retrieve reference messages that request the same kind of action"
+// its ANCHORS under (see qwen3Instructed). Validated in the 4B migration bench:
+// raw-text 4B scored 2 misses / 13∕15 held-out, instructed 4B 0 misses / 15∕15.
+// Aliases preThinkQueryTask, which is the same instruction the shared query
+// vector carries — see prethink_query.go for why they must not diverge.
+const destructiveEmbedTask = preThinkQueryTask
 
 const (
 	destructiveEmbedTopK = 5
@@ -181,10 +182,9 @@ const (
 	// user learns to click through protects no one.
 	destructiveEmbedMargin = 0.05
 
-	destructiveEmbedMaxRunes = 600
-	destructiveInitTimeout   = 30 * time.Second
-	destructiveCallTimeout   = 5 * time.Second
-	destructiveRetryAfter    = time.Minute
+	destructiveInitTimeout = 30 * time.Second
+	destructiveCallTimeout = 5 * time.Second
+	destructiveRetryAfter  = time.Minute
 )
 
 // classifyDestructiveEmbedFn is indirected so tests can pin the regex-only path
@@ -254,19 +254,14 @@ func destructiveScores(ctx context.Context, msg string) (pos, neg float64, ok bo
 		return 0, 0, false
 	}
 
-	if r := []rune(msg); len(r) > destructiveEmbedMaxRunes {
-		msg = string(r[:destructiveEmbedMaxRunes])
-	}
 	callCtx, cancelCall := context.WithTimeout(ctx, destructiveCallTimeout)
 	defer cancelCall()
-	vecs, err := searchEmbed.client.Embed(callCtx,
-		[]string{qwen3Instructed(destructiveEmbed.model, destructiveEmbedTask, msg)})
+	q, err := queryVector(callCtx, searchEmbed.client.Embed,
+		preThinkQuery(destructiveEmbed.model, msg))
 	if err != nil {
 		logger.Warn("pre-think destructive classifier: message embedding failed", "err", err)
 		return 0, 0, false
 	}
-	q := vecs[0]
-	normalize(q)
 	return topKMeanDot(q, destructiveEmbed.pos, destructiveEmbedTopK),
 		topKMeanDot(q, destructiveEmbed.neg, destructiveEmbedTopK), true
 }

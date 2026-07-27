@@ -100,13 +100,13 @@ var coderNegAnchors = []string{
 	"what can you help me with",
 }
 
-// coderEmbedTask is the instruction the coder classifier embeds its QUERIES
-// under. Unlike destructive, this classifier is asymmetric on purpose — the
-// anchors stay raw. Measured on the 4B held-out sweep: both-sides instruction
-// interleaves the boundary (worst positive -0.0263 vs best negative -0.0267, a
-// 0.0004 gap no margin can sit in), query-only separates it cleanly (worst
-// decidable positive -0.0133 vs best negative -0.0345).
-const coderEmbedTask = "Given a user message to an AI assistant, retrieve reference messages that request the same kind of action"
+// This classifier is asymmetric on purpose — its ANCHORS stay raw while the
+// query carries preThinkQueryTask. Measured on the 4B held-out sweep:
+// both-sides instruction interleaves the boundary (worst positive -0.0263 vs
+// best negative -0.0267, a 0.0004 gap no margin can sit in), query-only
+// separates it cleanly (worst decidable positive -0.0133 vs best negative
+// -0.0345). The query instruction itself now lives in prethink_query.go, which
+// is why no coderEmbedTask constant remains.
 
 const (
 	coderEmbedTopK = 5
@@ -121,8 +121,7 @@ const (
 	// 0/8, buffer 0.0117 to the nearest positive and 0.0095 to the nearest
 	// negative. The one miss (撸一个查天气的小工具 at -0.117) sits below two
 	// negatives and stays a recorded miss — buying it back would admit both.
-	coderEmbedMargin   = -0.025
-	coderEmbedMaxRunes = 600
+	coderEmbedMargin = -0.025
 
 	coderEmbedInitTimeout = 30 * time.Second
 	coderEmbedCallTimeout = 5 * time.Second
@@ -191,19 +190,14 @@ func coderScores(ctx context.Context, msg string) (pos, neg float64, ok bool) {
 		return 0, 0, false
 	}
 
-	if r := []rune(msg); len(r) > coderEmbedMaxRunes {
-		msg = string(r[:coderEmbedMaxRunes])
-	}
 	callCtx, cancelCall := context.WithTimeout(ctx, coderEmbedCallTimeout)
 	defer cancelCall()
-	vecs, err := searchEmbed.client.Embed(callCtx,
-		[]string{qwen3Instructed(coderEmbed.model, coderEmbedTask, msg)})
+	q, err := queryVector(callCtx, searchEmbed.client.Embed,
+		preThinkQuery(coderEmbed.model, msg))
 	if err != nil {
 		logger.Warn("pre-think coder classifier: message embedding failed", "err", err)
 		return 0, 0, false
 	}
-	q := vecs[0]
-	normalize(q)
 	return topKMeanDot(q, coderEmbed.pos, coderEmbedTopK),
 		topKMeanDot(q, coderEmbed.neg, coderEmbedTopK), true
 }

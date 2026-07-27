@@ -47,16 +47,28 @@ func isDestructiveRegex(msg, recentChat string) bool {
 }
 
 func isDestructiveWith(ctx context.Context, msg, recentChat string, classify embedClassifier) bool {
-	// A bare confirmation is judged ONLY by what it confirms, never on its own.
-	// The order matters and it is not obvious: running the detector on "do it"
-	// first calls it destructive every time, because in isolation "do it" reads as
-	// an imperative to go act — the semantic classifier has nothing else to go on.
-	// The whole point of the class is that the words carry no intent; the intent is
-	// in the turn above. So we never let them be judged alone.
+	return destructiveIntent(ctx, destructiveSubject(msg, recentChat), classify)
+}
+
+// destructiveSubject is the text this classifier actually judges — the only
+// place in pre-think where that differs from the user's message.
+//
+// A bare confirmation is judged ONLY by what it confirms, never on its own. The
+// order matters and it is not obvious: running the detector on "do it" first
+// calls it destructive every time, because in isolation "do it" reads as an
+// imperative to go act — the semantic classifier has nothing else to go on. The
+// whole point of the class is that the words carry no intent; the intent is in
+// the turn above. So we never let them be judged alone.
+//
+// It is exported to localPreThink (rather than inlined above) so the shared
+// query embedder can prefetch this exact text. Two definitions of "what does
+// destructive embed" would mean the prefetch silently missed and the classifier
+// spent a second round trip.
+func destructiveSubject(msg, recentChat string) string {
 	if isBareConfirmation(msg) {
-		return destructiveIntent(ctx, lastAssistantTurn(recentChat), classify)
+		return lastAssistantTurn(recentChat)
 	}
-	return destructiveIntent(ctx, msg, classify)
+	return msg
 }
 
 // ---------------------------------------------------------------------------

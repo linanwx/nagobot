@@ -162,8 +162,18 @@ func TestLocalPreThink_NoBackend(t *testing.T) {
 	classifyDestructiveEmbedFn = func(context.Context, string) (bool, bool) { return false, false }
 	classifySearchEmbedFn = func(context.Context, string) (bool, bool) { return false, false }
 	classifyCoderEmbedFn = func(context.Context, string) (bool, bool) { return false, false }
+	// The embedding round trip is now made ONCE, up front, by localPreThink
+	// itself rather than by each classifier — so simulating "no backend" has to
+	// stub it there too. On a developer machine that has a real key configured,
+	// stubbing only the classify functions would leave the shared prefetch
+	// talking to the network and this test would measure it.
+	origEmbed := preThinkEmbedFn
+	preThinkEmbedFn = func() embedFn {
+		return func(context.Context, []string) ([][]float64, error) { return nil, errNoTestBackend }
+	}
 	defer func() {
 		classifyDestructiveEmbedFn, classifySearchEmbedFn, classifyCoderEmbedFn = origD, origS, origC
+		preThinkEmbedFn = origEmbed
 	}()
 
 	// The verb table still knows this one, and an explicit search request is pure

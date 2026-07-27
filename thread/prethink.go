@@ -125,6 +125,29 @@ func localPreThink(traceCtx context.Context, userMsg, recentChat string, cands [
 	ctx, cancel := context.WithTimeout(context.Background(), preThinkBudget)
 	defer cancel()
 
+	// One embedding round trip for the whole analysis. The four classifiers ask
+	// the same question of the same text (see prethink_query.go), so they share
+	// one vector and score it locally against their own anchors. Prefetching
+	// here rather than letting each classifier embed for itself is what turns
+	// four independent draws from a heavy-tailed backend into one.
+	//
+	// A failure is not handled here: the classifiers below simply report
+	// themselves unavailable and the regex verdicts stand, which is the same
+	// degradation path a timeout takes.
+	embedder := newQueryEmbedder(preThinkEmbedFn())
+	ctx = withQueryEmbedder(ctx, embedder)
+	if model, ok := searchEmbed.client.Model(ctx); ok {
+		texts := []string{preThinkQuery(model, userMsg)}
+		if subject := destructiveSubject(userMsg, recentChat); subject != userMsg {
+			texts = append(texts, preThinkQuery(model, subject))
+		}
+		ectx, espan := obs.Start(traceCtx, "prethink.embed", obs.Int("inputs", len(texts)))
+		if err := embedder.prefetch(ectx, texts...); err != nil {
+			espan.Fail(err)
+		}
+		espan.End()
+	}
+
 	type result struct {
 		field string
 		flag  bool

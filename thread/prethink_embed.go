@@ -128,13 +128,18 @@ var searchNegAnchors = []string{
 	"我和女朋友吵架了，我该怎么办",
 }
 
-// searchEmbedTask is the instruction the search classifier embeds its anchors
-// and queries under (see qwen3Instructed). Both-sides instruction was compared
-// against query-side-only on the 4B: both score 50/52 on the hand set with a
-// different pair of borderline misses; both-sides is kept for symmetry with
-// destructive and because its worst miss is nearer the threshold (-0.0035 vs
-// -0.0029 on a different case, -0.041 vs -0.019 on the shared one).
-const searchEmbedTask = "Given a user message to an AI assistant, retrieve reference messages that request the same kind of action"
+// searchEmbedTask is the instruction the search classifier embeds its ANCHORS
+// under (see qwen3Instructed). Both-sides instruction was compared against
+// query-side-only on the 4B: both score 50/52 on the hand set with a different
+// pair of borderline misses; both-sides is kept for symmetry with destructive
+// and because its worst miss is nearer the threshold (-0.0035 vs -0.0029 on a
+// different case, -0.041 vs -0.019 on the shared one).
+//
+// It aliases preThinkQueryTask rather than repeating the string: the query side
+// is now shared with every other classifier, and two constants holding the same
+// sentence is how the three of them drifted into issuing identical requests
+// without anyone noticing.
+const searchEmbedTask = preThinkQueryTask
 
 const (
 	searchEmbedTopK = 6
@@ -143,9 +148,6 @@ const (
 	// nearer wins"; a small positive margin biases toward false because a
 	// wrong true costs a pointless search dispatch.
 	searchEmbedMargin = 0.0
-	// Long pastes are truncated before embedding: the request intent lives in
-	// the head of a message, and embedding models truncate internally anyway.
-	searchEmbedMaxRunes = 800
 
 	searchEmbedInitTimeout = 30 * time.Second
 	searchEmbedCallTimeout = 5 * time.Second
@@ -260,13 +262,19 @@ func (s *searchEmbedState) ensure() bool {
 	return true
 }
 
-// score embeds msg and returns mean top-k cosine similarity to each anchor
-// side. ok=false means the classifier is unavailable and the caller should
-// fall back to the regex path.
+// score returns mean top-k cosine similarity to each anchor side. ok=false
+// means the classifier is unavailable and the caller should fall back to the
+// regex path.
+//
+// The query vector comes from the shared per-message embedder when one is on
+// the context (the production path — one round trip for all four classifiers);
+// otherwise it is embedded here on demand, which is what direct test callers
+// and WarmLocalPreThink get.
 //
 // Unlike the index build, the per-message embedding IS bound by ctx: it is work
 // done for one turn and worthless once that turn has moved on, so when the budget
-// blows the HTTP request is cancelled rather than left running against a backend // that is already struggling.
+// blows the HTTP request is cancelled rather than left running against a backend
+// that is already struggling.
 func (s *searchEmbedState) score(ctx context.Context, msg string) (pos, neg float64, ok bool) {
 	if !s.mu.lock(ctx) {
 		return 0, 0, false
@@ -277,18 +285,13 @@ func (s *searchEmbedState) score(ctx context.Context, msg string) (pos, neg floa
 		return 0, 0, false
 	}
 
-	if r := []rune(msg); len(r) > searchEmbedMaxRunes {
-		msg = string(r[:searchEmbedMaxRunes])
-	}
 	callCtx, cancelCall := context.WithTimeout(ctx, searchEmbedCallTimeout)
 	defer cancelCall()
-	vecs, err := s.client.Embed(callCtx, []string{qwen3Instructed(s.model, searchEmbedTask, msg)})
+	q, err := queryVector(callCtx, s.client.Embed, preThinkQuery(s.model, msg))
 	if err != nil {
 		logger.Warn("pre-think search classifier: message embedding failed", "err", err)
 		return 0, 0, false
 	}
-	q := vecs[0]
-	normalize(q)
 	return topKMeanDot(q, s.pos, searchEmbedTopK), topKMeanDot(q, s.neg, searchEmbedTopK), true
 }
 
