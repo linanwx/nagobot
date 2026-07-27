@@ -221,10 +221,10 @@ type DispatchHost interface {
 	// accounts for text that goes nowhere.
 	//
 	// Returns the destination label when this call delivered the text, and
-	// whether it was dropped (already logged host-side — content is never
-	// discarded silently). Both zero means nothing to do: no content, or the
-	// runner already delivered it.
-	SettleTurnContent(ctx context.Context, content string, deliver bool) (destination string, dropped bool)
+	// otherwise the outcome naming why it did not (already logged host-side —
+	// content is never discarded silently). Both zero means nothing to do: no
+	// content, or the runner already delivered it.
+	SettleTurnContent(ctx context.Context, content string, deliver bool) (destination string, outcome msg.SettleOutcome)
 	AgentExists(name string) bool
 	SessionExists(key string) bool
 	SendToCaller(ctx context.Context, body string) error
@@ -491,16 +491,30 @@ func (t *DispatchTool) run(ctx context.Context, args json.RawMessage) string {
 // ending is known, and turns the outcome into a note appended to the tool
 // result. Empty note means there was nothing to say: no content, or the runner
 // already delivered it live.
+//
+// Each outcome gets its own note. One shared "this reached nobody — put it in a
+// send body" was accurate for SettleNoReader and misleading for the rest: on
+// SettleTurnContinues the turn is still running and the final message is what
+// speaks, and on SettleAlreadySentToCaller the reader did get the news, in the
+// send's own body. Both of those read as "your words vanished, say them again",
+// which is an instruction to duplicate.
 func (t *DispatchTool) settleContent(ctx context.Context, content string, deliver bool) string {
 	if content == "" {
 		return ""
 	}
-	dest, dropped := t.host.SettleTurnContent(ctx, content, deliver)
-	switch {
-	case dest != "":
+	dest, outcome := t.host.SettleTurnContent(ctx, content, deliver)
+	if dest != "" {
 		return "\n\nYour message text was delivered — " + dest + "."
-	case dropped:
-		return "\n\n⚠️ Warning: the text in this message was NOT delivered to anyone — this turn has no reader for assistant content. Only each send's `body` went out. If that text was meant for someone, put it in a send body."
+	}
+	switch outcome {
+	case msg.SettleNoReader:
+		return "\n\n⚠️ The text in this message reached nobody: this turn has no destination for plain content. Only each send's `body` went out. If that text was meant for someone, it has to go in a send body."
+	case msg.SettleTurnContinues:
+		return "\n\nNote: this turn is still running, so the text in this message was not delivered as the reply — your final message is. No need to repeat it."
+	case msg.SettleAlreadySentToCaller:
+		return "\n\nNote: the text in this message was not sent separately — on this session it would go to the same place your caller reply just went, and they already have it. No need to repeat it."
+	case msg.SettleDeliveryFailed:
+		return "\n\n⚠️ Delivery of the text in this message FAILED (the sends above still went out). If it matters, try again or route it through a send `body`."
 	}
 	return ""
 }

@@ -207,3 +207,33 @@ type WakeMessage struct {
 	// the causality of the rest.
 	MergedTraceparents []string
 }
+
+// SettleOutcome names what happened to assistant content emitted alongside a
+// dispatch call. It is an enum rather than a prose string because the dispatch
+// tool renders a DIFFERENT note to the model for each value — a single
+// "this reached nobody" message was wrong on three of the four.
+type SettleOutcome string
+
+const (
+	// SettleNoReader — this turn has no destination for plain content at all
+	// (heartbeat / compression, or a session whose sinks are empty). The text
+	// genuinely went nowhere and only a send body can carry it.
+	SettleNoReader SettleOutcome = "no-reader"
+
+	// SettleTurnContinues — a batched dispatch, or dispatch({}). The turn is
+	// still running, so the model's eventual final message is what speaks; this
+	// intermediate text was simply not the delivery. Nothing is lost by leaving
+	// it, and repeating it in a send body would say everything twice.
+	SettleTurnContinues SettleOutcome = "turn-continues"
+
+	// SettleAlreadySentToCaller — an executed to=caller:session already wrote to
+	// the very destination this content would take. Only sessions with no human
+	// of their own reach this: there, contentSink and the caller sink are the
+	// same reader, and that reader did get the news — in the send's body.
+	SettleAlreadySentToCaller SettleOutcome = "already-sent-to-caller"
+
+	// SettleDeliveryFailed — a destination existed and the send returned an
+	// error. Distinct from the three above: nothing about the turn's shape is
+	// wrong, the transport failed.
+	SettleDeliveryFailed SettleOutcome = "delivery-failed"
+)

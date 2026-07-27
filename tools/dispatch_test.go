@@ -57,15 +57,18 @@ func (m *mockDispatchHost) CallerIsOwnChild() bool      { return m.callerIsChild
 // there is no content or the runner already delivered it live (modelled here by
 // contentReaches on a chunkable-style session, i.e. settleDest left empty);
 // delivered when asked to deliver and a destination exists; dropped otherwise.
-func (m *mockDispatchHost) SettleTurnContent(_ context.Context, content string, deliver bool) (string, bool) {
+func (m *mockDispatchHost) SettleTurnContent(_ context.Context, content string, deliver bool) (string, msg.SettleOutcome) {
 	if strings.TrimSpace(content) == "" {
-		return "", false
+		return "", ""
 	}
 	m.settled = append(m.settled, settleCall{Content: content, Deliver: deliver})
 	if deliver && m.settleDest != "" {
-		return m.settleDest, false
+		return m.settleDest, ""
 	}
-	return "", true
+	if !deliver {
+		return "", msg.SettleTurnContinues
+	}
+	return "", msg.SettleNoReader
 }
 func (m *mockDispatchHost) AgentExists(name string) bool {
 	return m.agents[name]
@@ -680,8 +683,8 @@ func TestDispatch_ContentAlongsideDispatch_DropWarns(t *testing.T) {
 	if outcome != "turn-terminated" {
 		t.Fatalf("expected turn-terminated, got %q; %s", outcome, res)
 	}
-	if !strings.Contains(res, "NOT delivered to anyone") {
-		t.Errorf("expected an undelivered warning, got: %s", res)
+	if !strings.Contains(res, "reached nobody") {
+		t.Errorf("expected the no-reader note, got: %s", res)
 	}
 }
 
@@ -726,8 +729,10 @@ func TestDispatch_EmptySends_ContentSettledButNotDelivered(t *testing.T) {
 	if len(host.settled) != 1 || host.settled[0].Deliver {
 		t.Fatalf("expected one settle with deliver=false, got %+v", host.settled)
 	}
-	if !strings.Contains(res, "NOT delivered to anyone") {
-		t.Errorf("expected an undelivered warning, got: %s", res)
+	// deliver=false, so the note names the ending rather than claiming the
+	// text reached nobody — nothing about this turn had a broken destination.
+	if !strings.Contains(res, "No need to repeat it") {
+		t.Errorf("expected the turn-continues note, got: %s", res)
 	}
 }
 

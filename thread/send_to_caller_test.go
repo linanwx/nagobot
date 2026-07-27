@@ -52,8 +52,8 @@ func TestSendToCallerKeepsUserFacingContent(t *testing.T) {
 		t.Fatal("a user-facing session's channel must stay open: content and the caller reply are two audiences")
 	}
 
-	dest, dropped := th.SettleTurnContent(context.Background(), "📰 周一午间简报｜7月27日 …", true)
-	if dropped {
+	dest, outcome := th.SettleTurnContent(context.Background(), "📰 周一午间简报｜7月27日 …", true)
+	if outcome != "" {
 		t.Fatal("content promised to the discord channel was dropped")
 	}
 	if dest == "" || len(*toChannel) != 1 {
@@ -78,8 +78,8 @@ func TestSendToCallerSuppressesForSubagent(t *testing.T) {
 		t.Fatal("a subagent's content sink forwards to the same parent — it must be suppressed")
 	}
 
-	if _, dropped := th.SettleTurnContent(context.Background(), "some prose about the work", true); !dropped {
-		t.Fatal("subagent content should be dropped rather than waking the parent a second time")
+	if _, outcome := th.SettleTurnContent(context.Background(), "some prose about the work", true); outcome != SettleAlreadySentToCaller {
+		t.Fatalf("subagent content outcome = %q, want %q", outcome, SettleAlreadySentToCaller)
 	}
 }
 

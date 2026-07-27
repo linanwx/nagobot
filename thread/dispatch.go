@@ -328,15 +328,22 @@ func (t *Thread) CallerIsOwnChild() bool {
 //	deliver=false — dispatch({}), or a batched call where the turn continues:
 //	                never send, only account for text that went nowhere.
 //
-// Returns (destination, dropped): destination is the sink label when this call
-// delivered the text, dropped reports text that reached nobody (already logged
-// at Warn — content is never discarded silently). Both zero means there was
-// nothing to do, either because there was no content or because the runner
-// already delivered it.
-func (t *Thread) SettleTurnContent(ctx context.Context, content string, deliver bool) (string, bool) {
+// Returns (destination, outcome): destination is the sink label when this call
+// delivered the text; outcome names why it did not, and is empty when the text
+// was delivered or when there was nothing to do (no content, or the runner
+// already delivered it live).
+//
+// The outcome is an ENUM, not prose, because the caller renders a different note
+// to the model for each one. A single "this reached nobody" message covering all
+// of them was wrong on three of the four: on SettleTurnContinues the turn is
+// still running and the model's final message will speak, and on
+// SettleAlreadySentToCaller the reader did get the news — through the send's own
+// body. Telling the model to "put it in a send body" in those cases invites it
+// to say everything twice.
+func (t *Thread) SettleTurnContent(ctx context.Context, content string, deliver bool) (string, SettleOutcome) {
 	content = strings.TrimSpace(content)
 	if !isUserFacingContent(content) {
-		return "", false
+		return "", ""
 	}
 	t.mu.Lock()
 	wakeSink := t.currentSink
@@ -350,40 +357,40 @@ func (t *Thread) SettleTurnContent(ctx context.Context, content string, deliver 
 	// still settleable.
 	settle := out.WithoutLiveDelivery()
 	if !out.IsZero() && settle.IsZero() {
-		return "", false
+		return "", ""
 	}
-	// Suppressed means an executed send already spoke on this very sink — for a
-	// subagent, contentSink and dispatch(to=caller:session) share one
-	// destination, and waking the caller twice is worse than dropping prose.
-	if !deliver || settle.IsZero() || t.isSinkSuppressed() {
+
+	if outcome := settleDropOutcome(deliver, out, settle, t.isSinkSuppressed()); outcome != "" {
 		logger.Warn("assistant content not delivered",
-			"key", t.sessionKey, "reason", settleDropReason(deliver, out, t.isSinkSuppressed()),
+			"key", t.sessionKey, "reason", string(outcome),
 			"content", truncateStr(content, previewLogRunes))
-		return "", true
+		return "", outcome
 	}
 	if err := settle.WithRetry(3).Send(ctx, content); err != nil {
 		logger.Warn("assistant content delivery failed",
 			"key", t.sessionKey, "sink", settle.Label(), "err", err,
 			"content", truncateStr(content, previewLogRunes))
-		return "", true
+		return "", SettleDeliveryFailed
 	}
 	if proactive {
 		t.recordProactiveChat(content)
 	}
-	return settle.Label(), false
+	return settle.Label(), ""
 }
 
-// settleDropReason names why SettleTurnContent discarded text, for the log line.
-func settleDropReason(deliver bool, out SinkSet, suppressed bool) string {
+// settleDropOutcome names why SettleTurnContent will not deliver, or "" when it
+// will. Order matters: a suppressed sink is checked before the empty-set case
+// because it is the more specific fact about the same turn.
+func settleDropOutcome(deliver bool, out, settle SinkSet, suppressed bool) SettleOutcome {
 	switch {
-	case out.IsZero():
-		return "no content sink for this wake source"
-	case !deliver:
-		return "turn ended silently via dispatch({}) or the call was batched"
 	case suppressed:
-		return "sink already used by an executed send"
+		return SettleAlreadySentToCaller
+	case !deliver:
+		return SettleTurnContinues
+	case out.IsZero() || settle.IsZero():
+		return SettleNoReader
 	}
-	return "unknown"
+	return ""
 }
 
 // recordProactiveChat appends a bot-initiated message to the clean chat log.

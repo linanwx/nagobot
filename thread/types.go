@@ -175,6 +175,16 @@ type Thread struct {
 // ToolCallRecord is an alias for msg.ToolCallRecord.
 type ToolCallRecord = msg.ToolCallRecord
 
+// SettleOutcome names what happened to content emitted alongside a dispatch.
+type SettleOutcome = msg.SettleOutcome
+
+const (
+	SettleNoReader            = msg.SettleNoReader
+	SettleTurnContinues       = msg.SettleTurnContinues
+	SettleAlreadySentToCaller = msg.SettleAlreadySentToCaller
+	SettleDeliveryFailed      = msg.SettleDeliveryFailed
+)
+
 // ExecMetrics tracks real-time execution metrics for a running turn.
 type ExecMetrics struct {
 	mu             sync.Mutex
