@@ -163,6 +163,33 @@ func TestBuildDefaultSinkFor_DiscordSnowflakeSendsToChannel(t *testing.T) {
 	}
 }
 
+// TestBuildDefaultSinkFor_WebSessionStreams pins the live mode on a `web:`
+// session's own sink. It is the one session type observableSession skips, so
+// this branch is the only supplier — and without it every turn whose wake
+// carries no inbound sink (a subagent reporting back, a cron inject, a peer
+// dispatch) resolved to HasStream() == false. That silences not just the
+// deltas but the authoritative `message` frames too, because emitStreamMessage
+// gates on the same predicate, so the page rendered NOTHING for the whole turn
+// until its next resync.
+func TestBuildDefaultSinkFor_WebSessionStreams(t *testing.T) {
+	chMgr := channel.NewManager()
+	chMgr.Register(&recordingChannel{name: "web"})
+
+	fn := buildDefaultSinkFor(chMgr, nil, t.TempDir(), nil, nil)
+	sink := fn("web:abc123")
+	if sink.IsZero() {
+		t.Fatal("expected a web sink")
+	}
+	if !sink.HasStream() {
+		t.Fatal("a web: session must carry Stream — the observer mirror skips this prefix, so nothing else supplies it")
+	}
+	// Chunked delivery stays off: the deltas already carry the text, and
+	// registering both sends every intermediate assistant message twice.
+	if sink.HasChunk() {
+		t.Fatal("a streaming destination must not also take chunked delivery")
+	}
+}
+
 func TestInstallShutdownHandlerForcesExitOnSecondSignal(t *testing.T) {
 	sigCh := make(chan os.Signal, 2)
 	shutdownCh := make(chan struct{})

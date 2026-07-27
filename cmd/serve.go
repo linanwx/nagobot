@@ -559,7 +559,33 @@ func buildDefaultChannelSinkFor(chMgr *channel.Manager, cfg *config.Config, sess
 		// client; the web channel falls back to Web Push when none is
 		// connected, so sinkless wakes (cross-session dispatch, cron) can
 		// still reach the user.
+		//
+		// This sink registers Stream as well as Send, and that is load-bearing:
+		// a `web:` session is the ONE session type the web observer mirror
+		// deliberately skips (observableSession excludes the prefix), so if
+		// this branch does not supply the live mode, nothing does. Any turn
+		// whose wake carries no inbound sink of its own — a subagent reporting
+		// back, a cron inject, a peer dispatch — then resolved to a set with
+		// HasStream() == false, and the page received NOTHING for that turn:
+		// not the deltas, and not the authoritative `message` frames either,
+		// because emitStreamMessage gates on HasStream. The client only ever
+		// caught up on its next resync (tab-visible / reconnect), since the
+		// dead-turn failsafe is not armed once a previous turn ended cleanly.
+		//
+		// Union deduplicates by Channel, so a message that ARRIVED from a
+		// browser still uses the dispatcher's inbound web sink (which carries
+		// this turn's chat.jsonl buffer) and nothing is delivered twice. Send
+		// keeps SendResponse rather than the observer's silent Observe,
+		// because these are exactly the turns nobody is watching — the Web
+		// Push fallback is the point.
 		if strings.HasPrefix(sessionKey, "web:") {
+			pipe := thread.NewStreamPipe(func(ev thread.StreamEvent) {
+				ctx, cancel := context.WithTimeout(context.Background(), webStreamTimeout)
+				defer cancel()
+				if err := chMgr.StreamTo(ctx, "web", sessionKey, ev); err != nil {
+					logger.Debug("web session stream failed", "session", sessionKey, "err", err)
+				}
+			})
 			return thread.NewSinks(thread.SessionSink{
 				Channel: "web",
 				Label:   "your response will be sent to the web client for session " + sessionKey,
@@ -567,11 +593,16 @@ func buildDefaultChannelSinkFor(chMgr *channel.Manager, cfg *config.Config, sess
 					if strings.TrimSpace(response) == "" {
 						return nil
 					}
+					// Flush before the authoritative send, same ordering rule
+					// the dispatcher's inbound web sink follows: a final
+					// response must never be overtaken by stale deltas.
+					pipe.Flush()
 					return chMgr.SendResponse(ctx, "web", &channel.Response{
 						Text:    response,
 						ReplyTo: sessionKey,
 					})
 				},
+				Stream: pipe.Push,
 			})
 		}
 

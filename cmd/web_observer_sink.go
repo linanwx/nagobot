@@ -11,6 +11,12 @@ import (
 	"github.com/linanwx/nagobot/thread"
 )
 
+// webStreamTimeout bounds one live frame's delivery to the browser. Shared by
+// the observer mirror below and the `web:` session's own sink in serve.go —
+// both push through a StreamPipe whose drain must not park forever on a
+// wedged connection.
+const webStreamTimeout = 10 * time.Second
+
 // webObserverSink returns the sink that mirrors a session's output to any
 // browser watching it — the second member of that session's SinkSet, alongside
 // the channel the conversation actually lives on.
@@ -49,7 +55,7 @@ func webObserverSink(chMgr *channel.Manager, sessionKey string) (thread.SessionS
 	// pages are bound, and every authoritative message flushes the pipe first so
 	// a final response is never overtaken by stale deltas.
 	pipe := thread.NewStreamPipe(func(ev thread.StreamEvent) {
-		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		ctx, cancel := context.WithTimeout(context.Background(), webStreamTimeout)
 		defer cancel()
 		if err := obs.ObserveStream(ctx, sessionKey, ev); err != nil {
 			logger.Debug("web observer stream failed", "session", sessionKey, "err", err)
