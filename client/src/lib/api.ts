@@ -7,6 +7,9 @@ export type SessionEntry = {
   message_count: number;
   has_heartbeat?: boolean;
   summary?: string;
+  // Hidden from the sidebar by default, for every viewer — archiving is a
+  // property of the session, stored server-side, not a per-browser preference.
+  archived?: boolean;
 };
 
 export type ApiToolCall = {
@@ -63,6 +66,22 @@ export async function fetchSessions(): Promise<SessionEntry[]> {
   const res = await fetch("/api/sessions");
   if (!res.ok) throw new Error(`GET /api/sessions: ${res.status}`);
   return res.json();
+}
+
+// setSessionArchived files a session away (or brings it back) for everyone.
+// The state is explicit rather than a toggle: two open pages can disagree about
+// whether a session is archived, and a toggle would let the stale one undo the
+// other's intent.
+export async function setSessionArchived(
+  key: string,
+  archived: boolean,
+): Promise<void> {
+  const res = await fetch("/api/archive", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ session_id: key, archived }),
+  });
+  if (!res.ok) throw new Error(`POST /api/archive: ${res.status}`);
 }
 
 export async function fetchSession(key: string): Promise<SessionDetail> {

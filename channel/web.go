@@ -79,6 +79,12 @@ type WebChannel struct {
 	membersMu sync.Mutex
 	members   map[string]map[string]bool
 
+	// archived: session keys hidden from the sidebar by default, for EVERY
+	// viewer. Deployment-wide state rather than a per-browser preference, so it
+	// is persisted to system/archived_sessions.json (see web_archive.go).
+	archivedMu sync.Mutex
+	archived   map[string]time.Time
+
 	systemPromptFn  func(string) (string, bool)
 	toolDefsFn      func(string) ([]provider.ToolDef, bool)
 	contextBudgetFn func(string) (int, int, bool)
@@ -179,8 +185,10 @@ func NewWebChannel(cfg *config.Config, authMgr *auth.Manager) Channel {
 		clients:   make(map[string]map[string]*wsClient),
 		peers:     make(map[*wsClient]struct{}),
 		members:   make(map[string]map[string]bool),
+		archived:  make(map[string]time.Time),
 	}
 	ch.loadMembers()
+	ch.loadArchived()
 	return ch
 }
 
@@ -269,6 +277,7 @@ func (w *WebChannel) Start(ctx context.Context) error {
 	mux.Handle("/api/push/subscribe", w.protected(w.handlePushSubscribe))
 	mux.Handle("/api/push/unsubscribe", w.protected(w.handlePushUnsubscribe))
 	mux.Handle("/api/quote", w.protected(w.handleQuote))
+	mux.Handle("/api/archive", w.protected(w.handleArchive))
 	mux.Handle("/api/pin", w.protected(w.handlePin))
 	mux.Handle("/api/pins", w.protected(w.handlePins))
 	mux.Handle("/", staticCacheHandler(frontendFS))
@@ -990,6 +999,9 @@ type sessionListEntry struct {
 	MessageCount int       `json:"message_count"`
 	HasHeartbeat bool      `json:"has_heartbeat,omitempty"`
 	Summary      string    `json:"summary,omitempty"`
+	// Archived sessions are still listed — the client hides them behind a
+	// filter that can be switched back on without another round trip.
+	Archived bool `json:"archived,omitempty"`
 }
 
 func (w *WebChannel) handleSessions(rw http.ResponseWriter, r *http.Request) {
@@ -1000,6 +1012,7 @@ func (w *WebChannel) handleSessions(rw http.ResponseWriter, r *http.Request) {
 
 	sessionsDir := filepath.Join(w.workspace, sessionsDirName)
 	summaries := loadWebSummaries(filepath.Join(w.workspace, "system", "sessions_summary.json"))
+	archived := w.archivedKeys()
 	var entries []sessionListEntry
 
 	_ = filepath.WalkDir(sessionsDir, func(path string, d fs.DirEntry, err error) error {
@@ -1033,6 +1046,7 @@ func (w *WebChannel) handleSessions(rw http.ResponseWriter, r *http.Request) {
 			UpdatedAt:    updatedAt,
 			MessageCount: lineCount,
 			HasHeartbeat: hasHB,
+			Archived:     archived[key],
 		}
 		if s, ok := summaries[key]; ok {
 			entry.Summary = s

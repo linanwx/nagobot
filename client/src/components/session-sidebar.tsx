@@ -1,4 +1,13 @@
-import { ChevronRight, Funnel, PanelLeftClose, PanelLeftOpen, Plus } from "lucide-react";
+import {
+  Archive,
+  ArchiveRestore,
+  ChevronRight,
+  Funnel,
+  MoreHorizontal,
+  PanelLeftClose,
+  PanelLeftOpen,
+  Plus,
+} from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { SidebarFooter } from "@/components/sidebar-footer";
@@ -12,6 +21,7 @@ import {
   DropdownMenu,
   DropdownMenuCheckboxItem,
   DropdownMenuContent,
+  DropdownMenuItem,
   DropdownMenuLabel,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
@@ -31,18 +41,24 @@ const desktopQuery = "(min-width: 48rem)";
 
 // The sidebar exists to reach ACTIVE conversations quickly, so by default it
 // hides maintenance noise: cron sessions (knowledge updates, tidyup), CLI
-// sessions (operator terminal traffic), and anything quiet for over a week.
-// All are opt-in via the funnel menu.
+// sessions (operator terminal traffic), anything quiet for over a week, and
+// sessions someone archived. All are opt-in via the funnel menu.
+//
+// showArchived is the only one whose underlying state is server-side and shared
+// (see /api/archive): the flag is global, this checkbox is just this browser's
+// choice of whether to look at the filed-away rows.
 type FilterSettings = {
   showCron: boolean;
   showCli: boolean;
   showOld: boolean;
+  showArchived: boolean;
 };
 
 const defaultFilters: FilterSettings = {
   showCron: false,
   showCli: false,
   showOld: false,
+  showArchived: false,
 };
 
 const oldSessionMs = 7 * 24 * 60 * 60 * 1000;
@@ -104,41 +120,95 @@ function SessionRow({
   session,
   selected,
   onSelect,
+  onArchive,
 }: {
   session: SessionEntry;
   selected: string;
   onSelect: (key: string) => void;
+  onArchive: (key: string, archived: boolean) => void;
 }) {
+  const { t } = useTranslation();
   const active = selected === session.key || selected.startsWith(session.key + ":");
   // A summarized session is identified by its summary alone — the raw
   // session id adds nothing a human recognizes, so it moves to the tooltip.
   const label = session.summary || sessionLabel(session.key);
-  // Geometry and colors copied from the assistant-ui thread-list item: h-8,
-  // rounded-md, muted hover/active fill, title truncated to one line. The
-  // trailing timestamp sits where the native row keeps its "..." menu, which
-  // this list does not have (there is no session delete/archive endpoint).
+  // Geometry, colors and slot names copied from the assistant-ui thread-list
+  // item: an h-8 rounded row whose trigger fills it, plus a trailing "..."
+  // menu that only surfaces on hover / focus / while open. The row is a div
+  // rather than a button for the same reason the native one is — the menu
+  // trigger is a button, and a button cannot nest inside a button.
   return (
-    <button
-      type="button"
-      onClick={() => onSelect(session.key)}
-      title={session.key}
+    <div
       data-slot="aui_thread-list-item"
       data-active={active || undefined}
       className={cn(
-        "group relative flex h-8 w-full items-center gap-2 rounded-md px-2.5 text-start text-sm transition-colors focus-visible:outline-none",
-        active ? "bg-muted" : "hover:bg-muted focus-visible:bg-muted",
+        "group relative flex h-8 w-full items-center rounded-md transition-colors",
+        active
+          ? "bg-muted"
+          : "hover:bg-muted has-focus-visible:bg-muted has-data-[state=open]:bg-muted",
       )}
     >
-      <span
-        data-slot="aui_thread-list-item-title"
-        className="min-w-0 flex-1 truncate"
+      <button
+        type="button"
+        onClick={() => onSelect(session.key)}
+        title={session.key}
+        data-slot="aui_thread-list-item-trigger"
+        className="flex h-full min-w-0 flex-1 items-center gap-2 rounded-md px-2.5 text-start text-sm focus-visible:outline-none"
       >
-        {label}
-      </span>
-      <span className="shrink-0 text-[10px] text-muted-foreground">
-        {relativeTime(session.updated_at)}
-      </span>
-    </button>
+        <span
+          data-slot="aui_thread-list-item-title"
+          className="min-w-0 flex-1 truncate"
+        >
+          {label}
+        </span>
+        <span className="shrink-0 text-[10px] text-muted-foreground">
+          {relativeTime(session.updated_at)}
+        </span>
+      </button>
+      {/* Reveal is opacity, not `visible`/`hidden`, and that is deliberate: the
+          menu is what surfaces it on focus, so hiding it in a way that also
+          drops it from the tab order would leave a keyboard user with no way to
+          reach archiving at all. Touch devices never fire :hover (Tailwind v4
+          gates hover: behind `(hover: hover)`), so below md it stays visible —
+          the drawer is the only way in on a phone. */}
+      <div className="shrink-0 pe-1.5">
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <Button
+              variant="ghost"
+              size="icon"
+              data-slot="aui_thread-list-item-more"
+              className={cn(
+                "data-[state=open]:bg-accent size-6 p-0 transition-opacity",
+                "opacity-0 max-md:opacity-100 group-hover:opacity-100",
+                "focus-visible:opacity-100 data-[state=open]:opacity-100",
+              )}
+              title={t("sidebar.sessionMenu")}
+            >
+              <MoreHorizontal className="size-3.5" />
+              <span className="sr-only">{t("sidebar.sessionMenu")}</span>
+            </Button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="end" side="right" sideOffset={6}>
+            <DropdownMenuItem
+              onSelect={() => onArchive(session.key, !session.archived)}
+            >
+              {session.archived ? (
+                <>
+                  <ArchiveRestore className="size-4" />
+                  {t("sidebar.unarchive")}
+                </>
+              ) : (
+                <>
+                  <Archive className="size-4" />
+                  {t("sidebar.archive")}
+                </>
+              )}
+            </DropdownMenuItem>
+          </DropdownMenuContent>
+        </DropdownMenu>
+      </div>
+    </div>
   );
 }
 
@@ -147,6 +217,7 @@ export function SessionSidebar({
   selected,
   onSelect,
   onCreate,
+  onArchive,
   error,
   sheetOpen,
   onSheetOpenChange,
@@ -156,6 +227,8 @@ export function SessionSidebar({
   onSelect: (key: string) => void;
   // Start a fresh browser-created session (random web:* key).
   onCreate: () => void;
+  // File a session away (or bring it back) for every viewer.
+  onArchive: (key: string, archived: boolean) => void;
   error: string | null;
   // Mobile only: the sidebar rides in a drawer opened from the chat header.
   // md+ ignores both and renders the permanent column.
@@ -196,6 +269,7 @@ export function SessionSidebar({
   const visible = useMemo(() => {
     const cutoff = Date.now() - oldSessionMs;
     return sessions.filter((s) => {
+      if (!filters.showArchived && s.archived) return false;
       if (!filters.showCron && folderOf(s.key) === "cron") return false;
       if (!filters.showCli && folderOf(s.key) === "cli") return false;
       if (!filters.showOld) {
@@ -261,6 +335,14 @@ export function SessionSidebar({
               }
             >
               {t("sidebar.showOld")}
+            </DropdownMenuCheckboxItem>
+            <DropdownMenuCheckboxItem
+              checked={filters.showArchived}
+              onCheckedChange={(v) =>
+                setFilters((prev) => ({ ...prev, showArchived: v === true }))
+              }
+            >
+              {t("sidebar.showArchived")}
             </DropdownMenuCheckboxItem>
           </DropdownMenuContent>
         </DropdownMenu>
@@ -329,6 +411,7 @@ export function SessionSidebar({
                       session={s}
                       selected={selected}
                       onSelect={onSelect}
+                      onArchive={onArchive}
                     />
                   ))}
                 </CollapsibleContent>

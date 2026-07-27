@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { ChatPane } from "@/components/chat-pane";
 import { SessionSidebar } from "@/components/session-sidebar";
-import { fetchSessions, type SessionEntry } from "@/lib/api";
+import { fetchSessions, setSessionArchived, type SessionEntry } from "@/lib/api";
 import { childSessionsOf, parentSessionOf, topLevelSessions } from "@/lib/sessions";
 
 const refreshIntervalMs = 30_000;
@@ -96,6 +96,24 @@ export default function App() {
     [refreshSessions],
   );
 
+  // Archiving is server-side and global, but the row has to leave (or rejoin)
+  // the list on the click rather than at the next 30s refresh. The local flag
+  // is applied first and the refresh below reconciles it; a failed write is
+  // surfaced in the sidebar's error slot and reverted by that same refresh, so
+  // the list never keeps a state the server rejected.
+  const archiveSession = useCallback(
+    (key: string, archived: boolean) => {
+      setSessions((prev) =>
+        prev.map((s) => (s.key === key ? { ...s, archived } : s)),
+      );
+      setSessionArchived(key, archived)
+        .then(() => setSessionsError(null))
+        .catch((err: unknown) => setSessionsError(String(err)))
+        .finally(refreshSessions);
+    },
+    [refreshSessions],
+  );
+
   const createSession = () => {
     const key = newWebSessionKey();
     const now = new Date().toISOString();
@@ -133,6 +151,7 @@ export default function App() {
         selected={sessionKey}
         onSelect={openSession}
         onCreate={createSession}
+        onArchive={archiveSession}
         error={sessionsError}
         sheetOpen={sheetOpen}
         onSheetOpenChange={setSheetOpen}
