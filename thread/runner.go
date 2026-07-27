@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/linanwx/nagobot/logger"
+	"github.com/linanwx/nagobot/obs"
 	"github.com/linanwx/nagobot/provider"
 	"github.com/linanwx/nagobot/tools"
 )
@@ -147,9 +148,22 @@ func (r *Runner) RunWithMessages(ctx context.Context, messages []provider.Messag
 			r.metrics.StartIteration()
 		}
 
+		iterCtx, iterSpan := obs.Start(ctx, "iteration",
+			obs.Int("n", r.iterations+1),
+			obs.Int("msg_count", len(messages)),
+		)
+
 		// Guard: truncate old tool pairs if messages exceed context budget.
 		if r.contextBudget > 0 {
+			// Spanned because this tokenizes the ENTIRE conversation on every
+			// iteration, before every call — it is pure CPU on the critical
+			// path and grows with session length, which is exactly the cost
+			// this instrumentation exists to make visible.
+			before := len(messages)
+			_, trimSpan := obs.Start(iterCtx, "ctx.trim", obs.Int("msg_count", before))
 			messages = r.trimLoopMessages(messages)
+			trimSpan.Set(obs.Int("dropped", before-len(messages)))
+			trimSpan.End()
 		}
 
 		// Build request.
@@ -158,14 +172,18 @@ func (r *Runner) RunWithMessages(ctx context.Context, messages []provider.Messag
 			Tools:    toolDefs,
 		}
 
-		call, err := r.callLLM(ctx, chatReq)
+		call, err := r.callLLM(iterCtx, chatReq)
 		if err != nil {
+			iterSpan.Fail(err)
+			iterSpan.End()
 			return "", err
 		}
 		resp := call.resp
 		streamingSignaled := call.streamingSignaled
 		toolCallSignaled := call.toolCallSignaled
 		if ctx.Err() != nil {
+			iterSpan.Fail(ctx.Err())
+			iterSpan.End()
 			return "", ctx.Err()
 		}
 		r.lastTurnUsage = resp.Usage
@@ -181,8 +199,12 @@ func (r *Runner) RunWithMessages(ctx context.Context, messages []provider.Messag
 			r.lastQuota = resp.Quota
 		}
 
-		// Log estimation accuracy for calibration.
+		// Log estimation accuracy for calibration. Spanned because it is the
+		// SECOND full tokenization of the conversation in this iteration, and
+		// unlike ctx.trim it buys no behaviour — only a calibration log line.
+		_, estSpan := obs.Start(iterCtx, "ctx.estimate", obs.Int("msg_count", len(messages)))
 		r.logEstimationAccuracy(messages, resp)
+		estSpan.End()
 
 		if !resp.HasToolCalls() {
 			// Fallback: fire EventStreaming for final response if not already signaled.
@@ -211,6 +233,8 @@ func (r *Runner) RunWithMessages(ctx context.Context, messages []provider.Messag
 			}
 
 			if len(rejectionMsgs) == 0 {
+				iterSpan.Set(obs.Str("outcome", "final"))
+				iterSpan.End()
 				return resp.Content, nil
 			}
 
@@ -226,6 +250,8 @@ func (r *Runner) RunWithMessages(ctx context.Context, messages []provider.Messag
 				}
 			}
 			r.iterations++
+			iterSpan.Set(obs.Str("outcome", "rejected"), obs.Int("rejection_msgs", len(rejectionMsgs)))
+			iterSpan.End()
 			continue
 		}
 
@@ -264,14 +290,25 @@ func (r *Runner) RunWithMessages(ctx context.Context, messages []provider.Messag
 			}
 
 			start := time.Now()
+			toolSpanCtx, toolSpan := obs.Start(iterCtx, "tool.exec",
+				obs.Str("tool", tc.Function.Name),
+				obs.Len("args", tc.Function.Arguments),
+				obs.Int("batch_size", len(resp.ToolCalls)),
+			)
 			var result string
 			if orig, bad := invalidArgs[tc.ID]; bad {
 				result = fmt.Sprintf("Error: malformed tool call arguments (invalid JSON).\nOriginal: %s\nExpected: valid JSON object for %s.", orig, tc.Function.Name)
+				toolSpan.FailMsg("malformed arguments")
 			} else {
-				toolCtx := provider.WithAssistantContent(ctx, resp.Content)
+				toolCtx := provider.WithAssistantContent(toolSpanCtx, resp.Content)
 				toolCtx = provider.WithToolBatchSize(toolCtx, len(resp.ToolCalls))
 				result = r.tools.Run(toolCtx, tc.Function.Name, json.RawMessage(tc.Function.Arguments))
 			}
+			toolSpan.Set(obs.Len("result", result), obs.Bool("error", tools.IsToolError(result)))
+			if tools.IsToolError(result) {
+				toolSpan.FailMsg(string(tools.ToolErrorSeverity(result)))
+			}
+			toolSpan.End()
 			if tools.IsToolError(result) {
 				// Same msg= key at every level so existing log queries still
 				// match; only the level moves. Nothing is dropped — the error
@@ -308,6 +345,8 @@ func (r *Runner) RunWithMessages(ctx context.Context, messages []provider.Messag
 		// A tool (e.g. dispatch) requested an immediate halt — stop the
 		// loop without calling the LLM again.
 		if r.shouldHalt != nil && r.shouldHalt() {
+			iterSpan.Set(obs.Str("outcome", "halt"), obs.Int("tool_calls", len(resp.ToolCalls)))
+			iterSpan.End()
 			return resp.Content, nil
 		}
 
@@ -315,6 +354,7 @@ func (r *Runner) RunWithMessages(ctx context.Context, messages []provider.Messag
 
 		// Inject mid-execution user messages after the latest tool results so
 		// the model sees them as new context after the tool chain.
+		injectedCount := 0
 		if r.onIterationEnd != nil {
 			if injected := r.onIterationEnd(); len(injected) > 0 {
 				for _, m := range injected {
@@ -323,8 +363,16 @@ func (r *Runner) RunWithMessages(ctx context.Context, messages []provider.Messag
 						r.onMessage(m)
 					}
 				}
+				injectedCount = len(injected)
 			}
 		}
+
+		iterSpan.Set(
+			obs.Str("outcome", "tools"),
+			obs.Int("tool_calls", len(resp.ToolCalls)),
+			obs.Int("injected", injectedCount),
+		)
+		iterSpan.End()
 	}
 }
 
@@ -361,8 +409,16 @@ func (r *Runner) callLLM(ctx context.Context, chatReq *provider.Request) (*llmCa
 	callCtx, cancel := context.WithTimeout(ctx, llmCallTimeout)
 	defer cancel()
 
+	// The span must outlive Chat() and end at Wait(): for a streaming provider
+	// Chat returns as soon as the request is accepted, so ending it there would
+	// report every streaming call as instant.
+	callCtx, span := obs.Start(callCtx, "llm.call", obs.Int("msg_count", len(chatReq.Messages)))
+	defer span.End()
+	callStart := time.Now()
+
 	result, err := r.provider.Chat(callCtx, chatReq)
 	if err != nil {
+		span.Fail(err)
 		return nil, fmt.Errorf("provider error: %w", err)
 	}
 
@@ -372,8 +428,10 @@ func (r *Runner) callLLM(ctx context.Context, chatReq *provider.Request) (*llmCa
 	// consume deltas for event detection and optional sink forwarding.
 	var streamID string
 	if stream, ok := result.(provider.StreamChatResult); ok {
+		span.Set(obs.Bool("stream", true))
 		streamID = RandomHex(8)
 		var repDetector repetitionDetector
+		firstDelta := true
 	recvLoop:
 		for {
 			delta, recvErr := stream.Recv()
@@ -382,7 +440,15 @@ func (r *Runner) callLLM(ctx context.Context, chatReq *provider.Request) (*llmCa
 			}
 			if recvErr != nil {
 				stream.Cancel() // unblock producer goroutine
+				span.Fail(recvErr)
 				return nil, fmt.Errorf("stream error: %w", recvErr)
+			}
+			if firstDelta {
+				// Time to first delta. On a streaming provider this is the
+				// number the person watching actually experiences; the span's
+				// own duration includes generating the whole response.
+				firstDelta = false
+				span.Set(obs.Int64("ttft_ms", time.Since(callStart).Milliseconds()))
 			}
 			if r.onDelta != nil {
 				r.onDelta(delta)
@@ -418,8 +484,22 @@ func (r *Runner) callLLM(ctx context.Context, chatReq *provider.Request) (*llmCa
 
 	resp, waitErr := result.Wait()
 	if waitErr != nil {
+		span.Fail(waitErr)
 		return nil, fmt.Errorf("provider error: %w", waitErr)
 	}
+	// GenAI semantic-convention names where they exist, so this file is not a
+	// private vocabulary. The conventions are still pre-stable; the names are
+	// borrowed, not depended on.
+	span.Set(
+		obs.Str("gen_ai.provider.name", resp.ProviderLabel),
+		obs.Str("gen_ai.request.model", resp.ModelLabel),
+		obs.Int("gen_ai.usage.input_tokens", resp.Usage.PromptTokens),
+		obs.Int("gen_ai.usage.output_tokens", resp.Usage.CompletionTokens),
+		obs.Int("cached_tokens", resp.Usage.CachedTokens),
+		obs.Int("cache_write_tokens", resp.Usage.CacheWriteTokens),
+		obs.Int("reasoning_tokens", resp.Usage.ReasoningTokens),
+		obs.Int("tool_calls", len(resp.ToolCalls)),
+	)
 	out.resp = resp
 	return out, nil
 }

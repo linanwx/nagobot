@@ -15,6 +15,7 @@ import (
 	"github.com/linanwx/nagobot/config"
 	"github.com/linanwx/nagobot/logger"
 	"github.com/linanwx/nagobot/media"
+	"github.com/linanwx/nagobot/obs"
 	"github.com/linanwx/nagobot/session"
 	"github.com/linanwx/nagobot/thread"
 	sysmsg "github.com/linanwx/nagobot/thread/msg"
@@ -73,6 +74,16 @@ func (d *Dispatcher) processChannel(ctx context.Context, ch channel.Channel) {
 }
 
 func (d *Dispatcher) dispatch(ctx context.Context, ch channel.Channel, msg *channel.Message) {
+	// Root of the trace: one inbound message, followed through the queue, the
+	// turn, every LLM call and every tool. Ends when the wake is enqueued — the
+	// turn runs on another goroutine and opens its own span, linked through the
+	// traceparent below.
+	ctx, span := obs.Start(ctx, "ingest",
+		obs.Str("channel", ch.Name()),
+		obs.Len("text", msg.Text),
+	)
+	defer span.End()
+
 	logger.Debug("dispatching message",
 		"channel", ch.Name(),
 		"channelID", msg.ChannelID,
@@ -87,6 +98,7 @@ func (d *Dispatcher) dispatch(ctx context.Context, ch channel.Channel, msg *chan
 	}
 
 	sessionKey := d.route(msg)
+	span.Set(obs.Str("session_key", sessionKey))
 	if sd, err := d.cfg.SessionsDir(); err == nil {
 		persistChannelRouting(sd, sessionKey, msg)
 	}
@@ -155,6 +167,7 @@ func (d *Dispatcher) dispatch(ctx context.Context, ch channel.Channel, msg *chan
 		SenderID:     senderID,
 		MediaInfo:    mediaInfo,
 		MediaPreview: mediaPreview,
+		Traceparent:  obs.Traceparent(ctx),
 	})
 }
 

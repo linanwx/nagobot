@@ -12,6 +12,7 @@ import (
 	"github.com/linanwx/nagobot/config"
 	"github.com/linanwx/nagobot/logger"
 	"github.com/linanwx/nagobot/monitor"
+	"github.com/linanwx/nagobot/obs"
 	"github.com/linanwx/nagobot/provider"
 	"github.com/linanwx/nagobot/session"
 	sysmsg "github.com/linanwx/nagobot/thread/msg"
@@ -35,8 +36,15 @@ func (t *Thread) run(ctx context.Context, userMessage, userMessageID string, med
 	// write-ahead + persistence then leave exactly this one turn on disk.
 	t.clearIfStateless(cfg)
 
+	buildCtx, buildSpan := obs.Start(ctx, "prompt.build")
 	sess := t.loadSession()
-	messages, turnUserMessages := t.buildMessageHistory(ctx, systemPrompt, userMessage, userMessageID, media, sess)
+	messages, turnUserMessages := t.buildMessageHistory(buildCtx, systemPrompt, userMessage, userMessageID, media, sess)
+	buildSpan.Set(
+		obs.Len("system_prompt", systemPrompt),
+		obs.Int("msg_count", len(messages)),
+		obs.Int("tools", len(t.toolsForTurn().Defs())),
+	)
+	buildSpan.End()
 
 	// Write-ahead: persist user messages before LLM call so they survive a crash.
 	if sess != nil {

@@ -76,6 +76,44 @@ Five of the ten fields survived; the other five were deleted:
 
 **Anchor tuning is measured, never guessed.** `scratchpad/label_prethink.py` labels a corpus with the real pre-think prompt to get ground truth; `thread/prethink_labeled_corpus_test.go` scores each detector against it. **Agreement with the LLM is not correctness** — that file's header documents two cases where the detector is right and the LLM's label is wrong. Real-traffic fire rates can be re-measured without that corpus: sample user messages straight from `{workspace}/sessions/**/session.jsonl` (strip the wake frontmatter, filter to real user sources).
 
+### Request tracing (`obs/`)
+
+One trace per inbound message, from the channel that received it through the queue, the turn, every LLM call and every tool. Spans land as JSONL in `{workspace}/metrics/traces.jsonl`, next to `turns.jsonl` and under the same 7-day rotation. On by default (`logging.tracing: false` is the kill switch).
+
+Instrumentation is **OpenTelemetry**; the backend is a local file. That split is deliberate — call sites use the standard API, so pointing this at Jaeger/Tempo later is one exporter swap in `obs.Init`, not a rewrite. A local file is the right backend at the measured volume: ~150 turns/day across the deployment, ~1.6K spans/day, ~400 KB/day — small enough that the whole 7-day file can be handed to an LLM, which is why it exists at all. `turns.jsonl` already had turn-level totals; what was missing was where inside a turn the time went.
+
+**Spans never carry message content, and that is structural, not a convention.** There is no attribute constructor that takes free-form text: `Len(k, s)` records `k+"_len"` in RUNES and throws the string away, and `Str` is for identifiers and enums only, capped at `maxAttrChars` (200) with a Warn when a value overruns — a fired Warn means a call site is leaking and must move to `Len`. `TestNoAttrExceedsCap` sweeps every recorded attribute, so a future call site that starts passing a body trips it without anyone remembering to write a test.
+
+**The queue is a hard context break, and `WakeMessage.Traceparent` is the answer.** `Manager.Wake` takes no `ctx`, and `RunOnce` receives the *manager's* process-lifetime ctx — not the message's. So the trace rides on the wake as a W3C traceparent string and `RunOnce` rejoins it (`obs.ContextWith`) before opening the turn span. Without that step every turn is its own root and `wait_ms` — the number that separates "the model was slow" from "we were busy answering someone else" — does not exist. A missing or malformed traceparent starts a fresh root rather than failing (`TestMalformedTraceparentStartsFreshTrace`), which is what keeps untraced producers (heartbeat, cron, resume, compression) working as roots.
+
+**`tryMerge` folds N messages into one turn, so the turn LINKS to the extras rather than parenting them.** `tryMerge` overwrites `Sinks`/`CallerSink`/`MessageSink` with the last message's values; `Traceparent` must not follow that pattern or every merged-away message would point at a trace containing no turn. It accumulates into `MergedTraceparents`, and `obs.StartLinked` turns those into span links — parent-child would force picking one arbitrary origin and silently dropping the rest of the causality.
+
+**Cross-session causality is wired at the producers, not inherited for free.** `dispatch(to=subagent|fork|session)`, the paired session sink's return leg, and the child-completion wake in `cmd/serve.go` each set `Traceparent` from their own ctx. That is what puts an entire delegation chain in ONE trace — verified end to end: user message → parent turn (`cli`) → `tool.exec tool=dispatch` → subagent turn (`cli:threads:…`) → its `dispatch(to=caller:session)` → the parent's follow-up turn, all under one trace id. Several of these call sites had `_ context.Context` and had to start using it. Producers that are genuinely roots (heartbeat scheduler, cron inject, resume, compression self-wake) deliberately set nothing.
+
+Span tree:
+
+```
+ingest                 channel, session_key, text_len
+└─ turn                session_key, source, agent, provider, model, wait_ms, merged_count
+   ├─ prethink         budget_ms  (+ 4 concurrent prethink.classify, field=…)
+   ├─ prompt.build     system_prompt_len, msg_count, tools
+   └─ iteration        n, msg_count, outcome=final|rejected|halt|tools
+      ├─ ctx.trim      msg_count, dropped        ← tokenizes the WHOLE conversation
+      ├─ llm.call      gen_ai.*, ttft_ms, stream, cached_tokens, cache_write_tokens
+      ├─ ctx.estimate  msg_count                 ← tokenizes it AGAIN, for a log line
+      └─ tool.exec     tool, args_len, result_len, error
+```
+
+Details worth keeping:
+
+- **`llm.call` must end at `Wait()`, not at `Chat()`.** For a streaming provider `Chat` returns as soon as the request is accepted, so ending the span there would report every streaming call as instant. `ttft_ms` is stamped on the first delta — on a streaming provider that is the number the person watching actually experiences, while the span's own duration covers generating the whole response.
+- **`ctx.trim` and `ctx.estimate` are the reason this exists.** Both run `EstimateMessagesTokens` over the entire in-memory conversation, and both are unconditional: `trimMessageGroups` tokenizes before checking the budget, and `logEstimationAccuracy` has no level guard. Two full passes per LLM call, on the critical path, growing with session length — measured at ~110ms each per 190K tokens. `ctx.estimate` buys no behaviour at all, only a calibration log line, which makes it the cheapest thing to cut once the numbers justify it.
+- **`iteration` is ended explicitly at all five exits**, not by `defer`: the loop body returns from four places and `continue`s from a fifth, and a `defer` inside a `for` would hold every iteration's span until the whole turn returned.
+- **`prethink.classify` spans can outlive their parent**, because the budget path stops *waiting* for the four classifiers without stopping *them*. That is not a bug to fix — a classify span ending after `prethink` closed is exactly the shape that names whoever blew the 3s budget.
+- **GenAI semantic-convention attribute names are borrowed, not depended on** (`gen_ai.request.model`, `gen_ai.usage.input_tokens`). Those conventions were still pre-stable as of semconv v1.42.0 (Jun 2026), which moved them to a separate repo without promising stability.
+- **Shutdown flush is not optional.** The batch processor holds up to 5s of spans; `obs.Shutdown` runs after `threadMgr.Shutdown()` on a *fresh* context, since `ctx` is already cancelled by then. Skipping it loses the tail of the last conversation — the part a crash investigation wants most.
+- Heavier backends were evaluated and rejected on the deployment's actual hardware (Hetzner: 3.8 GB RAM / 2 vCPU, three bots + Caddy). Langfuse v3 self-hosted wants ~8 GB (ClickHouse + Redis + blob storage) and SigNoz is the same family; Jaeger all-in-one or Tempo monolithic would work but cost 300 MB–1 GB to store 70 spans/hour.
+
 ### Progress Reporting (`thread/progress_scanner.go`)
 
 While a turn runs long, the person waiting gets an AI-written progress note about once a minute. The `ProgressScanner` goroutine (started in `cmd/serve.go`) sweeps `Manager.ListThreads()` every 30s; a thread is eligible after 60s elapsed with ≥1 tool call. For each eligible thread it snapshots the live `ExecMetrics` — the turn's origin request (wake body, frontmatter stripped, ≤2000 runes, captured in `run()`) plus the tool trace (args/results each ≤500 runes at record time, `toolTraceFieldRunes`; last 40 calls per report) — and wakes the **`progress-summary` sibling agent** (`{key}:progresssummary`: tools disabled, stateless, `specialty: [lowcost]`, same pattern as media previews) to turn it into a 1–3 sentence note. Delivery splits by who is waiting:

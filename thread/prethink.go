@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/linanwx/nagobot/logger"
+	"github.com/linanwx/nagobot/obs"
 	"github.com/linanwx/nagobot/session"
 	"github.com/linanwx/nagobot/skills"
 )
@@ -66,14 +67,14 @@ const (
 // Returns "" when nothing fires, which is the common case and is correct: most
 // messages need no special handling, and the old prompt's habit of always saying
 // SOMETHING (a tone, a padded skill list) was noise the main model had to read.
-func preThinkAction(t *Thread, userMsg string) string {
+func preThinkAction(ctx context.Context, t *Thread, userMsg string) string {
 	userMsg = strings.TrimSpace(userMsg)
 	if userMsg == "" {
 		return ""
 	}
 	recentChat := session.ReadRecentChat(t.mgr.SessionDir(t.sessionKey), preThinkChatEntries, t.location())
 
-	hint, took := localPreThink(userMsg, recentChat, t.skillCandidates())
+	hint, took := localPreThink(ctx, userMsg, recentChat, t.skillCandidates())
 	logger.Info("pre-think (local)",
 		"sessionKey", t.sessionKey,
 		"took", took,
@@ -86,8 +87,19 @@ func preThinkAction(t *Thread, userMsg string) string {
 // only what it reads. Split out so it can be exercised against a real backend and
 // the real skill pool in a test, which is the only place the concurrency, the
 // budget, and the embedding round-trip are actually load-bearing.
-func localPreThink(userMsg, recentChat string, cands []skillCandidate) (string, time.Duration) {
+// traceCtx is the SPAN PARENT only. The budget context below is deliberately
+// still derived from context.Background(), not from it: cancelling the four
+// classifiers when the turn's context dies is a behaviour change this
+// instrumentation has no business making.
+func localPreThink(traceCtx context.Context, userMsg, recentChat string, cands []skillCandidate) (string, time.Duration) {
 	start := time.Now()
+
+	traceCtx, span := obs.Start(traceCtx, "prethink",
+		obs.Int("budget_ms", int(preThinkBudget.Milliseconds())),
+		obs.Len("msg", userMsg),
+		obs.Int("skill_candidates", len(cands)),
+	)
+	defer span.End()
 
 	// The regex-only verdicts are computed first and stand as the fallback. They
 	// cost microseconds and touch nothing, so a blown budget degrades to a weaker
@@ -119,13 +131,32 @@ func localPreThink(userMsg, recentChat string, cands []skillCandidate) (string, 
 		slugs []string
 	}
 	results := make(chan result, 4)
-	go func() { results <- result{field: "destructive", flag: isDestructive(ctx, userMsg, recentChat)} }()
-	go func() { results <- result{field: "search", flag: needsSearch(ctx, userMsg)} }()
-	go func() { results <- result{field: "coder", flag: needsCoder(ctx, userMsg)} }()
-	go func() {
+	// Each classifier gets its own span so the one that eats the budget is
+	// named. They can outlive this function — the budget path below stops
+	// waiting without stopping them — in which case a classify span simply ends
+	// after its parent, which is exactly the shape that identifies the culprit.
+	classify := func(field string, fn func(context.Context) result) {
+		go func() {
+			cctx, s := obs.Start(traceCtx, "prethink.classify", obs.Str("field", field))
+			r := fn(cctx)
+			s.Set(obs.Bool("flag", r.flag), obs.Int("skills", len(r.slugs)))
+			s.End()
+			results <- r
+		}()
+	}
+	classify("destructive", func(c context.Context) result {
+		return result{field: "destructive", flag: isDestructive(ctx, userMsg, recentChat)}
+	})
+	classify("search", func(c context.Context) result {
+		return result{field: "search", flag: needsSearch(ctx, userMsg)}
+	})
+	classify("coder", func(c context.Context) result {
+		return result{field: "coder", flag: needsCoder(ctx, userMsg)}
+	})
+	classify("skills", func(c context.Context) result {
 		s, _ := relatedSkillsEmbed(ctx, userMsg, cands)
-		results <- result{field: "skills", slugs: s}
-	}()
+		return result{field: "skills", slugs: s}
+	})
 
 	for pending := 4; pending > 0; {
 		select {

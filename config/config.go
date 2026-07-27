@@ -265,6 +265,20 @@ type LoggingConfig struct {
 	Level   string `json:"level,omitempty" yaml:"level,omitempty"`   // debug, info, warn, error
 	Stdout  bool   `json:"stdout,omitempty" yaml:"stdout,omitempty"` // log to stdout
 	File    string `json:"file,omitempty" yaml:"file,omitempty"`     // log file path
+
+	// Tracing writes one span per pipeline stage to {workspace}/metrics/traces.jsonl.
+	// Defaults to ON: spans carry no message content (see package obs) and the
+	// file runs a few MB over its 7-day retention, so there is no cost that
+	// would justify making an operator opt in. The flag is a kill switch.
+	Tracing *bool `json:"tracing,omitempty" yaml:"tracing,omitempty"`
+}
+
+// TracingEnabled reports whether span recording is on. Absent means on.
+func (c *Config) TracingEnabled() bool {
+	if c == nil || c.Logging.Tracing == nil {
+		return true
+	}
+	return *c.Logging.Tracing
 }
 
 // WebToolsConfig contains web tool configuration.

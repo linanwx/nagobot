@@ -8,6 +8,7 @@ import (
 	"github.com/linanwx/nagobot/config"
 	"github.com/linanwx/nagobot/logger"
 	"github.com/linanwx/nagobot/monitor"
+	"github.com/linanwx/nagobot/obs"
 	"github.com/linanwx/nagobot/provider"
 	"github.com/linanwx/nagobot/session"
 	"github.com/linanwx/nagobot/skills"
@@ -177,6 +178,12 @@ func buildThreadManager(cfg *config.Config, enableSessions bool) (*thread.Manage
 	metricsDir := filepath.Join(workspace, "metrics")
 	metricsStore := monitor.NewStore(metricsDir)
 	metricsStore.Rotate()
+
+	// Spans land next to turns.jsonl and under the same retention. Failure here
+	// leaves the no-op tracer installed — telemetry never blocks startup.
+	if err := obs.Init(metricsDir, cfg.TracingEnabled()); err != nil {
+		logger.Warn("tracing init failed", "err", err)
+	}
 
 	var logsDir string
 	if cd, err := config.ConfigDir(); err == nil {

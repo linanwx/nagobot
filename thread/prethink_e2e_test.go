@@ -83,7 +83,7 @@ func TestLocalPreThink_EndToEnd(t *testing.T) {
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			hint, took := localPreThink(tc.msg, tc.chat, cands)
+			hint, took := localPreThink(context.Background(), tc.msg, tc.chat, cands)
 			for _, w := range tc.wantAll {
 				if !strings.Contains(hint, w) {
 					t.Errorf("hint missing %q\ngot: %s", w, hint)
@@ -138,7 +138,7 @@ func TestLocalPreThink_Latency(t *testing.T) {
 	var total time.Duration
 	worst := time.Duration(0)
 	for _, m := range msgs {
-		_, took := localPreThink(m, "", cands)
+		_, took := localPreThink(context.Background(), m, "", cands)
 		total += took
 		if took > worst {
 			worst = took
@@ -168,7 +168,7 @@ func TestLocalPreThink_NoBackend(t *testing.T) {
 
 	// The verb table still knows this one, and an explicit search request is pure
 	// regex, so neither depends on the embedding layer.
-	hint, took := localPreThink("帮我把 workspace/logs 下的旧日志删了", "", nil)
+	hint, took := localPreThink(context.Background(), "帮我把 workspace/logs 下的旧日志删了", "", nil)
 	if !strings.Contains(hint, "Destructive action:") {
 		t.Errorf("regex-only path lost a destructive request it knows: %q", hint)
 	}

@@ -18,6 +18,7 @@ import (
 	cronpkg "github.com/linanwx/nagobot/cron"
 	"github.com/linanwx/nagobot/logger"
 	"github.com/linanwx/nagobot/monitor"
+	"github.com/linanwx/nagobot/obs"
 	"github.com/linanwx/nagobot/session"
 	"github.com/linanwx/nagobot/thread"
 	sysmsg "github.com/linanwx/nagobot/thread/msg"
@@ -330,6 +331,12 @@ func runServe(cmd *cobra.Command, args []string) error {
 
 	threadMgr.Shutdown()
 
+	// After the threads stop, so the last turn's spans are in the batch, and on
+	// a fresh context because ctx is already cancelled by the time we get here.
+	flushCtx, flushCancel := context.WithTimeout(context.Background(), 5*time.Second)
+	obs.Shutdown(flushCtx)
+	flushCancel()
+
 	if err := chManager.StopAll(); err != nil {
 		logger.Error("error stopping channels", "err", err)
 	}
@@ -453,6 +460,9 @@ func buildDefaultChannelSinkFor(chMgr *channel.Manager, cfg *config.Config, sess
 						Message:          wakeMsg,
 						CallerSessionKey: sessionKey,
 						CallerSink:       thread.BuildPairedSessionSink(threadMgr, parentKey, sessionKey),
+						// Child reporting back: the parent's follow-up turn is
+						// still answering the message that spawned the child.
+						Traceparent: obs.Traceparent(ctx),
 					})
 					return nil
 				},

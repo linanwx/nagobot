@@ -186,4 +186,24 @@ type WakeMessage struct {
 	RecentChat       string                // Optional recent chat history (rendered into the wake payload markdown body).
 	OnComplete       func(response string) // Called after the turn completes with the full response text.
 	EnqueuedAt       time.Time             // Set by Thread.Enqueue if zero. Used as the wake `time` field so the LLM sees enqueue time, not processing time.
+
+	// Traceparent carries the W3C span context of whatever produced this wake,
+	// so the turn it eventually runs is a child of that span rather than a
+	// disconnected root.
+	//
+	// It is a FIELD rather than a context.Context because Manager.Wake takes no
+	// ctx — the inbox is a hard context break, and RunOnce receives the
+	// manager's long-lived ctx, not the message's. Serializing to the standard
+	// traceparent string keeps this working for every producer at once: channel
+	// messages, cron injects, subagent/fork spawns, sibling sessions (quote,
+	// pin, progress-summary) and peer dispatch all reach a thread through Wake.
+	Traceparent string
+
+	// MergedTraceparents holds the traceparents of the OTHER wakes tryMerge
+	// folded into this one. Set by tryMerge, read once when the turn span opens.
+	//
+	// They become span LINKS, not parents: N messages collapse into one turn, so
+	// parent-child would force picking one arbitrary origin and silently drop
+	// the causality of the rest.
+	MergedTraceparents []string
 }

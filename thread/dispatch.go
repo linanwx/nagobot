@@ -10,6 +10,7 @@ import (
 
 	"github.com/linanwx/nagobot/config"
 	"github.com/linanwx/nagobot/logger"
+	"github.com/linanwx/nagobot/obs"
 	"github.com/linanwx/nagobot/provider"
 	"github.com/linanwx/nagobot/session"
 	"github.com/linanwx/nagobot/thread/msg"
@@ -95,7 +96,7 @@ func (t *Thread) SendToCaller(ctx context.Context, body string) error {
 // CreateOrWakeSubagent creates (or wakes existing) a subagent thread at
 // {current}:threads:{taskID}. The optional agent name overrides any previously
 // persisted agent on the session meta.
-func (t *Thread) CreateOrWakeSubagent(_ context.Context, agentName, taskID, body, overrideProvider, overrideModel string) (string, string, error) {
+func (t *Thread) CreateOrWakeSubagent(ctx context.Context, agentName, taskID, body, overrideProvider, overrideModel string) (string, string, error) {
 	taskID = strings.TrimSpace(taskID)
 	if taskID == "" {
 		return "", "", fmt.Errorf("task_id is required")
@@ -109,7 +110,7 @@ func (t *Thread) CreateOrWakeSubagent(_ context.Context, agentName, taskID, body
 	}
 	key := parent + session.ThreadsSessionInfix + taskID
 
-	note, err := t.createOrWake(key, agentName, body, false, "", overrideProvider, overrideModel)
+	note, err := t.createOrWake(ctx, key, agentName, body, false, "", overrideProvider, overrideModel)
 	if err != nil {
 		return "", "", err
 	}
@@ -119,7 +120,7 @@ func (t *Thread) CreateOrWakeSubagent(_ context.Context, agentName, taskID, body
 // CreateOrWakeFork creates (or wakes existing) a fork session at
 // {current}:fork:{taskID}. On new creation, the current session's history is
 // copied (stripped) via session.CreateFork. Agent name overrides meta.
-func (t *Thread) CreateOrWakeFork(_ context.Context, agentName, taskID, body, overrideProvider, overrideModel string) (string, string, error) {
+func (t *Thread) CreateOrWakeFork(ctx context.Context, agentName, taskID, body, overrideProvider, overrideModel string) (string, string, error) {
 	taskID = strings.TrimSpace(taskID)
 	if taskID == "" {
 		return "", "", fmt.Errorf("task_id is required")
@@ -137,7 +138,7 @@ func (t *Thread) CreateOrWakeFork(_ context.Context, agentName, taskID, body, ov
 	}
 	key := parent + ":fork:" + taskID
 
-	note, err := t.createOrWake(key, agentName, body, true, t.sessionKey, overrideProvider, overrideModel)
+	note, err := t.createOrWake(ctx, key, agentName, body, true, t.sessionKey, overrideProvider, overrideModel)
 	if err != nil {
 		return "", "", err
 	}
@@ -149,7 +150,7 @@ func (t *Thread) CreateOrWakeFork(_ context.Context, agentName, taskID, body, ov
 // thread's session back, and the reverse-direction wake carries another
 // paired sink — so the exchange recurses until one party explicitly halts
 // via dispatch({}) or answers its own human in plain text instead.
-func (t *Thread) WakeSession(_ context.Context, sessionKey, body string) error {
+func (t *Thread) WakeSession(ctx context.Context, sessionKey, body string) error {
 	if t.mgr == nil {
 		return fmt.Errorf("manager not configured")
 	}
@@ -158,6 +159,11 @@ func (t *Thread) WakeSession(_ context.Context, sessionKey, body string) error {
 		Message:          body,
 		CallerSink:       BuildPairedSessionSink(t.mgr, sessionKey, t.sessionKey),
 		CallerSessionKey: t.sessionKey,
+		// The peer's turn joins OUR trace. Everything a dispatch sets in motion
+		// belongs to the message that asked for it, however many sessions deep
+		// it goes — that chain is the main thing a single-session log cannot
+		// show.
+		Traceparent: obs.Traceparent(ctx),
 	})
 	return nil
 }
@@ -184,7 +190,7 @@ func (t *Thread) buildSinkToCaller(targetSession string) SessionSink {
 func BuildPairedSessionSink(mgr *Manager, selfKey, peerKey string) SessionSink {
 	return SessionSink{
 		Label: "reply to caller session " + peerKey + " via dispatch(to=caller:session)",
-		Send: func(_ context.Context, response string) error {
+		Send: func(ctx context.Context, response string) error {
 			response = strings.TrimSpace(response)
 			if response == "" {
 				return nil
@@ -194,6 +200,10 @@ func BuildPairedSessionSink(mgr *Manager, selfKey, peerKey string) SessionSink {
 				Message:          response,
 				CallerSessionKey: selfKey,
 				CallerSink:       BuildPairedSessionSink(mgr, peerKey, selfKey),
+				// The return leg. Without it the trace would end where the
+				// child was spawned and the parent's follow-up turn — the one
+				// that actually answers the human — would be an orphan root.
+				Traceparent: obs.Traceparent(ctx),
 			})
 			return nil
 		},
@@ -464,7 +474,7 @@ func (t *Thread) SignalHalt() {
 //   - session exists → optionally update meta agent, enqueue wake, return "resumed"
 //   - session missing → if forkFrom != "", create fork from that source; else fresh spawn.
 //     Then enqueue wake. Returns "created" or "forked-from:<src>".
-func (t *Thread) createOrWake(key, agentName, body string, isFork bool, forkFrom, overrideProvider, overrideModel string) (string, error) {
+func (t *Thread) createOrWake(ctx context.Context, key, agentName, body string, isFork bool, forkFrom, overrideProvider, overrideModel string) (string, error) {
 	cfg := t.cfg()
 	note := ""
 	exists := false
@@ -515,6 +525,9 @@ func (t *Thread) createOrWake(key, agentName, body string, isFork bool, forkFrom
 		OverrideModel:    overrideModel,
 		CallerSink:       t.buildSinkToCaller(key),
 		CallerSessionKey: t.sessionKey,
+		// Subagent and fork turns run under the trace of the message that
+		// spawned them, so one trace covers the whole delegation chain.
+		Traceparent: obs.Traceparent(ctx),
 	})
 	return note, nil
 }

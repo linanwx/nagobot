@@ -7,9 +7,19 @@ import (
 	"time"
 
 	"github.com/linanwx/nagobot/logger"
+	"github.com/linanwx/nagobot/obs"
 	"github.com/linanwx/nagobot/provider"
 	sysmsg "github.com/linanwx/nagobot/thread/msg"
 )
+
+// queueWaitMs is how long a wake sat between enqueue and the turn starting.
+// Returns 0 for a wake with no enqueue stamp rather than a nonsense age.
+func queueWaitMs(enqueuedAt time.Time) int64 {
+	if enqueuedAt.IsZero() {
+		return 0
+	}
+	return time.Since(enqueuedAt).Milliseconds()
+}
 
 // Enqueue adds a wake message to the thread's inbox and notifies the manager.
 func (t *Thread) Enqueue(msg *WakeMessage) {
@@ -89,6 +99,15 @@ func (t *Thread) tryMerge(first *WakeMessage) *WakeMessage {
 				// later one never sees its id on disk — its text is inside the
 				// first one's message, which is also how the web client retires
 				// its queued chips (text containment, not id equality).
+				//
+				// Traces do not fold either, for the same reason and with the
+				// opposite remedy: each merged message keeps its own trace, and
+				// the turn links to all of them. Overwriting Traceparent the way
+				// the sinks above are overwritten would orphan every message but
+				// the last.
+				if next.Traceparent != "" {
+					first.MergedTraceparents = append(first.MergedTraceparents, next.Traceparent)
+				}
 				merged++
 			} else {
 				deferred = append(deferred, next)
@@ -224,6 +243,21 @@ func (t *Thread) RunOnce(ctx context.Context) {
 		return
 	}
 	msg = t.tryMerge(msg)
+
+	// Rejoin the trace the producer started. The ctx handed to RunOnce is the
+	// manager's process-lifetime ctx, so without this every turn would open a
+	// fresh root and the queue wait would be invisible.
+	ctx = obs.ContextWith(ctx, msg.Traceparent)
+	ctx, turnSpan := obs.StartLinked(ctx, "turn", msg.MergedTraceparents,
+		obs.Str("session_key", t.sessionKey),
+		obs.Str("source", string(msg.Source)),
+		obs.Int("merged_count", len(msg.MergedTraceparents)+1),
+		// How long this wake sat in the inbox. The one number that separates
+		// "the model was slow" from "we were busy answering someone else".
+		obs.Int64("wait_ms", queueWaitMs(msg.EnqueuedAt)),
+	)
+	defer turnSpan.End()
+
 	t.lastWakeSource = msg.Source
 	// Per-wake model override (from dispatch subagent/fork). Reset every wake —
 	// an empty wake clears any prior override so it never leaks across turns.
@@ -278,13 +312,21 @@ func (t *Thread) RunOnce(ctx context.Context) {
 		agentName = t.Agent.Name
 	}
 	t.mu.Unlock()
+	// Recorded here rather than at span open: the agent is hot-reloaded and the
+	// model resolved above, so opening the span with them would report the
+	// previous turn's routing.
+	turnSpan.Set(
+		obs.Str("agent", agentName),
+		obs.Str("provider", prov),
+		obs.Str("model", mod),
+	)
 	sender := senderOrDefault(msg.Sender, msg.Source)
 	// Pre-think: analyze the request locally (regex + a local embedding model) and
 	// generate a tailored action hint before the main model sees the message. This
 	// used to be a blocking call to a `fast` LLM; it now costs milliseconds.
 	var actionOverride string
 	if sysmsg.IsUserVisibleSource(msg.Source) {
-		actionOverride = preThinkAction(t, msg.Message)
+		actionOverride = preThinkAction(ctx, t, msg.Message)
 	}
 	userMessage := buildWakePayload(msg.Source, msg.Message, t.id, t.sessionKey, sessionDir, deliveryLabel, modelLabel, agentName, loc, sender, msg.SenderName, msg.SenderID, msg.MediaInfo, msg.MediaPreview, msg.CallerSessionKey, msg.EnqueuedAt, actionOverride, msg.RecentChat)
 
@@ -357,6 +399,7 @@ func (t *Thread) RunOnce(ctx context.Context) {
 	t.checkAndResetSinkSuppressed()
 
 	if err != nil {
+		turnSpan.Fail(err)
 		logger.Error("thread run error", "threadID", t.id, "sessionKey", t.sessionKey, "source", msg.Source, "err", err)
 		errMsg := sysmsg.BuildSystemMessage("error", nil, fmt.Sprintf("%v", err))
 		if !sink.IsZero() {
