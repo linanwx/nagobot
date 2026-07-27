@@ -104,7 +104,27 @@ func EstimateTextTokens(text string) int {
 // EstimateMessageTokens returns a tiktoken-based token estimate for a single message.
 // Includes image/audio token estimation for <<media:...>> markers.
 // When ReasoningTrimmed is set, reasoning is excluded (cleared at send time).
+//
+// Memoized by content hash (token_cache.go). Every caller walks whole
+// conversations whose history is immutable, so this is a near-total hit rate
+// and it is what keeps EstimateMessagesTokens off the O(conversation) path.
 func EstimateMessageTokens(message provider.Message) int {
+	key := tokenCacheKey(message)
+	contentLen := int32(len(message.Content))
+	if tokens, hit, stale := lookupTokenCache(key, contentLen); hit {
+		if stale {
+			storeTokenCache(key, tokenCacheEntry{tokens: tokens, contentLen: contentLen})
+		}
+		return int(tokens)
+	}
+	tokens := estimateMessageTokensUncached(message)
+	storeTokenCache(key, tokenCacheEntry{tokens: int32(tokens), contentLen: contentLen})
+	return tokens
+}
+
+// estimateMessageTokensUncached is the actual estimator. Kept separate so the
+// cache can be bypassed in tests that assert the two agree.
+func estimateMessageTokensUncached(message provider.Message) int {
 	tokens := 6 // Base per-message structure overhead.
 	tokens += EstimateTextTokens(message.Role)
 	tokens += EstimateTextTokens(message.Content)
