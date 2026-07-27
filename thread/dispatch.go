@@ -75,13 +75,28 @@ func (t *Thread) SessionExists(key string) bool {
 }
 
 // SendToCaller delivers body to whoever woke this turn. Equivalent to "reply to
-// the caller". Suppresses the runner's end-of-turn session delivery (via
-// SetSuppressSink) so body is not also broadcast to the session's own channels.
+// the caller".
 //
 // It deliberately reads the CALLER sink, not the session set: replying to a peer
 // is one message to one place. Before the two were separated this went through
 // the turn's sink and, once a session's destinations became a broadcast set, a
 // subagent's report back would also have been shouted into the parent's channel.
+//
+// Suppression is scoped to sessions with NO human of their own, and the scope is
+// load-bearing. Suppressing exists to stop ONE reader being written to twice: on
+// a subagent or fork, contentSink routes plain content to the default sink,
+// which forwards to the parent — the same place the caller sink points, so
+// speaking on both wakes the parent twice.
+//
+// A user-facing session has no such overlap. Its content goes to its channel and
+// the caller is a peer session; those are two audiences, and the wake's own
+// `delivery` field promises the first one. Blanket-suppressing there discarded
+// exactly what the model was told would be delivered. Observed in production: a
+// cron dispatcher woke a Discord session, the turn wrote the noon briefing as
+// content and acknowledged back with dispatch(to=caller:session), and the whole
+// briefing was dropped with "sink already used by an executed send" — the sink
+// in question being one this send never touched. The guard mirrors
+// OnNoToolCalls's, which already draws the same line for the same reason.
 func (t *Thread) SendToCaller(ctx context.Context, body string) error {
 	t.mu.Lock()
 	sink := t.currentCallerSink
@@ -89,7 +104,9 @@ func (t *Thread) SendToCaller(ctx context.Context, body string) error {
 	if sink.Send == nil {
 		return fmt.Errorf("current wake has no caller sink (cron/heartbeat/child source)")
 	}
-	t.SetSuppressSink()
+	if !t.IsUserFacing() {
+		t.SetSuppressSink()
+	}
 	return sink.Send(ctx, body)
 }
 
