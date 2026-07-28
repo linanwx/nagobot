@@ -278,6 +278,11 @@ export function sessionToChatMessages(
     // longer sees: Tier-1 marks the whole turn (heartbeat_trim on assistant/
     // tool messages, a "[heartbeat at …]" marker on the wake). Hide them
     // here — the raw-data dialog still shows everything.
+    //
+    // `view=chat` means a HISTORY read no longer carries these at all, but this
+    // check is not dead: live `message` frames are the stored entry verbatim and
+    // never pass through that filter, so a heartbeat turn running right now
+    // still arrives flagged. The same holds for reasoning_trimmed below.
     if (m.heartbeat_trim) continue;
     if (
       m.role === "user" &&
@@ -672,7 +677,7 @@ export function useNagobotChat(
     // without this the page resumes showing its pre-freeze state forever.
     const resync = () => {
       const gen = ++syncGen;
-      fetchSession(sessionKey)
+      fetchSession(sessionKey, "chat")
         .then((detail) => {
           if (cancelled || gen !== syncGen) return;
           // A turn_end missed while disconnected would leave the spinner stuck
@@ -823,7 +828,7 @@ export function useNagobotChat(
     // not a .finally — so both land in one React commit. Split across two
     // promise callbacks they can commit separately, and the in-between frame
     // (loading done, messages still empty) flashes the welcome screen.
-    fetchSession(sessionKey)
+    fetchSession(sessionKey, "chat")
       .then((detail) => {
         if (cancelled) return;
         // Prepend history in front of whatever arrived live while the fetch was

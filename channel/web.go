@@ -1131,6 +1131,62 @@ func newMessageWithTok(m provider.Message) *messageWithTok {
 	return mt
 }
 
+// viewMessages renders a session's entries for one audience.
+//
+// The default (no `view`) is the whole file, unchanged: the raw-data dialog
+// exists to show what the session actually holds, down to the Tier-1 flags, and
+// it issues its own request. `view=chat` drops what the chat projection throws
+// away on arrival, which was a quarter of the payload — measured on a live
+// 1176-entry session, 341 KB of trimmed heartbeat turns plus 195 KB of reasoning
+// the reader never sees, out of 2101 KB.
+//
+// An unrecognised view is an error, not a silent fall-through to the full file.
+// A typo would otherwise look like it worked and quietly ship everything.
+//
+// Only what the client provably discards is dropped here, and only under the
+// flags compression already set:
+//
+//   - HeartbeatTrim entries are gone from the turn the bot itself sees, and the
+//     chat projection skips them outright. Note the flag also marks silently-
+//     ended `progress` turns, so this is not heartbeat-only despite the name.
+//   - ReasoningTrimmed means the reasoning is excluded at send time; the chat
+//     projection renders no reasoning part for it. The FLAG is kept — the entry
+//     stays in the list, it just travels without the text nobody will read.
+//
+// The wake markers compression writes (`[heartbeat …]` / `[progress …]`) stay:
+// they are user-role entries the projection hides by prefix, they are small,
+// and a progress turn that actually spoke is never marked at all.
+//
+// Token counts are deliberately computed from the STORED message, not from the
+// filtered one, so `tokens` means the same thing in both views. Nothing in the
+// chat path reads them today; a future reader should get the real cost of the
+// session rather than a number that changes with the query string.
+func viewMessages(view string, stored []provider.Message) ([]messageWithTok, error) {
+	switch view {
+	case "":
+		msgs := make([]messageWithTok, len(stored))
+		for i, m := range stored {
+			msgs[i] = *newMessageWithTok(m)
+		}
+		return msgs, nil
+	case "chat":
+		msgs := make([]messageWithTok, 0, len(stored))
+		for _, m := range stored {
+			if m.HeartbeatTrim {
+				continue
+			}
+			mt := *newMessageWithTok(m)
+			if m.ReasoningTrimmed {
+				mt.ReasoningContent = ""
+			}
+			msgs = append(msgs, mt)
+		}
+		return msgs, nil
+	default:
+		return nil, fmt.Errorf("unknown view %q: expected \"chat\" or no view at all", view)
+	}
+}
+
 func (w *WebChannel) handleSessionMessages(rw http.ResponseWriter, r *http.Request) {
 	if w.workspace == "" {
 		http.Error(rw, "workspace is not configured", http.StatusInternalServerError)
@@ -1191,9 +1247,11 @@ func (w *WebChannel) handleSessionMessages(rw http.ResponseWriter, r *http.Reque
 		return
 	}
 
-	msgs := make([]messageWithTok, len(s.Messages))
-	for i, m := range s.Messages {
-		msgs[i] = *newMessageWithTok(m)
+	view := r.URL.Query().Get("view")
+	msgs, err := viewMessages(view, s.Messages)
+	if err != nil {
+		http.Error(rw, err.Error(), http.StatusBadRequest)
+		return
 	}
 
 	rw.Header().Set("Content-Type", "application/json")

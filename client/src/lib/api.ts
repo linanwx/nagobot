@@ -84,8 +84,20 @@ export async function setSessionArchived(
   if (!res.ok) throw new Error(`POST /api/archive: ${res.status}`);
 }
 
-export async function fetchSession(key: string): Promise<SessionDetail> {
-  const res = await fetch(`/api/sessions/${sessionPath(key)}`);
+// fetchSession reads session.jsonl. `view` picks the audience, and the two
+// callers want opposite things: the chat pane renders a conversation and throws
+// away roughly a quarter of what the file holds the moment it arrives, while
+// the raw-data dialog exists precisely to show that quarter. So the dialog asks
+// for everything (the default) and the chat pane asks for "chat", where the
+// server drops trimmed heartbeat turns and the reasoning text of entries flagged
+// reasoning_trimmed. Both are entries the projection already skips — the pane
+// renders the same DOM either way, it just stops paying to receive them.
+export async function fetchSession(
+  key: string,
+  view?: "chat",
+): Promise<SessionDetail> {
+  const query = view ? `?view=${view}` : "";
+  const res = await fetch(`/api/sessions/${sessionPath(key)}${query}`);
   if (!res.ok) throw new Error(`GET /api/sessions/${key}: ${res.status}`);
   return res.json();
 }
