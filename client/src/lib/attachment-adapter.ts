@@ -1,4 +1,5 @@
 import { useSyncExternalStore } from "react";
+import Compressor from "compressorjs";
 import type {
   AttachmentAdapter,
   CompleteAttachment,
@@ -11,10 +12,11 @@ import { mediaURL, uploadMedia } from "@/lib/api";
 // through the same adapter) to the nagobot backend.
 //
 // Flow: add() registers a local pending image (renders a thumbnail from the
-// File immediately); send() uploads the bytes to /api/media and stores the
-// returned basename as an ImageMessagePart whose `image` is the media URL. The
-// chat send path (onNew) reads that URL back to a basename and forwards it on
-// the "message" WS frame, which the backend turns into a media_summary.
+// File immediately); send() shrinks it to the long edge the providers bill for,
+// uploads the bytes to /api/media, and stores the returned basename as an
+// ImageMessagePart whose `image` is the media URL. The chat send path (onNew)
+// reads that URL back to a basename and forwards it on the "message" WS frame,
+// which the backend turns into a media_summary.
 //
 // The upload also publishes its progress here, and that exists to close a window
 // in which the UI showed nothing at all. The composer clears the text and the
@@ -40,6 +42,80 @@ function randomID(): string {
   const bytes = new Uint8Array(16);
   crypto.getRandomValues(bytes);
   return [...bytes].map((b) => b.toString(16).padStart(2, "0")).join("");
+}
+
+// Long edge the providers bill for (provider/image_tokens.go's
+// imageMaxLongEdge). An image larger than this costs the same tokens as one
+// exactly this size and is downscaled to it before the model ever sees it, so
+// every pixel past the cap is upload time bought for nothing. Measured on this
+// deployment's own traffic: 28 of 32 web uploads were over it, median long edge
+// 4032px, largest 6.18MB at 5712x4284.
+const maxLongEdge = 1568;
+
+// Below this, re-encoding costs more than it saves: a second lossy pass on an
+// image that already uploads in well under a second. The threshold is in BYTES
+// rather than pixels on purpose — the point of shrinking here is upload time,
+// and enforcing the pixel cap is the provider's job, not ours.
+const shrinkFloorBytes = 512 * 1024;
+
+// shrink re-encodes an oversized image down to maxLongEdge. Every option below
+// was set against a measurement, so none should change without redoing one; the
+// same 5712x4284 iPhone photo was run through both engines Playwright ships.
+//
+// compressorjs is used rather than a hand-written canvas pass for ONE reason
+// that appears nowhere in its docs: it draws from an `<img>` element, and in
+// WebKit that produces different pixels than `createImageBitmap` for a photo
+// carrying an ICC profile — which is every iPhone photo. Measured centre pixel
+// [60,49,81] via `<img>` against [43,28,64] via createImageBitmap, and visibly
+// the bitmap path crushes shadow detail; on a photo of a shelf of price labels
+// that is exactly the detail the model is being asked to read. Chromium's two
+// paths agree, so the difference is invisible unless Safari is tested. A future
+// rewrite onto createImageBitmap — more modern, and the only path that works
+// inside a Worker — would silently reintroduce it.
+async function shrink(file: File): Promise<Blob> {
+  if (file.size <= shrinkFloorBytes) return file;
+
+  let out: Blob;
+  try {
+    out = await new Promise<Blob>((resolve, reject) => {
+      new Compressor(file, {
+        quality: 0.85,
+        maxWidth: maxLongEdge,
+        maxHeight: maxLongEdge,
+        // Both engines already apply EXIF orientation on every decode path, so
+        // compressorjs's own EXIF handling is pure overhead: it reads the whole
+        // file into an ArrayBuffer, patches the orientation tag, and base64s the
+        // result into a data URL. Measured identical output bytes and about a
+        // third of the time with it off — 622ms to 217ms on Chromium, 357ms to
+        // 99ms on WebKit.
+        checkOrientation: false,
+        // Never turn a PNG into a JPEG. The default converts PNGs over 5MB,
+        // which silently composites transparency onto black; the documented
+        // alternative — a beforeDraw white fill — destroys the transparency just
+        // as surely. A PNG stays a PNG and only loses pixels, and if that fails
+        // to shrink it the guard below hands back the original.
+        convertSize: Infinity,
+        success: resolve,
+        error: reject,
+      });
+    });
+  } catch {
+    // A failed shrink is not a failed send: the original is always a valid thing
+    // to upload, so this degrades to the pre-compression behaviour rather than
+    // costing the user their message.
+    return file;
+  }
+
+  // compressorjs's own `strict` option is meant to be this check and is not:
+  // its condition is short-circuited by `maxWidth < naturalWidth`, i.e. by the
+  // very resize being asked for, so it never fires here. It has to be done by
+  // hand, and it genuinely bites — a 2600x2600 / 202KB transparent PNG came back
+  // from WebKit at 1576KB, 7.8x LARGER, and compressorjs delivered it.
+  if (out.size >= file.size) return file;
+  // A changed type means an option above did something other than what its
+  // comment claims. Upload what is understood, not what was assumed.
+  if (out.type !== file.type) return file;
+  return out;
 }
 
 // UploadState is one in-flight (or just-failed) upload, as the queue chip shows
@@ -108,10 +184,14 @@ export const imageAttachmentAdapter: AttachmentAdapter = {
     active.set(id, { id, name, percent: 0 });
     publish();
 
+    // Shrink before uploading. The chip is already on screen at 0% for this
+    // stretch, which is honest: no bytes have moved yet.
+    const body = await shrink(attachment.file);
+
     let uploaded: string;
     try {
       uploaded = (
-        await uploadMedia(attachment.file, (loaded, total) => {
+        await uploadMedia(body, (loaded, total) => {
           // Capped below 100 because upload.onprogress reaching the end means
           // the bytes left this machine, not that the server accepted them.
           // Showing 100% and then sitting there is the same lie as showing

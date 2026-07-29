@@ -295,8 +295,11 @@ export function mediaURL(name: string): string {
 // median 2.7MB, largest 6.2MB at 5712x4284). XHR's upload.onprogress works
 // everywhere and needs no fallback. Nothing else here justifies XHR, so nothing
 // else should copy it.
+// Takes a Blob, not a File: the attachment adapter re-encodes before uploading,
+// and a canvas hands back a bare Blob. Only `type` and the bytes are read here,
+// which a Blob has; the server names the stored file itself.
 export function uploadMedia(
-  file: File,
+  file: Blob,
   onProgress?: (loaded: number, total: number) => void,
 ): Promise<{ name: string }> {
   return new Promise((resolve, reject) => {
