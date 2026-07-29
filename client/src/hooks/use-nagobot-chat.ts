@@ -20,7 +20,10 @@ import {
   type SocketStatus,
   type StreamFrame,
 } from "@/lib/ws";
-import { imageAttachmentAdapter } from "@/lib/attachment-adapter";
+import {
+  imageAttachmentAdapter,
+  useActiveUploads,
+} from "@/lib/attachment-adapter";
 import i18n from "@/i18n";
 
 // TurnPart is one ordered element of an assistant turn. It maps 1:1 onto
@@ -1026,9 +1029,41 @@ export function useNagobotChat(
   // buffers — enqueue sends straight away; the queue is the pending-placement
   // display, and the runtime's own message-queue driver is deliberately not
   // used because it drops an item the moment it dispatches.
+  // An image's bytes go up when the message is sent, and until they land the
+  // message does not exist anywhere — the composer has already cleared itself,
+  // and onNew (which mints the chip below) does not run until every attachment
+  // has resolved. So the upload takes a chip of its own for that stretch,
+  // showing the file's name and how far along it is. It is the same bar for the
+  // same reason: something the user handed over that has not landed yet.
+  //
+  // Ordering matters. Uploads come last because they are the newest thing the
+  // user did — anything already in `pending` was sent before this click.
+  const uploads = useActiveUploads();
+  const uploadItems = useMemo(
+    () =>
+      uploads.map((u) => ({
+        // A queue item is {id, prompt} and nothing else, so the id carries the
+        // kind: the renderer picks a spinner, an alert, or the clock from this
+        // prefix alone. Reading it back out of the prompt text would misfire on
+        // a file name that happens to contain the separator.
+        id: u.error ? `upload-error:${u.id}` : `upload:${u.id}`,
+        prompt: u.error ? `${u.name} — ${u.error}` : `${u.name} ${u.percent}%`,
+      })),
+    [uploads],
+  );
+
+  // Supplying `queue` is what keeps the composer usable during a run: it flips
+  // thread.capabilities.queue, which is the sole term letting useComposerSend
+  // and ComposerInput's Enter handler through while isRunning. Nothing here
+  // buffers — enqueue sends straight away; the queue is the pending-placement
+  // display, and the runtime's own message-queue driver is deliberately not
+  // used because it drops an item the moment it dispatches.
   const queue = useMemo<ExternalThreadQueueAdapter>(
     () => ({
-      items: pending.map((p) => ({ id: p.id, prompt: p.prompt })),
+      items: [
+        ...pending.map((p) => ({ id: p.id, prompt: p.prompt })),
+        ...uploadItems,
+      ],
       enqueue,
       // Unreachable, and no-ops by design: the chips render no steer/remove
       // control, and this runtime exposes no edit/reload/cancel for clear() to
@@ -1037,7 +1072,7 @@ export function useNagobotChat(
       remove: () => {},
       clear: () => {},
     }),
-    [pending, enqueue],
+    [pending, uploadItems, enqueue],
   );
 
   const runtime = useExternalStoreRuntime<ChatMessage>({
@@ -1061,7 +1096,9 @@ export function useNagobotChat(
     // with history flashes "How can I help you today?" before the store
     // catches up. Queued messages count: the first send on a fresh session is
     // a chip until the turn opens, and the welcome screen must not outlive it.
-    messageCount: visibleMessages.length + pending.length,
+    // So does an upload, for the same reason — on a fresh session it is the
+    // first chip of all, and it precedes the message it belongs to.
+    messageCount: visibleMessages.length + pending.length + uploads.length,
     // Entries above the rendered window (0 = everything is shown).
     earlierCount: messages.length - visibleMessages.length,
     loadEarlier,

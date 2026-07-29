@@ -121,6 +121,7 @@ export const en = {
     stopVoice: "Stop voice input",
     sendMessage: "Send message",
     queuedMessage: "Sent — waiting for its place in the conversation",
+    uploadingMessage: "Uploading — the message goes out once it lands",
     exportMarkdown: "Export as Markdown",
     reply: "Quote reply",
     replyPending: "Writing the quote…",
