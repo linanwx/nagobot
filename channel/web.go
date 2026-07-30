@@ -426,10 +426,14 @@ func (w *WebChannel) deliver(ctx context.Context, replyTo, text string, observed
 		online[viewerKey(client.person)] = true
 	}
 
-	notification := push.Notification{
-		Title:   "nagobot · " + sessionID,
-		Body:    truncateRunes(text, 140),
-		Session: sessionID,
+	// Built lazily: the title reads sessions_summary.json off disk, and the
+	// overwhelming majority of deliveries have a page watching and never push.
+	notification := func() push.Notification {
+		return push.Notification{
+			Title:   w.pushTitle(sessionID),
+			Body:    truncateRunes(text, 140),
+			Session: sessionID,
+		}
 	}
 
 	// Participants who are not watching right now get the ping on their
@@ -440,7 +444,10 @@ func (w *WebChannel) deliver(ctx context.Context, replyTo, text string, observed
 				delete(members, id)
 			}
 		}
-		pushed := w.pushMgr.SendTo(notification, members)
+		pushed := 0
+		if len(members) > 0 {
+			pushed = w.pushMgr.SendTo(notification(), members)
+		}
 		if delivered > 0 || pushed > 0 || observed {
 			return nil
 		}
@@ -459,10 +466,33 @@ func (w *WebChannel) deliver(ctx context.Context, replyTo, text string, observed
 	// keep the legacy behavior — broadcast push only when no page at all is
 	// watching.
 	if w.pushMgr.HasSubscriptions() {
-		w.pushMgr.Send(notification)
+		w.pushMgr.Send(notification())
 		return nil
 	}
 	return fmt.Errorf("web session not connected: %s", sessionID)
+}
+
+// How much of a session's summary fits a notification headline. Long enough to
+// name the subject, short enough that no platform truncates it for us.
+const pushTitleRunes = 30
+
+// pushTitle names the session in a notification. A bare session key
+// ("web:2118acc7") is meaningless to the person holding the phone, so the
+// session's own summary — the same identity the sidebar shows — is clipped to a
+// headline and used instead. A session with no summary yet (every web session
+// before its first dream writes one) falls back to the product name: the key
+// would be noise, and the notification body already carries the message.
+func (w *WebChannel) pushTitle(sessionID string) string {
+	if w.workspace == "" {
+		return "nagobot"
+	}
+	path := filepath.Join(w.workspace, "system", "sessions_summary.json")
+	// Fields, not the raw string: a summary is written as free prose and a
+	// newline in a notification title renders differently on every platform.
+	if s := strings.Join(strings.Fields(loadWebSummaries(path)[sessionID]), " "); s != "" {
+		return truncateRunes(s, pushTitleRunes)
+	}
+	return "nagobot"
 }
 
 // Messages returns the incoming message channel.

@@ -77,7 +77,7 @@ export function ChatPane({
     messageCount,
     earlierCount,
     loadEarlier,
-  } = useNagobotChat(sessionKey, onFirstSend);
+  } = useNagobotChat(sessionKey, onFirstSend, summary);
   const hasMessages = messageCount > 0;
   const threadComponents = useMemo(
     () => (hasMessages ? { Welcome: NullWelcome } : undefined),

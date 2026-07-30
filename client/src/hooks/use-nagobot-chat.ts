@@ -488,15 +488,40 @@ const convertMessage = (m: ChatMessage): ThreadMessageLike => {
   };
 };
 
+// How much of a session's summary fits a notification headline. Mirrors
+// pushTitleRunes in channel/web.go — a backgrounded tab and a Web Push are the
+// same event to the person reading it, so they must not be titled differently.
+const notificationTitleRunes = 30;
+
+// notificationTitle names the session in a system notification. A bare session
+// key ("web:2118acc7") means nothing to a human, so the summary — the same
+// identity the header and sidebar show — is clipped to a headline; a session
+// with no summary yet falls back to the product name rather than the key.
+function notificationTitle(summary: string | undefined): string {
+  const s = (summary ?? "").split(/\s+/).filter(Boolean).join(" ");
+  if (s === "") return "nagobot";
+  return [...s].length > notificationTitleRunes
+    ? [...s].slice(0, notificationTitleRunes).join("") + "…"
+    : s;
+}
+
 export function useNagobotChat(
   sessionKey: string,
   onFirstSend?: (key: string) => void,
+  summary?: string,
 ) {
   // session.jsonl, as the server has revealed it — the single authority for
   // which messages exist and in what order. A history read installs it and the
   // live `message` frames extend it; nothing else may insert an entry. Bubbles
   // are DERIVED from this (see `messages` below), so the live turn and a
   // reloaded one are the same data through the same projection.
+  // Read through a ref, not closed over: the socket effect must not list the
+  // summary as a dependency (a nightly summary rewrite would tear down a live
+  // WebSocket), and the summary arrives from /api/sessions AFTER mount — so a
+  // captured value would be undefined for the socket's whole lifetime.
+  const summaryRef = useRef(summary);
+  summaryRef.current = summary;
+
   const [rawMessages, setRawMessages] = useState<ApiMessage[]>([]);
   // Id of the assistant entry currently streaming, from its message_start to
   // turn_end. Only used to decide whether an unanswered tool call is still
@@ -792,7 +817,7 @@ export function useNagobotChat(
         Notification.permission === "granted"
       ) {
         try {
-          new Notification(`nagobot · ${sessionKey}`, {
+          new Notification(notificationTitle(summaryRef.current), {
             body: text.length > 140 ? text.slice(0, 140) + "…" : text,
             tag: sessionKey,
           });
