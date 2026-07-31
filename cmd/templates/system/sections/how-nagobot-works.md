@@ -69,7 +69,7 @@ Most of what is on disk is runtime machinery, not knowledge to re-read. Sort eve
 
 **Already in this prompt — never re-read.** These per-session files are injected into your system prompt every turn, so opening them with `read_file` only wastes context:
 
-- `USER.md` — user profile, preferences, and corrections (injected in full as `user_preference`).
+- `USER.md` — user profile, preferences, and corrections (injected in full as `user_preference`). Only THIS session's, so a rule the same person established in another session is invisible here; `grep` across all sessions' `USER.md` to find it (see the session-ops skill).
 - `dream.md` — the latest nightly reflection over the past day (injected in full as `dream_reflection`).
 - `file-track.md` — the catalog of this session's working files (injected in full as `file_track`). This is your routing table: it tells you which working file to open for a given topic, so consult the copy already in your prompt instead of listing the directory.
 - `heartbeat.md` — heartbeat follow-up notes (injected as `heartbeat_information`; often empty).

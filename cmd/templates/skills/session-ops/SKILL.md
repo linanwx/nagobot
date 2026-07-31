@@ -1,6 +1,6 @@
 ---
 name: session-ops
-description: Use when you need to recall something from a past conversation that is not in your current context — "when did I last ...", "what did we decide about ...", "have I told you about ..." — or to review past conversations and search session memory across sessions. Also for context usage/compression stats, inspecting which model/provider a session is using (model resolution chain), session metadata, and session settings (switch agent, set timezone), including "what model am I using" and debugging model routing.
+description: Use when you need to recall something from a past conversation that is not in your current context — "when did I last ...", "what did we decide about ...", "have I told you about ..." — or to recall a preference, rule, or correction the user established in ANOTHER session ("didn't I tell you to ...", "how do I like ... done"), or to review past conversations and search session memory across sessions. Also for context usage/compression stats, inspecting which model/provider a session is using (model resolution chain), session metadata, and session settings (switch agent, set timezone), including "what model am I using" and debugging model routing.
 ---
 # Session Operations
 
@@ -226,8 +226,49 @@ Rules that make the difference between one call and fifteen:
   trying a fourth phrasing.
 - **`case_insensitive: true`** for anything Latin-script.
 
+### Standing preferences: USER.md
+
+The memory files are what was *said*. `USER.md` is what was *settled* — one per
+session, at the session directory's root, written by `session-reflect`:
+
+```
+{{WORKSPACE}}/sessions/<session key, ":" replaced by "/">/USER.md
+```
+
+It holds preferences, corrections, workflow patterns and a reflection log. So
+when the question is "what did they tell me to do / not do", this is the file,
+and the dated memory files are the fallback.
+
+**Grep it only for OTHER sessions.** Your own session's `USER.md` is already
+injected into your prompt IN FULL — the `type: user_preference` section — so
+grepping the tree
+for a preference you can already see is wasted budget. What is invisible is
+every other session's copy, and a rule the user established on Discord applies
+to them on the web too.
+
+```
+grep(pattern: "<regex>", path: "{{WORKSPACE}}/sessions", include: "USER.md",
+     context_lines: 2, max_results: 40)
+```
+
+Two things make this a SEPARATE call, not a widened one:
+
+- **`include` takes one pattern, and the two backends disagree about braces.**
+  `include: "{20??-??-??,USER}.md"` works under ripgrep and matches *nothing*
+  under plain `grep`, whose `--include` has no brace expansion — silently, with
+  no error, which reads exactly like "the fact was never recorded". Do not try
+  to fold the two searches into one glob. Widening to `*.md` is the other wrong
+  fix: it drags in `heartbeat.md`, `dream.md`, `file-track.md` and every pin.
+- **`USER.md` carries no `summary:` frontmatter**, so the global index sweep
+  above cannot point at it. It is cheap to sweep directly instead — one file per
+  session, a few dozen files, versus 100+ dated memory files.
+
 ### Workflow
 
+0. **Preferences and rules → sweep `USER.md` first.** If the question is what
+   the user wants, prefers, or has already corrected you about, one `USER.md`
+   grep answers it more directly than any number of dated files. For a fact,
+   a date or a number, skip to step 1.
 1. **Index, when you don't know where to look** — the `^summary:` sweep above,
    to find which session and which period the topic belongs to. Skip this when
    you already know the session, or when you are after one specific fact (a
