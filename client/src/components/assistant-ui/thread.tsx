@@ -686,6 +686,15 @@ const Composer: FC = () => {
 const ComposerAction: FC = () => {
   const { t } = useTranslation();
   return (
+    /*
+      Every button in this row is size-9 below the sm breakpoint and size-7 at
+      and above it. 28px is a comfortable mouse target and a poor finger one —
+      Apple's minimum is 44 and Material's is 48, so the phone rendering was
+      barely half the recommended AREA. The library's own tokens cannot express
+      this: the largest is icon-lg at 36px, and it is not responsive. Note the
+      size="icon" prop below is inert either way, since cn()'s twMerge drops the
+      variant's size-8 in favour of whatever the className sets.
+    */
     <div className="aui-composer-action-wrapper relative flex items-center justify-between">
       <ComposerAddAttachment />
       <div className="flex items-center gap-1.5">
@@ -698,10 +707,10 @@ const ComposerAction: FC = () => {
                 type="button"
                 variant="ghost"
                 size="icon"
-                className="aui-composer-dictate size-7 rounded-full"
+                className="aui-composer-dictate size-9 rounded-full sm:size-7"
                 aria-label={t("thread.startVoice")}
               >
-                <MicIcon className="aui-composer-dictate-icon size-4" />
+                <MicIcon className="aui-composer-dictate-icon size-4.5 sm:size-4" />
               </TooltipIconButton>
             </ComposerPrimitive.Dictate>
           </AuiIf>
@@ -713,10 +722,10 @@ const ComposerAction: FC = () => {
                 type="button"
                 variant="ghost"
                 size="icon"
-                className="aui-composer-stop-dictation text-destructive size-7 rounded-full"
+                className="aui-composer-stop-dictation text-destructive size-9 rounded-full sm:size-7"
                 aria-label={t("thread.stopVoice")}
               >
-                <SquareIcon className="aui-composer-stop-dictation-icon size-3.5 animate-pulse fill-current" />
+                <SquareIcon className="aui-composer-stop-dictation-icon size-4 animate-pulse fill-current sm:size-3.5" />
               </TooltipIconButton>
             </ComposerPrimitive.StopDictation>
           </AuiIf>
@@ -736,10 +745,10 @@ const ComposerAction: FC = () => {
             type="button"
             variant="default"
             size="icon"
-            className="aui-composer-send size-7 rounded-full"
+            className="aui-composer-send size-9 rounded-full sm:size-7"
             aria-label={t("thread.sendMessage")}
           >
-            <ArrowUpIcon className="aui-composer-send-icon size-4.5" />
+            <ArrowUpIcon className="aui-composer-send-icon size-5 sm:size-4.5" />
           </TooltipIconButton>
         </ComposerPrimitive.Send>
       </div>
