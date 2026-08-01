@@ -16,7 +16,7 @@ Today is {{DATE}}. You run nightly, so you process only the **last 24 hours** of
 
 Gather the **raw, uncompressed** chat logs via the nagobot CLI and **write them to a staging file**, then read that file in pages. The 24h corpus can be large (tens of thousands of tokens), so you stage it to disk and page through it rather than pulling the whole dump into a single tool result. Do **not** use `read-session` or `sample-session`: those return the live, already-compressed session context and have lost older history.
 
-The `recent-chat` command reads the append-only `chat.jsonl` of every session, keeps only entries from the **past 24 hours**, and renders each as a readable `[YYYY-MM-DD HH:MM] role: content` line (newlines collapsed, capped at 1000 chars), labelled by session. Redirect it to a temp file:
+The `recent-chat` command reads the append-only `chat.jsonl` of every session, keeps only entries from the **past 24 hours**, and renders each as a readable `[YYYY-MM-DD HH:MM] role (sender): content` line (newlines collapsed, capped at 1000 chars), labelled by session. Redirect it to a temp file:
 
 ```
 exec: mkdir -p {{WORKSPACE}}/.tmp && {{WORKSPACE}}/bin/nagobot recent-chat --since 24h --tail 200 --max-chars 1000 > {{WORKSPACE}}/.tmp/people-knowledge-input.txt && wc -l {{WORKSPACE}}/.tmp/people-knowledge-input.txt
@@ -25,6 +25,8 @@ exec: mkdir -p {{WORKSPACE}}/.tmp && {{WORKSPACE}}/bin/nagobot recent-chat --sin
 If the run reported `sessions_with_activity: 0` (the file is essentially empty), there was no user conversation in the last 24h: leave the existing file untouched and skip straight to step 6 (finish).
 
 Otherwise **read the staging file in pages** with `read_file` (use `offset`/`limit`, a few hundred lines at a time) so a large corpus never blows your context. Each `===== SESSION: <path> =====` header tells you which channel/session the block below came from (use it for the "seen in" field). Cron/internal sessions carry no people — they won't appear.
+
+**The `(sender)` in parentheses is who spoke — use it as the attribution.** On a `user` line it is the human's display name, and it is the ONLY reliable one: group chats happen to repeat the name inside the content as a `[Name]: ` prefix, but on web, CLI and DMs the parenthesized sender is all there is, so a line like `user (Kingsley): …` and a line like `user: …` differ in whether the speaker is knowable at all. A `user` line with no sender is an unattributed message — reason about it from context, and do not silently assign it to whoever spoke last. On an `assistant` line the sender is the origin that drove a bot-initiated message (a cron id, a caller session key); a plain reply has none. Never file the bot's own `assistant` lines as a person.
 
 ## 3. Extract people from each conversation
 

@@ -263,11 +263,24 @@ func headTailRunes(s string, head, tail int) string {
 
 // ReadRecentChatSince returns chat.jsonl entries from sessionDir whose timestamp
 // is within `since` of now, capped to the last `n` such entries, each rendered as
-// "[YYYY-MM-DD HH:MM] role: content" on a single line — newlines collapsed to
-// spaces, content truncated to maxRunes runes (maxRunes <= 0 means no cap).
-// Entries with no timestamp are skipped (recency cannot be confirmed). Returns ""
-// if the file is missing or nothing is recent enough. loc nil falls back to the
-// system local tz. Output is chronological (oldest first).
+// "[YYYY-MM-DD HH:MM] role (sender): content" on a single line — newlines
+// collapsed to spaces, content truncated to maxRunes runes (maxRunes <= 0 means
+// no cap). Entries with no timestamp are skipped (recency cannot be confirmed).
+// Returns "" if the file is missing or nothing is recent enough. loc nil falls
+// back to the system local tz. Output is chronological (oldest first).
+//
+// The sender is rendered because this feeds the people-knowledge updater, whose
+// entire job is per-person attribution. Only group chats carry the speaker
+// inline in the content (preprocessMessage's "[Name]: " prefix, gated on
+// chat_type); on web, CLI and DMs the structured Sender field is the ONLY
+// attribution there is, and dropping it turned every one of those entries into
+// an anonymous "user:" line. Entries written before the field existed, and
+// ordinary bot replies, have no sender and render as a bare role.
+//
+// Note the sibling renderer ReadRecentChat deliberately does NOT do this: it
+// feeds pre-think, whose destructive-classifier margins were swept against real
+// messages in that exact format, so changing what it emits changes what gets
+// embedded.
 func ReadRecentChatSince(sessionDir string, n int, since time.Duration, maxRunes int, loc *time.Location) string {
 	if sessionDir == "" || since <= 0 {
 		return ""
@@ -322,6 +335,11 @@ func ReadRecentChatSince(sessionDir string, n int, since time.Duration, maxRunes
 		b.WriteString(e.Ts.In(loc).Format("2006-01-02 15:04"))
 		b.WriteString("] ")
 		b.WriteString(e.Role)
+		if sender := collapseSpaces(e.Sender); sender != "" {
+			b.WriteString(" (")
+			b.WriteString(sender)
+			b.WriteByte(')')
+		}
 		b.WriteString(": ")
 		b.WriteString(content)
 	}

@@ -142,6 +142,53 @@ func TestReadRecentChatSince(t *testing.T) {
 	}
 }
 
+// The people-knowledge updater reads this output to attribute facts to people,
+// so a dropped Sender is not cosmetic — it anonymizes the speaker. Only group
+// chats repeat the name inside the content ("[Name]: " prefix); on web, CLI and
+// DMs the structured field is the only attribution that exists.
+func TestReadRecentChatSinceRendersTheSender(t *testing.T) {
+	dir := t.TempDir()
+	now := time.Now()
+
+	if err := AppendChat(dir, ChatRoleUser, "Nansen", "who is speaking", now.Add(-time.Hour)); err != nil {
+		t.Fatal(err)
+	}
+	// A bot-initiated message carries its driving origin as the sender.
+	if err := AppendChat(dir, ChatRoleAssistant, "cron:dublin-weather", "morning briefing", now.Add(-time.Hour)); err != nil {
+		t.Fatal(err)
+	}
+	// No sender: an ordinary reply, or an entry written before the field
+	// existed. Must stay a bare role rather than growing empty parentheses.
+	if err := AppendChat(dir, ChatRoleAssistant, "", "plain reply", now.Add(-time.Hour)); err != nil {
+		t.Fatal(err)
+	}
+	// A newline in the sender would split the single-line rendering.
+	if err := AppendChat(dir, ChatRoleUser, "two\nlines", "collapsed sender", now.Add(-time.Hour)); err != nil {
+		t.Fatal(err)
+	}
+
+	got := ReadRecentChatSince(dir, 200, 24*time.Hour, 0, time.Local)
+
+	for _, want := range []string{
+		"] user (Nansen): who is speaking",
+		"] assistant (cron:dublin-weather): morning briefing",
+		"] assistant: plain reply",
+		"] user (two lines): collapsed sender",
+	} {
+		if !strings.Contains(got, want) {
+			t.Errorf("missing %q in:\n%s", want, got)
+		}
+	}
+	if strings.Contains(got, "()") {
+		t.Errorf("a senderless entry rendered empty parentheses:\n%s", got)
+	}
+	for line := range strings.SplitSeq(got, "\n") {
+		if strings.HasPrefix(line, "lines)") {
+			t.Errorf("sender newline split the line:\n%s", got)
+		}
+	}
+}
+
 func TestReadRecentChat_NoMarkerWhenNotTruncated(t *testing.T) {
 	dir := t.TempDir()
 	now := time.Now()
