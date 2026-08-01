@@ -56,6 +56,8 @@ type heartbeatScheduler struct {
 
 	dreamLogPath string               // path to dream_log.jsonl
 	lastDream    map[string]time.Time // sessionKey → last dream time (dedup, guarded by mu)
+
+	summaryPath string // path to sessions_summary.json (read only on dream pulses)
 }
 
 func newHeartbeatScheduler(mgr *thread.Manager, cfgFn func() *config.Config) *heartbeatScheduler {
@@ -72,6 +74,7 @@ func newHeartbeatScheduler(mgr *thread.Manager, cfgFn func() *config.Config) *he
 			s.loadState()
 			s.dreamLogPath = filepath.Join(workspace, "system", "dream_log.jsonl")
 			s.loadDreamLog()
+			s.summaryPath = filepath.Join(workspace, "system", "sessions_summary.json")
 		}
 	}
 	return s
@@ -229,6 +232,7 @@ func (s *heartbeatScheduler) scan(ctx context.Context) {
 
 	// Update statePath in case workspace changed.
 	s.statePath = filepath.Join(workspace, "system", "heartbeat-state.json")
+	s.summaryPath = filepath.Join(workspace, "system", "sessions_summary.json")
 
 	postponed := loadPostponeConfig(filepath.Join(workspace, "system", "heartbeat-postpone.json"))
 
@@ -344,7 +348,13 @@ func (s *heartbeatScheduler) maybeFirePulse(key string, now time.Time, lastActiv
 	elapsed := now.Sub(lastActive).Round(time.Second)
 
 	dream := s.shouldDream(key, now, pulseIndex)
-	message := buildHeartbeatMessage(mdModified, nextPulse, pulseIndex, elapsed, lastPulse, dream)
+	// Read only on a dream pulse — once a night per session at most, so the
+	// file read never lands on an ordinary pulse (most of which wake nothing).
+	summary := ""
+	if dream {
+		summary = s.sessionSummary(key)
+	}
+	message := buildHeartbeatMessage(mdModified, nextPulse, pulseIndex, elapsed, lastPulse, dream, summary)
 
 	// Wake for pulse indices that have registered handlers, or when a dream is due.
 	// hbReflectPulse (4h00m) → session-reflect; pulse_index > 2 at night → dream.
@@ -524,9 +534,33 @@ func loadPostponeConfig(path string) map[string]postponeEntry {
 	return m
 }
 
+// sessionSummary returns the session's current one-line summary from
+// sessions_summary.json, or "" when the session has no entry (or the file is
+// unreadable — an absent summary and an unreadable store are the same thing to
+// the dream, which is told to write one either way).
+func (s *heartbeatScheduler) sessionSummary(key string) string {
+	if s.summaryPath == "" {
+		return ""
+	}
+	return strings.Join(strings.Fields(loadSummariesFile(s.summaryPath)[key].Summary), " ")
+}
+
+// noSessionSummary is what the wake carries when the session has no summary on
+// record. Stated rather than omitted: an absent field reads as "not applicable"
+// and the dream would skip step 4, which is exactly the case where it must NOT
+// skip — a session with no summary has never had one written.
+const noSessionSummary = "(none on record — this session has never had a summary; write one)"
+
 // buildHeartbeatMessage constructs a heartbeat system message.
 // heartbeat.md content is already in the system prompt via heartbeat_prompt_section — no need to duplicate here.
-func buildHeartbeatMessage(mdModified, nextPulse string, pulseIndex int, elapsed time.Duration, lastPulse time.Time, shouldDream bool) string {
+//
+// sessionSummary is carried ONLY on a dream pulse, and only because the dream
+// decides whether to rewrite it. It duplicates a row the system prompt already
+// has (the cross-session awareness section), and that duplication is the point:
+// that section lists every session, so the dream had to find its own row among
+// them and judge staleness from a line it might not locate. Here the summary
+// under judgement is the wake's own field.
+func buildHeartbeatMessage(mdModified, nextPulse string, pulseIndex int, elapsed time.Duration, lastPulse time.Time, shouldDream bool, sessionSummary string) string {
 	fields := map[string]string{}
 	if nextPulse != "" {
 		fields["next_pulse"] = nextPulse
@@ -541,6 +575,11 @@ func buildHeartbeatMessage(mdModified, nextPulse string, pulseIndex int, elapsed
 	}
 	if shouldDream {
 		fields["should_dream"] = "true"
+		if sessionSummary != "" {
+			fields["session_summary"] = sessionSummary
+		} else {
+			fields["session_summary"] = noSessionSummary
+		}
 	}
 
 	message := sysmsg.BuildSystemMessage("heartbeat", fields, "")

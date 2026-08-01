@@ -14,6 +14,7 @@ The wake message is a system message with YAML frontmatter containing:
 - `elapsed_since_user`: duration string since last user activity
 - `next_pulse`: RFC3339 timestamp of the next scheduled pulse
 - `should_dream`: present and set to `true` only when the scheduler decided this pulse should trigger a dream (session-local night, user quiet for a long time)
+- `session_summary`: present only alongside `should_dream` — this session's current one-line summary, or `(none on record — …)` when it has never had one. The dream skill judges and may rewrite it; this router does not read it.
 
 ## Routing Table
 

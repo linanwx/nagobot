@@ -25,13 +25,25 @@ This is a BACKGROUND task. You will NOT message the user.
 
 4. **Refresh this session's one-line summary — only if the current one has gone stale.**
 
-   The summary in force right now is already in your system prompt: the cross-session awareness section lists it as the `- {{SESSIONKEY}}: …` row. Read that row and judge it against the session as it now stands.
+   **The summary in force is in the wake message that woke you** — the same
+   frontmatter block that carries `should_dream: true` carries
+   `session_summary` beside it. That is this session's current summary,
+   verbatim, and it is the text you are judging. Use it rather than hunting for
+   your own `- {{SESSIONKEY}}: …` row in the system prompt's cross-session
+   awareness section: that section lists every session, and the row you need is
+   one line among many. The prompt row remains a valid fallback if the wake
+   field is somehow absent.
+
+   If `session_summary` reads `(none on record — …)`, this session has **never**
+   had a summary. Skip the staleness judgement entirely and write one — the
+   whole point of the marker is that an empty field must not be mistaken for an
+   accurate summary that needs no work.
 
    **Rewrite it if any of these is true:**
+   - `session_summary` says none is on record.
    - The opening title no longer names what this session is (the topic moved on, or the session grew into something else).
    - It describes a state that has since changed — work it calls in progress is finished, a version/number in it is outdated, a question it says is open has been answered.
    - Something from the past 24 hours changed what this session *is about*, not merely adding one more day of the same thing.
-   - There is no row for this session at all, or it is empty.
 
    **Otherwise leave it alone and move on** — say nothing, write nothing. A quiet night, or a day that continued the same work the summary already describes, needs no new summary. Rewriting an accurate summary into a differently-worded accurate summary costs a turn and buys nothing, and this step used to run unconditionally every night.
 
