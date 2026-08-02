@@ -17,6 +17,7 @@ This is a BACKGROUND task. You will NOT message the user.
    - **Unfinished work**: threads left open, things you promised, things to follow up on.
    - **Conversation insights**: what the user actually wanted underneath the literal request; recurring patterns; corrections; how to serve them better next time.
    - **Connections**: links between today and what you already know about this user — ongoing projects, preferences, prior decisions.
+   - **Tracked files the day made stale**: `file-track.md` is in your system prompt and catalogs this session's work files, saying what each one holds. Did anything said today change what one of them should *contain*? Name any such file here. Step 7 acts on it, and naming it in the dream is the record of an edit made while nobody was watching.
 
 3. **Overwrite `dream.md`.** Use `write_file` to write `{{SESSIONDIR}}/dream.md`.
    - **You MUST overwrite the entire file.** Replace the previous `dream.md` completely — do NOT append to or merge with the old dream. Each night's dream fully replaces the last one.
@@ -93,13 +94,27 @@ This is a BACKGROUND task. You will NOT message the user.
 
    Read each file once and write its summary once. If more than 3 files are waiting, the rest are picked up on later nights — do not try to drain the whole backlog in one turn.
 
-7. **Tidy the workspace.** After the dream, run the file-track skill — `use_skill("file-track")` — and follow it to archive stale files and refresh `file-track.md`. Same nightly-maintenance spirit as the dream: keep this session's work files organized and catalogued. Do this even on a quiet night (it's about files on disk, not the conversation).
+7. **Update any tracked file today's conversation left stale.** Act on what step 2 named — nothing more.
 
-8. **End silently.** Call `dispatch({})` with empty sends. Produce NO user-facing output.
+   **This step opens no files by default.** The catalog line already states what each file holds, so deciding is a comparison against the day, not an audit of the workspace. Most nights nothing matches and you go straight to step 8. Never open files to go looking, and never touch a file today's conversation did not mention.
+
+   For a file that does match:
+
+   - **Update it when the conversation stated the new state outright** — "维生素买到了", "the deadline moved to the 14th", "we settled on option B". `read_file` it, make that one correction, `write_file` it back.
+   - **When the conversation only implied it**, change nothing: a doubt raised, a number questioned but not corrected, a plan discussed but not decided. Leave the file alone and let the dream you wrote in step 3 carry it, so a waking turn with the user present can settle it.
+
+   You are correcting a fact already known to be stale, not editing the user's work. Never rewrite a file wholesale.
+
+   Why this exists: the catalog descriptions carry live state (`当前待买：维生素`), and step 8 can rebuild that description from memory without ever opening the file. So a fact corrected in conversation could survive in both the file AND the catalog — and the catalog is injected into every single turn, which makes a stale line there wrong in every prompt until the next dream.
+
+8. **Tidy the workspace.** Run the file-track skill — `use_skill("file-track")` — and follow it to archive stale files and refresh `file-track.md`. Same nightly-maintenance spirit as the dream: keep this session's work files organized and catalogued. Do this even on a quiet night (it's about files on disk, not the conversation). It comes after step 7 so the catalog is rebuilt from corrected files rather than from stale ones.
+
+9. **End silently.** Call `dispatch({})` with empty sends. Produce NO user-facing output.
 
 ## Rules
 
 - BACKGROUND task — NEVER send messages to the user.
 - ALWAYS overwrite `dream.md` completely; never append to the previous dream.
-- If the past 24 hours hold nothing meaningful (e.g. no real conversation), skip the dream write — and the summary in step 4 is almost certainly still accurate, so skip that too — but STILL do the memory files (step 6) and the file-track skill (step 7), then `dispatch({})`. Those two are about files on disk, not about the conversation, so a quiet night does not excuse them.
+- If the past 24 hours hold nothing meaningful (e.g. no real conversation), skip the dream write — and the summary in step 4 is almost certainly still accurate, so skip that too — but STILL do the memory files (step 6) and the file-track skill (step 8), then `dispatch({})`. Those two are about files on disk, not about the conversation, so a quiet night does not excuse them. Step 7 is the opposite: it is derived entirely from what was said, so a night with nothing said has nothing for it to do.
+- Step 7 is the only place a dream writes to the user's own work files. Everything else it touches (`dream.md`, the session summary, memory frontmatter, `file-track.md`) belongs to the runtime. Keep that edit narrow and stated-in-conversation, or leave the file alone.
 - MUST terminate with `dispatch({})` — silent termination.

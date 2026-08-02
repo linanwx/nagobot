@@ -22,7 +22,11 @@ You keep working files in this session's workspace (`{{SESSIONDIR}}`). Over time
    ```
    Set aside the system files/dirs above. What's left is your work files.
 
-2. **Judge each work file.** Read or recall what it is. Classify as:
+2. **Judge each work file.** Recall what it is, or `read_file` it.
+
+   **Recall is only enough while you are sure nothing has changed the file since you last read it.** These descriptions carry live state — `shopping-list.md — …当前待买：维生素` — and a description rebuilt from stale memory outlives the file it describes. This catalog is injected into every turn, so a wrong line here is wrong in every prompt until the next run. When in doubt, read.
+
+   Classify as:
    - **Active** — still relevant: referenced recently, an in-progress draft, a reusable input/output, or something the user may ask about again.
    - **Expired** — superseded by a newer version, a one-off output for a task that's clearly finished, or stale scratch no longer referenced.
 

@@ -419,7 +419,7 @@ A Go goroutine (`heartbeatScheduler`) scans every 30s and fires heartbeat pulses
 
 When a pulse *does* wake the thread, it runs `use_skill("heartbeat-wake")`, a router (`cmd/templates/skills/heartbeat-wake/SKILL.md`). The payload carries `pulse_index`, `elapsed_since_user`, `next_pulse`, and (only on dream pulses) `should_dream: true`. Routing, checked in order:
 
-- **`should_dream: true`** → `use_skill("dream")` — review the past 24h, overwrite `dream.md`, refresh the session summary only if it has gone stale, summarize this session's unsummarized `memory/*.md` files (≤3), then run file-track. The scheduler sets this only at session-local night (02:00–06:00), user quiet long, `pulse_index > 2`, and ≥4h since the last dream (`shouldDream`, dedup via `dream_log.jsonl`).
+- **`should_dream: true`** → `use_skill("dream")` — review the past 24h, overwrite `dream.md`, refresh the session summary only if it has gone stale, summarize this session's unsummarized `memory/*.md` files (≤3), correct any tracked work file the day left stale, then run file-track. The scheduler sets this only at session-local night (02:00–06:00), user quiet long, `pulse_index > 2`, and ≥4h since the last dream (`shouldDream`, dedup via `dream_log.jsonl`).
 - **`pulse_index == 4`** (`hbReflectPulse`, = 4h00m of user quiet; and not a dream) → `use_skill("session-reflect")` — extract user preferences/corrections/patterns into `USER.md`.
 - **anything else** → `dispatch({})`. This branch is **unreachable** — the scheduler never wakes on those pulses. It exists only as a guard.
 
@@ -507,6 +507,17 @@ Now the session that owns the conversation pays its own debt, as step 6 of `drea
 - **The 30-day cutoff is gone**, which is what lets the March backlog finally drain. It only ever existed to bound the cron's global sweep; with `--session {{SESSIONKEY}}` the scan is one directory. The `maxMemoryFiles = 3` cap and the skip-today rule stay — the cap bounds one dream turn's cost and a backlog drains over consecutive nights; today's file is skipped because a later compression may still append to it.
 - **Coupling to the dream schedule is deliberate and has a real edge**: a session that never dreams (heartbeat needs session-local night 02:00–06:00, long user quiet, `pulse_index > 2`, ≥4h since the last dream) never summarizes its memory files either. That is the intended trade — the old cron ran nightly whether or not anything needed doing, and the sessions that don't dream are the inactive ones whose files nobody will look up.
 - `list-memory-files` keeps its unscoped global mode for ops inspection; nothing calls it automatically any more.
+
+### The dream corrects tracked work files, not just the catalog
+
+`file-track.md` catalogs a session's work files and **is injected into every turn** (`buildFileTrackSection`). Its descriptions carry live state in practice — a real one on the deployment reads `shopping-list.md — 当前购物清单…当前待买：维生素、益生菌胶囊` — and the file-track skill's step 2 allowed judging a file by *recall* rather than reading it. So a fact corrected in conversation ("维生素买到了") could survive the night in the file AND in the catalog rebuilt from stale memory, and the catalog's copy is then wrong in **every prompt** until the next dream.
+
+Dream step 7 closes it, deliberately narrowly:
+
+- **The trigger is the conversation, not the workspace.** Step 2 cross-references the day against the catalog lines already in the prompt — no file is opened to decide. Measured on the deployment, 36 sessions carry a `file-track.md` and the largest has 19 work files; a nightly re-verification of all of them would be a no-op on almost every night. Typical match is 0–1 files.
+- **Stated, not implied.** The file is edited only when the conversation gave the new state outright; a doubt raised or a number questioned leaves the file alone and rides in `dream.md` for a turn with the user present.
+- **This is the only place a dream writes to the user's own work product.** Everything else it touches belongs to the runtime, so the edit is one correction, never a rewrite, and the changed file is named in that night's `dream.md` — the trail for a 3am edit nobody watched.
+- Step 7 runs **before** file-track, so the catalog is rebuilt from corrected files. A quiet night skips it by construction (nothing was said), unlike the memory and file-track steps which run regardless.
 
 ### The dream's session summary is now conditional
 
