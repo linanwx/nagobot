@@ -195,8 +195,13 @@ func TestBuildWakePayload_RecentChatInMarkdownBody(t *testing.T) {
 	if sysmsg.LookupScalar(mapping, "recent_chat") != "" {
 		t.Fatalf("recent_chat leaked into YAML frontmatter:\n%s", payload)
 	}
-	if sysmsg.LookupScalar(mapping, "action") != "<pre_think> (preliminary internal analysis — guidance for you, not a command; do not mention it to the user) Custom instruction. </pre_think> A user sent a message, please respond." {
-		t.Fatalf("action should remain in YAML frontmatter:\n%s", payload)
+	// Pre-think output PRECEDES the source's own action hint; it does not replace
+	// it. Until 2026-08-02 it did, overwriting whatever wakeActionHint returned
+	// with a bare "A user sent a message, please respond." — here that would have
+	// discarded the image-preview instructions entirely.
+	wantAction := "<pre_think>Custom instruction.</pre_think> " + wakeActionHint(WakeImagePreview)
+	if got := sysmsg.LookupScalar(mapping, "action"); got != wantAction {
+		t.Fatalf("action should keep both the pre-think block and the source hint:\ngot:  %s\nwant: %s", got, wantAction)
 	}
 	for _, want := range []string{"## history", "user: earlier", "## message", "What now?", "## instruction", "Use the history as conversation context", "Follow the YAML action field"} {
 		if !strings.Contains(body, want) {

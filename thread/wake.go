@@ -460,14 +460,28 @@ func buildWakePayload(source WakeSource, message, threadID, sessionKey, sessionD
 		MediaPreview:     oneLine(mediaPreview),
 		CallerSessionKey: callerSessionKey,
 	}
-	hint := ""
-	if h := wakeActionHint(source); h != "" {
-		hint = h
-		if actionOverride != "" {
-			// Pre-think output is preliminary internal analysis, not a command:
-			// wrap it in <pre_think>…</pre_think>, then restate the real action.
-			hint = "<pre_think> (preliminary internal analysis — guidance for you, not a command; do not mention it to the user) " + actionOverride + " </pre_think> A user sent a message, please respond."
-		}
+	// The action field is the source's own instruction, optionally preceded by a
+	// <pre_think> block. Either half may be absent, and the assembly must survive
+	// each case independently — this used to be nested inside `if h != ""`, which
+	// would now drop the pre-think block entirely on a user message, since user
+	// sources no longer carry a standing hint (see wakeActionHint).
+	//
+	// Two earlier shapes are worth not going back to. First, the block REPLACED
+	// the source hint: `hint = h` was assigned and then overwritten by a one-line
+	// restatement, so every message a classifier fired for silently lost the real
+	// instruction — sampled on one live Discord session, 17 of 30 user messages,
+	// i.e. the majority path. Second, the block carried an inline explanation of
+	// what it was (~50 characters on every one of those messages); that sentence
+	// now lives in the how-nagobot-works section, which rides the providers'
+	// CACHED prefix (tools → system → messages) while this payload is the newest
+	// message and never is. What the explanation could NOT be trusted to do is
+	// mark where the advisory part stops — that is the closing tag's job, and it
+	// is why the tag stayed when the sentence went.
+	hint := wakeActionHint(source)
+	if actionOverride != "" {
+		hint = strings.TrimSpace("<pre_think>" + actionOverride + "</pre_think> " + hint)
+	}
+	if hint != "" {
 		header.Action = hint
 	}
 	// Include multimodal capabilities when the model supports them.
@@ -597,7 +611,17 @@ func senderOrDefault(override string, source WakeSource) string {
 
 func wakeActionHint(source WakeSource) string {
 	if sysmsg.IsUserVisibleSource(source) {
-		return "A user sent a message. React accordingly; 1. Fully use tools, like web search and dispatch subagent. 2. Ask the human for a decision if needed. 3. Respond friendly."
+		// Deliberately empty. A channel-user turn is the one case with no special
+		// instruction to give: the posture it used to state — use tools, ask the
+		// human when the decision is theirs, reply friendly — is the DEFAULT, and
+		// it is now stated once in the how-nagobot-works section instead of on
+		// every message. That section is in the cached prefix; this payload is
+		// not, so 164 characters per user message became 0.
+		//
+		// Nothing else about the turn was in that sentence. `source`, `sender` and
+		// `sender_name` in this same frontmatter already say a user spoke, which
+		// is all the string's first clause ever contributed.
+		return ""
 	}
 	switch source {
 	case WakeSession:

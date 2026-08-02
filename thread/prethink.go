@@ -221,24 +221,38 @@ func localPreThink(traceCtx context.Context, userMsg, recentChat string, cands [
 	return hint, time.Since(start)
 }
 
-// composePreThinkHint renders the surviving signals into the action hint. The
-// wording is carried over verbatim from the old XML-parsing path: the main model's
-// behaviour is tuned against these exact sentences, so changing the classifier
-// underneath is a big enough change on its own.
+// composePreThinkHint renders the surviving signals into the action hint. Every
+// line states what to DO, and nothing else.
+//
+// The wording used to be carried over verbatim from the old XML-parsing path,
+// which meant each line also restated the classifier's own decision criteria:
+// <destructive> spent 130 of its 249 characters defining what "destructive"
+// means, <coder> 88 of 227, <search> 128 of 179. That text is written for a
+// reader who has to MAKE the call. The main model does not make it and cannot
+// overturn it — the classifier already ran — so the criteria were freight.
+// <search> also carried a ">10%" threshold that was an instruction to the OLD
+// LLM classifier; once the classifier became an embedding prototype the number
+// corresponded to nothing, and the model reading it had no way to act on it.
+//
+// The labels ("Destructive action:", "Search:", …) are deliberately unchanged.
+// The label is the signal; it is what the tests pin and what the deployment's
+// sessions can be grepped for. Worst case (all six firing) went 1074 → ~460
+// characters, and the hint fires on more user messages than the per-field rates
+// suggest — 17 of 30 in one sampled live session, mostly <search> and <skills>.
 func composePreThinkHint(destructive, search, coder, investigator, webURL bool, slugs []string) string {
 	var parts []string
 
 	if destructive {
-		parts = append(parts, "Destructive action: fulfilling this may delete data, send/publish to others, write outside the workspace, or trigger irreversible side effects. Confirm with the user before executing (just ask in plain text), and prefer a dry-run or reversible path.")
+		parts = append(parts, "Destructive action: confirm with the user before executing (just ask in plain text), and prefer a dry-run or reversible path.")
 	}
 	if search {
-		parts = append(parts, "Search: there is a meaningful chance (>10%) a relevant fact has changed since the model's training cutoff or needs an authoritative source. Consider dispatching a search subagent.")
+		parts = append(parts, "Search: a relevant fact may have changed since training. Consider dispatching a search subagent.")
 	}
 	if coder {
-		parts = append(parts, "Code task: this asks for code to be written, debugged, or refactored (a script, program, or web page). Consider dispatching the coder subagent — it runs on a code-specialized model and keeps the coding loop out of this session.")
+		parts = append(parts, "Code task: consider dispatching the coder subagent.")
 	}
 	if investigator {
-		parts = append(parts, "Investigator: you must call dispatch to fan out an investigator subagent before responding to the user.")
+		parts = append(parts, "Investigator: dispatch an investigator subagent before responding.")
 	}
 	if webURL {
 		parts = append(parts, "Web URL present: consider using playwright to open it.")
@@ -252,7 +266,9 @@ func composePreThinkHint(destructive, search, coder, investigator, webURL bool, 
 		if len(slugs) > 1 {
 			label = "Related skills: "
 		}
-		parts = append(parts, label+strings.Join(slugs, ", ")+". Consider "+strings.Join(calls, " / ")+" to load instructions before proceeding.")
+		// The slugs used to be listed twice — bare, then again inside the calls.
+		// The call form is the actionable one, so the bare list is gone.
+		parts = append(parts, label+"consider "+strings.Join(calls, " / ")+" first.")
 	}
 
 	return strings.Join(parts, " ")

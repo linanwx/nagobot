@@ -6,13 +6,15 @@ import (
 )
 
 // The action hint is the pre-think system's entire output — the one string the
-// main model actually reads. Its wording is carried over verbatim from the old
-// LLM-parsing path on purpose: the main model's behaviour was tuned against these
-// exact sentences, and swapping the classifier underneath is already a large
-// enough change without rewording the instructions too.
+// main model actually reads, so these tests pin the TEXT, not just the booleans.
+// If a sentence here has to change, that is a deliberate prompt change and should
+// be made as one.
 //
-// So these tests pin the TEXT, not just the booleans. If a sentence here has to
-// change, that is a deliberate prompt change and should be made as one.
+// The wording was carried over verbatim from the old LLM-parsing path until
+// 2026-08-02, so that swapping the classifier underneath was not also a rewording.
+// It has now been rewritten once, deliberately: every line states an action, and
+// the classifier's decision criteria — which the main model can neither make nor
+// overturn — are gone. See composePreThinkHint for the accounting.
 func TestComposePreThinkHint(t *testing.T) {
 	tests := []struct {
 		name        string
@@ -33,24 +35,30 @@ func TestComposePreThinkHint(t *testing.T) {
 			name:        "destructive",
 			destructive: true,
 			wantAll: []string{
-				"Destructive action: fulfilling this may delete data, send/publish to others, write outside the workspace, or trigger irreversible side effects.",
-				"Confirm with the user before executing (just ask in plain text), and prefer a dry-run or reversible path.",
+				"Destructive action: confirm with the user before executing (just ask in plain text), and prefer a dry-run or reversible path.",
 			},
+			// The criteria the classifier applied are not restated to a reader who
+			// cannot overturn them.
+			wantNone: []string{"may delete data", "irreversible side effects"},
 		},
 		{
 			name:    "search",
 			search:  true,
 			wantAll: []string{"Consider dispatching a search subagent."},
+			// ">10%" was a threshold instruction to the OLD LLM classifier. It
+			// corresponds to nothing now and the model cannot act on it.
+			wantNone: []string{">10%", "training cutoff"},
 		},
 		{
-			name:    "coder",
-			coder:   true,
-			wantAll: []string{"Code task:", "Consider dispatching the coder subagent"},
+			name:     "coder",
+			coder:    true,
+			wantAll:  []string{"Code task: consider dispatching the coder subagent."},
+			wantNone: []string{"code-specialized model"}, // routing rationale, not an instruction
 		},
 		{
 			name:    "investigator",
 			invest:  true,
-			wantAll: []string{"Investigator: you must call dispatch to fan out an investigator subagent before responding to the user."},
+			wantAll: []string{"Investigator: dispatch an investigator subagent before responding."},
 		},
 		{
 			name:    "web url",
@@ -58,15 +66,17 @@ func TestComposePreThinkHint(t *testing.T) {
 			wantAll: []string{"Web URL present: consider using playwright to open it."},
 		},
 		{
+			// The slugs are named once, inside the call. Listing them bare as well
+			// was the same information twice.
 			name:     "one skill is singular",
 			slugs:    []string{"manage-cron"},
-			wantAll:  []string{`Related skill: manage-cron. Consider use_skill("manage-cron")`},
-			wantNone: []string{"Related skills:"},
+			wantAll:  []string{`Related skill: consider use_skill("manage-cron") first.`},
+			wantNone: []string{"Related skills:", "Related skill: manage-cron"},
 		},
 		{
 			name:    "several skills are plural and each gets a call",
 			slugs:   []string{"image", "send-image"},
-			wantAll: []string{`Related skills: image, send-image.`, `use_skill("image") / use_skill("send-image")`},
+			wantAll: []string{`Related skills: consider use_skill("image") / use_skill("send-image") first.`},
 		},
 		{
 			// Order is fixed: the irreversible warning must lead, because it is the one
