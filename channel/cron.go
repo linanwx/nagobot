@@ -26,7 +26,17 @@ type CronChannel struct {
 	messages     chan *Message
 	done         chan struct{}
 	onDirectWake func(sessionKey string, source msg.WakeSource, message, agentName, deliveryLabel string)
+
+	// lastUserActive reports when a real human last spoke ANYWHERE in this
+	// deployment. Injected, because computing it means scanning every
+	// session.jsonl and channel/ has no business knowing how sessions are
+	// stored — the same seam SetDirectWake uses.
+	lastUserActive func() (time.Time, error)
 }
+
+// builtinCronQuietWindow is how long a deployment must go without a real human
+// message before its built-in maintenance jobs stop firing.
+const builtinCronQuietWindow = 24 * time.Hour
 
 // NewCronChannel creates a CronChannel from config.
 func NewCronChannel(cfg *config.Config) *CronChannel {
@@ -53,6 +63,68 @@ func (c *CronChannel) Name() string { return "cron" }
 // frontmatter so the LLM knows where it should dispatch results.
 func (c *CronChannel) SetDirectWake(fn func(sessionKey string, source msg.WakeSource, message, agentName, deliveryLabel string)) {
 	c.onDirectWake = fn
+}
+
+// SetLastUserActive injects the deployment-wide "when did a human last speak"
+// clock that gates the built-in maintenance jobs. Leaving it unset disables the
+// gate entirely; see skipIdleBuiltin for why that is the safe default.
+func (c *CronChannel) SetLastUserActive(fn func() (time.Time, error)) {
+	c.lastUserActive = fn
+}
+
+// shouldSkipJob reports whether this fire should be dropped because the job is
+// one of the built-ins and no real human has spoken anywhere in this deployment
+// for builtinCronQuietWindow.
+//
+// The built-in jobs exist to digest what humans did: tidyup files their work,
+// people-knowledge and world-knowledge run off the conversations. On a
+// deployment nobody is using, they run anyway. Measured across the four live
+// deployments on 2026-08-02, three had gone 2, 3 and 9 days without a human
+// message while all three jobs kept firing nightly — roughly 19 wasted LLM
+// turns on the quietest one.
+//
+// The window is checked GLOBALLY, never per session. These jobs run in their own
+// cron:<id> sessions, which have no human by construction, so a per-session
+// check would skip all of them forever.
+//
+// Custom jobs are never gated. They are the user's own schedule, and several on
+// the live deployments push weekly reports to people who are precisely NOT daily
+// chat users — gating those would silently stop the reports for their intended
+// audience.
+//
+// Fails OPEN. No injected clock, or a clock that errors, runs the job: a missing
+// wiring or an unreadable session tree must not quietly disable maintenance. A
+// zero timestamp with no error is different — it means the scan ran and found no
+// human at all, which is idle by definition and correctly skips.
+func (c *CronChannel) shouldSkipJob(jobID string) bool {
+	if !config.IsBuiltinCronJob(jobID) {
+		return false
+	}
+	if c.lastUserActive == nil {
+		return false
+	}
+	last, err := c.lastUserActive()
+	if err != nil {
+		logger.Warn("cron: cannot determine last user activity, running built-in job anyway",
+			"id", jobID, "err", err)
+		return false
+	}
+	if !last.IsZero() && time.Since(last) < builtinCronQuietWindow {
+		return false
+	}
+	logger.Info("cron: skipping built-in job, no human activity in this deployment",
+		"id", jobID,
+		"window", builtinCronQuietWindow,
+		"lastUserActiveAt", lastActiveLabel(last),
+	)
+	return true
+}
+
+func lastActiveLabel(t time.Time) string {
+	if t.IsZero() {
+		return "never"
+	}
+	return t.Format(time.RFC3339) + " (" + time.Since(t).Round(time.Minute).String() + " ago)"
 }
 
 // FindJob looks up a cron job by ID. Returns zero Job and false if the
@@ -101,6 +173,13 @@ func (c *CronChannel) Start(ctx context.Context) error {
 		jobID := strings.TrimSpace(job.ID)
 		if jobID == "" {
 			jobID = "job"
+		}
+		// Gate the built-in maintenance jobs on recent human activity. Checked
+		// here rather than at schedule time because the answer changes between
+		// the schedule being set and the job firing — the whole point is that a
+		// deployment goes quiet while its cron entries stay put.
+		if c.shouldSkipJob(jobID) {
+			return "", nil
 		}
 		target := strings.TrimSpace(job.WakeSession)
 		task := strings.TrimSpace(job.Task)

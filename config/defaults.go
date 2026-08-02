@@ -1,6 +1,10 @@
 package config
 
-import cronpkg "github.com/linanwx/nagobot/cron"
+import (
+	"strings"
+
+	cronpkg "github.com/linanwx/nagobot/cron"
+)
 
 const (
 	defaultProvider            = "deepseek"
@@ -42,6 +46,30 @@ func defaultCronSeeds() []cronpkg.Job {
 			Agent: "people-knowledge",
 		},
 	}
+}
+
+// IsBuiltinCronJob reports whether id names one of the cron jobs nagobot ships
+// with, as opposed to one the user created.
+//
+// The answer is derived from defaultCronSeeds rather than kept as its own list,
+// because the two would drift: a fourth seed added there and forgotten here
+// would be treated as a user job forever, silently. cron.Job carries no
+// "builtin" field and deliberately does not gain one — that would be a config
+// format change, and the ID is already authoritative. A user job cannot collide
+// with a seed ID either: applyDefaults force-merges seeds BY ID, overwriting
+// whatever sat there, so the collision is unrepresentable rather than merely
+// unlikely.
+func IsBuiltinCronJob(id string) bool {
+	id = strings.TrimSpace(id)
+	if id == "" {
+		return false
+	}
+	for _, seed := range defaultCronSeeds() {
+		if seed.ID == id {
+			return true
+		}
+	}
+	return false
 }
 
 // DefaultConfig returns a config with sensible defaults.

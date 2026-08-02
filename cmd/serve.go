@@ -249,6 +249,40 @@ func runServe(cmd *cobra.Command, args []string) error {
 	// attached so the cron-triggered turn's default output goes nowhere — the
 	// model must dispatch() explicitly. The deliveryLabel is mode-specific
 	// guidance rendered in the wake frontmatter.
+	// The built-in maintenance jobs (tidyup / world-knowledge / people-knowledge)
+	// only fire when a real human has spoken somewhere in the past 24h. This is
+	// the scan that answers that; the gate itself lives in channel/cron.go.
+	//
+	// Days:2 is deliberately just over the 24h window rather than large: the only
+	// question is "within 24h or not", and anything inside that window is always
+	// retained by a 2-day filter. Scanning further back would cost more for an
+	// answer that cannot change. UserOnly drops sessions with no real user
+	// message at all, which is exactly the set this must ignore.
+	cronCh.SetLastUserActive(func() (time.Time, error) {
+		latestCfg, err := config.Load()
+		if err != nil {
+			return time.Time{}, fmt.Errorf("load config: %w", err)
+		}
+		out, err := collectSessions(latestCfg, listSessionsOpts{Days: 2, UserOnly: true})
+		if err != nil {
+			return time.Time{}, fmt.Errorf("scan sessions: %w", err)
+		}
+		var newest time.Time
+		for _, s := range out.Sessions {
+			if s.LastUserActiveAt == nil {
+				continue
+			}
+			t, err := time.Parse(time.RFC3339, *s.LastUserActiveAt)
+			if err != nil {
+				continue
+			}
+			if t.After(newest) {
+				newest = t
+			}
+		}
+		return newest, nil
+	})
+
 	cronCh.SetDirectWake(func(sessionKey string, source thread.WakeSource, message, agentName, deliveryLabel string) {
 		dropSink := thread.SessionSink{
 			Label: deliveryLabel,
