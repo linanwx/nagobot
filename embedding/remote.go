@@ -65,12 +65,71 @@ func (c *Client) Model(ctx context.Context) (string, bool) {
 }
 
 // Embed returns one vector per input text, in order.
+//
+// Texts present in the baked table (see baked.go) are served from it and never
+// reach the network. On a stock deployment that covers every anchor of every
+// classifier, so the whole index build costs zero requests; only a hand-edited
+// skill description or a user-added skill misses. The remote call carries the
+// misses alone — which is also what keeps the request's input count small, the
+// one dimension OpenRouter's route for this model actually limits.
 func (c *Client) Embed(ctx context.Context, texts []string) ([][]float64, error) {
 	b := c.resolve()
 	if b == nil {
 		return nil, fmt.Errorf("embedding: no remote embedding backend configured")
 	}
 
+	out := make([][]float64, len(texts))
+	missIdx := make([]int, 0, len(texts))
+	missTexts := make([]string, 0, len(texts))
+
+	// A table built for different weights must not be consulted at all; an
+	// unrecognized model simply means every text misses.
+	tbl := loadBaked()
+	if tbl != nil && tbl.model != normalizeModelName(b.Model) {
+		tbl = nil
+	}
+	for i, t := range texts {
+		if tbl != nil {
+			if v, ok := tbl.lookup(t); ok {
+				out[i] = v
+				continue
+			}
+		}
+		missIdx = append(missIdx, i)
+		missTexts = append(missTexts, t)
+	}
+	if len(missTexts) == 0 {
+		return out, nil
+	}
+
+	vecs, err := c.embedRemote(ctx, b, missTexts)
+	if err != nil {
+		return nil, err
+	}
+	for j, idx := range missIdx {
+		out[idx] = vecs[j]
+	}
+	return out, nil
+}
+
+// EmbedRemote forces the network path, bypassing the baked table entirely.
+// It exists for the table GENERATOR, which must observe what the endpoint
+// actually returns rather than the answers it is about to overwrite. Nothing
+// on the request path should call it.
+//
+// It does not chunk: the caller decides how many inputs one request carries,
+// which for the generator is the whole point (OpenRouter's route for this
+// model rejects requests with too many inputs).
+func (c *Client) EmbedRemote(ctx context.Context, texts []string) ([][]float64, error) {
+	b := c.resolve()
+	if b == nil {
+		return nil, fmt.Errorf("embedding: no remote embedding backend configured")
+	}
+	return c.embedRemote(ctx, b, texts)
+}
+
+// embedRemote is the unconditional network path: one POST, one vector per input.
+func (c *Client) embedRemote(ctx context.Context, b *Backend, texts []string) ([][]float64, error) {
 	body, err := json.Marshal(map[string]any{"model": b.Model, "input": texts})
 	if err != nil {
 		return nil, fmt.Errorf("embedding: marshal request: %w", err)

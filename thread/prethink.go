@@ -308,11 +308,20 @@ func skillCandidatesFrom(reg *skills.Registry) []skillCandidate {
 // WarmLocalPreThink builds the four embedding indexes ahead of the first user
 // message, in the background.
 //
-// Without it the first message of a fresh process pays ~1.5s to embed the anchor
-// sets and the skill descriptions — inside the budget, but a visible stall on
-// exactly the turn a user is most likely to be watching. Warming costs nothing on
-// a machine without a configured backend: resolution fails fast and every classifier simply
-// reports itself unavailable.
+// Most of what it used to do is now free. The static anchor sets ship as
+// pre-computed vectors (embedding/anchors.bin), so destructive, search, coder
+// and the skill "none" anchors resolve from memory with no request at all —
+// which is what removed the failure this warm-up could never work around: on a
+// backend whose route rejects an 85-input request, those indexes did not
+// eventually build, they never built.
+//
+// What remains is the skill descriptions. The shipped ones are baked too, so on
+// a stock deployment this still touches no network; a workspace with added or
+// hand-edited skills embeds exactly those, which is a handful of texts. Doing it
+// here rather than on the first message keeps that cost off the turn a user is
+// most likely to be watching. Warming costs nothing on a machine without a
+// configured backend: resolution fails fast and every classifier simply reports
+// itself unavailable.
 func WarmLocalPreThink(reg *skills.Registry) {
 	go func() {
 		start := time.Now()
