@@ -71,6 +71,32 @@ var acceptedFields = map[DispatchTarget]map[string]bool{
 	TargetSession:       {"session_key": true, "channel": true, "user_id": true},
 }
 
+// dispatchTargetNames is the sorted list of legal `to` values, DERIVED from
+// acceptedFields rather than written out beside it.
+//
+// It is derived because the hand-written copy was wrong for weeks. When
+// to=user was removed, the constants, acceptedFields, how-nagobot-works.md,
+// thread-ops and dispatch-guide were all updated — and the tool schema's enum
+// was not, so it kept telling every model on every turn that "user" was a legal
+// target while validateOne rejected it. The schema is the machine-readable
+// contract and it sits in the cached tool prefix, so it outweighs any prose
+// saying otherwise: a wecom session that had no skill mentioning to=user still
+// emitted it, and one weekly review was never delivered because of the
+// recovery the rejection provoked. Two copies of one fact with nothing forcing
+// them to agree is the defect; deleting the stale copy would only have reset
+// the clock.
+//
+// Sorted because this feeds the tool schema, and prompt caching requires
+// map-derived output to serialize deterministically.
+func dispatchTargetNames() []string {
+	out := make([]string, 0, len(acceptedFields))
+	for t := range acceptedFields {
+		out = append(out, string(t))
+	}
+	slices.Sort(out)
+	return out
+}
+
 // dispatchFieldHints explain what a misplaced params key is actually for, so
 // the rejection tells the model where the key belongs rather than only that it
 // does not belong here.
@@ -285,7 +311,7 @@ func (t *DispatchTool) Def() provider.ToolDef {
 							"properties": map[string]any{
 								"to": map[string]any{
 									"type":        "string",
-									"enum":        []string{"caller:session", "user", "subagent", "fork", "session"},
+									"enum":        dispatchTargetNames(),
 									"description": "Target kind.",
 								},
 								"body": map[string]any{
@@ -294,7 +320,7 @@ func (t *DispatchTool) Def() provider.ToolDef {
 								},
 								"params": map[string]any{
 									"type": "object",
-									"description": "Target-specific options dictionary (string values). Write ONLY the keys your target needs; leave the whole dictionary empty for user and caller:*, which already know their destination. " +
+									"description": "Target-specific options dictionary (string values). Write ONLY the keys your target needs; leave the whole dictionary empty for caller:*, which already knows its destination. " +
 										"For to=subagent/fork — task_id: required, [a-z0-9_-]+, reusing the same task_id targets the existing thread; agent: template name, empty for the session default (never invent placeholders like \"default\"); provider+model: optional model override, must be set together, list valid pairs via `set-model --list-fallback`. " +
 										"For to=session — EITHER session_key: exact key of an existing session, OR channel+user_id: channel one of discord/feishu/telegram/wecom, user_id the channel-native recipient id (wecom userid, telegram chat id, discord channel id, feishu openID; groups per channel convention, e.g. wecom \"group:<chatid>\"), session created if missing.",
 									"additionalProperties": map[string]any{"type": "string"},
@@ -557,7 +583,8 @@ func (t *DispatchTool) validateOne(send DispatchSend, currentSession string) str
 	// entry, which makes this lookup the unknown-to check as well.
 	accepted, known := acceptedFields[send.To]
 	if !known {
-		return fmt.Sprintf("unknown to: %q (must be one of caller:session/subagent/fork/session). To speak to your own human, do not dispatch at all — just write your message as your reply text.", send.To)
+		return fmt.Sprintf("unknown to: %q (must be one of %s). To speak to your own human, do not dispatch at all — just write your message as your reply text.",
+			send.To, strings.Join(dispatchTargetNames(), "/"))
 	}
 	if detail := rejectBadParams(send, accepted); detail != "" {
 		return detail

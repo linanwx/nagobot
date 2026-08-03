@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"slices"
 	"strings"
 	"testing"
 
@@ -1351,4 +1352,53 @@ func TestDispatch_UserWake_NoContentSinkStillAllowsSoloDispatch(t *testing.T) {
 	if len(host.wokeSessions) != 1 {
 		t.Errorf("expected the send to execute, got %+v", host.wokeSessions)
 	}
+}
+
+// TestToolSchemaAgreesWithTheValidator walks the enum the model is actually
+// shown and asserts the validator would accept every value in it.
+//
+// The two disagreed in production. When to=user was removed, acceptedFields
+// lost the target but the schema's enum kept advertising it, so the tool
+// definition — which rides in the cached prefix on every single turn — told
+// every model that "user" was legal while validateOne rejected it with
+// `unknown to: "user"`. Measured across the deployments: 25 such rejections on
+// one bot, 3 on another, including one weekly review that was never delivered
+// because of how the model recovered from the rejection. A wecom session whose
+// workspace had no skill mentioning to=user still emitted it, which is what
+// proves the schema alone was sufficient to cause the call.
+//
+// The enum is derived from acceptedFields now, so this reads as tautological —
+// that is the point. It fails the moment someone writes the list out by hand
+// again.
+func TestToolSchemaAgreesWithTheValidator(t *testing.T) {
+	tool := &DispatchTool{}
+	params := tool.Def().Function.Parameters
+
+	props := params["properties"].(map[string]any)
+	sends := props["sends"].(map[string]any)
+	items := sends["items"].(map[string]any)
+	itemProps := items["properties"].(map[string]any)
+	to := itemProps["to"].(map[string]any)
+
+	enum, ok := to["enum"].([]string)
+	if !ok || len(enum) == 0 {
+		t.Fatalf("dispatch schema has no `to` enum: %#v", to["enum"])
+	}
+
+	for _, name := range enum {
+		if _, known := acceptedFields[DispatchTarget(name)]; !known {
+			t.Errorf("schema advertises to=%q but the validator rejects it as an unknown target", name)
+		}
+	}
+	if len(enum) != len(acceptedFields) {
+		t.Errorf("schema lists %d targets, validator knows %d — a target the model is never told about "+
+			"is as broken as one that does not exist", len(enum), len(acceptedFields))
+	}
+	if slices.Contains(enum, "user") {
+		t.Error("to=user is back in the schema; speaking to one's own human is plain reply text, not a dispatch")
+	}
+	if !slices.IsSorted(enum) {
+		t.Errorf("enum must be sorted for deterministic tool serialization (prompt caching): %v", enum)
+	}
+	t.Logf("targets: %v", enum)
 }
