@@ -249,16 +249,21 @@ func buildBalanceCheckers(cfg *config.Config, metricsDir string) []monitor.Balan
 	}
 
 	return []monitor.BalanceChecker{
-		func() monitor.BalanceChecker {
-			cfg, _ := config.Load()
-			if cfg != nil && cfg.Providers.OpenAIOAuth != nil {
-				return &monitor.OpenAIQuota{
-					AccessToken: cfg.Providers.OpenAIOAuth.AccessToken,
-					AccountID:   cfg.Providers.OpenAIOAuth.AccountID,
-				}
+		// Re-read the token on every call. The `cfg` passed in is the caller's
+		// snapshot, and for the daemon's poller that snapshot is taken once at
+		// startup — using it here is what let a rotated token go unnoticed for
+		// the life of the process.
+		&monitor.OpenAIQuota{CredsFn: func() (string, string) {
+			cur, err := config.Load()
+			if err != nil || cur == nil {
+				return "", ""
 			}
-			return &monitor.OpenAIQuota{}
-		}(),
+			token := cur.GetOAuthToken("openai-oauth")
+			if token == nil {
+				return "", ""
+			}
+			return token.AccessToken, token.AccountID
+		}},
 		&monitor.OpenRouterBalance{KeyFn: keyFn("openrouter")},
 		&monitor.UnsupportedBalance{Name: "anthropic", Reason: "no public balance API (Anthropic does not expose billing/credits endpoint)", KeyFn: keyFn("anthropic")},
 		&monitor.DeepSeekBalance{KeyFn: keyFn("deepseek")},

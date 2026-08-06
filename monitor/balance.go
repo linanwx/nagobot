@@ -185,22 +185,48 @@ func (b *DeepSeekBalance) Check(ctx context.Context) (*BalanceInfo, error) {
 // --- OpenAI (OAuth usage from chatgpt.com/backend-api/wham/usage) ---
 
 // OpenAIQuota queries OpenAI usage via the ChatGPT wham/usage endpoint.
+//
+// Credentials are resolved per call, like every other checker's KeyFn, and that
+// is load-bearing rather than stylistic: the daemon builds its checkers ONCE at
+// startup (cmd/serve.go) and then polls every 5 minutes for the process's whole
+// lifetime, while OAuth access tokens rotate underneath it on a ~10 day TTL. A
+// snapshotted token therefore dies the first time the inference path refreshes,
+// and every poll after that reports a dead credential — observed live on
+// kingsley, where the token rotated 08-05 23:00 UTC and the daily health check
+// began claiming "OAuth token expired" while inference kept working fine.
 type OpenAIQuota struct {
-	AccessToken string
-	AccountID   string
+	// CredsFn returns the current access token and account id, both empty when
+	// no OAuth credential is configured.
+	CredsFn func() (accessToken, accountID string)
 }
 
 func (b *OpenAIQuota) Provider() string { return "openai-oauth" }
-func (b *OpenAIQuota) Available() bool  { return b.AccessToken != "" }
+
+func (b *OpenAIQuota) creds() (string, string) {
+	if b.CredsFn == nil {
+		return "", ""
+	}
+	return b.CredsFn()
+}
+
+func (b *OpenAIQuota) Available() bool {
+	token, _ := b.creds()
+	return token != ""
+}
 
 func (b *OpenAIQuota) Check(ctx context.Context) (*BalanceInfo, error) {
+	token, accountID := b.creds()
+	if token == "" {
+		return &BalanceInfo{Provider: "openai-oauth", Error: "no OAuth token configured (run: nagobot auth login openai)"}, nil
+	}
+
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, "https://chatgpt.com/backend-api/wham/usage", nil)
 	if err != nil {
 		return nil, err
 	}
-	req.Header.Set("Authorization", "Bearer "+b.AccessToken)
-	if b.AccountID != "" {
-		req.Header.Set("ChatGPT-Account-Id", b.AccountID)
+	req.Header.Set("Authorization", "Bearer "+token)
+	if accountID != "" {
+		req.Header.Set("ChatGPT-Account-Id", accountID)
 	}
 
 	resp, err := http.DefaultClient.Do(req)
@@ -209,8 +235,17 @@ func (b *OpenAIQuota) Check(ctx context.Context) (*BalanceInfo, error) {
 	}
 	defer resp.Body.Close()
 
+	// Deliberately NOT reported as "token expired". This endpoint is the quota
+	// API, not the inference path, so its rejection says nothing about whether
+	// the stored credential is expired — and expiry is knowable exactly, from
+	// ExpiresAt plus the presence of a refresh token, which `nagobot auth
+	// status` already computes. Asserting expiry here produced the worst kind of
+	// wrong: an alert whose prescribed remedy (`auth login`) does not clear it.
 	if resp.StatusCode == 401 || resp.StatusCode == 403 {
-		return &BalanceInfo{Provider: "openai-oauth", Error: "OAuth token expired (run: nagobot auth login openai)"}, nil
+		return &BalanceInfo{
+			Provider: "openai-oauth",
+			Error:    fmt.Sprintf("usage endpoint rejected the credential (HTTP %d) — check with: nagobot auth status", resp.StatusCode),
+		}, nil
 	}
 	if resp.StatusCode != 200 {
 		return &BalanceInfo{Provider: "openai-oauth", Error: fmt.Sprintf("HTTP %d", resp.StatusCode)}, nil
