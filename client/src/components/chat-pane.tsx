@@ -7,11 +7,12 @@ import {
   Pin,
   ScrollText,
 } from "lucide-react";
-import { useCallback, useMemo, useState } from "react";
+import { createContext, useCallback, useContext, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { PinProvider } from "@/components/assistant-ui/pin-message";
 import { QuoteReplyProvider } from "@/components/assistant-ui/quote-reply";
-import { Thread } from "@/components/assistant-ui/thread";
+import { Thread, ThreadWelcome } from "@/components/assistant-ui/thread";
+import { RecentSessions } from "@/components/recent-sessions";
 import { PinsDialog } from "@/components/pins-dialog";
 import { SessionRawDialog } from "@/components/session-raw-dialog";
 import { SystemPromptDialog } from "@/components/system-prompt-dialog";
@@ -35,6 +36,33 @@ import { cn } from "@/lib/utils";
 // flash for a frame or two before the messages appear.
 const NullWelcome = () => null;
 
+// The recents strip reaches its data through context rather than through the
+// Welcome slot, because assistant-ui treats that slot as a component TYPE: a
+// closure rebuilt on render is a new type every render, which remounts the
+// welcome and replays its fade-in — visibly, every time the 30s session refresh
+// lands. Both slot objects below are module constants for the same reason.
+type RecentsValue = {
+  sessions: SessionEntry[];
+  sessionsLoaded: boolean;
+  currentKey: string;
+  onOpen: (key: string) => void;
+};
+
+const RecentsContext = createContext<RecentsValue | null>(null);
+
+const WelcomeWithRecents = () => {
+  const recents = useContext(RecentsContext);
+  return (
+    <>
+      <ThreadWelcome />
+      {recents && <RecentSessions {...recents} />}
+    </>
+  );
+};
+
+const nullWelcomeSlot = { Welcome: NullWelcome };
+const recentsWelcomeSlot = { Welcome: WelcomeWithRecents };
+
 const statusLabelKey = {
   connecting: "chat.connecting",
   open: "chat.online",
@@ -48,6 +76,8 @@ const childMenuLimit = 50;
 export function ChatPane({
   sessionKey,
   summary,
+  sessions,
+  sessionsLoaded,
   childSessions,
   parentSession,
   onOpenSession,
@@ -58,6 +88,11 @@ export function ChatPane({
   // The session's summary, if it has one — shown as the header title in place
   // of the opaque session id (which is kept as the hover tooltip / fallback).
   summary?: string;
+  // Every session the server knows, and whether that list has arrived yet. Used
+  // only by the welcome screen's recents strip, to give a stored key its live
+  // title and to drop keys the server no longer lists.
+  sessions: SessionEntry[];
+  sessionsLoaded: boolean;
   childSessions: SessionEntry[];
   parentSession: string | null;
   onOpenSession: (key: string) => void;
@@ -79,9 +114,10 @@ export function ChatPane({
     loadEarlier,
   } = useNagobotChat(sessionKey, onFirstSend, summary);
   const hasMessages = messageCount > 0;
-  const threadComponents = useMemo(
-    () => (hasMessages ? { Welcome: NullWelcome } : undefined),
-    [hasMessages],
+  const threadComponents = hasMessages ? nullWelcomeSlot : recentsWelcomeSlot;
+  const recentsValue = useMemo<RecentsValue>(
+    () => ({ sessions, sessionsLoaded, currentKey: sessionKey, onOpen: onOpenSession }),
+    [sessions, sessionsLoaded, sessionKey, onOpenSession],
   );
   const [rawOpen, setRawOpen] = useState(false);
   const [pinsOpen, setPinsOpen] = useState(false);
@@ -236,11 +272,13 @@ export function ChatPane({
           <AssistantRuntimeProvider runtime={runtime}>
             <QuoteReplyProvider generate={generateQuote}>
               <PinProvider file={filePin}>
-                <Thread
-                  components={threadComponents}
-                  earlierCount={earlierCount}
-                  onLoadEarlier={loadEarlier}
-                />
+                <RecentsContext.Provider value={recentsValue}>
+                  <Thread
+                    components={threadComponents}
+                    earlierCount={earlierCount}
+                    onLoadEarlier={loadEarlier}
+                  />
+                </RecentsContext.Provider>
               </PinProvider>
             </QuoteReplyProvider>
           </AssistantRuntimeProvider>

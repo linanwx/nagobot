@@ -27,7 +27,7 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { Sheet, SheetContent, SheetTitle } from "@/components/ui/sheet";
 import type { SessionEntry } from "@/lib/api";
-import { relativeTime } from "@/lib/sessions";
+import { relativeTime, sessionLabel } from "@/lib/sessions";
 import { cn } from "@/lib/utils";
 
 const collapseStorageKey = "sidebar-collapsed-folders";
@@ -81,11 +81,6 @@ type Folder = {
 function folderOf(key: string): string {
   const idx = key.indexOf(":");
   return idx === -1 ? key : key.slice(0, idx);
-}
-
-function sessionLabel(key: string): string {
-  const idx = key.indexOf(":");
-  return idx === -1 ? key : key.slice(idx + 1);
 }
 
 // Folders ordered by their most recent session (sessions arrive time-sorted),

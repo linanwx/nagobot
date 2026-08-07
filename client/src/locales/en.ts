@@ -111,6 +111,7 @@ export const en = {
   },
   thread: {
     welcome: "How can I help you today?",
+    recent: "Recent conversations",
     loadEarlier: "Load earlier messages ({{count}} more)",
     scrollToBottom: "Scroll to bottom",
     sendPlaceholder: "Send a message...",

@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { ChatPane } from "@/components/chat-pane";
 import { SessionSidebar } from "@/components/session-sidebar";
 import { fetchSessions, setSessionArchived, type SessionEntry } from "@/lib/api";
+import { recordRecentSession } from "@/lib/recent-sessions";
 import { childSessionsOf, parentSessionOf, topLevelSessions } from "@/lib/sessions";
 
 const refreshIntervalMs = 30_000;
@@ -110,6 +111,19 @@ export default function App() {
     syncURL(key);
     setSheetOpen(false);
   }, []);
+
+  // Remember the visit for the welcome screen's recents strip — but only once
+  // the server lists the session. Recording on navigation instead would file a
+  // fresh empty draft on every page load, which is the same noise the sidebar
+  // deliberately keeps out (see draftSessions above). A draft that becomes real
+  // is picked up here by the next refresh, while the user is still in it.
+  //
+  // Re-running on each refresh is intended: recency means when you were last in
+  // a session, not when you first opened it.
+  useEffect(() => {
+    const entry = sessions.find((s) => s.key === sessionKey);
+    if (entry) recordRecentSession(entry.key, entry.summary);
+  }, [sessionKey, sessions]);
 
   // A URL can name a session that does not exist — a notification for a session
   // since deleted, a link shared from another deployment, a hand-typed key. Fall
@@ -230,6 +244,8 @@ export default function App() {
         key={sessionKey}
         sessionKey={sessionKey}
         summary={currentSummary}
+        sessions={sessions}
+        sessionsLoaded={sessionsLoaded}
         onFirstSend={handleFirstSend}
         childSessions={children}
         parentSession={parent}

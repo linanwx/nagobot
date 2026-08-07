@@ -109,6 +109,7 @@ export const zh = {
   },
   thread: {
     welcome: "今天有什么可以帮你的？",
+    recent: "最近的对话",
     loadEarlier: "加载更早的消息（还有 {{count}} 条）",
     scrollToBottom: "滚动到底部",
     sendPlaceholder: "发送消息…",

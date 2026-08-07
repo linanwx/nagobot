@@ -17,6 +17,14 @@ function hasParentIn(key: string, keys: Set<string>): boolean {
   return false;
 }
 
+// The human-facing remainder of a key once its channel prefix is dropped
+// ("web:a1b2" → "a1b2"). Only ever a fallback: a summarized session is named by
+// its summary, and this is what is left when there is none.
+export function sessionLabel(key: string): string {
+  const idx = key.indexOf(":");
+  return idx === -1 ? key : key.slice(idx + 1);
+}
+
 export function topLevelSessions(all: SessionEntry[]): SessionEntry[] {
   const keys = keySet(all);
   return all

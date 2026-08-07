@@ -615,7 +615,9 @@ const ThreadScrollToBottom: FC = () => {
   );
 };
 
-const ThreadWelcome: FC = () => {
+// Exported so a host can put something BELOW the heading (chat-pane composes it
+// with the recent-sessions strip) without restating the heading itself.
+export const ThreadWelcome: FC = () => {
   const { t } = useTranslation();
   return (
     <div className="aui-thread-welcome-root mb-6 flex flex-col items-center px-4 text-center">
