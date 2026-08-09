@@ -282,29 +282,14 @@ func (w *WebChannel) Start(ctx context.Context) error {
 	mux.Handle("/api/pins", w.protected(w.handlePins))
 	mux.Handle("/", staticCacheHandler(frontendFS))
 
-	// Compression + WS split. gzhttp wraps the whole API+static mux, but with an
-	// explicit compressible-type ALLOW list: gzhttp's default compresses
-	// application/octet-stream, and Go serves .woff2 fonts as octet-stream (they
-	// aren't in its mime table), so the default would re-gzip already-compressed
-	// fonts — wasted CPU, ~zero gain. The list below is exactly the text-shaped
-	// types (HTML/JS/CSS/JSON/SVG); fonts, PNG icons and other binaries fall
-	// through uncompressed.
+	// Compression + WS split.
 	//
 	// The WebSocket upgrade is registered on the OUTER router so it never passes
 	// through the gzip ResponseWriter — coder/websocket's Accept hard-requires
 	// http.Hijacker, which the gzip wrapper does not surface. "/ws" is a more
 	// specific pattern than "/", so it wins the route; everything else falls to
 	// the gzipped mux.
-	gzip, err := gzhttp.NewWrapper(gzhttp.ContentTypes([]string{
-		"text/html",
-		"text/css",
-		"text/javascript",
-		"application/javascript",
-		"application/json",
-		"application/manifest+json",
-		"image/svg+xml",
-		"text/plain",
-	}))
+	gzip, err := newGzipWrapper()
 	if err != nil {
 		return fmt.Errorf("failed to build gzip wrapper: %w", err)
 	}
@@ -1217,6 +1202,95 @@ func viewMessages(view string, stored []provider.Message) ([]messageWithTok, err
 	}
 }
 
+// knownView reports whether viewMessages can render this view.
+//
+// It exists because the conditional-request path below has to answer BEFORE the
+// file is read, and therefore before viewMessages gets a say. Issuing a
+// validator for a view viewMessages would reject turns a typo into a 304 —
+// exactly the silent success that switch's default case exists to prevent.
+// TestKnownViewAgreesWithViewMessages keeps the two lists from drifting.
+func knownView(view string) bool {
+	switch view {
+	case "", "chat":
+		return true
+	default:
+		return false
+	}
+}
+
+// sessionETag derives a session read's validator from the FILE'S IDENTITY
+// rather than from its bytes: hashing the body would need the read this exists
+// to avoid, and the body is a pure function of (file bytes, view) — ReadFile
+// sanitizes deterministically and viewMessages is a projection over the result.
+//
+// Sessions are written by temp+rename (session.WriteFile), so mtime moves on
+// every write, including a Tier-1 pass that rewrites content IN PLACE without
+// adding a line or touching any message's timestamp. That case is the reason
+// this is a real validator and the session list is not: /api/sessions carries
+// message_count (a line count) and updated_at (the last message's timestamp),
+// and a Tier-1 rewrite changes neither while changing what the reader sees.
+//
+// Size rides along because mtime alone is only as precise as the filesystem,
+// and the view is part of the key because one file renders two different
+// bodies.
+func sessionETag(fi os.FileInfo, view string) string {
+	if view == "" {
+		view = "full"
+	}
+	return fmt.Sprintf(`"%s-%d-%d"`, view, fi.Size(), fi.ModTime().UnixNano())
+}
+
+// etagMatches implements the If-None-Match comparison for the tags we issue:
+// "*" matches any existing representation, otherwise the header is a
+// comma-separated list and any member equal to ours is a hit.
+//
+// A W/ weak form is compared as-is and therefore never matches, which is
+// deliberate — we only ever issue strong tags, so a weak one came from
+// somewhere else and answering 304 for it would suppress a body we did not
+// produce. Note gzhttp is configured without SuffixETag, so the tag the browser
+// echoes is the one set here even when the response it saw was gzipped; the
+// Vary: Accept-Encoding gzhttp emits is what keeps the two encodings apart.
+func etagMatches(header, etag string) bool {
+	for candidate := range strings.SplitSeq(header, ",") {
+		candidate = strings.TrimSpace(candidate)
+		if candidate == "*" || candidate == etag {
+			return true
+		}
+	}
+	return false
+}
+
+// newGzipWrapper builds the compression middleware the whole API+static mux
+// runs through. It is a function rather than an inline literal in Start so the
+// conditional-request tests can exercise the real configuration — the wrapper
+// is the one thing between a handler's ETag and the browser, and two of its
+// options would break revalidation silently:
+//
+//   - SuffixETag would append an encoding marker to the tag on gzipped
+//     responses, and gzhttp does NOT strip that suffix back off on the way in,
+//     so etagMatches would miss on every revalidation from a browser that
+//     accepts gzip — i.e. all of them. It is deliberately left unset.
+//   - DropETag would remove the tag outright, so nothing would revalidate at all.
+//
+// The compressible-type ALLOW list is explicit because gzhttp's default
+// compresses application/octet-stream, and Go serves .woff2 fonts as
+// octet-stream (they aren't in its mime table), so the default would re-gzip
+// already-compressed fonts — wasted CPU, ~zero gain. The list is exactly the
+// text-shaped types (HTML/JS/CSS/JSON/SVG); fonts, PNG icons and other binaries
+// fall through uncompressed.
+func newGzipWrapper() (func(http.Handler) http.HandlerFunc, error) {
+	return gzhttp.NewWrapper(gzhttp.ContentTypes([]string{
+		"text/html",
+		"text/css",
+		"text/javascript",
+		"application/javascript",
+		"application/json",
+		"application/manifest+json",
+		"image/svg+xml",
+		"text/plain",
+	}))
+}
+
 func (w *WebChannel) handleSessionMessages(rw http.ResponseWriter, r *http.Request) {
 	if w.workspace == "" {
 		http.Error(rw, "workspace is not configured", http.StatusInternalServerError)
@@ -1267,6 +1341,40 @@ func (w *WebChannel) handleSessionMessages(rw http.ResponseWriter, r *http.Reque
 		return
 	}
 
+	// Answer conditionally, before the file is opened. This is what the client
+	// gets for free from a plain fetch(): no-cache stores the response and
+	// forces revalidation on every use, so an unchanged session costs one round
+	// trip and an empty body instead of the whole read.
+	//
+	// The saving is not only on open. resync() re-reads the full history on
+	// every reconnect and every time the tab returns to the foreground, and on
+	// the largest live session that is 232 KB gzipped each time — while most of
+	// those reads find nothing changed.
+	//
+	// A TTL would have been the wrong shape here: any window of max-age is a
+	// window in which a compression pass rewrites the session under a reader who
+	// has been told not to ask.
+	//
+	// "private" for the same reason the media handler uses it: this sits behind
+	// protected() with Caddy in front, and the body is one person's
+	// conversation. Without it a shared cache may store the response, and
+	// "no-cache" would then have it revalidate with SOMEONE ELSE's cookie —
+	// which the origin answers 304, so the wrong body is served to the wrong
+	// reader. Nothing in the deployed path caches today; the word costs nothing
+	// and the failure it prevents is silent.
+	//
+	// A failing stat falls through to ReadFile, which owns the 404/500 wording.
+	view := r.URL.Query().Get("view")
+	if fi, err := os.Stat(path); err == nil && knownView(view) {
+		etag := sessionETag(fi, view)
+		rw.Header().Set("ETag", etag)
+		rw.Header().Set("Cache-Control", "private, no-cache")
+		if etagMatches(r.Header.Get("If-None-Match"), etag) {
+			rw.WriteHeader(http.StatusNotModified)
+			return
+		}
+	}
+
 	s, err := session.ReadFile(path)
 	if err != nil {
 		if errors.Is(err, os.ErrNotExist) {
@@ -1277,7 +1385,6 @@ func (w *WebChannel) handleSessionMessages(rw http.ResponseWriter, r *http.Reque
 		return
 	}
 
-	view := r.URL.Query().Get("view")
 	msgs, err := viewMessages(view, s.Messages)
 	if err != nil {
 		http.Error(rw, err.Error(), http.StatusBadRequest)
