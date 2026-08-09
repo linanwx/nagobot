@@ -1,6 +1,6 @@
 ---
 name: dream
-description: Nighttime dreaming. Reviews the past 24 hours of this session's conversation, reflects on what matters, overwrites dream.md with the result, refreshes the session summary if it has gone stale, summarizes this session's unsummarized memory files, and may schedule one next-day follow-up wake. Triggered by the heartbeat scheduler at night (should_dream=true) — never call directly.
+description: Nighttime dreaming. Reviews the past 24 hours of this session's conversation, reflects on what matters, overwrites dream.md with the result, refreshes the session summary if it has gone stale, summarizes this session's unsummarized memory files, and schedules follow-up wakes — a next-day check-in when one is clearly warranted, plus a reminder for anything the day put on a specific future date, however far out. Triggered by the heartbeat scheduler at night (should_dream=true) — never call directly.
 ---
 # Dream
 
@@ -62,19 +62,42 @@ This is a BACKGROUND task. You will NOT message the user.
 
    This feeds the cross-session awareness section injected into every agent's system prompt — it is how other sessions know what this one is about.
 
-5. **Plan a follow-up for the day ahead.** Put yourself in the shoes of a friend who cares about this user. Based on the past 24 hours: is there a greeting or follow-up worth sending them tomorrow, and when? ("Tomorrow" as the user will experience it — dreams run in the small hours, so it is usually later this same calendar day.)
+5. **Plan what future-you should do.** Two different things live here, and they have different bars because they have different authors. Do both.
+
+   **5a — a follow-up for the day ahead.** Put yourself in the shoes of a friend who cares about this user. Based on the past 24 hours: is there a greeting or follow-up worth sending them tomorrow, and when? ("Tomorrow" as the user will experience it — dreams run in the small hours, so it is usually later this same calendar day.)
    - Think of up to 3 candidates. For each: what to send, when to send it, and a suitability score — low / medium / high. Include them in the dream you write in step 3, under a `## Follow-up` heading.
-   - If at least one candidate scores **high**, schedule the single best one as a one-time direct wake into this session:
+   - Schedule the single best one **only if it scores high**. Here you are finding a reason to speak, so the bar is high. No candidate scores high → schedule nothing. A day with no natural follow-up is normal; do not force one.
 
-     ```
-     exec: {{WORKSPACE}}/bin/nagobot cron set-at --id <short-descriptive-id> \
-         --at "<RFC3339 time, session-local offset>" \
-         --task "<the plan>" \
-         --wake-session {{SESSIONKEY}} --direct-wake
-     ```
+   **5b — anything the day put on a date.** Separate from 5a, and **not** subject to its bar. Scan the past 24 hours for something the user themselves placed on a specific future day: an appointment, a deadline, a trip, a delivery, an event, something they said they would do "on the 14th" or "next Saturday". The user supplied both the reason and the day, so you are not inventing an excuse to speak and a suitability score does not apply.
+   - **Any distance is in scope.** Two days out, two weeks out, two months out — schedule it for when it is useful, not for tomorrow. A plan made today for the weekend after next belongs here, and nowhere else: 5a can only reach tomorrow, and by tomorrow night this conversation is outside the 24-hour window step 1 reviews, so nobody looks at it again.
+   - **A date mentioned is not a date committed to.** Skip a day that is already past, a hypothetical ("if it slips to the 20th"), someone else's schedule the user is not part of, or an intention with no day attached ("sometime soon", "when I get around to it"). If you cannot name a calendar day, there is nothing to schedule — say so in `dream.md` and move on.
+   - At most 3 per night. Anything beyond that rides in `dream.md` and gets picked up the next time it comes up.
 
-   - Write `--task` so tomorrow-you can act on it directly: what to send and why, with enough context from today's conversation. It must also instruct: first look at the recent conversation — if the moment has passed (the user already brought it up, or the follow-up no longer feels natural), end silently with `dispatch({})`; otherwise deliver it as your ordinary reply text (a cron wake on this session reaches the user).
-   - No candidate scores high → schedule nothing. A day with no natural follow-up is normal; do not force one.
+   **Only if 5a or 5b produced something to schedule**, first look at what is already on the books:
+
+   ```
+   exec: {{WORKSPACE}}/bin/nagobot cron list
+   ```
+
+   Read the rows whose wake session is `{{SESSIONKEY}}` and ignore the rest. Something you filed on an earlier night is already there: leave it alone unless the day changed its time or what it should say, in which case re-file it under the SAME id, which updates it in place. (Skip this call entirely when there is nothing to schedule — it lists every job on the deployment, task text included, and that is not free.)
+
+   **Pin the day before you write it.** `{{CALENDAR}}` in your system prompt covers today ±7 days, and nothing beyond.
+   - **Inside that window, read the date off the table.** Do not compute what is already written down.
+   - **Outside it, derive the date one step at a time and write the derivation into `dream.md`** — e.g. `today 2026-08-09 Sunday → next Saturday 08-15 → the Saturday after that 08-22`. Beyond +7d the table cannot help you, so this written trail is the only thing standing between a reminder and the wrong day. A silent mental calculation is not checkable by anyone, including tomorrow-you.
+   - **If you cannot pin the day confidently, schedule nothing.** Record the item in `dream.md` instead and let a waking turn with the user present settle it. A reminder that fires on the wrong day is worse than no reminder: it is wrong in a way nobody can trace back to this turn.
+
+   **Then schedule it** as a one-time direct wake into this session:
+
+   ```
+   exec: {{WORKSPACE}}/bin/nagobot cron set-at --id <event-slug> \
+       --at "<RFC3339 time, session-local offset>" \
+       --task "<the plan>" \
+       --wake-session {{SESSIONKEY}} --direct-wake
+   ```
+
+   - **`--id` names the EVENT, never the date** — `house-viewing-followup`, not `followup-20260822`. `set-at` upserts by id, so an event that comes up again on a later night overwrites its own job instead of filing a second copy, and a date that moves is corrected by re-filing under the same id. A date-derived id makes both impossible and quietly accumulates duplicates that all fire.
+   - **`--at` is when the reminder is USEFUL, not when the event happens.** A 9am appointment wants the evening before or that morning — not 9am sharp, by which time it is not a reminder.
+   - **`--task` must stand on its own.** By the time it fires, today's conversation may have been compressed out of context, and this text is the only surviving record — a 5b task two weeks out has no other lifeline. Write what to send, why, and the facts from today it depends on. It must also instruct: first look at the recent conversation — if the moment has passed (the user already brought it up, or the follow-up no longer feels natural), end silently with `dispatch({})`; otherwise deliver it as your ordinary reply text (a cron wake on this session reaches the user).
 
 6. **Summarize this session's unsummarized memory files.** Each time this session's context was compressed, the compression report was saved as `{{SESSIONDIR}}/memory/YYYY-MM-DD.md`. A memory file with no `summary` frontmatter is invisible to future recall — it is never listed in any session's `memory_index` — so a dream night is when this session pays that debt for itself.
 
@@ -116,5 +139,6 @@ This is a BACKGROUND task. You will NOT message the user.
 - BACKGROUND task — NEVER send messages to the user.
 - ALWAYS overwrite `dream.md` completely; never append to the previous dream.
 - If the past 24 hours hold nothing meaningful (e.g. no real conversation), skip the dream write — and the summary in step 4 is almost certainly still accurate, so skip that too — but STILL do the memory files (step 6) and the file-track skill (step 8), then `dispatch({})`. Those two are about files on disk, not about the conversation, so a quiet night does not excuse them. Step 7 is the opposite: it is derived entirely from what was said, so a night with nothing said has nothing for it to do.
+- A reminder scheduled for the wrong day is worse than no reminder. If step 5 cannot pin a date, it writes the item into `dream.md` and schedules nothing.
 - Step 7 is the only place a dream writes to the user's own work files. Everything else it touches (`dream.md`, the session summary, memory frontmatter, `file-track.md`) belongs to the runtime. Keep that edit narrow and stated-in-conversation, or leave the file alone.
 - MUST terminate with `dispatch({})` — silent termination.
