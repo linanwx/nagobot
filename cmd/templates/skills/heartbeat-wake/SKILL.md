@@ -1,35 +1,40 @@
 ---
 name: heartbeat-wake
-description: Routing layer for heartbeat pulses. Reads pulse_index from the wake message and dispatches to the appropriate sub-skill. Called automatically by the heartbeat scheduler — never call directly.
+description: Routing layer for heartbeat pulses. Reads the task name the scheduler selected and dispatches to the matching sub-skill. Called automatically by the heartbeat scheduler — never call directly.
 ---
 # Heartbeat Wake Router
 
-The heartbeat scheduler fired a pulse into this session. Your job is to read the `pulse_index` from the wake message and route accordingly.
+The heartbeat scheduler fired a pulse into this session and has ALREADY decided
+what should happen. Your only job is to read the `task` field from the wake
+message and call the matching sub-skill.
 
 ## Wake Message Format
 
 The wake message is a system message with YAML frontmatter containing:
 
+- `task`: the name of the task the scheduler selected. This is the routing key.
 - `pulse_index`: 1-based integer indicating which pulse this is
 - `elapsed_since_user`: duration string since last user activity
 - `next_pulse`: RFC3339 timestamp of the next scheduled pulse
-- `should_dream`: present and set to `true` only when the scheduler decided this pulse should trigger a dream (session-local night, user quiet for a long time)
-- `session_summary`: present only alongside `should_dream` — this session's current one-line summary, or `(none on record — …)` when it has never had one. The dream skill judges and may rewrite it; this router does not read it.
+- `session_summary`: present only on a `dream` task — this session's current one-line summary, or `(none on record — …)` when it has never had one. The dream skill judges and may rewrite it; this router does not read it.
 
 ## Routing Table
 
-Check `should_dream` FIRST — it takes priority over `pulse_index`:
-
-| Condition | Action |
-|-----------|--------|
-| `should_dream: true` is present | Call `use_skill("dream")` and follow its instructions. Do nothing else. |
-| `pulse_index == 4` (no dream) | Call `use_skill("session-reflect")` and follow its instructions. |
-| Any other value | No action needed. Call `dispatch({})` to end silently. |
+| `task` | Action |
+|--------|--------|
+| `dream` | Call `use_skill("dream")` and follow its instructions. Do nothing else. |
+| `reflect` | Call `use_skill("session-reflect")` and follow its instructions. Do nothing else. |
+| anything else, or absent | No action needed. Call `dispatch({})` to end silently. |
 
 ## Rules
 
-1. First check the wake message YAML frontmatter for `should_dream: true`. If present, call `use_skill("dream")`, follow its output, and do nothing else.
-2. Otherwise, extract `pulse_index`. If `pulse_index == 4`: call `use_skill("session-reflect")` and follow its output.
-3. For all other cases: call `dispatch({})` to end the turn silently.
+1. Route on `task` alone. Do NOT derive the routing from `pulse_index`,
+   `elapsed_since_user`, or the time of day — the scheduler already weighed
+   those, applied priority between competing tasks, and recorded the result. A
+   second opinion here can only disagree with it.
+2. `pulse_index` and `elapsed_since_user` are context for the sub-skill, not
+   inputs to this decision.
+3. An unrecognized or absent `task` is not an error to report — end silently
+   with `dispatch({})`.
 4. NEVER produce user-facing output from this router.
 5. Every execution MUST terminate with either a sub-skill call or `dispatch({})`.

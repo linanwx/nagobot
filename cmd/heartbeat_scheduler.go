@@ -25,26 +25,44 @@ const (
 	hbActivityWindow = 48 * time.Hour   // Only pulse sessions active within this window.
 	hbDreamDedup     = 4 * time.Hour    // After a dream fires, suppress dreams for this session for this long.
 
-	// hbReflectPulse is the pulse index that triggers session-reflect. On the
-	// timeline above, pulse 4 lands 4h00m after the user's last message —
-	// late enough that the conversation is really over, not just a lunch break.
-	// The heartbeat-wake skill routes on this same number: keep the two in sync.
-	hbReflectPulse = 4
+	// hbReflectMinPulse is the EARLIEST pulse that may run session-reflect. On
+	// the timeline above, pulse 4 lands 4h00m after the user's last message —
+	// late enough that the conversation is really over, not just a lunch break,
+	// and late enough that the provider's prompt cache has expired anyway.
+	//
+	// A floor rather than an equality, so a pulse lost to a higher-priority task
+	// is retried on the next one. See heartbeatTasks for the measurement that
+	// forced the change.
+	hbReflectMinPulse = 4
+
+	// hbDreamMinPulse is the earliest pulse that may run a dream. Pulse 2 is one
+	// hour of quiet — enough that a message sent at 01:50 does not get its
+	// context rewritten underneath it at 02:05.
+	hbDreamMinPulse = 2
 )
 
 // hbSessionState holds persisted per-session heartbeat state.
+//
+// Fired is the ONLY dedup authority: every task's "have I run recently"
+// predicate reads it, and it is written and persisted at fire time, so a restart
+// cannot re-run work that already happened. heartbeat_log.jsonl is append-only
+// observability and is never read back.
 type hbSessionState struct {
-	LastPulse time.Time `json:"last_pulse"`
+	LastPulse time.Time     `json:"last_pulse"`
+	Fired     []firedRecord `json:"fired,omitempty"`
 }
 
 // heartbeatScheduler fires heartbeat pulses into user sessions.
 //
-// Trigger timeline uses growing intervals aligned to user's last message:
+// The trigger timeline is pulseSchedule, anchored on the user's last message:
 //
-//	lastActive+15m, +60m, +115m, +180m, ... (45m base, +10m each cycle)
+//	lastActive+15m, +60m, +135m, +240m, +375m, ... (45m base gap, +30m each cycle)
 //
-// lastPulse is persisted to disk and only used to prevent duplicate firing
-// within the same cycle. It does NOT determine the trigger schedule.
+// What a due pulse actually DOES is heartbeatTasks — a priority-ordered table of
+// predicates, of which at most one runs per pulse. Most pulses run nothing.
+//
+// lastPulse is persisted to disk and only used to keep one pulse from being
+// evaluated twice. It does NOT determine the trigger schedule.
 type heartbeatScheduler struct {
 	mgr   *thread.Manager
 	cfgFn func() *config.Config
@@ -54,26 +72,23 @@ type heartbeatScheduler struct {
 
 	statePath string // path to heartbeat-state.json
 
-	dreamLogPath string               // path to dream_log.jsonl
-	lastDream    map[string]time.Time // sessionKey → last dream time (dedup, guarded by mu)
+	taskLogPath string // path to heartbeat_log.jsonl (append-only, never read back)
 
 	summaryPath string // path to sessions_summary.json (read only on dream pulses)
 }
 
 func newHeartbeatScheduler(mgr *thread.Manager, cfgFn func() *config.Config) *heartbeatScheduler {
 	s := &heartbeatScheduler{
-		mgr:       mgr,
-		cfgFn:     cfgFn,
-		sessions:  make(map[string]*hbSessionState),
-		lastDream: make(map[string]time.Time),
+		mgr:      mgr,
+		cfgFn:    cfgFn,
+		sessions: make(map[string]*hbSessionState),
 	}
 	// Load persisted state.
 	if cfg := cfgFn(); cfg != nil {
 		if workspace, err := cfg.WorkspacePath(); err == nil {
 			s.statePath = filepath.Join(workspace, "system", "heartbeat-state.json")
 			s.loadState()
-			s.dreamLogPath = filepath.Join(workspace, "system", "dream_log.jsonl")
-			s.loadDreamLog()
+			s.taskLogPath = filepath.Join(workspace, "system", "heartbeat_log.jsonl")
 			s.summaryPath = filepath.Join(workspace, "system", "sessions_summary.json")
 		}
 	}
@@ -127,98 +142,85 @@ func (s *heartbeatScheduler) saveState() {
 	os.WriteFile(s.statePath, data, 0o644)
 }
 
-// dreamLogEntry is one append-only record in dream_log.jsonl.
-type dreamLogEntry struct {
+// taskLogEntry is one append-only record in heartbeat_log.jsonl. It is written
+// for observability only — "which task ran, for whom, on which pulse" is the
+// question the deployment gets asked months later, and it is not answerable from
+// heartbeat-state.json, which only ever holds the last 48 hours.
+//
+// It is never read back. Dedup reads hbSessionState.Fired, which is persisted at
+// the same moment; two readers of two files would be two chances to disagree.
+type taskLogEntry struct {
 	SessionKey string    `json:"session_key"`
-	DreamedAt  time.Time `json:"dreamed_at"`
+	Task       string    `json:"task"`
+	At         time.Time `json:"at"`
+	Pulse      int       `json:"pulse"`
 }
 
-// loadDreamLog reads the append-only dream log and rebuilds the per-session
-// last-dream map, keeping the most recent timestamp per session. This survives
-// restarts so a nighttime restart does not re-trigger dreams already done.
-func (s *heartbeatScheduler) loadDreamLog() {
-	if s.dreamLogPath == "" {
-		return
-	}
-	data, err := os.ReadFile(s.dreamLogPath)
-	if err != nil {
-		return
-	}
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	for _, line := range strings.Split(string(data), "\n") {
-		line = strings.TrimSpace(line)
-		if line == "" {
-			continue
-		}
-		var e dreamLogEntry
-		if err := json.Unmarshal([]byte(line), &e); err != nil {
-			continue
-		}
-		if e.SessionKey == "" {
-			continue
-		}
-		if prev, ok := s.lastDream[e.SessionKey]; !ok || e.DreamedAt.After(prev) {
-			s.lastDream[e.SessionKey] = e.DreamedAt
-		}
-	}
-}
+// recordFired marks a task as run for this session and appends it to the task
+// log. Called at fire time, not at completion, so the dedup window holds even
+// when the LLM turn behind it fails — the next chance is the next pulse the
+// predicate admits, never an immediate retry loop.
+func (s *heartbeatScheduler) recordFired(key, task string, now time.Time, pulse int, epoch time.Time) {
+	rec := firedRecord{Task: task, At: now.UTC(), Pulse: pulse, Epoch: epoch.UTC()}
 
-// recordDream appends a dream event to dream_log.jsonl and updates the in-memory
-// dedup map. Called at fire time so the dedup window holds even if the LLM's
-// dream turn fails — the next dream chance is the following night.
-func (s *heartbeatScheduler) recordDream(key string, now time.Time) {
 	s.mu.Lock()
-	s.lastDream[key] = now
+	st := s.sessions[key]
+	if st == nil {
+		st = &hbSessionState{}
+		s.sessions[key] = st
+	}
+	st.Fired = append(pruneFired(st.Fired, now), rec)
 	s.mu.Unlock()
-	if s.dreamLogPath == "" {
+
+	if s.taskLogPath == "" {
 		return
 	}
-	data, err := json.Marshal(dreamLogEntry{SessionKey: key, DreamedAt: now.UTC()})
+	data, err := json.Marshal(taskLogEntry{SessionKey: key, Task: task, At: rec.At, Pulse: pulse})
 	if err != nil {
 		return
 	}
-	os.MkdirAll(filepath.Dir(s.dreamLogPath), 0o755)
-	f, err := os.OpenFile(s.dreamLogPath, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o644)
+	os.MkdirAll(filepath.Dir(s.taskLogPath), 0o755)
+	f, err := os.OpenFile(s.taskLogPath, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o644)
 	if err != nil {
-		logger.Warn("dream log append failed", "key", key, "err", err)
+		logger.Warn("heartbeat task log append failed", "key", key, "task", task, "err", err)
 		return
 	}
 	defer f.Close()
 	if _, err := f.Write(append(data, '\n')); err != nil {
-		logger.Warn("dream log write failed", "key", key, "err", err)
+		logger.Warn("heartbeat task log write failed", "key", key, "task", task, "err", err)
 	}
 }
 
-// nightHour reports whether now falls in the 02:00–06:00 window of the session's
-// configured timezone, falling back to the system timezone when unset/invalid.
-func (s *heartbeatScheduler) nightHour(key string, now time.Time) bool {
-	tz := s.cfgFn().SessionTimezone(key)
-	loc, err := time.LoadLocation(tz)
+// sessionLoc resolves the session's configured timezone, falling back to the
+// system zone when unset or invalid.
+func (s *heartbeatScheduler) sessionLoc(key string) *time.Location {
+	loc, err := time.LoadLocation(s.cfgFn().SessionTimezone(key))
 	if err != nil {
-		loc = time.Local
+		return time.Local
 	}
-	h := now.In(loc).Hour()
-	return h >= 2 && h < 6
+	return loc
 }
 
-// shouldDream decides whether this pulse should also trigger a dream.
-// Conditions: pulse_index > 2 (user quiet > ~135 min), session-local night
-// (02:00–06:00), and no dream for this session within the dedup window.
-func (s *heartbeatScheduler) shouldDream(key string, now time.Time, pulseIndex int) bool {
-	if pulseIndex <= 2 {
-		return false
-	}
-	if !s.nightHour(key, now) {
-		return false
-	}
+// pulseStateFor assembles what the task predicates get to see. Kept in one place
+// so the scan path and `heartbeat status` cannot disagree about what would fire.
+func (s *heartbeatScheduler) pulseStateFor(key string, p scheduledPulse, now, lastActive time.Time) pulseState {
 	s.mu.Lock()
-	last := s.lastDream[key]
-	s.mu.Unlock()
-	if !last.IsZero() && now.Sub(last) < hbDreamDedup {
-		return false
+	var fired []firedRecord
+	if st := s.sessions[key]; st != nil {
+		fired = append(fired, st.Fired...)
 	}
-	return true
+	s.mu.Unlock()
+
+	return pulseState{
+		SessionKey: key,
+		Index:      p.Index,
+		Now:        now,
+		Trigger:    p.At,
+		LastActive: lastActive,
+		Elapsed:    now.Sub(lastActive).Round(time.Second),
+		Fired:      fired,
+		Loc:        s.sessionLoc(key),
+	}
 }
 
 func (s *heartbeatScheduler) scan(ctx context.Context) {
@@ -319,47 +321,42 @@ func (s *heartbeatScheduler) maybeFirePulse(key string, now time.Time, lastActiv
 	lastPulse := st.LastPulse
 	s.mu.Unlock()
 
-	// Find the latest trigger point on the timeline that is <= now.
-	trigger, nextInterval, pulseIndex := latestDueTrigger(lastActive, now)
-	if trigger.IsZero() {
+	// Find the latest pulse on this quiet period's roster that is <= now.
+	pulse, nextInterval, ok := newPulseSchedule(lastActive).latest(now)
+	if !ok {
 		return
 	}
 
-	// Only fire if this trigger point hasn't been fired yet.
-	if !trigger.After(lastPulse) {
-		nextTrigger := trigger.Add(nextInterval)
-		logger.Debug("heartbeat skip: already fired this cycle", "key", key,
-			"trigger", trigger.Format(time.RFC3339),
+	// Only evaluate a pulse once. lastPulse is purely this dedup guard — it
+	// never determines when the next pulse is due, which is a pure function of
+	// lastActive.
+	if !pulse.At.After(lastPulse) {
+		nextTrigger := pulse.At.Add(nextInterval)
+		logger.Debug("heartbeat skip: already evaluated this pulse", "key", key,
+			"trigger", pulse.At.Format(time.RFC3339),
 			"lastPulse", lastPulse.Format(time.RFC3339),
 			"next", nextTrigger.Format(time.RFC3339),
 			"wait", nextTrigger.Sub(now).Round(time.Second))
 		return
 	}
 
-	// Read heartbeat.md mtime for the wake message metadata.
-	hbMtime := hbFileMtime(hbPath)
+	state := s.pulseStateFor(key, pulse, now, lastActive)
+	task := selectHeartbeatTask(state)
 
-	nextTrigger := trigger.Add(nextInterval)
-	nextPulse := nextTrigger.UTC().Format(time.RFC3339)
-	mdModified := ""
-	if !hbMtime.IsZero() {
-		mdModified = hbMtime.UTC().Format(time.RFC3339)
-	}
-	elapsed := now.Sub(lastActive).Round(time.Second)
+	if task != "" {
+		nextPulse := pulse.At.Add(nextInterval).UTC().Format(time.RFC3339)
+		mdModified := ""
+		if hbMtime := hbFileMtime(hbPath); !hbMtime.IsZero() {
+			mdModified = hbMtime.UTC().Format(time.RFC3339)
+		}
+		// Read only on a dream pulse — at most once a night per session, so the
+		// file read never lands on an ordinary pulse (most of which do nothing).
+		summary := ""
+		if task == hbTaskDream {
+			summary = s.sessionSummary(key)
+		}
+		message := buildHeartbeatMessage(mdModified, nextPulse, pulse.Index, state.Elapsed, lastPulse, task, summary)
 
-	dream := s.shouldDream(key, now, pulseIndex)
-	// Read only on a dream pulse — once a night per session at most, so the
-	// file read never lands on an ordinary pulse (most of which wake nothing).
-	summary := ""
-	if dream {
-		summary = s.sessionSummary(key)
-	}
-	message := buildHeartbeatMessage(mdModified, nextPulse, pulseIndex, elapsed, lastPulse, dream, summary)
-
-	// Wake for pulse indices that have registered handlers, or when a dream is due.
-	// hbReflectPulse (4h00m) → session-reflect; pulse_index > 2 at night → dream.
-	// Every other pulse wakes nothing and costs no LLM call.
-	if pulseIndex == hbReflectPulse || dream {
 		s.mgr.Wake(key, &thread.WakeMessage{
 			Source:  thread.WakeHeartbeat,
 			Message: message,
@@ -368,41 +365,22 @@ func (s *heartbeatScheduler) maybeFirePulse(key string, now time.Time, lastActiv
 				Send:  func(_ context.Context, _ string) error { return nil },
 			}),
 		})
-		if dream {
-			s.recordDream(key, now)
-		}
+		s.recordFired(key, task, now, pulse.Index, lastActive)
+		logger.Info("heartbeat task fired", "sessionKey", key, "task", task,
+			"pulse", pulse.Index, "trigger", pulse.At.Format(time.RFC3339), "nextPulse", nextPulse)
+	} else {
+		// The common case by a wide margin, and it costs no LLM call. Logged at
+		// Debug precisely because it is not an event.
+		logger.Debug("heartbeat pulse: no task eligible", "key", key, "pulse", pulse.Index)
 	}
 
-	// Update state and persist.
+	// Update state and persist. Unconditional: the pulse was evaluated whether
+	// or not anything came of it, and re-evaluating it every 30s until the next
+	// one would re-ask a question already answered.
 	s.mu.Lock()
 	st.LastPulse = now
 	s.mu.Unlock()
 	s.saveState()
-
-	logger.Info("heartbeat pulse fired", "sessionKey", key, "trigger", trigger.Format(time.RFC3339), "nextPulse", nextPulse)
-}
-
-// latestDueTrigger returns the latest trigger point on the timeline
-// (lastActive+quietMin, +quietMin+base, +quietMin+base+(base+growth), ...)
-// that is <= now, along with the interval to the next trigger point.
-// Returns zero time, zero duration, and zero index if no trigger point is due yet.
-// pulseIndex is 1-based: the first pulse after quiet threshold is pulse 1.
-func latestDueTrigger(lastActive time.Time, now time.Time) (time.Time, time.Duration, int) {
-	t := lastActive.Add(hbQuietMin)
-	if now.Before(t) {
-		return time.Time{}, 0, 0
-	}
-	idx := 1
-	interval := hbPulseInterval
-	for {
-		next := t.Add(interval)
-		if now.Before(next) {
-			return t, interval, idx
-		}
-		t = next
-		interval += hbPulseGrowth
-		idx++
-	}
 }
 
 // hbStatusEntry represents one session's heartbeat status.
@@ -412,6 +390,66 @@ type hbStatusEntry struct {
 	NextPulse    string `json:"next_pulse"`
 	Status       string `json:"status"`
 	HasHeartbeat bool   `json:"has_heartbeat"`
+	// Roster is the next few pulses and the task each would run if it fired
+	// right then, e.g. "p4 04:12 reflect". Predicted with the same
+	// selectHeartbeatTask the scan path uses, so an empty roster is a real
+	// answer — this session has nothing scheduled — rather than a missing view.
+	Roster []string `json:"roster,omitempty"`
+	// Fired is what already ran during the current quiet period.
+	Fired []string `json:"fired,omitempty"`
+}
+
+// hbStatusRosterLen is how far ahead `heartbeat status` looks. Four pulses is
+// roughly the next 12 hours once the gaps have grown, which covers "will this
+// session dream tonight" — the question the roster exists to answer.
+const hbStatusRosterLen = 4
+
+// rosterFor predicts the upcoming pulses and what each would do.
+//
+// Predictions are threaded FORWARD: a task predicted for one pulse is added to
+// the fired set the next pulse is evaluated against, exactly as the scan path
+// would have recorded it. Evaluating each pulse independently instead would show
+// an owed reflect on every remaining row, reading as "reflect runs four times"
+// when it runs once and the rest go quiet.
+//
+// The prediction is still only a prediction: eligibility is evaluated at each
+// pulse's scheduled moment, so a dream shown for 03:15 fires only if the daemon
+// is awake and the session still quiet then.
+func (s *heartbeatScheduler) rosterFor(key string, now, lastActive time.Time) []string {
+	sched := newPulseSchedule(lastActive)
+	var predicted []firedRecord
+	var out []string
+	for _, p := range sched.upcoming(now, hbStatusRosterLen) {
+		state := s.pulseStateFor(key, p, p.At, lastActive)
+		state.Fired = append(state.Fired, predicted...)
+
+		task := selectHeartbeatTask(state)
+		label := task
+		if task == "" {
+			label = "-"
+		} else {
+			predicted = append(predicted, firedRecord{Task: task, At: p.At, Pulse: p.Index, Epoch: lastActive})
+		}
+		out = append(out, fmt.Sprintf("p%d %s %s", p.Index, p.At.Local().Format("15:04"), label))
+	}
+	return out
+}
+
+// firedFor lists this quiet period's completed tasks, newest last.
+func (s *heartbeatScheduler) firedFor(key string, lastActive time.Time) []string {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	st := s.sessions[key]
+	if st == nil {
+		return nil
+	}
+	var out []string
+	for _, f := range st.Fired {
+		if f.Epoch.Equal(lastActive.UTC()) {
+			out = append(out, fmt.Sprintf("%s p%d %s", f.Task, f.Pulse, f.At.Local().Format("15:04")))
+		}
+	}
+	return out
 }
 
 // Status returns the real heartbeat state for all eligible sessions.
@@ -497,6 +535,8 @@ func (s *heartbeatScheduler) Status() []hbStatusEntry {
 			e.NextPulse = nextTrigger.Local().Format("15:04:05")
 			e.Status = fmt.Sprintf("waiting (%s)", nextTrigger.Sub(now).Round(time.Second))
 		}
+		e.Roster = s.rosterFor(se.Key, now, lastActive)
+		e.Fired = s.firedFor(se.Key, lastActive)
 		entries = append(entries, e)
 	}
 	return entries
@@ -560,7 +600,12 @@ const noSessionSummary = "(none on record — this session has never had a summa
 // that section lists every session, so the dream had to find its own row among
 // them and judge staleness from a line it might not locate. Here the summary
 // under judgement is the wake's own field.
-func buildHeartbeatMessage(mdModified, nextPulse string, pulseIndex int, elapsed time.Duration, lastPulse time.Time, shouldDream bool, sessionSummary string) string {
+// task is the name the scheduler already selected, and it is what the
+// heartbeat-wake skill routes on. The routing decision is made HERE, in Go,
+// rather than restated as index arithmetic in markdown — the pulse number used
+// to live in both places, and changing one without the other silently disabled
+// the task.
+func buildHeartbeatMessage(mdModified, nextPulse string, pulseIndex int, elapsed time.Duration, lastPulse time.Time, task string, sessionSummary string) string {
 	fields := map[string]string{}
 	if nextPulse != "" {
 		fields["next_pulse"] = nextPulse
@@ -573,8 +618,10 @@ func buildHeartbeatMessage(mdModified, nextPulse string, pulseIndex int, elapsed
 	if !lastPulse.IsZero() {
 		fields["last_pulse"] = lastPulse.UTC().Format(time.RFC3339)
 	}
-	if shouldDream {
-		fields["should_dream"] = "true"
+	if task != "" {
+		fields["task"] = task
+	}
+	if task == hbTaskDream {
 		if sessionSummary != "" {
 			fields["session_summary"] = sessionSummary
 		} else {

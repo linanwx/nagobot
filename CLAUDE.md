@@ -448,15 +448,28 @@ Load-bearing details of 5b:
 
 A Go goroutine (`heartbeatScheduler`) scans every 30s and fires heartbeat pulses into user sessions. NOT a cron job — the old cron-based dispatcher was removed.
 
-**Most pulses wake nothing.** `maybeFirePulse` calls `mgr.Wake()` only when `pulseIndex == hbReflectPulse || dream` — every other pulse advances `lastPulse`, logs `heartbeat pulse fired`, and costs **zero LLM calls**. (The log line is misleading: it prints even when no thread was woken.)
+### The roster: a schedule plus a priority-ordered task table
 
-When a pulse *does* wake the thread, it runs `use_skill("heartbeat-wake")`, a router (`cmd/templates/skills/heartbeat-wake/SKILL.md`). The payload carries `pulse_index`, `elapsed_since_user`, `next_pulse`, and (only on dream pulses) `should_dream: true`. Routing, checked in order:
+A user message fixes that quiet period's entire pulse timeline, so the timeline is a value: `pulseSchedule` (`cmd/heartbeat_schedule.go`), a pure function of the anchor that can answer `at(i)`, `latest(now)` and `upcoming(n)`. It is deliberately **not persisted** — the anchor moves on every user message and invalidates the whole roster at once, so a stored copy would be a second source of truth that drifts silently, the same trap `Thread.lastUserActiveAt` already is.
 
-- **`should_dream: true`** → `use_skill("dream")` — review the past 24h, overwrite `dream.md`, refresh the session summary only if it has gone stale, summarize this session's unsummarized `memory/*.md` files (≤3), correct any tracked work file the day left stale, then run file-track. The scheduler sets this only at session-local night (02:00–06:00), user quiet long, `pulse_index > 2`, and ≥4h since the last dream (`shouldDream`, dedup via `dream_log.jsonl`).
-- **`pulse_index == 4`** (`hbReflectPulse`, = 4h00m of user quiet; and not a dream) → `use_skill("session-reflect")` — extract user preferences/corrections/patterns into `USER.md`.
-- **anything else** → `dispatch({})`. This branch is **unreachable** — the scheduler never wakes on those pulses. It exists only as a guard.
+What runs on a due pulse is decided by `heartbeatTasks` (`cmd/heartbeat_tasks.go`), a slice whose **order is the priority**. Each entry is a name plus a pure `Eligible(pulseState) bool`; `pulseState` carries the pulse index, `Now`, the scheduled `Trigger`, elapsed quiet, the session's timezone, and `Fired` — what has already run. `selectHeartbeatTask` returns the **first** eligible task, and **at most one task runs per pulse**.
 
-The pulse number lives in two places — `hbReflectPulse` in Go and the routing table in the skill markdown. Changing one without the other silently disables reflect.
+That "at most one" is the mechanism, not an optimization: the loser stays eligible and is picked up by the next pulse.
+
+| task | scheduled by | gate |
+|---|---|---|
+| `dream` | the **clock** | `Index >= hbDreamMinPulse` (2), session-local 02:00–06:00, and no dream in the last 4h (`firedWithin`, **cross-epoch** — a 48h silence spans two nights and dreams on both) |
+| `reflect` | the **pulse count** | `Index >= hbReflectMinPulse` (4), and not already run this quiet period (`firedThisEpoch`) |
+
+**Most pulses select nothing**, cost zero LLM calls, and log at Debug. Only a fired task logs at Info (`heartbeat task fired`, with the task name) — the old `heartbeat pulse fired` line printed on every pulse whether or not a thread was woken, which made the log read as ~20x more activity than there was.
+
+When a task is selected the thread runs `use_skill("heartbeat-wake")` (`cmd/templates/skills/heartbeat-wake/SKILL.md`), which is now a pure lookup: the wake carries `task: dream|reflect` and the skill routes on that field alone. **The routing decision is made in Go.** It used to be split — `hbReflectPulse` in Go and `pulse_index == 4` restated in markdown — and changing one without the other silently disabled reflect.
+
+**`reflect` is a floor, not an equality, and that is the fix for a measured defect.** It used to be `pulse_index == 4`, so whenever pulse 4 landed inside the dream window the dream took it and that quiet period's reflect was **destroyed** — no catch-up, because the index passes 4 exactly once and resets to 1 on the next user message. Pulse 4 is exactly +4h, so the collision fires for every last-message time between 22:00 and 02:00 local, i.e. the most common way a day ends. Replayed over kingsley's entire history: **52 of 391 reflect opportunities, 13.3%** (worst single session 6/23). Cross-checked from the other side — of the 316 dreams whose preceding user message could be located, **41 (13%) fired at pulse 4**. With a floor plus the once-per-epoch guard the displaced reflect simply runs at pulse 5; the *volume* of reflects is unchanged, only their timing. `TestEveryLongQuietPeriodGetsExactlyOneReflect` sweeps all 1440 minute-of-day start times and asserts the property; reverting the floor to `==` fails it at exactly 22:00 and 23:00.
+
+**Dedup is `hbSessionState.Fired`, persisted in `heartbeat-state.json`, and it is the only authority.** `heartbeat_log.jsonl` (successor to `dream_log.jsonl`, which is left in place unread) is append-only observability: it answers "which task ran, for whom, on which pulse" months later, which the 48h-pruned state file cannot. Records are written at **fire** time, not completion, so a failed LLM turn does not become a retry loop.
+
+**Dream tests `Now`, never `Trigger`.** `pulseState` carries both, and the choice is deliberate: evaluating a catch-up against its scheduled time would let a nighttime outage run a memory-rewriting turn at 07:00, which is precisely what the 02:00–06:00 window exists to prevent. The cost is that a daemon down for the whole window loses that night — but there is no in-window moment left to use, so no scheduling rule could have recovered it.
 
 Both live paths end silently — heartbeat never produces user-facing output. They are also the system's single largest token consumer: measured over 14 days, heartbeat was 47.9% of all prompt tokens (1.85x every real Discord conversation combined) for zero user-facing output. Two known sources of waste remain inside the turns: `session-reflect` calls `read_file(USER.md)` even though `buildUserSection` (`thread/run.go`) already injects USER.md **in full** into the system prompt, and it fans out into repeated `edit_file` calls instead of the single `write_file` the skill asks for. Each such call re-sends the entire session context.
 

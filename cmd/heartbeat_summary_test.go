@@ -17,16 +17,16 @@ func TestHeartbeatWakeCarriesSessionSummaryOnlyWhenDreaming(t *testing.T) {
 	const summary = "Nansen main session. Fact-checking AI news."
 	now := time.Now()
 
-	dreaming := buildHeartbeatMessage("", "", 3, time.Hour, now, true, summary)
-	if !strings.Contains(dreaming, "should_dream") {
-		t.Fatalf("dream wake lost should_dream:\n%s", dreaming)
+	dreaming := buildHeartbeatMessage("", "", 3, time.Hour, now, hbTaskDream, summary)
+	if !strings.Contains(dreaming, "task: dream") {
+		t.Fatalf("dream wake lost its routing key:\n%s", dreaming)
 	}
 	if !strings.Contains(dreaming, summary) {
 		t.Errorf("dream wake does not carry the summary:\n%s", dreaming)
 	}
 
 	// No summary on record: the field must be PRESENT and say so.
-	blank := buildHeartbeatMessage("", "", 3, time.Hour, now, true, "")
+	blank := buildHeartbeatMessage("", "", 3, time.Hour, now, hbTaskDream, "")
 	if !strings.Contains(blank, "session_summary") {
 		t.Errorf("a session with no summary must still carry the field:\n%s", blank)
 	}
@@ -34,11 +34,22 @@ func TestHeartbeatWakeCarriesSessionSummaryOnlyWhenDreaming(t *testing.T) {
 		t.Errorf("missing summary is not stated explicitly:\n%s", blank)
 	}
 
-	// An ordinary pulse wakes nothing that judges the summary — no field, and
-	// no wasted read behind it.
-	ordinary := buildHeartbeatMessage("", "", 2, time.Hour, now, false, summary)
-	if strings.Contains(ordinary, "session_summary") {
-		t.Errorf("non-dream pulse carries session_summary:\n%s", ordinary)
+	// Any other task judges no summary — no field, and no wasted read behind it.
+	reflecting := buildHeartbeatMessage("", "", 4, time.Hour, now, hbTaskReflect, summary)
+	if strings.Contains(reflecting, "session_summary") {
+		t.Errorf("a reflect pulse carries session_summary:\n%s", reflecting)
+	}
+	if !strings.Contains(reflecting, "task: reflect") {
+		t.Errorf("reflect wake lost its routing key:\n%s", reflecting)
+	}
+}
+
+// The router reads `task` and nothing else, so a wake that carries no task must
+// not leave a stale one behind for it to act on.
+func TestHeartbeatWakeOmitsTaskWhenNoneWasSelected(t *testing.T) {
+	msg := buildHeartbeatMessage("", "", 2, time.Hour, time.Now(), "", "")
+	if strings.Contains(msg, "task:") {
+		t.Errorf("a taskless pulse still carries a task field:\n%s", msg)
 	}
 }
 
