@@ -89,8 +89,9 @@ func (mgr *Manager) Pin(parentKey, text string) error {
 		Message:   fmt.Sprintf(pinPrompt, pinsDir, truncateStr(text, pinInputCap)),
 		AgentName: pinAgent,
 		Sinks: NewSinks(SessionSink{
-			Label: "pin session — the pin is written to disk by the agent, never delivered to a channel",
-			Send:  func(context.Context, string) error { return nil },
+			Label:    "pin session — the pin is written to disk by the agent, never delivered to a channel",
+			Discards: true,
+			Send:     func(context.Context, string) error { return nil },
 		}),
 		OnComplete: func(response string) {
 			logger.Info("pin filed",

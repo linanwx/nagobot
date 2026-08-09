@@ -155,11 +155,11 @@ func buildCrossThreadDispatchRequiredPayload(peerKey string, now time.Time) stri
 	body := fmt.Sprintf(
 		"Cross-thread wake (caller is session %s) requires an explicit dispatch — your prior reply was rejected and dropped, NOT forwarded to the peer. Nothing was delivered.\n\n"+
 			"You must copy your last message and re-issue the turn with one of:\n"+
-			"  - dispatch(sends=[{to: \"user\", body: \"...\"}]) — send to user\n"+
-			"  - dispatch({}) — silently end the turn\n"+
-			"  - dispatch(sends=[{to: \"session\", session_key: \"...\", body: \"...\"}]) — send to a session\n\n"+
-			"Naive text content alongside cross-thread wakes is ambiguous (could mean reply-to-peer, alert-user, or both) and is no longer auto-routed; pick a target explicitly.",
-		peerKey,
+			"  - dispatch(sends=[{to: \"caller:session\", body: \"...\"}]) — reply to %s, the session that woke you. This is almost always the one you want.\n"+
+			"  - dispatch(sends=[{to: \"session\", body: \"...\", params: {session_key: \"...\"}}]) — wake a DIFFERENT session (not your caller).\n"+
+			"  - dispatch({}) — silently end the turn.\n\n"+
+			"This session has no human of its own, so plain text has nowhere to go: it does not reach your caller, and there is no channel user to read it. Name a target explicitly.",
+		peerKey, peerKey,
 	)
 
 	var sb strings.Builder

@@ -236,4 +236,16 @@ const (
 	// error. Distinct from the three above: nothing about the turn's shape is
 	// wrong, the transport failed.
 	SettleDeliveryFailed SettleOutcome = "delivery-failed"
+
+	// SettleDiscarded — every destination left for this content is a drop sink
+	// (SessionSink.Discards): a cron or internal session with no channel of its
+	// own. The text was accepted and thrown away.
+	//
+	// Distinct from SettleNoReader, which means there was no destination at all.
+	// Both end with nobody reading the text, but this one used to be reported as
+	// a SUCCESS — a drop sink's Send returns nil, so the settle path took it for
+	// a real delivery and told the model "Your message text was delivered — cron
+	// session — caller output is dropped." That sentence is live today on every
+	// cron turn that writes prose alongside a dispatch.
+	SettleDiscarded SettleOutcome = "discarded"
 )

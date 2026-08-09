@@ -65,6 +65,17 @@ func TestSettleNoteIsSpecificToTheOutcome(t *testing.T) {
 			wantContain: "FAILED",
 			wantAbsent:  []string{"reached nobody"},
 		},
+		{
+			// The one that used to be reported as a SUCCESS. A drop sink's Send
+			// returns nil, so the settle path read it as a real delivery and
+			// spliced "Your message text was delivered — cron session — caller
+			// output is dropped." into the tool result. The note must now say the
+			// text was thrown away, and must not claim delivery.
+			name:        "discarded",
+			outcome:     msg.SettleDiscarded,
+			wantContain: "DISCARDED",
+			wantAbsent:  []string{"was delivered"},
+		},
 	}
 
 	for _, tt := range tests {

@@ -198,7 +198,9 @@ If you forget which task_ids are in flight, `check_session(session_key="<current
 ## Common confusions
 
 ### Narrating in assistant content alongside dispatch
-**Don't.** dispatch only delivers each send's `body`. Plain text in the assistant message alongside the dispatch tool_call has no recipient and the call is rejected as a validation error. Move user-facing text into a send body, or skip dispatch and let default sink delivery handle plain content.
+**Do.** Writing your report as assistant content while routing work with dispatch is the normal shape — when you hand work off, tell your own human what you just did.
+
+The two are independent: dispatch delivers each send's `body`, and your content is delivered separately if this turn's wake source allows it. On a turn with no destination for plain content (heartbeat, or a session with no human of its own) the content is not delivered — the tool result says exactly what became of it (`reached nobody` / `DISCARDED` / `not delivered as the reply`), so nothing disappears silently. Anything that must reach someone belongs in a send `body`.
 
 ### Caller is per-wake, not per-session
 Same session can be woken by user, then cron, then a subagent — caller identity changes each turn. Re-read the wake YAML; don't carry assumptions across turns.
@@ -215,7 +217,6 @@ dispatch validates the entire batch before executing anything. On validation err
 | `session_key is the current session (self-reference not allowed)` | `to=session` doesn't self-loop; write plain text to reach this session's own human, `caller:session` to reply to a peer, or `fork` for a branch |
 | `unknown params key(s)` / `does not accept params` | a params key landed on the wrong target — the error names where it belongs and, for caller:session, the exact JSON to resend |
 | `duplicate target in batch` | two sends resolve to the same target; merge bodies or pick distinct task_ids |
-| Validation error mentioning non-empty assistant content | move all user-facing text into a send body, or drop the dispatch call |
 | Result outcome `partial-failure` | some sends delivered, others failed at execution time. Already-delivered messages cannot be unsent — read the executed/failed lists, then on next turn act on what's still pending. |
 | Result outcome `delivered-turn-continues` | sends delivered but the turn did NOT end — dispatch was batched with other tool calls (solo rule). Keep working; do not resend the delivered bodies. |
 | Result outcome `no-op` | `dispatch({})` was batched with other tool calls, so nothing terminated. Call it alone to end the turn silently. |

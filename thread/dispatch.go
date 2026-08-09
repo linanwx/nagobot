@@ -360,34 +360,48 @@ func (t *Thread) SettleTurnContent(ctx context.Context, content string, deliver 
 		return "", ""
 	}
 
-	if outcome := settleDropOutcome(deliver, out, settle, t.isSinkSuppressed()); outcome != "" {
+	// Drop sinks are not deliveries. Their Send returns nil like any other, so
+	// sending to them and reporting settle.Label() announced a delivery that
+	// consisted of one Debug log line — see SettleDiscarded.
+	reachable := settle.WithoutDiscarding()
+
+	if outcome := settleDropOutcome(deliver, out, reachable, t.isSinkSuppressed()); outcome != "" {
+		if outcome == SettleNoReader && !settle.IsZero() {
+			outcome = SettleDiscarded
+		}
 		logger.Warn("assistant content not delivered",
 			"key", t.sessionKey, "reason", string(outcome),
 			"content", truncateStr(content, previewLogRunes))
 		return "", outcome
 	}
-	if err := settle.WithRetry(3).Send(ctx, content); err != nil {
+	if err := reachable.WithRetry(3).Send(ctx, content); err != nil {
 		logger.Warn("assistant content delivery failed",
-			"key", t.sessionKey, "sink", settle.Label(), "err", err,
+			"key", t.sessionKey, "sink", reachable.Label(), "err", err,
 			"content", truncateStr(content, previewLogRunes))
 		return "", SettleDeliveryFailed
 	}
 	if proactive {
 		t.recordProactiveChat(content)
 	}
-	return settle.Label(), ""
+	return reachable.Label(), ""
 }
 
 // settleDropOutcome names why SettleTurnContent will not deliver, or "" when it
 // will. Order matters: a suppressed sink is checked before the empty-set case
 // because it is the more specific fact about the same turn.
-func settleDropOutcome(deliver bool, out, settle SinkSet, suppressed bool) SettleOutcome {
+//
+// reachable is the settleable set with the drop sinks already removed, so an empty
+// reachable means "nobody will read this" whether the turn had no destination at all
+// or only destinations that throw text away. The caller separates those two into
+// SettleNoReader and SettleDiscarded — it is the one that still holds the
+// unfiltered set and can tell them apart.
+func settleDropOutcome(deliver bool, out, reachable SinkSet, suppressed bool) SettleOutcome {
 	switch {
 	case suppressed:
 		return SettleAlreadySentToCaller
 	case !deliver:
 		return SettleTurnContinues
-	case out.IsZero() || settle.IsZero():
+	case out.IsZero() || reachable.IsZero():
 		return SettleNoReader
 	}
 	return ""

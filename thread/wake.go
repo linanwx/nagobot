@@ -180,13 +180,40 @@ func (t *Thread) dequeue() (*WakeMessage, bool) {
 	}
 }
 
-// noDeliveryLabel is the `delivery` value for a turn whose plain content reaches
-// nobody: heartbeat and compression on a user-facing session, where contentSink
-// returns a zero sink on purpose, plus any thread with no sink configured at all.
-// It names dispatch because routing to another session still works on such a
-// turn — only speaking to a human of one's own does not.
-const noDeliveryLabel = "no auto-delivery — nothing you write this turn reaches anyone; " +
-	"use dispatch(to=session, ...) if something must be sent"
+// Two very different turns used to share one `delivery` string, and the advice
+// half of it was a trap on the one that fires most.
+//
+// silentDeliveryLabel covers heartbeat and compression, where resolveTurnSinks
+// empties the set unconditionally. It states the destination and stops. The old
+// text ended with "use dispatch(to=session, ...) if something must be sent",
+// which on such a turn points at a wall: the only session whose human this turn
+// might want is its OWN, and dispatch rejects a self-reference in both the
+// session_key and the channel+user_id form. So it pushed the model toward a call
+// that cannot succeed, on the single largest consumer of prompt tokens in the
+// system. Reaching a human later is a scheduled self-wake (manage-cron's
+// `set-at --direct-wake`), which is where dream already documents it — not
+// something worth carrying in a field every one of these turns reads.
+//
+// noDeliveryLabel covers the other case: a turn that is NOT silent, on a session
+// with no channel of its own. There the advice is real and must stay, because
+// plain text vanishes there and dispatch is the only way out. It names both
+// forms since the right one depends on the caller: to=caller:session when a peer
+// session woke us, to=session when nothing did (a resume, say) and
+// to=caller:session would be rejected for having no session caller.
+const silentDeliveryLabel = "nothing you write this turn reaches anyone — this is an internal maintenance turn"
+
+const noDeliveryLabel = "this session has no channel of its own — nothing you write this turn reaches anyone; " +
+	"route anything that must be sent with dispatch(to=caller:session), " +
+	"or dispatch(to=session, ...) when there is no caller"
+
+// fallbackDeliveryLabel picks between the two above for a turn whose sinks
+// resolved to nothing.
+func fallbackDeliveryLabel(source WakeSource) string {
+	if isSilentSource(source) {
+		return silentDeliveryLabel
+	}
+	return noDeliveryLabel
+}
 
 // resolveDeliveryLabel renders the wake payload's `delivery` field: a
 // natural-language statement of where this turn's plain content goes.
@@ -200,10 +227,13 @@ const noDeliveryLabel = "no auto-delivery — nothing you write this turn reache
 // two things at once — the wake's own action hint ("Plain text goes to your own
 // human instead") and how-nagobot-works.md, which names `delivery` as the one
 // place a turn learns where its output goes.
-func (t *Thread) resolveDeliveryLabel(wakeSink SinkSet) string {
+// source is a parameter rather than a read of t.lastWakeSource because
+// contentSink takes t.mu itself and Go mutexes are not reentrant — holding the
+// lock across this call would deadlock the turn.
+func (t *Thread) resolveDeliveryLabel(source WakeSource, wakeSink SinkSet) string {
 	out, _ := t.contentSink(wakeSink)
 	if out.IsZero() || out.Label() == "" {
-		return noDeliveryLabel
+		return fallbackDeliveryLabel(source)
 	}
 	return out.Label()
 }
@@ -299,7 +329,7 @@ func (t *Thread) RunOnce(ctx context.Context) {
 
 	sink := resolveTurnSinks(msg.Source, msg.Sinks, t.defaultSink)
 
-	deliveryLabel := t.resolveDeliveryLabel(sink)
+	deliveryLabel := t.resolveDeliveryLabel(msg.Source, sink)
 
 	loc := t.location()
 	prov, mod := t.resolvedProviderModel()
@@ -441,7 +471,7 @@ func buildWakePayload(source WakeSource, message, threadID, sessionKey, sessionD
 
 	delivery := deliveryLabel
 	if delivery == "" {
-		delivery = noDeliveryLabel
+		delivery = fallbackDeliveryLabel(source)
 	}
 
 	header := wakeHeader{

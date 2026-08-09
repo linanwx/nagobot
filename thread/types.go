@@ -183,6 +183,7 @@ const (
 	SettleTurnContinues       = msg.SettleTurnContinues
 	SettleAlreadySentToCaller = msg.SettleAlreadySentToCaller
 	SettleDeliveryFailed      = msg.SettleDeliveryFailed
+	SettleDiscarded           = msg.SettleDiscarded
 )
 
 // ExecMetrics tracks real-time execution metrics for a running turn.

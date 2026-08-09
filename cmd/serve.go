@@ -431,10 +431,28 @@ func isDiscordSnowflake(s string) bool {
 	return true
 }
 
+// childInfixIndex returns the offset of the child-session infix in sessionKey —
+// :threads: (subagent) or :fork: — or -1 when the key is not a child. The text
+// before it is the parent session key.
+//
+// Earliest match wins, matching what the :threads:-only lookup it replaced did
+// for nested keys. A task ID cannot contain ':' (dispatch validates it against
+// [a-z0-9_-]+), so on a singly-nested key the two rules agree anyway.
+func childInfixIndex(sessionKey string) int {
+	best := -1
+	for _, infix := range []string{session.ThreadsSessionInfix, session.ForkSessionInfix} {
+		if idx := strings.Index(sessionKey, infix); idx >= 0 && (best < 0 || idx < best) {
+			best = idx
+		}
+	}
+	return best
+}
+
 func internalDiscordSink(sessionKey string) thread.SinkSet {
 	return thread.NewSinks(thread.SessionSink{
-		Channel: "discord",
-		Label:   "internal discord session - result will not be delivered",
+		Channel:  "discord",
+		Label:    "internal discord session - result will not be delivered",
+		Discards: true,
 		Send: func(_ context.Context, response string) error {
 			if strings.TrimSpace(response) != "" {
 				logger.Debug("internal discord default sink dropped", "session", sessionKey, "bytes", len(response))
@@ -478,7 +496,17 @@ func buildDefaultChannelSinkFor(chMgr *channel.Manager, cfg *config.Config, sess
 		// carries a recursive paired sink so any naive parent reply routes back
 		// to this child session — the ping-pong recurses until one side halts
 		// via dispatch({}) or plain reply text.
-		if idx := strings.Index(sessionKey, ":threads:"); idx >= 0 {
+		//
+		// Both child kinds land here. Forks used to have no branch of their own,
+		// so `telegram:123:fork:x` fell through to the telegram: prefix below and
+		// was handed a sink addressed to a telegram user literally named
+		// "123:fork:x" — a send that can never succeed, while the wake payload
+		// told the model `your response will be sent to telegram user
+		// 123:fork:x` on every turn. That was the one delivery label in this file
+		// naming a destination that does not exist. Only channel-prefixed forks
+		// change behaviour: a fork of a subagent already matched :threads: first
+		// and still resolves to the same parent.
+		if idx := childInfixIndex(sessionKey); idx >= 0 {
 			parentKey := sessionKey[:idx]
 			return thread.NewSinks(thread.SessionSink{
 				Label: "your response will be forwarded to parent thread " + parentKey,
@@ -509,7 +537,8 @@ func buildDefaultChannelSinkFor(chMgr *channel.Manager, cfg *config.Config, sess
 		// (rare — typically only dispatch(to=session, session_key="cron:...")).
 		if strings.HasPrefix(sessionKey, "cron:") {
 			return thread.NewSinks(thread.SessionSink{
-				Label: "cron session — caller output is dropped. Use dispatch(to=session, ...) to deliver explicitly.",
+				Label:    "cron session — caller output is dropped. Use dispatch(to=session, ...) to deliver explicitly.",
+				Discards: true,
 				Send: func(_ context.Context, response string) error {
 					if strings.TrimSpace(response) != "" {
 						logger.Debug("cron default sink dropped", "session", sessionKey, "bytes", len(response))

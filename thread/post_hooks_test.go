@@ -49,21 +49,35 @@ func TestBuildCrossThreadDispatchRequiredPayload_Structure(t *testing.T) {
 	mustBodyContain := []string{
 		"caller is session telegram:42",
 		"rejected and dropped, NOT forwarded",
-		"dispatch(sends=[{to: \"user\", body: \"...\"}]) — send to user",
+		// The answer this card exists to produce. It used to be BANNED here,
+		// on the reasoning that "a model that already failed to dispatch cannot
+		// be relied on to recall who woke it". That is backwards:
+		// to=caller:session requires no recall at all — the host resolves the
+		// caller from CallerInfo() — while the session_key form it was banned in
+		// favour of requires the model to copy a key correctly. Meanwhile
+		// dispatch's own description tells the model in every prompt not to use
+		// to=session for its caller.
+		"dispatch(sends=[{to: \"caller:session\", body: \"...\"}])",
+		"dispatch(sends=[{to: \"session\", body: \"...\", params: {session_key: \"...\"}}])",
 		"dispatch({}) — silently end the turn",
-		"dispatch(sends=[{to: \"session\", session_key: \"...\", body: \"...\"}]) — send to a session",
 	}
 	for _, needle := range mustBodyContain {
 		if !strings.Contains(body, needle) {
 			t.Errorf("body missing %q; got:\n%s", needle, body)
 		}
 	}
-	// The corrective prompt must never offer caller:* targets: a model that
-	// already failed to dispatch cannot be relied on to recall who woke it.
-	// It is handed the explicit session_key instead.
-	for _, banned := range []string{"caller:session", "caller:user"} {
+	// Every option on the card must be one the validator accepts. This card is
+	// read only by a model that ALREADY got the turn shape wrong, so an option
+	// that fails validation costs another whole iteration. It carried two:
+	// to=user, deleted from the tool a year ago, and session_key at the top
+	// level, which parseArgs rejects as an unknown argument (it belongs in
+	// params).
+	for _, banned := range []string{
+		"to: \"user\"",
+		"{to: \"session\", session_key:",
+	} {
 		if strings.Contains(body, banned) {
-			t.Errorf("body must not suggest %q; got:\n%s", banned, body)
+			t.Errorf("body offers a target the validator rejects: %q; got:\n%s", banned, body)
 		}
 	}
 }

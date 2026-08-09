@@ -223,8 +223,9 @@ func (p *ProgressScanner) summarize(ctx context.Context, info msg.ThreadInfo) st
 		Message:   buildSummaryRequest(info),
 		AgentName: progressSummaryAgent,
 		Sinks: NewSinks(SessionSink{
-			Label: "progress-summary session — result returns via callback, never delivered to a channel",
-			Send:  func(context.Context, string) error { return nil },
+			Label:    "progress-summary session — result returns via callback, never delivered to a channel",
+			Discards: true,
+			Send:     func(context.Context, string) error { return nil },
 		}),
 		OnComplete: func(response string) { ch <- response },
 	})

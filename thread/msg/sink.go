@@ -39,6 +39,15 @@ type SessionSink struct {
 	Chunk   func(ctx context.Context, text string) error     // Optional; see above.
 	Stream  func(ev StreamEvent)                             // Optional; see above. Must never block — back it with a StreamPipe.
 	Flush   func(ctx context.Context) error                  // Optional: end-of-turn signal; recorders commit buffered output here.
+
+	// Discards marks a sink whose Send accepts the message and throws it away
+	// (cron and internal-session drop sinks; the sibling sinks whose real
+	// transport is OnComplete, not Send). Such a Send returns nil, which is
+	// indistinguishable from a real delivery — so without this flag
+	// SettleTurnContent reported "your text was delivered" for text that went
+	// into a Debug log line. It is a property of the destination, not of the
+	// turn, so it is declared where the sink is built.
+	Discards bool
 }
 
 // Chunked returns a copy that accepts intermediate chunked delivery through the
@@ -266,6 +275,20 @@ func (s SinkSet) WithoutLiveDelivery() SinkSet {
 	var out SinkSet
 	for _, k := range s.sinks {
 		if k.Chunk == nil && k.Stream == nil {
+			out.sinks = append(out.sinks, k)
+		}
+	}
+	return out
+}
+
+// WithoutDiscarding returns the subset of destinations that actually deliver —
+// the ones whose Send does something a human or another session can observe.
+// What is left out is every sink that accepts the text and drops it; see
+// SessionSink.Discards.
+func (s SinkSet) WithoutDiscarding() SinkSet {
+	var out SinkSet
+	for _, k := range s.sinks {
+		if !k.Discards {
 			out.sinks = append(out.sinks, k)
 		}
 	}

@@ -201,9 +201,20 @@ func TestResolveDeliveryLabel(t *testing.T) {
 			want:   discord,
 		},
 		{
-			// Maintenance reaches nobody and must say so.
-			name:   "an empty set names nobody",
+			// Maintenance reaches nobody and must say so — WITHOUT naming
+			// dispatch(to=session), which on such a turn can only point at this
+			// session itself and is rejected as a self-reference.
+			name:   "a silent source names nobody and no escape hatch",
 			source: WakeHeartbeat,
+			sinks:  SinkSet{},
+			want:   silentDeliveryLabel,
+		},
+		{
+			// Same empty set, different reason: the turn is live, the session
+			// just has no channel. Here dispatch IS the way out and must be named
+			// or the turn has no route at all.
+			name:   "a live source with no channel keeps the escape hatch",
+			source: WakeResume,
 			sinks:  SinkSet{},
 			want:   noDeliveryLabel,
 		},
@@ -212,10 +223,21 @@ func TestResolveDeliveryLabel(t *testing.T) {
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			th := &Thread{sessionKey: "discord:123", lastWakeSource: tc.source}
-			if got := th.resolveDeliveryLabel(tc.sinks); got != tc.want {
+			if got := th.resolveDeliveryLabel(tc.source, tc.sinks); got != tc.want {
 				t.Fatalf("delivery = %q, want %q", got, tc.want)
 			}
 		})
+	}
+
+	// The trap this split exists to remove: a heartbeat turn told to dispatch to
+	// a session has exactly one session it would pick — its own — and dispatch
+	// rejects that. Pinned as a property so nobody restores the advice by
+	// merging the two constants back together.
+	if strings.Contains(silentDeliveryLabel, "dispatch") {
+		t.Fatalf("silent delivery label must not name dispatch: %q", silentDeliveryLabel)
+	}
+	if !strings.Contains(noDeliveryLabel, "dispatch") {
+		t.Fatalf("no-channel delivery label must keep an escape hatch: %q", noDeliveryLabel)
 	}
 }
 
