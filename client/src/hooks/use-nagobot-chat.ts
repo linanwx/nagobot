@@ -251,12 +251,46 @@ export function sessionToChatMessages(
   const out: ChatMessage[] = [];
   // Tool results, keyed by the tool call they answer, so each tool part can
   // show its own output.
-  const toolResults = new Map<string, ApiMessage>();
+  //
+  // A LIST per id, consumed in order — not one entry. A Map<id, ApiMessage> is
+  // last-write-wins, which silently puts call N's output on all N cards the
+  // moment a provider hands out the same id twice. gemini did exactly that for
+  // every call of a repeated tool, and those sessions are on disk for good.
+  // Entries are appended call-then-result, so the Nth result filed under an id
+  // answers the Nth call made under it.
+  const toolResults = new Map<string, ApiMessage[]>();
   for (const m of api) {
     if (m.role === "tool" && m.tool_call_id) {
-      toolResults.set(m.tool_call_id, m);
+      const answered = toolResults.get(m.tool_call_id);
+      if (answered) answered.push(m);
+      else toolResults.set(m.tool_call_id, [m]);
     }
   }
+  const resultsTaken = new Map<string, number>();
+  const takeToolResult = (id: string): ApiMessage | undefined => {
+    const answered = toolResults.get(id);
+    if (!answered) return undefined;
+    const n = resultsTaken.get(id) ?? 0;
+    resultsTaken.set(id, n + 1);
+    // Past the end when this call is the unanswered one: the running tail of a
+    // live turn, or a turn that died before answering.
+    return answered[n];
+  };
+
+  // assistant-ui keys a message's rendered parts by tool call id and THROWS on a
+  // repeat — and that render error takes the whole page down, showing "Tried to
+  // unmount a fiber that is already unmounted" (thrown while unwinding the
+  // failed render) instead of the real cause. Providers are meant to issue
+  // unique ids; gemini did not, and the sessions carrying those ids cannot be
+  // rewritten, so the projection has to render them anyway. Same reasoning and
+  // same shape as the message-id pass at the end of this function.
+  const seenCallIDs = new Set<string>();
+  const uniqueCallID = (id: string): string => {
+    let unique = id;
+    while (seenCallIDs.has(unique)) unique = `${unique}+`;
+    seenCallIDs.add(unique);
+    return unique;
+  };
 
   // Consecutive assistant entries (the LLM iterations of one turn) accumulate
   // into a single parts-based message; anything else flushes it first.
@@ -319,11 +353,11 @@ export function sessionToChatMessages(
       for (const tc of m.tool_calls ?? []) {
         const name = tc.function?.name;
         if (!name) continue;
-        const result = tc.id ? toolResults.get(tc.id) : undefined;
+        const result = tc.id ? takeToolResult(tc.id) : undefined;
         const pendingResult = !result && m.id !== undefined && m.id === liveID;
         turnParts(m, createdAt).push({
           type: "tool",
-          callId: tc.id || localID("tool"),
+          callId: uniqueCallID(tc.id || localID("tool")),
           toolName: name,
           argsText: prettyArgs(tc.function?.arguments),
           resultText: pendingResult ? undefined : (result?.content ?? ""),

@@ -443,13 +443,102 @@ func TestGeminiToolCallIDSynthesis(t *testing.T) {
 	if len(result.ToolCalls) != 2 {
 		t.Fatalf("expected 2 tool calls, got %d", len(result.ToolCalls))
 	}
-	if result.ToolCalls[0].ID != "gemini_fn_a_0" {
+	// The exact string is deliberately NOT asserted — it carries a clock reading
+	// and a process-global counter. What must hold is the property the old
+	// format got wrong: the id names the call, and two calls never share one.
+	if !strings.HasPrefix(result.ToolCalls[0].ID, "gemini_fn_a_") {
 		t.Errorf("unexpected first tool call ID: %s", result.ToolCalls[0].ID)
 	}
-	if result.ToolCalls[1].ID != "gemini_fn_b_1" {
+	if !strings.HasPrefix(result.ToolCalls[1].ID, "gemini_fn_b_") {
 		t.Errorf("unexpected second tool call ID: %s", result.ToolCalls[1].ID)
+	}
+	if result.ToolCalls[0].ID == result.ToolCalls[1].ID {
+		t.Errorf("tool call IDs collided within one response: %s", result.ToolCalls[0].ID)
 	}
 	if result.ToolCalls[0].Function.Name != "fn_a" {
 		t.Error("wrong function name")
+	}
+}
+
+// The production defect: one turn calls the same tool on five consecutive
+// iterations, and every call is a SEPARATE response. The id used to be
+// `gemini_{name}_{index}` with index reset per response, so all five landed on
+// `gemini_web_search_0` — collapsing tool results onto one another, defeating
+// SanitizeMessages' orphan check, and white-screening the web client, whose
+// message parts are keyed by tool call id.
+func TestGeminiToolCallIDsAreUniqueAcrossResponses(t *testing.T) {
+	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		resp := gmResponse{
+			Candidates: []gmCandidate{{
+				Content: gmContent{
+					Role:  "model",
+					Parts: []gmPart{{FunctionCall: &gmFuncCall{Name: "web_search", Args: map[string]any{"q": "x"}}}},
+				},
+				FinishReason: "STOP",
+			}},
+			UsageMetadata: &gmUsageMetadata{},
+		}
+		w.Header().Set("Content-Type", "text/event-stream")
+		w.Write([]byte(geminiSSEResponse(resp)))
+	})
+	server := httptest.NewServer(handler)
+	defer server.Close()
+
+	// One provider instance, as a turn has: resolveProvider() builds it once and
+	// the agentic loop calls Chat on it per iteration.
+	p := &GeminiProvider{
+		apiKey:    "test-key",
+		apiBase:   server.URL,
+		modelName: "test-model",
+		modelType: "test-model",
+		maxTokens: 1024,
+		client:    &http.Client{},
+	}
+
+	seen := map[string]bool{}
+	for i := 0; i < 5; i++ {
+		chatResult, err := p.Chat(context.Background(), &Request{
+			Messages: []Message{{Role: "user", Content: "test"}},
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		result, err := chatResult.Wait()
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(result.ToolCalls) != 1 {
+			t.Fatalf("iteration %d: expected 1 tool call, got %d", i, len(result.ToolCalls))
+		}
+		id := result.ToolCalls[0].ID
+		if seen[id] {
+			t.Fatalf("iteration %d reused tool call ID %s", i, id)
+		}
+		seen[id] = true
+	}
+}
+
+func TestGeminiToolCallIDPrefersServerID(t *testing.T) {
+	seen := map[string]bool{}
+
+	kept := geminiToolCallID(&gmFuncCall{Name: "web_search", ID: "call_abc"}, seen)
+	if kept != "call_abc" {
+		t.Errorf("server-provided id should be kept, got %s", kept)
+	}
+
+	// A repeat is indistinguishable from no id at all as far as we can use it:
+	// trusting it is exactly what reintroduces the collision.
+	dup := geminiToolCallID(&gmFuncCall{Name: "web_search", ID: "call_abc"}, seen)
+	if dup == "call_abc" {
+		t.Error("a repeated server id must not be handed out twice")
+	}
+	if !strings.HasPrefix(dup, "gemini_web_search_") {
+		t.Errorf("duplicate should fall back to a synthesized id, got %s", dup)
+	}
+
+	// A nameless call must still produce a usable id rather than a bare prefix.
+	anon := geminiToolCallID(&gmFuncCall{}, seen)
+	if !strings.HasPrefix(anon, "gemini_tool_") {
+		t.Errorf("unnamed call got %s", anon)
 	}
 }

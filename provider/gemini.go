@@ -9,6 +9,7 @@ import (
 	"io"
 	"net/http"
 	"strings"
+	"sync/atomic"
 	"time"
 
 	"github.com/linanwx/nagobot/logger"
@@ -59,11 +60,52 @@ type gmPart struct {
 type gmFuncCall struct {
 	Name string         `json:"name"`
 	Args map[string]any `json:"args"`
+	// Optional on the wire — Gemini pairs functionCall with functionResponse by
+	// POSITION inside the parts array, so the id is not load-bearing for the
+	// protocol and older models omit it entirely. Gemini 3 populates it. We only
+	// ever READ it: our own requests leave it unset (omitempty), because the id
+	// we hand out downstream may be one we synthesized, and sending that back
+	// would assert an identity the model never issued.
+	ID string `json:"id,omitempty"`
 }
 
 type gmFuncResp struct {
 	Name     string         `json:"name"`
 	Response map[string]any `json:"response"`
+}
+
+// geminiToolCallSeq numbers synthesized tool call ids. Package-level and
+// monotonic ACROSS responses, which is the whole point: this used to be a
+// per-response `callIndex := 0`, so a turn that called one tool five times
+// emitted `gemini_web_search_0` five times. Every consumer keys on that id —
+// SanitizeMessages pairs calls to results with it, and the web client keys a
+// message's rendered parts by it and THROWS on a duplicate, white-screening the
+// page for the whole session (reproduced against a real 13-line session).
+var geminiToolCallSeq atomic.Uint64
+
+// geminiToolCallID resolves the id for one functionCall part.
+//
+// Gemini 3 populates `id` itself; keeping it means our records name the call the
+// same way the provider does. `seen` rejects a repeat within the response — the
+// SDK documents the field as "the unique id of the function call", but trusting
+// that unconditionally is what reintroduces the collision, and a duplicate is
+// indistinguishable from an absent id as far as we can use it.
+//
+// The fallback carries BOTH a wall-clock stamp and the sequence number. The
+// counter alone is not enough: it resets to zero on daemon restart, and a
+// session outlives the process that wrote it.
+func geminiToolCallID(fc *gmFuncCall, seen map[string]bool) string {
+	if fc.ID != "" && !seen[fc.ID] {
+		seen[fc.ID] = true
+		return fc.ID
+	}
+	name := fc.Name
+	if name == "" {
+		name = "tool"
+	}
+	id := fmt.Sprintf("gemini_%s_%d_%d", name, time.Now().UnixMilli(), geminiToolCallSeq.Add(1))
+	seen[id] = true
+	return id
 }
 
 type gmBlob struct {
@@ -281,7 +323,7 @@ func (p *GeminiProvider) chatStream(ctx context.Context, gmReq gmRequest, start 
 		scanner := bufio.NewScanner(httpResp.Body)
 		scanner.Buffer(make([]byte, 0, 64*1024), 1024*1024)
 
-		callIndex := 0
+		seenToolCallIDs := map[string]bool{}
 		for scanner.Scan() {
 			line := scanner.Text()
 			if line == "" || strings.HasPrefix(line, ":") {
@@ -328,14 +370,13 @@ func (p *GeminiProvider) chatStream(ctx context.Context, gmReq gmRequest, start 
 					}
 					argsJSON, _ := json.Marshal(part.FunctionCall.Args)
 					toolCalls = append(toolCalls, ToolCall{
-						ID:   fmt.Sprintf("gemini_%s_%d", part.FunctionCall.Name, callIndex),
+						ID:   geminiToolCallID(part.FunctionCall, seenToolCallIDs),
 						Type: "function",
 						Function: FunctionCall{
 							Name:      part.FunctionCall.Name,
 							Arguments: string(argsJSON),
 						},
 					})
-					callIndex++
 				}
 			}
 		}
@@ -403,7 +444,7 @@ func (p *GeminiProvider) parseResponse(resp gmResponse, start time.Time) (*Respo
 		toolCalls      []ToolCall
 	)
 
-	callIndex := 0
+	seenToolCallIDs := map[string]bool{}
 	for _, part := range candidate.Content.Parts {
 		isThought := part.Thought != nil && *part.Thought
 		if part.Text != "" && (isThought || looksLikeThoughtLeak(part.Text)) {
@@ -414,14 +455,13 @@ func (p *GeminiProvider) parseResponse(resp gmResponse, start time.Time) (*Respo
 		if part.FunctionCall != nil {
 			argsJSON, _ := json.Marshal(part.FunctionCall.Args)
 			toolCalls = append(toolCalls, ToolCall{
-				ID:   fmt.Sprintf("gemini_%s_%d", part.FunctionCall.Name, callIndex),
+				ID:   geminiToolCallID(part.FunctionCall, seenToolCallIDs),
 				Type: "function",
 				Function: FunctionCall{
 					Name:      part.FunctionCall.Name,
 					Arguments: string(argsJSON),
 				},
 			})
-			callIndex++
 		}
 	}
 
