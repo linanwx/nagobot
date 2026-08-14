@@ -128,6 +128,14 @@ type webOutboundMessage struct {
 	Text  string `json:"text,omitempty"`
 	Error string `json:"error,omitempty"`
 
+	// type:"ack" — this message reached the dispatcher. It echoes back the id
+	// the page minted, and it is the ONLY receipt the page gets for a while:
+	// the authoritative type:"stream" kind:"message" frame is not written until
+	// the turn that consumes the message STARTS, which is minutes away behind a
+	// long agentic turn. Without this the page cannot tell "queued behind a busy
+	// thread" from "never arrived", so both render as a chip that waits forever.
+	ID string `json:"id,omitempty"`
+
 	// type:"peer_message" — another viewer of the same session spoke; their
 	// display name rides along so the bubble can be attributed.
 	Sender string `json:"sender,omitempty"`
@@ -653,8 +661,10 @@ func (w *WebChannel) handleWS(rw http.ResponseWriter, r *http.Request) {
 			// Message.ID is not the carrier: it is a per-process counter used
 			// for reactions, and every channel fills it with its own platform
 			// ids.
+			clientMsgID := ""
 			if raw := strings.TrimSpace(req.ID); raw != "" {
 				if id := sanitizeClientMessageID(raw); id != "" {
+					clientMsgID = id
 					metadata["client_msg_id"] = id
 				} else {
 					logger.Warn("rejected client message id",
@@ -678,6 +688,17 @@ func (w *WebChannel) handleWS(rw http.ResponseWriter, r *http.Request) {
 				return
 			case <-r.Context().Done():
 				return
+			}
+
+			// Receipt. The page holds this id from the moment the message is
+			// typed, so the ack retires its send watchdog without waiting for
+			// the turn to start. Sent only for an id we accepted: a rejected one
+			// is not a handle either side can address, and the page recovers
+			// that message when the write-ahead frame reveals its real position.
+			if clientMsgID != "" {
+				client.mu.Lock()
+				_ = wsjson.Write(r.Context(), conn, webOutboundMessage{Type: "ack", ID: clientMsgID})
+				client.mu.Unlock()
 			}
 
 			// Group bookkeeping: the sender becomes a participant (push

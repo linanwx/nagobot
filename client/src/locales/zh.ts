@@ -105,7 +105,7 @@ export const zh = {
       "同一会话同时只能连接一个页面。消息正在投递到另一个窗口。",
     useHere: "改在此处使用",
     loadingHistory: "正在加载历史记录",
-    notConnected: "⚠️ 未连接到守护进程 — 消息未发送。",
+    notConnected: "未连接到守护进程，无法发送",
   },
   thread: {
     welcome: "今天有什么可以帮你的？",
@@ -121,6 +121,9 @@ export const zh = {
     sendMessage: "发送消息",
     queuedMessage: "已发送，等待确定在对话中的位置",
     uploadingMessage: "正在上传，完成后发出消息",
+    undeliveredMessage: "未送达 —— 守护进程没有确认收到这条消息",
+    retrySend: "重新发送",
+    discardMessage: "丢弃这条消息",
     exportMarkdown: "导出为 Markdown",
     reply: "引用回复",
     replyPending: "正在生成引用…",

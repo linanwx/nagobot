@@ -9,6 +9,7 @@ import {
 } from "lucide-react";
 import { createContext, useCallback, useContext, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
+import { ComposerDeliveryProvider } from "@/components/assistant-ui/composer-queue";
 import { PinProvider } from "@/components/assistant-ui/pin-message";
 import { QuoteReplyProvider } from "@/components/assistant-ui/quote-reply";
 import { Thread, ThreadWelcome } from "@/components/assistant-ui/thread";
@@ -109,6 +110,7 @@ export function ChatPane({
     historyError,
     historyLoading,
     takeOver,
+    retrySend,
     messageCount,
     earlierCount,
     loadEarlier,
@@ -270,17 +272,22 @@ export function ChatPane({
           </div>
         ) : (
           <AssistantRuntimeProvider runtime={runtime}>
-            <QuoteReplyProvider generate={generateQuote}>
-              <PinProvider file={filePin}>
-                <RecentsContext.Provider value={recentsValue}>
-                  <Thread
-                    components={threadComponents}
-                    earlierCount={earlierCount}
-                    onLoadEarlier={loadEarlier}
-                  />
-                </RecentsContext.Provider>
-              </PinProvider>
-            </QuoteReplyProvider>
+            <ComposerDeliveryProvider
+              connected={status === "open"}
+              retry={retrySend}
+            >
+              <QuoteReplyProvider generate={generateQuote}>
+                <PinProvider file={filePin}>
+                  <RecentsContext.Provider value={recentsValue}>
+                    <Thread
+                      components={threadComponents}
+                      earlierCount={earlierCount}
+                      onLoadEarlier={loadEarlier}
+                    />
+                  </RecentsContext.Provider>
+                </PinProvider>
+              </QuoteReplyProvider>
+            </ComposerDeliveryProvider>
           </AssistantRuntimeProvider>
         )}
       </div>

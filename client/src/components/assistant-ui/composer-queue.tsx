@@ -1,11 +1,58 @@
 "use client";
 
 import { ComposerPrimitive, QueueItemPrimitive } from "@assistant-ui/react";
-import { AlertCircleIcon, ClockIcon, Loader2Icon } from "lucide-react";
-import type { FC } from "react";
+import {
+  AlertCircleIcon,
+  ClockIcon,
+  Loader2Icon,
+  RotateCwIcon,
+  XIcon,
+} from "lucide-react";
+import {
+  createContext,
+  useContext,
+  useMemo,
+  type FC,
+  type ReactNode,
+} from "react";
 import { useTranslation } from "react-i18next";
 
+import { failedChipPrefix } from "@/hooks/use-nagobot-chat";
 import { cn } from "@/lib/utils";
+
+// What the composer needs to know about whether words can leave this page:
+// whether the link is up (the send button reads it) and how to put a failed
+// message back on the wire (the chip's retry reads it). Both consumers live in
+// the composer, so they share one provider, and it arrives the same way the
+// quote and pin backends do — as plain values from ChatPane, leaving these
+// components unaware of sockets and message ids.
+//
+// `connected` is deliberately supplied rather than read off the runtime:
+// assistant-ui exposes the flag as thread.isSendDisabled on the ADAPTER but not
+// on ThreadState, and composer.canSend cannot stand in for it because it is
+// equally false for an empty composer — which must not look like an error.
+type ComposerDelivery = {
+  connected: boolean;
+  retry: (id: string) => void;
+};
+
+const ComposerDeliveryContext = createContext<ComposerDelivery>({
+  connected: true,
+  retry: () => {},
+});
+
+export const useComposerDelivery = () => useContext(ComposerDeliveryContext);
+
+export const ComposerDeliveryProvider: FC<
+  ComposerDelivery & { children: ReactNode }
+> = ({ connected, retry, children }) => {
+  const value = useMemo(() => ({ connected, retry }), [connected, retry]);
+  return (
+    <ComposerDeliveryContext.Provider value={value}>
+      {children}
+    </ComposerDeliveryContext.Provider>
+  );
+};
 
 /**
  * ComposerQueueBar shows work already handed over that has not yet landed in the
@@ -27,22 +74,31 @@ import { cn } from "@/lib/utils";
  * empty for the length of the upload. Its text carries the file's own name and a
  * percentage, or the failure if it stopped.
  *
- * Deliberately no steer and no remove control: a sent message is already on the
- * wire and the daemon has no cancel path, so a chip is a statement about where
- * something is, never a control over it.
+ * An **undelivered message** (`failed:`) is one that never reached the daemon —
+ * either the socket refused it or no ack came back in time. It is the only chip
+ * with controls, and it has them because it is the only one holding something
+ * the user would otherwise lose: its own text. Retry puts those words back on
+ * the wire; × gives up on them. A sent-and-acknowledged message gets neither,
+ * since the daemon already has it and this channel has no cancel path — a chip
+ * is a statement about where something is, never a control over it.
  */
 export const ComposerQueueBar: FC = () => {
   const { t } = useTranslation();
+  const { retry } = useComposerDelivery();
   return (
     <ComposerPrimitive.Queue>
       {({ queueItem }) => {
         const isUpload = queueItem.id.startsWith("upload:");
-        const isError = queueItem.id.startsWith("upload-error:");
-        const label = isError
-          ? t("attachment.uploadFailed")
-          : isUpload
-            ? t("thread.uploadingMessage")
-            : t("thread.queuedMessage");
+        const isUploadError = queueItem.id.startsWith("upload-error:");
+        const isFailed = queueItem.id.startsWith(failedChipPrefix);
+        const isError = isUploadError || isFailed;
+        const label = isFailed
+          ? t("thread.undeliveredMessage")
+          : isUploadError
+            ? t("attachment.uploadFailed")
+            : isUpload
+              ? t("thread.uploadingMessage")
+              : t("thread.queuedMessage");
         return (
           <div
             className={cn(
@@ -66,6 +122,28 @@ export const ComposerQueueBar: FC = () => {
               <ClockIcon className="mt-0.5 size-3.5 shrink-0" aria-hidden />
             )}
             <QueueItemPrimitive.Text className="line-clamp-2 min-w-0 flex-1 whitespace-pre-wrap" />
+            {isFailed && (
+              <div className="flex shrink-0 items-center gap-0.5">
+                <button
+                  type="button"
+                  onClick={() =>
+                    retry(queueItem.id.slice(failedChipPrefix.length))
+                  }
+                  className="hover:bg-destructive/10 rounded p-1"
+                  aria-label={t("thread.retrySend")}
+                  title={t("thread.retrySend")}
+                >
+                  <RotateCwIcon className="size-3.5" aria-hidden />
+                </button>
+                <QueueItemPrimitive.Remove
+                  className="hover:bg-destructive/10 rounded p-1"
+                  aria-label={t("thread.discardMessage")}
+                  title={t("thread.discardMessage")}
+                >
+                  <XIcon className="size-3.5" aria-hidden />
+                </QueueItemPrimitive.Remove>
+              </div>
+            )}
           </div>
         );
       }}

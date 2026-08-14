@@ -107,7 +107,7 @@ export const en = {
       "Only one page can be connected to a session at a time. Messages are being delivered to the other window.",
     useHere: "Use here instead",
     loadingHistory: "Loading history",
-    notConnected: "⚠️ Not connected to the daemon — message was not sent.",
+    notConnected: "Not connected to the daemon — cannot send",
   },
   thread: {
     welcome: "How can I help you today?",
@@ -123,6 +123,9 @@ export const en = {
     sendMessage: "Send message",
     queuedMessage: "Sent — waiting for its place in the conversation",
     uploadingMessage: "Uploading — the message goes out once it lands",
+    undeliveredMessage: "Not delivered — the daemon never confirmed this message",
+    retrySend: "Send again",
+    discardMessage: "Discard this message",
     exportMarkdown: "Export as Markdown",
     reply: "Quote reply",
     replyPending: "Writing the quote…",

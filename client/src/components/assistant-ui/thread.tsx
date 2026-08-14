@@ -7,7 +7,10 @@ import {
 } from "@/components/assistant-ui/attachment";
 import { ThreadFollowupSuggestions } from "@/components/assistant-ui/follow-up-suggestions";
 import { MarkdownImage } from "@/components/assistant-ui/markdown-image";
-import { ComposerQueueBar } from "@/components/assistant-ui/composer-queue";
+import {
+  ComposerQueueBar,
+  useComposerDelivery,
+} from "@/components/assistant-ui/composer-queue";
 import { MarkdownText } from "@/components/assistant-ui/markdown-text";
 import { PinButton } from "@/components/assistant-ui/pin-message";
 import {
@@ -687,6 +690,12 @@ const Composer: FC = () => {
 
 const ComposerAction: FC = () => {
   const { t } = useTranslation();
+  // The runtime already refuses to send while the link is down (isSendDisabled
+  // in use-nagobot-chat), which disables this button on its own — but a greyed
+  // button is the same thing an empty composer produces, so it reads as "type
+  // something", not as "the daemon is unreachable". The colour and the tooltip
+  // are what make the reason legible; the input keeps whatever was typed.
+  const { connected } = useComposerDelivery();
   return (
     /*
       Every button in this row is size-9 below the sm breakpoint and size-7 at
@@ -742,13 +751,24 @@ const ComposerAction: FC = () => {
         */}
         <ComposerPrimitive.Send asChild>
           <TooltipIconButton
-            tooltip={t("thread.sendMessage")}
+            tooltip={connected ? t("thread.sendMessage") : t("chat.notConnected")}
             side="bottom"
             type="button"
             variant="default"
             size="icon"
-            className="aui-composer-send size-9 rounded-full sm:size-7"
-            aria-label={t("thread.sendMessage")}
+            className={cn(
+              "aui-composer-send size-9 rounded-full sm:size-7",
+              // Solid red, at full strength. The `destructive` variant is the
+              // subdued tinted style, and the base button fades anything
+              // disabled to 50% — either would land on the same washed-out grey
+              // an empty composer produces, which is the reading to avoid. The
+              // colour IS the message here, so it must not be dimmed.
+              !connected &&
+                "bg-destructive hover:bg-destructive text-white disabled:opacity-100",
+            )}
+            aria-label={
+              connected ? t("thread.sendMessage") : t("chat.notConnected")
+            }
           >
             <ArrowUpIcon className="aui-composer-send-icon size-5 sm:size-4.5" />
           </TooltipIconButton>

@@ -24,7 +24,6 @@ import {
   imageAttachmentAdapter,
   useActiveUploads,
 } from "@/lib/attachment-adapter";
-import i18n from "@/i18n";
 
 // TurnPart is one ordered element of an assistant turn. It maps 1:1 onto
 // assistant-ui's native message parts (reasoning / text / tool-call), so a
@@ -130,11 +129,33 @@ type PendingMessage = {
   // What the chip shows: the typed text, without the folded-in quote line.
   prompt: string;
   // The wire form (quote included) — what to look for when the server's own
-  // entry does not carry this chip's id (see entryPlacesPending).
+  // entry does not carry this chip's id (see entryPlacesPending), and what a
+  // retry puts back on the wire.
   text: string;
   media?: MediaRef[];
   createdAt: Date;
+  // The daemon confirmed receipt (type:"ack"). Until then the message is only
+  // known to have LEFT this page.
+  acked?: boolean;
+  // Never reached the daemon — the chip turns red and offers a retry. It keeps
+  // its text, which is the point: a failed send must never cost the user their
+  // words. A failed chip is still matched against arriving entries, so one that
+  // did land after all (ack lost, message not) retires itself normally.
+  failed?: boolean;
 };
+
+// How long a sent message may go unacknowledged before its chip reports it as
+// undelivered. The ack is written the instant the dispatcher accepts the
+// message, so this budget covers ONE round trip — it is emphatically not the
+// queue wait, which is unbounded and legitimate (a message sent into a long
+// agentic turn waits for it, by design). Generous enough that a slow link never
+// produces a false alarm.
+const ackTimeoutMs = 15_000;
+
+// Id prefix marking a queue chip as undelivered. Queue items carry no fields
+// beyond {id, prompt}, so the kind rides on the id — same encoding as the
+// `upload:` / `upload-error:` chips.
+export const failedChipPrefix = "failed:";
 
 // How far back a chip looks for itself in a full history read. The text
 // fallback below is not id-exact, so an identical message from earlier in the
@@ -628,6 +649,49 @@ export function useNagobotChat(
     [],
   );
 
+  // Ack watchdogs, by message id. A chip with no timer here has either been
+  // acknowledged, given up, or been placed by the server.
+  const ackTimers = useRef(new Map<string, ReturnType<typeof setTimeout>>());
+  const clearAckTimer = useCallback((id: string) => {
+    const timer = ackTimers.current.get(id);
+    if (timer === undefined) return;
+    clearTimeout(timer);
+    ackTimers.current.delete(id);
+  }, []);
+  // Clear every watchdog on unmount — a fired timer would setState on a pane
+  // that no longer exists.
+  useEffect(() => {
+    const timers = ackTimers.current;
+    return () => {
+      for (const timer of timers.values()) clearTimeout(timer);
+      timers.clear();
+    };
+  }, []);
+
+  const markFailed = useCallback(
+    (id: string) => {
+      clearAckTimer(id);
+      updatePending((prev) =>
+        prev.map((p) => (p.id === id && !p.failed ? { ...p, failed: true } : p)),
+      );
+    },
+    [clearAckTimer, updatePending],
+  );
+
+  const armAck = useCallback(
+    (id: string) => {
+      clearAckTimer(id);
+      ackTimers.current.set(
+        id,
+        setTimeout(() => {
+          ackTimers.current.delete(id);
+          markFailed(id);
+        }, ackTimeoutMs),
+      );
+    },
+    [clearAckTimer, markFailed],
+  );
+
   // armFailsafe restarts the "we have something outstanding and have not heard
   // anything in a long time" watchdog. Outstanding means a queued chip OR a
   // running turn — the two are armed separately because a message can sit in
@@ -650,8 +714,10 @@ export function useNagobotChat(
   const stopRunning = useCallback(() => {
     setIsRunning(false);
     // A turn ending does not mean nothing is outstanding: messages sent into a
-    // busy turn are still queued and their turn has not started yet.
-    if (pendingRef.current.length > 0) {
+    // busy turn are still queued and their turn has not started yet. A chip
+    // that already gave up is NOT outstanding — it is waiting on the user, and
+    // keeping the watchdog alive for it would resync every 3 minutes forever.
+    if (pendingRef.current.some((p) => !p.failed)) {
       armFailsafe();
       return;
     }
@@ -720,8 +786,20 @@ export function useNagobotChat(
         return next;
       });
     };
+    // retire drops chips the server has now placed, and with them their ack
+    // watchdogs — a placed message is proof of delivery that outranks any
+    // pending receipt, including for a chip that already gave up.
+    const retire = (placed: (p: PendingMessage) => boolean) => {
+      updatePending((prev) =>
+        prev.filter((p) => {
+          if (!placed(p)) return true;
+          clearAckTimer(p.id);
+          return false;
+        }),
+      );
+    };
     const retirePlaced = (entry: ApiMessage) => {
-      updatePending((prev) => prev.filter((p) => !entryPlacesPending(entry, p)));
+      retire((p) => entryPlacesPending(entry, p));
     };
 
     // applyHistory installs a history read as the whole list and retires every
@@ -729,7 +807,7 @@ export function useNagobotChat(
     // server has not committed them yet.
     const applyHistory = (api: ApiMessage[]) => {
       setRawMessages(api);
-      updatePending((prev) => prev.filter((p) => !historyPlaced(api, p)));
+      retire((p) => historyPlaced(api, p));
     };
 
     // resync re-reads session.jsonl and REPLACES the list. It is a fallback,
@@ -765,6 +843,15 @@ export function useNagobotChat(
       if (s === "open") {
         if (wasOpen) resync();
         wasOpen = true;
+        return;
+      }
+      // The link is down. The daemon acks on receipt, so anything still
+      // unacknowledged was in flight when the socket died and never arrived.
+      // Report it now instead of making the user watch the timeout run out —
+      // and if one did land after all, its `message` frame retires the chip
+      // when the connection comes back.
+      for (const p of pendingRef.current) {
+        if (!p.acked && !p.failed) markFailed(p.id);
       }
     };
     const onVisibility = () => {
@@ -868,6 +955,15 @@ export function useNagobotChat(
     // peer speaking mid-turn shows up when the next turn write-ahead-persists
     // the queue.
 
+    // Receipt for one sent message: the daemon has it. Its turn may still be
+    // minutes away, so the chip stays — only its watchdog retires.
+    sock.onAck = (id) => {
+      clearAckTimer(id);
+      updatePending((prev) =>
+        prev.map((p) => (p.id === id ? { ...p, acked: true } : p)),
+      );
+    };
+
     sock.onError = (message) => {
       stopRunning();
       setNotices((prev) => [
@@ -920,7 +1016,14 @@ export function useNagobotChat(
       sock.close();
       socketRef.current = null;
     };
-  }, [sessionKey, startRunning, stopRunning, updatePending]);
+  }, [
+    sessionKey,
+    startRunning,
+    stopRunning,
+    updatePending,
+    clearAckTimer,
+    markFailed,
+  ]);
 
   // enqueue is the send path. It puts the message on the wire immediately —
   // nothing is held back, the daemon accepts messages mid-turn — but renders
@@ -969,31 +1072,14 @@ export function useNagobotChat(
           text,
           media.map((m) => ({ name: m.name })),
         ) ?? false;
-      if (!sent) {
-        // Never queued: the socket is down, so the daemon has nothing, this
-        // message will never appear in session.jsonl, and there is no
-        // placement to wait for. Show the user's words and the failure
-        // together as notices — they are not conversation entries.
-        setNotices((prev) => [
-          ...prev,
-          {
-            id: localID("user"),
-            role: "user",
-            text,
-            createdAt: new Date(),
-            isMe: true,
-            media: media.length > 0 ? media : undefined,
-          },
-          {
-            id: localID("err"),
-            role: "assistant",
-            text: i18n.t("chat.notConnected"),
-            createdAt: new Date(),
-          },
-        ]);
-        return;
-      }
 
+      // The chip is minted either way, and that is the point. A send that never
+      // left the page used to become a pair of notices — a user bubble that
+      // looked real but was in no session file, plus an error line, both of them
+      // permanent and both pinned below every message sent afterwards. The text
+      // was on screen but nowhere the user could act on it, so recovering it
+      // meant retyping. Now the failure lives on the chip that already holds the
+      // text: red, with a retry that puts the same words back on the wire.
       updatePending((prev) => [
         ...prev,
         {
@@ -1002,20 +1088,65 @@ export function useNagobotChat(
           text,
           media: media.length > 0 ? media : undefined,
           createdAt: new Date(),
+          failed: !sent,
         },
       ]);
+      if (!sent) return;
+
       // Deliberately NOT startRunning(): the message is queued, not running.
       // See the comment on startRunning — claiming a turn here anchors the
       // viewport to the PREVIOUS turn and scrolls backward. The watchdog is
       // armed on its own, because a queued message can wait minutes for a busy
       // thread and still deserves a dead-daemon check.
+      armAck(id);
       armFailsafe();
       if (!firstSendNotified.current) {
         firstSendNotified.current = true;
         onFirstSendRef.current?.(sessionKey);
       }
     },
-    [armFailsafe, sessionKey, updatePending],
+    [armAck, armFailsafe, sessionKey, updatePending],
+  );
+
+  // retrySend puts a failed chip's words back on the wire under a NEW id.
+  // Reusing the old one would be wrong in exactly the case retry exists for: if
+  // the original did reach the daemon and only its ack was lost, the same id
+  // would land on disk twice, and one id naming two entries is the one shape
+  // the projection cannot represent. Two ids for one duplicated message is
+  // merely visible, and a resync clears it up.
+  const retrySend = useCallback(
+    (failedID: string) => {
+      const item = pendingRef.current.find((p) => p.id === failedID && p.failed);
+      if (!item) return;
+      clearAckTimer(failedID);
+      const id = clientMessageID();
+      const sent =
+        socketRef.current?.send(
+          id,
+          item.text,
+          (item.media ?? []).map((m) => ({ name: m.name })),
+        ) ?? false;
+      updatePending((prev) =>
+        prev.map((p) =>
+          p.id === failedID ? { ...p, id, acked: false, failed: !sent } : p,
+        ),
+      );
+      if (!sent) return;
+      armAck(id);
+      armFailsafe();
+    },
+    [armAck, armFailsafe, clearAckTimer, updatePending],
+  );
+
+  // dismissPending drops a failed chip the user has given up on. Only a failed
+  // one: a chip still in flight cannot be recalled, because the daemon may
+  // already have the message and there is no cancel path over this channel.
+  const dismissPending = useCallback(
+    (id: string) => {
+      clearAckTimer(id);
+      updatePending((prev) => prev.filter((p) => !(p.id === id && p.failed)));
+    },
+    [clearAckTimer, updatePending],
   );
 
   // With a queue adapter present the runtime routes composer sends to
@@ -1120,18 +1251,28 @@ export function useNagobotChat(
   const queue = useMemo<ExternalThreadQueueAdapter>(
     () => ({
       items: [
-        ...pending.map((p) => ({ id: p.id, prompt: p.prompt })),
+        // A queue item is {id, prompt} and nothing else, so the id carries the
+        // kind — the same encoding the upload chips above use. `failed:` is what
+        // turns a chip red and gives it its retry and dismiss controls.
+        ...pending.map((p) => ({
+          id: p.failed ? `${failedChipPrefix}${p.id}` : p.id,
+          prompt: p.prompt,
+        })),
         ...uploadItems,
       ],
       enqueue,
-      // Unreachable, and no-ops by design: the chips render no steer/remove
-      // control, and this runtime exposes no edit/reload/cancel for clear() to
-      // answer. A sent message cannot be recalled — the daemon already has it.
+      // remove answers the × on a failed chip and nothing else: a chip still in
+      // flight cannot be recalled, and an upload chip retires itself.
+      remove: (itemID) => {
+        if (!itemID.startsWith(failedChipPrefix)) return;
+        dismissPending(itemID.slice(failedChipPrefix.length));
+      },
+      // Unreachable, and no-ops by design: the chips render no steer control,
+      // and this runtime exposes no edit/reload/cancel for clear() to answer.
       steer: () => {},
-      remove: () => {},
       clear: () => {},
     }),
-    [pending, uploadItems, enqueue],
+    [pending, uploadItems, enqueue, dismissPending],
   );
 
   const runtime = useExternalStoreRuntime<ChatMessage>({
@@ -1140,6 +1281,13 @@ export function useNagobotChat(
     convertMessage,
     onNew,
     queue,
+    // Gate sending on the link being up. This is the narrow flag, not
+    // isDisabled: the input stays fully usable, send() becomes a no-op, and
+    // composer.canSend goes false — which is what disables the send button (and
+    // Enter) WITHOUT consuming what the user typed. Keeping their words in the
+    // composer is the whole point; the old behaviour took the text, showed it
+    // as a bubble that was in no session file, and left them to retype it.
+    isSendDisabled: status !== "open",
     adapters: { attachments: imageAttachmentAdapter },
   });
 
@@ -1149,6 +1297,7 @@ export function useNagobotChat(
     historyError,
     historyLoading,
     takeOver,
+    retrySend,
     // Known synchronously, unlike the runtime's internal thread state which
     // ingests external messages in a post-mount effect. The pane uses this to
     // suppress the welcome screen during that sync gap — otherwise a session

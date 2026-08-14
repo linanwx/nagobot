@@ -3,8 +3,16 @@
 // Protocol (see channel/web.go):
 //   client → server: {type: "bind", session_id} | {type: "message", id, text}
 //   server → client: {type: "response", text} | {type: "bound", text}
-//                  | {type: "error", error} | {type: "stream", kind, ...}
+//                  | {type: "ack", id} | {type: "error", error}
+//                  | {type: "stream", kind, ...}
 //                  | {type: "peer_message", text, sender}
+//
+// "ack" is the receipt for one sent message, echoing back the id the page
+// minted. It says the dispatcher has the message — nothing about when its turn
+// runs. That distinction is the whole point: the authoritative `message` frame
+// below does not arrive until the consuming turn STARTS, which can be minutes
+// behind a long agentic turn, so the ack is the only thing that separates
+// "waiting its turn" from "never got there".
 //
 // "stream" frames carry live turn activity. Two of them declare what EXISTS —
 // `message` (an entry just written to session.jsonl) and `message_start` (the
@@ -77,6 +85,8 @@ type InboundFrame = {
   type: string;
   text?: string;
   error?: string;
+  // type:"ack" — the id of the message the daemon just accepted.
+  id?: string;
   // type:"peer_message" — another viewer of this session spoke.
   sender?: string;
 } & Partial<StreamFrame>;
@@ -122,6 +132,7 @@ export class NagobotSocket {
   onStream: ((ev: StreamFrame) => void) | null = null;
   onStatus: ((status: SocketStatus) => void) | null = null;
   onError: ((message: string) => void) | null = null;
+  onAck: ((id: string) => void) | null = null;
   onPeerMessage: ((text: string, sender: string) => void) | null = null;
 
   connect(): void {
@@ -151,6 +162,9 @@ export class NagobotSocket {
           break;
         case "stream":
           if (frame.kind) this.onStream?.(frame as StreamFrame);
+          break;
+        case "ack":
+          if (frame.id) this.onAck?.(frame.id);
           break;
         case "error":
           if (frame.error) this.onError?.(frame.error);
