@@ -100,6 +100,19 @@ This is a BACKGROUND task. You will NOT message the user.
 
    - **`--id` names the EVENT, never the date** — `house-viewing-followup`, not `followup-20260822`. `set-at` upserts by id, so an event that comes up again on a later night overwrites its own job instead of filing a second copy, and a date that moves is corrected by re-filing under the same id. A date-derived id makes both impossible and quietly accumulates duplicates that all fire.
    - **`--at` is when the reminder is USEFUL, not when the event happens.** A 9am appointment wants the evening before or that morning — not 9am sharp, by which time it is not a reminder.
+   - **Most commitments carry TWO clocks, and the earlier one is the one that gets missed.** The event has its own time, but something usually has to be *done* before it, inside a window that opens and closes on its own — and that window is often the only part that can still be acted on. When the day's conversation does not show the earlier one already handled, it gets its own wake:
+
+     | Commitment | Action clock — the window before it | Event clock |
+     |---|---|---|
+     | Flight | online check-in opens (T-24h, T-48h on some carriers); bag and seat cut-off | evening before + the morning of, offset by travel time to the airport |
+     | Train / coach / ferry | the hour tickets go on sale (e.g. 12306 releases T-15d at 13:00); booking or waitlist cut-off | evening before + leave-home time on the day |
+     | Concert / match / live show | on-sale date and hour; presale window | leave-home time on the day |
+     | Exhibition | booking-slot release date; the final day of the run | leave-home time on the chosen day |
+     | Film | release date; presale opening | leave-home time for the screening |
+     | Appointment (viewing, dentist, visa, office) | anything that must be booked, prepared or submitted first | evening before + leave-home time on the day |
+     | Expiry / deadline (renewal, insurance, refund or change window) | the day the window opens | 1–2 days before it closes |
+
+     Both clocks of one commitment can be worth scheduling, and then they are **two events with two ids** — `dublin-london-flight-checkin` and `dublin-london-flight-departure` — never one job filed twice. A commitment whose action clock has already passed still gets its event clock, and one whose event is far out may be worth only its action clock tonight.
    - **`--task` is where the real filtering happens, so write it as a decision, not as a script.** The wake sees the actual day and the conversation since; you do not. It must instruct: look at the recent conversation first, then choose one of three — the moment has passed or the user already raised it → end silently with `dispatch({})`; the moment is still ahead → re-file under the same id for the better day and end silently; otherwise → deliver it as your ordinary reply text (a cron wake on this session reaches the user). **This is what lets 5b schedule on a weak signal**: a wake that decides not to speak is free.
    - **`--task` must also stand on its own.** By the time it fires, today's conversation may have been compressed out of context, and this text is the only surviving record — a 5b task two weeks out has no other lifeline. Write what to send, why, and the facts from today it depends on.
 
