@@ -24,8 +24,21 @@ const (
 	// dispatching — see Thread.contentSink.)
 	TargetCallerSession DispatchTarget = "caller:session"
 	TargetSubagent      DispatchTarget = "subagent"
-	TargetFork          DispatchTarget = "fork"
-	TargetSession       DispatchTarget = "session"
+	// TargetSubagentFork is named as a variant of TargetSubagent rather than a
+	// peer concept, because that is what it is: same spawn, same params, the
+	// only difference being that the child inherits stripped history instead of
+	// starting fresh. The old name was "fork", which sorted between "session"
+	// and "subagent" in the schema enum and read as a fourth unrelated target.
+	// Measured before renaming: 8 of 3,525 sends on this deployment, all eight
+	// from the developer CLI session, zero from any real channel.
+	//
+	// The SESSION KEY infix is deliberately NOT renamed with it —
+	// session.ForkSessionInfix stays ":fork:". The infix is an internal key
+	// shape the model never types, and changing it would make every existing
+	// {parent}:fork:{task} key stop matching the child-session tests that keep
+	// such a session from being treated as user-facing.
+	TargetSubagentFork DispatchTarget = "subagent_fork"
+	TargetSession      DispatchTarget = "session"
 )
 
 // DispatchSend is a single dispatch entry. Params is a free-form string
@@ -67,15 +80,34 @@ var dispatchParamKeys = []string{"agent", "task_id", "provider", "model", "sessi
 var acceptedFields = map[DispatchTarget]map[string]bool{
 	TargetCallerSession: {},
 	TargetSubagent:      {"agent": true, "task_id": true, "provider": true, "model": true},
-	TargetFork:          {"agent": true, "task_id": true, "provider": true, "model": true},
+	TargetSubagentFork:  {"agent": true, "task_id": true, "provider": true, "model": true},
 	TargetSession:       {"session_key": true, "channel": true, "user_id": true},
+}
+
+// targetsAccepting formats the sorted targets whose params whitelist admits
+// key, as "to=a/to=b".
+//
+// DERIVED from acceptedFields for the same reason dispatchTargetNames is, and
+// with a sharper edge: these strings are GUIDANCE, not validation. A stale
+// enum at least got the model rejected; a stale hint rejects nothing, fails no
+// test, and simply points somewhere wrong. Renaming to=fork to to=subagent_fork
+// would have left four of them naming a target that no longer exists.
+func targetsAccepting(key string) string {
+	out := make([]string, 0, len(acceptedFields))
+	for target, fields := range acceptedFields {
+		if fields[key] {
+			out = append(out, "to="+string(target))
+		}
+	}
+	slices.Sort(out)
+	return strings.Join(out, "/")
 }
 
 // dispatchTargetNames is the sorted list of legal `to` values, DERIVED from
 // acceptedFields rather than written out beside it.
 //
 // It is derived because the hand-written copy was wrong for weeks. When
-// to=user was removed, the constants, acceptedFields, how-nagobot-works.md,
+// to=user was removed, the constants, acceptedFields, the dispatch section,
 // thread-ops and dispatch-guide were all updated — and the tool schema's enum
 // was not, so it kept telling every model on every turn that "user" was a legal
 // target while validateOne rejected it. The schema is the machine-readable
@@ -101,10 +133,10 @@ func dispatchTargetNames() []string {
 // the rejection tells the model where the key belongs rather than only that it
 // does not belong here.
 var dispatchFieldHints = map[string]string{
-	"agent":       "agent/task_id belong to to=subagent/fork",
-	"task_id":     "agent/task_id belong to to=subagent/fork",
-	"provider":    "the provider+model override applies to to=subagent/fork only",
-	"model":       "the provider+model override applies to to=subagent/fork only",
+	"agent":       "agent/task_id belong to " + targetsAccepting("agent"),
+	"task_id":     "agent/task_id belong to " + targetsAccepting("task_id"),
+	"provider":    "the provider+model override applies to " + targetsAccepting("provider") + " only",
+	"model":       "the provider+model override applies to " + targetsAccepting("model") + " only",
 	"session_key": "session_key addresses an existing session via to=session",
 	"channel":     "channel+user_id address a channel endpoint via to=session",
 	"user_id":     "channel+user_id address a channel endpoint via to=session",
@@ -321,7 +353,7 @@ func (t *DispatchTool) Def() provider.ToolDef {
 								"params": map[string]any{
 									"type": "object",
 									"description": "Target-specific options dictionary (string values). Write ONLY the keys your target needs; leave the whole dictionary empty for caller:*, which already knows its destination. " +
-										"For to=subagent/fork — task_id: required, [a-z0-9_-]+, reusing the same task_id targets the existing thread; agent: template name, empty for the session default (never invent placeholders like \"default\"); provider+model: optional model override, must be set together, list valid pairs via `set-model --list-fallback`. " +
+										"For " + targetsAccepting("task_id") + " — task_id: required, [a-z0-9_-]+, reusing the same task_id targets the existing thread; agent: template name, empty for the session default (never invent placeholders like \"default\"); provider+model: optional model override, must be set together, list valid pairs via `set-model --list-fallback`. " +
 										"For to=session — EITHER session_key: exact key of an existing session, OR channel+user_id: channel one of discord/feishu/telegram/wecom, user_id the channel-native recipient id (wecom userid, telegram chat id, discord channel id, feishu openID; groups per channel convention, e.g. wecom \"group:<chatid>\"), session created if missing.",
 									"additionalProperties": map[string]any{"type": "string"},
 								},
@@ -607,7 +639,7 @@ func (t *DispatchTool) validateOne(send DispatchSend, currentSession string) str
 		default:
 			return "current wake has no routable caller"
 		}
-	case TargetSubagent, TargetFork:
+	case TargetSubagent, TargetSubagentFork:
 		taskID := send.Params["task_id"]
 		if taskID == "" {
 			return "params.task_id is required"
@@ -651,8 +683,11 @@ func (t *DispatchTool) validateOne(send DispatchSend, currentSession string) str
 			if strings.ContainsAny(uid, " \t\r\n") {
 				return "user_id must not contain whitespace"
 			}
+			// Named by KEY SHAPE, not by the targets that produce it: the
+			// infixes are what this actually checks, and they do not move when
+			// a target is renamed.
 			if strings.Contains(uid, ":threads:") || strings.Contains(uid, ":fork:") {
-				return "user_id cannot address subagent/fork sessions"
+				return "user_id cannot address child sessions (keys containing :threads: or :fork:)"
 			}
 			if ch+":"+uid == currentSession {
 				return "channel+user_id resolves to the current session (self-reference not allowed). To speak to THIS session's own human, do not dispatch at all — just write your message as your reply text."
@@ -671,7 +706,7 @@ func targetKey(send DispatchSend, currentSession string) string {
 		return "caller" // at most one caller per batch regardless of declared kind
 	case TargetSubagent:
 		return currentSession + ":threads:" + send.Params["task_id"]
-	case TargetFork:
+	case TargetSubagentFork:
 		return currentSession + ":fork:" + send.Params["task_id"]
 	case TargetSession:
 		return resolvedSessionKey(send)
@@ -699,13 +734,13 @@ func (t *DispatchTool) execute(ctx context.Context, send DispatchSend) (Executed
 			return ExecutedItem{}, err
 		}
 		return ExecutedItem{To: TargetSubagent, SessionKey: key, Note: note}, nil
-	case TargetFork:
+	case TargetSubagentFork:
 		p := send.Params
 		key, note, err := t.host.CreateOrWakeFork(ctx, p["agent"], p["task_id"], send.Body, p["provider"], p["model"])
 		if err != nil {
 			return ExecutedItem{}, err
 		}
-		return ExecutedItem{To: TargetFork, SessionKey: key, Note: note}, nil
+		return ExecutedItem{To: TargetSubagentFork, SessionKey: key, Note: note}, nil
 	case TargetSession:
 		key := resolvedSessionKey(send)
 		note := ""
@@ -738,7 +773,7 @@ func describeExecuted(ex ExecutedItem) string {
 			note = "dispatched"
 		}
 		return "Spawned subagent at session " + ex.SessionKey + " (" + note + ") with body " + body + "."
-	case TargetFork:
+	case TargetSubagentFork:
 		note := ex.Note
 		if note == "" {
 			note = "dispatched"

@@ -172,7 +172,7 @@ func TestContentSinkProactive(t *testing.T) {
 }
 
 // TestResolveDeliveryLabel pins the wake payload's `delivery` field: the one
-// place a turn is told where its output goes (how-nagobot-works.md), so it must
+// place a turn is told where its output goes (the wake-and-delivery section), so it must
 // name every destination that actually routes the content and nothing else.
 func TestResolveDeliveryLabel(t *testing.T) {
 	const discord = "your response will be sent to discord channel 123"

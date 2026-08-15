@@ -1,7 +1,6 @@
 ---
 name: agent-definitions
 priority: 300
-parent: how-nagobot-works
 ---
 # Agent Definitions
 

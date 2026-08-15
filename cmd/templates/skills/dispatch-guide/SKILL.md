@@ -24,7 +24,7 @@ Look at the wake YAML frontmatter of the current turn. Three fields determine th
 
 1. **`caller_session_key`** — present? caller is another session.
 2. **`source`** — decides whether your plain text reaches your human (see table).
-3. **session key prefix** — `telegram:` / `discord:` / `cli` / `web` / `feishu:` / `wecom:`? this session is user-facing. If not (a subagent / fork / internal session), plain text reaches NOBODY and the runner will make you re-do the turn until you dispatch.
+3. **session key prefix** — `telegram:` / `discord:` / `cli` / `web` / `feishu:` / `wecom:`? this session is user-facing. If not (a subagent / internal session), plain text reaches NOBODY and the runner will make you re-do the turn until you dispatch.
 
 Possible `source` values you may see in the wake YAML:
 
@@ -32,7 +32,7 @@ Possible `source` values you may see in the wake YAML:
 |---|---|---|
 | `telegram` / `discord` / `cli` / `web` / `feishu` / `wecom` | channel user message | user |
 | `WakeSession` | another session woke you (cross-session) | session |
-| `child_completed` | a subagent/fork finished and is reporting back | session |
+| `child_completed` | a subagent finished and is reporting back | session |
 | `cron` | scheduled cron job fired (may be `--direct-wake` self-wake) | system (no caller) |
 | `heartbeat` (also `heartbeat_wake` / `heartbeat_reflect` in older sessions) | heartbeat scheduler pulse | system (no caller) |
 | `compression` | context compression wake | system (no caller) |
@@ -78,10 +78,10 @@ Then:
 - **Async**: child runs independently; on completion it wakes you with `source: child_completed`.
 - **Fields**: `body` + `params`: `task_id` (required, `[a-z0-9_-]+`), `agent` (optional — falls back to session default), `provider`+`model` (optional model override).
 
-### `fork` — branch current session as new agent thread
+### `subagent_fork` — branch current session as new agent thread
 - **Use when**: child must reason over the current conversation (reflection, summarization, scheduling against context).
-- **Difference from subagent**: fork inherits stripped history; subagent starts fresh.
-- **Key shape**: `{current}:fork:{task_id}`.
+- **Difference from `subagent`**: `subagent_fork` inherits stripped history; `subagent` starts fresh. Everything else — params, key handling, async completion — is identical.
+- **Key shape**: `{current}:fork:{task_id}` — the key infix is `:fork:`, NOT `:subagent_fork:`. The target was renamed; the session key was not.
 - **Fields**: same as subagent.
 
 ### `dispatch({})` — silent turn termination
@@ -107,6 +107,28 @@ Key points:
 - To **avoid runaway ping-pong**, when you have nothing more to ask, end with `dispatch({})` (silent) or simply write your conclusion as plain text (which goes to your channel user, not back to the peer). Don't reflexively reply with `caller:session` if there's nothing substantive to say.
 - **Tracking what you asked**: there's no automatic correlation id between the question wake and the answer wake. If you might have multiple Q&A threads in flight, mention the topic in your question body so the answer body can be matched by content (or store correlation in heartbeat.md).
 
+### Quoting what you are answering (`> Re:`)
+
+When you reply back to a cross-session caller — either explicitly via
+`dispatch(to=caller:session)` OR by emitting a naive final text response (both
+route through the same wake sink) — **prefix the body with a standalone line
+`> Re: "<excerpt>"` before the reply**.
+
+`<excerpt>` is up to **200 characters** taken from the incoming request body,
+with all newlines collapsed to single spaces. Do NOT just quote the first line:
+it is often a vague preamble with no information content. Pull from across the
+message to capture the actual ask.
+
+This is the correlation mechanism the previous point describes. The caller
+session may be juggling many concurrent threads and will not remember which
+outbound each inbound reply corresponds to; the excerpt is how it matches your
+reply back to its original request.
+
+```
+dispatch(sends=[{to: "caller:session",
+                  body: "> Re: \"Do you have notes on the Q3 launch timeline?\"\nYes — the timeline moved to Nov 14, checklist attached below."}])
+```
+
 Patterns:
 
 ```
@@ -127,7 +149,7 @@ dispatch(sends=[{to: "session", params: {session_key: "telegram:42"},
 
 ## Receiving child replies (`child_completed`)
 
-When a subagent or fork finishes its work, it wakes you back with `source: child_completed`. The wake YAML carries the child's session_key (e.g. `cli:threads:find-x`) and the child's final output as the body.
+When a subagent finishes its work, it wakes you back with `source: child_completed`. The wake YAML carries the child's session_key (e.g. `cli:threads:find-x`) and the child's final output as the body.
 
 This is a normal wake — your turn runs as usual, and you must end with dispatch like any other turn. The caller kind for these wakes is `session` (the child is another session), so the reply form is `caller:session` if you want to reply to the child. But typically you don't reply to the child; you forward / summarize / act on its result for the *original* user. Pattern:
 
@@ -166,7 +188,7 @@ human. This is **the normal path** when:
 You MUST dispatch when:
 
 - Wake source is `heartbeat*` / `compression`. Nothing you write reaches anyone; end with `dispatch({})` so the turn terminates cleanly.
-- This session is **not user-facing** (subagent / fork / internal). Plain text has no destination, so the runner rejects a text-only reply and re-iterates until you dispatch — usually `caller:session` to report back.
+- This session is **not user-facing** (subagent / internal). Plain text has no destination, so the runner rejects a text-only reply and re-iterates until you dispatch — usually `caller:session` to report back.
 - You need to spawn / wake / fan-out — there's no plain-text equivalent.
 - You want the caller-kind assertion safety net — only `caller:session` validates.
 
@@ -181,7 +203,7 @@ with that session's key.
 
 Validation rejects:
 - Two or more `caller:session` sends in the same batch (they collapse to a single "caller" target).
-- Two `subagent` or `fork` sends sharing the same `task_id`.
+- Two `subagent` or `subagent_fork` sends sharing the same `task_id`.
 - Two `to=session` sends with the same `session_key`.
 
 Merge the bodies if you need to say multiple things to one target. Use distinct `task_id`s for parallel fan-out.
@@ -213,8 +235,8 @@ dispatch validates the entire batch before executing anything. On validation err
 |---|---|
 | `to=caller:session but actual caller is the channel user` | no `caller_session_key` in the wake; the user woke you — drop the dispatch and just reply in plain text |
 | `to=caller:session but actual caller is system` | cron/heartbeat/compression wake; use `dispatch({})`, or (cron only) plain reply text |
-| `params.task_id is required` / `params.task_id must match [a-z0-9_-]+` | subagent/fork needs a kebab/snake-case id in `params` |
-| `session_key is the current session (self-reference not allowed)` | `to=session` doesn't self-loop; write plain text to reach this session's own human, `caller:session` to reply to a peer, or `fork` for a branch |
+| `params.task_id is required` / `params.task_id must match [a-z0-9_-]+` | subagent / subagent_fork needs a kebab/snake-case id in `params` |
+| `session_key is the current session (self-reference not allowed)` | `to=session` doesn't self-loop; write plain text to reach this session's own human, `caller:session` to reply to a peer, or `subagent_fork` for a branch |
 | `unknown params key(s)` / `does not accept params` | a params key landed on the wrong target — the error names where it belongs and, for caller:session, the exact JSON to resend |
 | `duplicate target in batch` | two sends resolve to the same target; merge bodies or pick distinct task_ids |
 | Result outcome `partial-failure` | some sends delivered, others failed at execution time. Already-delivered messages cannot be unsent — read the executed/failed lists, then on next turn act on what's still pending. |
@@ -243,7 +265,7 @@ dispatch(sends=[{to: "caller:session", body: "Yes — see attached..."}])
 dispatch(sends=[{to: "subagent", params: {agent: "researcher", task_id: "find-x"}, body: "Find X"}])
 
 # Reflect on current conversation
-dispatch(sends=[{to: "fork", params: {agent: "reflector", task_id: "reflect-1"}, body: "Summarize what we decided"}])
+dispatch(sends=[{to: "subagent_fork", params: {agent: "reflector", task_id: "reflect-1"}, body: "Summarize what we decided"}])
 
 # Notify another channel
 dispatch(sends=[{to: "session", params: {session_key: "telegram:99"}, body: "Build finished"}])

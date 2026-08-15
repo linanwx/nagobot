@@ -1,7 +1,6 @@
 ---
 name: tools
 priority: 400
-parent: how-nagobot-works
 ---
 # Tools
 

@@ -1,7 +1,6 @@
 ---
 name: skills
 priority: 500
-parent: how-nagobot-works
 ---
 # Skills
 

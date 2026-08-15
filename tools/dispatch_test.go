@@ -357,7 +357,7 @@ func TestDispatch_Fork(t *testing.T) {
 		agents:     map[string]bool{"analyst": true},
 	}
 	outcome, res := runDispatch(t, host,
-		`{"sends": [{"to": "fork", "params": {"agent": "analyst", "task_id": "hypo-a"}, "body": "explore"}]}`)
+		`{"sends": [{"to": "subagent_fork", "params": {"agent": "analyst", "task_id": "hypo-a"}, "body": "explore"}]}`)
 	if outcome != "turn-terminated" {
 		t.Fatalf("outcome=%q; %s", outcome, res)
 	}
@@ -424,7 +424,7 @@ func TestDispatch_ModelOverride_WrongTarget(t *testing.T) {
 	host := &mockDispatchHost{currentKey: "cli", callerKind: "user"}
 	_, res := runDispatch(t, host,
 		`{"sends": [{"to": "caller:session", "params": {"provider": "openrouter", "model": "anthropic/claude-opus-4.6"}, "body": "hi"}]}`)
-	if !strings.Contains(res, "validation-error") || !strings.Contains(res, "override applies to to=subagent/fork only") {
+	if !strings.Contains(res, "validation-error") || !strings.Contains(res, "override applies to to=subagent/to=subagent_fork only") {
 		t.Errorf("expected wrong-target validation error, got: %s", res)
 	}
 }
@@ -437,7 +437,7 @@ func TestDispatch_ForkNested(t *testing.T) {
 		agents:     map[string]bool{"analyst": true},
 	}
 	_, res := runDispatch(t, host,
-		`{"sends": [{"to": "fork", "params": {"agent": "analyst", "task_id": "b"}, "body": "deeper"}]}`)
+		`{"sends": [{"to": "subagent_fork", "params": {"agent": "analyst", "task_id": "b"}, "body": "deeper"}]}`)
 	if !strings.Contains(res, "telegram:1:fork:a:fork:b") {
 		t.Errorf("expected nested fork key, got: %s", res)
 	}
@@ -493,7 +493,7 @@ func TestDispatch_MultipleTargets(t *testing.T) {
 		`{"sends": [
 			{"to": "caller:session", "body": "working on it"},
 			{"to": "subagent", "params": {"agent": "search", "task_id": "bg"}, "body": "查"},
-			{"to": "fork", "params": {"agent": "analyst", "task_id": "hypo"}, "body": "branch"},
+			{"to": "subagent_fork", "params": {"agent": "analyst", "task_id": "hypo"}, "body": "branch"},
 			{"to": "session", "params": {"session_key": "telegram:2"}, "body": "sync"}
 		]}`)
 	if outcome != "turn-terminated" {
@@ -846,7 +846,7 @@ func TestDispatch_WakeSessionEndpoint_SubsessionInfixRejected(t *testing.T) {
 	host := &mockDispatchHost{currentKey: "cli", callerKind: "user"}
 	_, res := runDispatch(t, host,
 		`{"sends": [{"to": "session", "params": {"channel": "telegram", "user_id": "123:threads:bg"}, "body": "x"}]}`)
-	if !strings.Contains(res, "validation-error") || !strings.Contains(res, "cannot address subagent/fork sessions") {
+	if !strings.Contains(res, "validation-error") || !strings.Contains(res, "cannot address child sessions") {
 		t.Errorf("expected infix rejection, got: %s", res)
 	}
 }

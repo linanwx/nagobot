@@ -57,7 +57,10 @@ func (t *CheckSessionTool) Def() provider.ToolDef {
 			Description: "Inspect a session by key. Reports whether the session exists on disk, " +
 				"whether a thread is currently loaded for it, and the thread's runtime state " +
 				"(iterations / current tool / pending) when a thread is active. " +
-				"Use this after dispatch (subagent/fork) to follow up on a child session by its " +
+				// Derived, not spelled out: this sits in the cached tool prefix,
+				// so a stale target name here is shown to every model on every
+				// turn while nothing rejects it.
+				"Use this after dispatch (" + targetsAccepting("task_id") + ") to follow up on a child session by its " +
 				"resolved session_key.",
 			Parameters: map[string]any{
 				"type": "object",

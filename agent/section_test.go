@@ -240,10 +240,23 @@ func TestSectionRegistry_RealSections(t *testing.T) {
 	if reg.Count() < 6 {
 		t.Errorf("expected at least 6 sections, got %d", reg.Count())
 	}
-	result := reg.Assemble()
-	if !strings.Contains(result, "How nagobot works") {
-		t.Error("assembled output should contain 'How nagobot works'")
+
+	// Every declared parent must resolve. A dangling one is not an error at
+	// runtime — loadSections logs a Warn and silently promotes the child to a
+	// root, reshaping the whole prompt outline. That is exactly what a partial
+	// edit looks like: delete a parent file, leave the `parent:` lines behind.
+	// Asserting a specific heading string here instead would only pin today's
+	// wording, which is what this assertion replaced.
+	for _, s := range reg.sections {
+		if s.Parent == "" {
+			continue
+		}
+		if _, ok := reg.sections[s.Parent]; !ok {
+			t.Errorf("section %q names parent %q, which no section defines", s.Name, s.Parent)
+		}
 	}
+
+	result := reg.Assemble()
 	if !strings.Contains(result, "{{TOOLS}}") {
 		t.Error("assembled output should contain {{TOOLS}} placeholder")
 	}
