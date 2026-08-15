@@ -40,7 +40,18 @@ func (p *ReadabilityFetchProvider) Fetch(ctx context.Context, rawURL string) (st
 		return "", &HTTPError{StatusCode: resp.StatusCode, Status: resp.Status}
 	}
 
-	body := io.LimitReader(resp.Body, webFetchMaxReadBytes)
+	// Diverted before go-readability sees it: handed binary, the library reports
+	// a generic extraction failure, which grades as ContentError and reads as
+	// "try another source" when the real answer is "this is a file".
+	reader, nonPage, err := saveIfNotPage(ctx, resp, rawURL)
+	if err != nil {
+		return "", err
+	}
+	if nonPage != nil {
+		return "", nonPage
+	}
+
+	body := io.LimitReader(reader, webFetchMaxReadBytes)
 
 	parsedURL, _ := url.Parse(rawURL)
 	article, err := readability.FromReader(body, parsedURL)

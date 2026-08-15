@@ -201,7 +201,7 @@ func (t *WebFetchTool) Def() provider.ToolDef {
 		Type: "function",
 		Function: provider.FunctionDef{
 			Name:        "web_fetch",
-			Description: "Fetch the content of a web page. Returns readable text/markdown. Content is cached for 10 minutes — repeated fetches of the same URL are free. Use offset/limit to paginate through long pages without re-fetching. If a site returns 403/503 (anti-bot), retry with a different source.",
+			Description: "Fetch the content of a web page. Returns readable text/markdown. If the URL serves a file rather than a page (PDF, image, audio, archive, Office document), the file is downloaded to the workspace and the result gives its local path and type instead of page text. Content is cached for 10 minutes — repeated fetches of the same URL are free. Use offset/limit to paginate through long pages without re-fetching. If a site returns 403/503 (anti-bot), retry with a different source.",
 			Parameters: map[string]any{
 				"type": "object",
 				"properties": map[string]any{
@@ -275,6 +275,19 @@ func (t *WebFetchTool) Run(ctx context.Context, args json.RawMessage) string {
 		elapsed := time.Since(start).Milliseconds()
 
 		if err != nil {
+			// A file rather than a page is not a failure of the source — it
+			// reached the URL and delivered its bytes. Recording it as one
+			// would demote a healthy source for serving exactly what was asked
+			// for. Deliberately not cached: the payload now lives on disk, and
+			// the model's next step is read_file/exec on that path, not a
+			// second fetch.
+			var nonPage *NonPageContent
+			if errors.As(err, &nonPage) {
+				if t.healthChecker != nil {
+					t.healthChecker.Record(source, true, int(nonPage.Size), elapsed)
+				}
+				return t.nonPageResult(a.URL, source, nonPage)
+			}
 			if t.healthChecker != nil {
 				t.healthChecker.Record(source, false, 0, elapsed)
 			}
@@ -337,6 +350,34 @@ func (t *WebFetchTool) Run(ctx context.Context, args json.RawMessage) string {
 	}
 
 	return toolResult("web_fetch", fields, slice)
+}
+
+// nonPageResult reports a downloaded file in place of page text.
+//
+// The per-type guidance is deliberately thin. read_file already dispatches on
+// file type — vision marker, imagereader/audioreader delegation, PDF extraction
+// steps — so pointing at it keeps one source of truth instead of restating all
+// of that here and letting the two copies drift. Only the types read_file
+// cannot help with get their own line.
+func (t *WebFetchTool) nonPageResult(fetchURL, source string, nonPage *NonPageContent) string {
+	fields := map[string]any{
+		"url":    fetchURL,
+		"source": source,
+		"type":   nonPage.MIME,
+		"size":   nonPage.Size,
+		"path":   nonPage.Path,
+	}
+
+	var body strings.Builder
+	fmt.Fprintf(&body, "This URL served a file (%s), not a web page. It has been downloaded to:\n%s\n\n", nonPage.MIME, nonPage.Path)
+	switch fileType, _ := DetectFileType(nonPage.Path); fileType {
+	case FileTypeImage, FileTypeAudio, FileTypePDF:
+		body.WriteString("Call read_file on that path — it handles this file type and will tell you how to proceed.\n")
+	default:
+		body.WriteString("read_file cannot read this as text. Use the exec tool to process it at that path " +
+			"(e.g. unzip for an archive, python with openpyxl/python-docx for an Office document).\n")
+	}
+	return toolResult("web_fetch", fields, body.String())
 }
 
 func (t *WebFetchTool) fetchSourceError(msg string) string {

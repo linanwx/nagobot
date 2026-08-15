@@ -53,7 +53,17 @@ func (p *DirectFetchProvider) Fetch(ctx context.Context, rawURL string) (string,
 		return "", &HTTPError{StatusCode: resp.StatusCode, Status: resp.Status}
 	}
 
-	body, err := io.ReadAll(io.LimitReader(resp.Body, webFetchMaxReadBytes))
+	// A file (PDF, image, archive) must be diverted BEFORE the caller applies
+	// extractTextContent to it — that runs an HTML parser over binary.
+	reader, nonPage, err := saveIfNotPage(ctx, resp, rawURL)
+	if err != nil {
+		return "", err
+	}
+	if nonPage != nil {
+		return "", nonPage
+	}
+
+	body, err := io.ReadAll(io.LimitReader(reader, webFetchMaxReadBytes))
 	if err != nil {
 		return "", err
 	}
