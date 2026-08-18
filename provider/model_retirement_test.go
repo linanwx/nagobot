@@ -149,3 +149,54 @@ func TestGPT56ContextWindowStaysUnderPriceBreak(t *testing.T) {
 	t.Logf("gpt-5.6 window %d → Tier 2 at %d, trim line at %d, %d tokens of headroom under the %d price break",
 		gpt56ContextWindow, tier2At, trimAt, priceBreak-trimAt, priceBreak)
 }
+
+// TestGemini37FlashRegistration pins the two routes gemini-3.7-flash is
+// reachable by. The openRouterModels assertion is the one that would otherwise
+// fail silently: a model listed in the registration but missing from that map
+// gets the zero-value meta, so it ships with no reasoning effort and no
+// provider.order pin — a working request, routed to whichever upstream
+// OpenRouter picks, with thinking off.
+func TestGemini37FlashRegistration(t *testing.T) {
+	cases := []struct {
+		provider string
+		model    string
+	}{
+		{"gemini", "gemini-3.7-flash"},
+		{"openrouter", "google/gemini-3.7-flash"},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.provider+"/"+tc.model, func(t *testing.T) {
+			if err := ValidateProviderModelType(tc.provider, tc.model); err != nil {
+				t.Fatalf("ValidateProviderModelType(%q, %q) = %v, want nil", tc.provider, tc.model, err)
+			}
+			if got := ContextWindowForModel(tc.provider, tc.model); got != 1048576 {
+				t.Fatalf("ContextWindowForModel(%q, %q) = %d, want 1048576", tc.provider, tc.model, got)
+			}
+			if !SupportsVision(tc.provider, tc.model) {
+				t.Fatalf("SupportsVision(%q, %q) = false, want true", tc.provider, tc.model)
+			}
+			if !SupportsAudio(tc.provider, tc.model) {
+				t.Fatalf("SupportsAudio(%q, %q) = false, want true", tc.provider, tc.model)
+			}
+		})
+	}
+
+	meta, ok := openRouterModels["google/gemini-3.7-flash"]
+	if !ok {
+		t.Fatal("google/gemini-3.7-flash missing from openRouterModels — it would ship with no thinking opts and no provider.order")
+	}
+	if len(meta.ThinkingOpts) == 0 {
+		t.Error("google/gemini-3.7-flash has no ThinkingOpts, want reasoning effort set")
+	}
+	if len(meta.ProviderOrder) == 0 {
+		t.Error("google/gemini-3.7-flash has no ProviderOrder, want the google-ai-studio pin")
+	}
+
+	// Adding a model must not displace the ones already registered.
+	for _, m := range []string{"gemini-3.5-flash", "gemini-3.1-flash-lite"} {
+		if err := ValidateProviderModelType("gemini", m); err != nil {
+			t.Errorf("ValidateProviderModelType(gemini, %q) = %v, want nil", m, err)
+		}
+	}
+}
