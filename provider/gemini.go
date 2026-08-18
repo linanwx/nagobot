@@ -19,12 +19,11 @@ const geminiAPIBase = "https://generativelanguage.googleapis.com/v1beta"
 
 func init() {
 	RegisterProvider("gemini", ProviderRegistration{
-		Models:       []string{"gemini-3.7-flash", "gemini-3.5-flash", "gemini-3.1-flash-lite"},
-		VisionModels: []string{"gemini-3.7-flash", "gemini-3.5-flash", "gemini-3.1-flash-lite"},
-		AudioModels:  []string{"gemini-3.7-flash", "gemini-3.5-flash", "gemini-3.1-flash-lite"},
+		Models:       []string{"gemini-3.7-flash", "gemini-3.1-flash-lite"},
+		VisionModels: []string{"gemini-3.7-flash", "gemini-3.1-flash-lite"},
+		AudioModels:  []string{"gemini-3.7-flash", "gemini-3.1-flash-lite"},
 		ContextWindows: map[string]int{
 			"gemini-3.7-flash":      1048576,
-			"gemini-3.5-flash":      1048576,
 			"gemini-3.1-flash-lite": 1048576,
 		},
 		EnvKey:  "GEMINI_API_KEY",

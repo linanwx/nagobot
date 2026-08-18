@@ -44,6 +44,8 @@ func TestRetiredModelsAreNotRegistered(t *testing.T) {
 		{"openrouter", "qwen/qwen3.5-flash-02-23"},
 		{"openrouter", "google/gemini-3-flash-preview"},
 		{"gemini", "gemini-3-flash-preview"},
+		{"openrouter", "google/gemini-3.5-flash"},
+		{"gemini", "gemini-3.5-flash"},
 	}
 
 	for _, tc := range cases {
@@ -194,9 +196,25 @@ func TestGemini37FlashRegistration(t *testing.T) {
 	}
 
 	// Adding a model must not displace the ones already registered.
-	for _, m := range []string{"gemini-3.5-flash", "gemini-3.1-flash-lite"} {
-		if err := ValidateProviderModelType("gemini", m); err != nil {
-			t.Errorf("ValidateProviderModelType(gemini, %q) = %v, want nil", m, err)
+	if err := ValidateProviderModelType("gemini", "gemini-3.1-flash-lite"); err != nil {
+		t.Errorf("ValidateProviderModelType(gemini, gemini-3.1-flash-lite) = %v, want nil", err)
+	}
+}
+
+// TestOpenRouterModelOptsHaveNoStaleEntries is retirement hygiene for the one
+// map that is not reachable through the registration API. Removing a model
+// from RegisterProvider is what the retirement test above checks; the
+// per-model request options live in a separate literal, and a leftover entry
+// there is invisible — it validates nothing, breaks nothing, and quietly
+// documents a routing decision for a model that can no longer be selected.
+func TestOpenRouterModelOptsHaveNoStaleEntries(t *testing.T) {
+	registered := make(map[string]bool)
+	for _, m := range SupportedModelsForProvider("openrouter") {
+		registered[m] = true
+	}
+	for model := range openRouterModels {
+		if !registered[model] {
+			t.Errorf("openRouterModels has an entry for %q, which openrouter no longer registers — delete it", model)
 		}
 	}
 }

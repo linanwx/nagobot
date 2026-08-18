@@ -27,8 +27,8 @@ dispatch(sends=[{
   params: {
     agent: "general",
     task_id: "consult-visa-rules",
-    provider: "gemini",
-    model: "gemini-3.5-flash"
+    provider: "openai-oauth",
+    model: "gpt-5.6-sol[xhigh]"
   },
   body: "<the complete, self-contained question — see 'Writing the question'>"
 }])
@@ -60,12 +60,19 @@ more than its correct ones earn.
 | GPT-5.6 Luna (max) | **−11.2** |
 | DeepSeek V4 Flash (max) | **−22.9** |
 
+That table is the published measurement, not a menu. **Gemini 3.5 Flash was
+removed from this deployment's whitelist and cannot be consulted** — the
+reachable leader is GPT-5.6 Sol (xhigh). This deployment's Gemini route is now
+`gemini-3.7-flash`, which is not in this snapshot; treat it as unmeasured
+rather than as a drop-in for the +22.7 row.
+
 Read the bottom of that table carefully: several models commonly used as
 session defaults are **net-negative on world knowledge**. If you are running on
 one of them and the user asks a factual question you are not certain about,
 your most likely failure is not "I don't know" — it is a fluent, wrong,
 confident answer. That is the exact situation this skill exists for, and the
-swing from the bottom of the table to the top is over 45 points.
+swing from the bottom of the table to the highest row you can actually reach is
+over 43 points.
 
 Two models can reach a similar score by opposite routes. GPT-5.6 Sol attempts
 nearly every question and is right about 55% of the time; Kimi K3 attempts far
@@ -83,13 +90,12 @@ number, not the per-token list price.
 
 | provider | model | Omniscience | $/task |
 |---|---|---:|---:|
-| `gemini` | `gemini-3.5-flash` | +22.7 | 0.586 |
 | `openai-oauth` | `gpt-5.6-sol[xhigh]` | +20.6 | 0.139 |
 | `moonshot-cn` / `moonshot-global` | `kimi-k3` | +18.4 | 0.954 |
 
-`gpt-5.6-sol[xhigh]` is the value pick — 4x cheaper than Gemini for 2 points
-less. Choose `gemini-3.5-flash` when accuracy is the whole point, `kimi-k3`
-when a confident wrong answer would be worse than no answer.
+`gpt-5.6-sol[xhigh]` first — it leads on knowledge and costs 7x less per task
+than `kimi-k3`. Choose `kimi-k3` when a confident wrong answer would be worse
+than no answer.
 
 **Do not consult GLM-5.2, MiniMax-M3, or MiMo for facts.** They score 4.0, 1.4
 and 3.6 despite respectable reasoning scores — strong at thinking, weak at
@@ -255,7 +261,7 @@ solo dispatch ends the turn:
 Let me double-check this properly — one moment.
 dispatch(sends=[{
   to: "subagent",
-  params: {agent: "general", task_id: "consult-tax-rule", provider: "gemini", model: "gemini-3.5-flash"},
+  params: {agent: "general", task_id: "consult-tax-rule", provider: "openai-oauth", model: "gpt-5.6-sol[xhigh]"},
   body: "..."
 }])
 ```
@@ -267,7 +273,7 @@ dispatch(sends=[{
 # and ask for uncertainty rather than a confident guess
 dispatch(sends=[{
   to: "subagent",
-  params: {agent: "general", task_id: "consult-visa", provider: "gemini", model: "gemini-3.5-flash"},
+  params: {agent: "general", task_id: "consult-visa", provider: "openai-oauth", model: "gpt-5.6-sol[xhigh]"},
   body: "Question: as of mid-2026, does a Chinese passport holder need a visa in advance for a 7-day tourist trip to Georgia (the country), and what is the maximum visa-free stay if not?\n\nWhat I believe but am not sure of: visa-free for one year.\n\nIf the rule changed recently, or you are not confident, say so explicitly instead of guessing. I need the answer plus how sure you are."
 }])
 
@@ -289,7 +295,7 @@ dispatch(sends=[{
 dispatch(sends=[
   {to: "subagent", params: {agent: "general", task_id: "consult-a", provider: "openai-oauth", model: "gpt-5.6-sol[xhigh]"},
    body: "<full self-contained question A>"},
-  {to: "subagent", params: {agent: "general", task_id: "consult-b", provider: "gemini", model: "gemini-3.5-flash"},
+  {to: "subagent", params: {agent: "general", task_id: "consult-b", provider: "moonshot-cn", model: "kimi-k3"},
    body: "<full self-contained question B>"}
 ])
 ```

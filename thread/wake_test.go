@@ -16,7 +16,7 @@ func TestBuildWakePayload_SupportsVisionAudio(t *testing.T) {
 		WakeTelegram,
 		"Hello with image",
 		"thread-1", "telegram:123", "/tmp/sessions/telegram:123",
-		"telegram delivery", "gemini/gemini-3.5-flash", "soul",
+		"telegram delivery", "gemini/gemini-3.7-flash", "soul",
 		loc, "user", "", "", "", "", "", time.Time{}, "", "",
 	)
 
@@ -62,7 +62,7 @@ func TestBuildWakePayload_SystemSource_WithCapabilities(t *testing.T) {
 		WakeHeartbeat,
 		"Heartbeat pulse",
 		"thread-1", "telegram:123", "/tmp/sessions/telegram:123",
-		"", "gemini/gemini-3.5-flash", "soul",
+		"", "gemini/gemini-3.7-flash", "soul",
 		loc, "system", "", "", "", "", "", time.Time{}, "", "",
 	)
 
