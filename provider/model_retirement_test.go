@@ -218,3 +218,47 @@ func TestOpenRouterModelOptsHaveNoStaleEntries(t *testing.T) {
 		}
 	}
 }
+
+// TestGemini35FlashLiteRegistration covers the second Gemini lite entry. The
+// ThinkingOpts assertion is inverted on purpose: every other google entry in
+// openRouterModels carries a reasoning effort, and 3.1-flash-lite deliberately
+// does not — a lite model is chosen for price, and quietly enabling reasoning
+// on it bills for tokens nobody asked for. 3.5-flash-lite follows its sibling,
+// not the flash entry above it.
+func TestGemini35FlashLiteRegistration(t *testing.T) {
+	cases := []struct {
+		provider string
+		model    string
+	}{
+		{"gemini", "gemini-3.5-flash-lite"},
+		{"openrouter", "google/gemini-3.5-flash-lite"},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.provider+"/"+tc.model, func(t *testing.T) {
+			if err := ValidateProviderModelType(tc.provider, tc.model); err != nil {
+				t.Fatalf("ValidateProviderModelType(%q, %q) = %v, want nil", tc.provider, tc.model, err)
+			}
+			if got := ContextWindowForModel(tc.provider, tc.model); got != 1048576 {
+				t.Fatalf("ContextWindowForModel(%q, %q) = %d, want 1048576", tc.provider, tc.model, got)
+			}
+			if !SupportsVision(tc.provider, tc.model) {
+				t.Fatalf("SupportsVision(%q, %q) = false, want true", tc.provider, tc.model)
+			}
+			if !SupportsAudio(tc.provider, tc.model) {
+				t.Fatalf("SupportsAudio(%q, %q) = false, want true", tc.provider, tc.model)
+			}
+		})
+	}
+
+	meta, ok := openRouterModels["google/gemini-3.5-flash-lite"]
+	if !ok {
+		t.Fatal("google/gemini-3.5-flash-lite missing from openRouterModels — it would ship with no provider.order pin")
+	}
+	if len(meta.ProviderOrder) == 0 {
+		t.Error("google/gemini-3.5-flash-lite has no ProviderOrder, want the google-ai-studio pin")
+	}
+	if len(meta.ThinkingOpts) != 0 {
+		t.Error("google/gemini-3.5-flash-lite has ThinkingOpts, want none — a lite model is priced for no reasoning, like 3.1-flash-lite")
+	}
+}

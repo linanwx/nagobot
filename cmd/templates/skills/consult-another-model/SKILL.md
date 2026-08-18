@@ -62,9 +62,10 @@ more than its correct ones earn.
 
 That table is the published measurement, not a menu. **Gemini 3.5 Flash was
 removed from this deployment's whitelist and cannot be consulted** — the
-reachable leader is GPT-5.6 Sol (xhigh). This deployment's Gemini route is now
-`gemini-3.7-flash`, which is not in this snapshot; treat it as unmeasured
-rather than as a drop-in for the +22.7 row.
+reachable leader is GPT-5.6 Sol (xhigh). The Gemini models you can route to are
+`gemini-3.7-flash`, which is not in this snapshot — treat it as unmeasured, not
+as a drop-in for the +22.7 row — and `gemini-3.5-flash-lite`, which is the +6.9
+row: a cheap second opinion, not a knowledge escalation.
 
 Read the bottom of that table carefully: several models commonly used as
 session defaults are **net-negative on world knowledge**. If you are running on
