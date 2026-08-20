@@ -166,3 +166,67 @@ func TestLineEndingRoundTrip(t *testing.T) {
 		t.Errorf("restoreLineEndings = %q, want %q", got, orig)
 	}
 }
+
+// An old_text that runs to EOF may carry more trailing newlines than the file
+// has, because read_file terminates every rendered line with one. Reconciling
+// that is what makes "append a line" expressible as a single replacement.
+func TestApplyEdits_EOFTrailingNewlineTolerated(t *testing.T) {
+	for _, tc := range []struct {
+		name    string
+		content string
+		old     string
+		new     string
+		want    string
+	}{
+		{"extra newline on a file that ends with one", "a\nb\n", "b\n\n", "b\nc\n\n", "a\nb\nc\n"},
+		{"newline on a file that ends without one", "a\nb", "b\n", "b\nc\n", "a\nb\nc"},
+		{"deletion at EOF", "a\nb\n", "b\n\n", "", "a\n"},
+	} {
+		got, fuzzy, err := applyEditsToNormalizedContent(tc.content, []editPair{{oldText: tc.old, newText: tc.new}}, "f")
+		if err != nil {
+			t.Fatalf("%s: %v", tc.name, err)
+		}
+		if got != tc.want {
+			t.Fatalf("%s: got %q, want %q", tc.name, got, tc.want)
+		}
+		// The reconciled edit matches exactly, so it must not drag the
+		// replacement into fuzzy-normalized space over a newline count.
+		if fuzzy {
+			t.Fatalf("%s: reconciliation must not report a fuzzy match", tc.name)
+		}
+	}
+}
+
+// The tolerance is anchored at EOF and nowhere else. An anchor that sits in the
+// middle of the file carries no claim about the file's ending, so an extra
+// newline there is a real mismatch and must still fail.
+func TestApplyEdits_TrailingNewlineNotToleratedMidFile(t *testing.T) {
+	_, _, err := applyEditsToNormalizedContent("a\nb\nc\n", []editPair{{oldText: "b\n\n", newText: "B\n\n"}}, "f")
+	if err == nil {
+		t.Fatal("a mid-file anchor with an invented newline must not match")
+	}
+}
+
+// EOF anchoring picks the LAST occurrence. When the trimmed anchor appears more
+// than once the model may have meant an earlier one, so it gets the ordinary
+// error rather than a silent edit of the end of the file.
+func TestApplyEdits_EOFReconcileRequiresUniqueAnchor(t *testing.T) {
+	_, _, err := applyEditsToNormalizedContent("dup\ndup\n", []editPair{{oldText: "dup\n\n", newText: "dup\nx\n\n"}}, "f")
+	if err == nil {
+		t.Fatal("an ambiguous EOF anchor must not be reconciled")
+	}
+}
+
+// Reconciliation rewrites the edit, not the file: bytes the edit never touched
+// keep their original form, including the smart quotes fuzzy matching would
+// have flattened.
+func TestApplyEdits_EOFReconcilePreservesUntouchedBytes(t *testing.T) {
+	content := "he said “hello”\nlast\n"
+	got, _, err := applyEditsToNormalizedContent(content, []editPair{{oldText: "last\n\n", newText: "last\nmore\n\n"}}, "f")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := "he said “hello”\nlast\nmore\n"; got != want {
+		t.Fatalf("got %q, want %q", got, want)
+	}
+}

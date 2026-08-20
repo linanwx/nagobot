@@ -420,6 +420,33 @@ Field admission per target is a **whitelist** (`acceptedFields` in `tools/dispat
 
 The pi-mono **engine** (`tools/edit_diff.go` — fuzzy NFKC/smart-quote/dash normalization, CRLF and BOM preservation, uniqueness and overlap checks) is kept in full and still takes `[]editPair`; only the **tool boundary** is single. `edits[]` is now rejected by name as an unknown argument, so a model trained on the old shape is told to resend rather than silently making no edit. Do not reintroduce it without re-deriving these numbers.
 
+### What the model is shown must be something it can quote back
+
+Measured on kingsley over 8 days (2026-08-12→19): **262 `edit_file` calls, 36 failures (13.7%)**, and every single one was `could not find the exact text` — zero malformed JSON, zero uniqueness conflicts, zero timeouts (the `edits[]` revert above closed the payload class for good). **32 of 36 were heartbeat turns** and **21 of 36 targeted `USER.md`**: this is almost entirely the nightly `session-reflect` / `dream` maintenance path, whose only way to append a line with a single exact replacement is to anchor on the file's last line.
+
+The taxonomy, from the session logs (old_text diffed against the `read_file` output the same turn had just produced):
+
+| | cause |
+|---|---|
+| 13 (36%) | the model **paraphrased** its own anchor — a dropped word (`核实快闪店实际营业日期` → without `实际`), a swapped one (`一手`→`官方`, `AI硬件`→`科技活动`) |
+| **11 (31%)** | **`read_file` fabricated a trailing newline** — see below |
+| 6 (17%) | blind edit: the file was never read in that turn |
+| 3 (8%) | anchor largely invented (<0.5 similarity) |
+| 2 (6%) | cosmetic drift: `**bold**` added around a date, full- vs half-width colon |
+| 1 (3%) | session key pasted into the path (`sessions/discord/discord:1499…/`) |
+
+**The 31% was the tool lying, and it landed on exactly the edit shape that needed the truth.** `handleText` rendered `strings.Split(content, "\n")`, whose trailing empty element on a newline-terminated file is not a line; rendering it as one meant the model saw one more `\n` at EOF than the file has. 11 of 11 such failures carried an old_text that appeared **verbatim in the read output and ran to its very end**. The same phantom line was what `tail` counted back from, so `read_file(tail=1)` returned the blank line after the content on any file ending with a newline.
+
+Three changes, and the split between them is the point — one repairs the lie, one tolerates what remains unknowable, one stops asking the model to work from a copy that was never the file:
+
+- **`read_file` drops the phantom line and states `ends_with_newline`.** Once every rendered line is terminated with `\n`, `X` and `X\n` render identically, so the file's own EOF convention has to be said out loud. It is emitted **only when the window reaches EOF** — a partial read claiming it would be a claim about bytes the model cannot see.
+- **`reconcileEOFTrailingNewlines` (`tools/edit_diff.go`) tolerates the leftover.** Engaged only when old_text ends with `\n`, exact *and* fuzzy matching already failed, the trimmed anchor sits at the end of the trimmed content, **and occurs exactly once** — EOF anchoring makes the region unambiguous, and the uniqueness test is what stops a model that meant an earlier occurrence from silently editing the end of the file. It rewrites the *edit*, not the file: it runs before `usedFuzzy` is decided, so a newline count never drags the replacement into fuzzy-normalized space where quotes and dashes get flattened across every line it touches. The file's real trailing newlines are carried onto the replacement, so the file keeps its own convention rather than adopting the model's guess.
+- **`editRecoveryHint` gives the not-found failure something to act on.** The old one-sentence error told the model nothing it did not already believe, so it re-guessed — the logs carry runs of 2 and 3 consecutive failures on one file, seconds apart, each a fresh guess. Under `editHintMaxLines` (200) and 50KB the current file is inlined **whole and unnumbered**, because the job is to hand back something copyable; over it, the model gets the recipe (`grep` to find the line → `read_file` a window → copy from there) rather than a payload heavier than the retry is worth. It fires on `ErrTextNotFound` alone — a duplicate error already says what to do. The recipe quotes the **resolved** path, never the `input (resolved: …)` display form, which is not pasteable.
+
+**And the always-on prompt was telling the model to do the wrong thing.** `system/sections/session-files.md` said *"Already in this prompt — never re-read"* of `USER.md`, `dream.md`, `file-track.md` and `heartbeat.md`. But `buildUserSection` **TrimSpace**es the file and wraps it in a frontmatter header, so the injected copy is not the file's bytes — and that instruction is in the unconditional section set, i.e. on every turn of every agent, aimed squarely at the file that accounts for 21 of the 36 failures. It now distinguishes reading-to-know (still wasteful) from reading-to-edit (mandatory, same turn, copy `old_text` from *that* output).
+
+What was deliberately **not** done, so it does not get re-litigated: no `insert`/`append` primitive and no line-range addressing (a second way to address a region, and line numbers move under a turn's own earlier edits); no read-before-edit enforcement or version CAS (deepseek-harness's `fs-observation-policy` shape — a hard contract for the 6 blind edits); no `apply_patch`/diff tool (the `edits[]` payload risk above, un-re-derived). openclaw's `getCandidateHint` — closest-line Levenshtein with a caret at the first differing column — remains the richer version of `editRecoveryHint` and was not ported.
+
 ### Audio Support
 
 Audio recognition follows the same pattern as vision: `AudioModels` registered per provider, `SupportsAudio()` capability check, `<<media:audio/ogg:path>>` markers, and `audioreader` agent delegation for non-audio models.

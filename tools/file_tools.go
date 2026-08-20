@@ -3,6 +3,7 @@ package tools
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"github.com/linanwx/nagobot/logger"
 	"github.com/linanwx/nagobot/provider"
@@ -189,7 +190,19 @@ func (t *ReadFileTool) handleText(a readFileArgs, filePath, absPath string) stri
 		return toolError("read_file", fmt.Sprintf("file exists but is empty: %s", absPath))
 	}
 
-	allLines := strings.Split(string(content), "\n")
+	// A file ending in "\n" splits into a trailing empty element that is not a
+	// line. Rendering it as one (the old behaviour) told the model the file had
+	// one more newline at EOF than it does — and since a single-replacement edit
+	// can only append by anchoring on the last line, that made every append
+	// unmatchable through no fault of the model's. The file's own EOF convention
+	// is invisible once every rendered line is terminated with "\n", so it is
+	// reported explicitly instead.
+	raw := string(content)
+	endsWithNewline := strings.HasSuffix(raw, "\n")
+	allLines := strings.Split(raw, "\n")
+	if endsWithNewline {
+		allLines = allLines[:len(allLines)-1]
+	}
 	totalLines := len(allLines)
 
 	var startIdx, endIdx int
@@ -251,6 +264,12 @@ func (t *ReadFileTool) handleText(a readFileArgs, filePath, absPath string) stri
 	}
 	if effEnd < endIdx {
 		fields["truncated"] = fmt.Sprintf("%dKB byte limit", readFileMaxBytes/1024)
+	}
+	// Stated only when the window actually reaches EOF: it is a fact about the
+	// end of the file, and claiming it while showing the middle would be a claim
+	// about bytes the model cannot see.
+	if effEnd == totalLines {
+		fields["ends_with_newline"] = endsWithNewline
 	}
 
 	var sb strings.Builder
@@ -454,6 +473,9 @@ func (t *EditFileTool) run(ctx context.Context, args json.RawMessage) string {
 
 	newBody, usedFuzzy, err := applyEditsToNormalizedContent(normalized, edits, displayPath)
 	if err != nil {
+		if errors.Is(err, ErrTextNotFound) {
+			return toolError("edit_file", err.Error()+editRecoveryHint(resolvedPath, normalized))
+		}
 		return toolError("edit_file", err.Error())
 	}
 
@@ -469,4 +491,47 @@ func (t *EditFileTool) run(ctx context.Context, args json.RawMessage) string {
 		"path":  displayPath,
 		"fuzzy": usedFuzzy,
 	}, "")
+}
+
+// editHintMaxLines bounds the file that a mismatch error inlines whole. Under
+// it the model gets the bytes it failed to quote; over it the error costs more
+// context than the retry is worth, so the model is pointed at grep instead.
+const editHintMaxLines = 200
+
+// editRecoveryHint is what turns a failed edit into a retry that can succeed.
+//
+// Every edit_file failure measured on the deployment over eight days was this
+// one error, and the message alone gave the model nothing it did not already
+// believe — so it re-guessed, and the second and third guesses failed the same
+// way. Two thirds of the failures were an old_text that differed from the file
+// by a dropped word, an added `**`, or a colon's width: a difference the model
+// cannot see without the real bytes in front of it.
+//
+// Small files are therefore inlined whole, with no line numbers, because the
+// point is to hand back something that can be copied verbatim. Large ones are
+// not: a 200-line file of CJK prose is already a heavy error payload, and past
+// that the cost outgrows the retry. Those get a recipe instead — grep to find
+// the line, read_file to see that window, copy from there — which is the same
+// two calls the model would otherwise spend guessing.
+//
+// content is the LF-normalized body the matcher actually ran against, not the
+// raw file: quoting the bytes the model must reproduce for a match is the whole
+// job, and on a CRLF file the raw bytes are not those bytes.
+//
+// It names the file only inside the recipe, and by resolvedPath: the error line
+// it is appended to already carries the path, and the display form
+// ("input (resolved: …)") is not something a model can paste into the next call.
+func editRecoveryHint(resolvedPath, content string) string {
+	lines := strings.Count(content, "\n")
+	if content != "" && !strings.HasSuffix(content, "\n") {
+		lines++
+	}
+	if lines <= editHintMaxLines && len(content) <= readFileMaxBytes {
+		return fmt.Sprintf("\n\nCurrent contents (%d lines) — copy old_text verbatim from here, including "+
+			"whitespace, and do not retype it from memory:\n%s", lines, content)
+	}
+	return fmt.Sprintf("\n\nThis file has %d lines, too large to quote here. Do NOT guess again — recover the real bytes first: "+
+		"grep(pattern: <a distinctive phrase from the text you are targeting>, path: %q, context_lines: 3) to find its line number, "+
+		"then read_file(path: %q, offset: <that line minus a few>, limit: 40) and copy old_text out of that window verbatim.",
+		lines, resolvedPath, resolvedPath)
 }

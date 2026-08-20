@@ -7,6 +7,7 @@ package tools
 // restored after editing; matching always runs in LF-normalized space.
 
 import (
+	"errors"
 	"fmt"
 	"sort"
 	"strings"
@@ -122,6 +123,52 @@ func fuzzyFindText(content, oldText string) fuzzyMatch {
 		return fuzzyMatch{found: false, index: -1}
 	}
 	return fuzzyMatch{found: true, index: fidx, matchLength: len(fuzzyOld), usedFuzzy: true}
+}
+
+// reconcileEOFTrailingNewlines rewrites an edit whose old_text runs to the end
+// of the file but carries a different number of trailing newlines than the file
+// actually has.
+//
+// read_file terminates every rendered line with "\n", so the file's own EOF
+// convention is invisible in the output the model copies from: a file ending
+// "X" and a file ending "X\n" render identically. Appending is the one thing a
+// single exact replacement can only express by anchoring on the last line, so
+// that invisible byte sat on the one edit shape that needs it — measured on the
+// deployment, 11 of 36 edit_file failures over eight days were an old_text that
+// matched the read output verbatim and ran to its very end.
+//
+// Engaged only when every one of these holds, which is what keeps it from
+// silently editing something the model did not point at:
+//   - old_text ends with "\n" (otherwise there is nothing to reconcile),
+//   - exact AND fuzzy matching already failed (never changes a working edit),
+//   - the newline-trimmed old_text sits at the very END of the newline-trimmed
+//     content — EOF anchoring is what makes the region unambiguous,
+//   - it occurs exactly once, so a model that meant an EARLIER occurrence gets
+//     the ordinary not-found/duplicate error rather than a silent edit of the
+//     last one.
+//
+// The file's real trailing newlines are carried over to the replacement, so the
+// file keeps its own EOF convention rather than adopting the model's guess. A
+// replacement that is only newlines is treated as the deletion it reads as.
+func reconcileEOFTrailingNewlines(content string, e editPair) (editPair, bool) {
+	oldTrimmed := strings.TrimRight(e.oldText, "\n")
+	if oldTrimmed == e.oldText || oldTrimmed == "" {
+		return e, false
+	}
+	contentTrimmed := strings.TrimRight(content, "\n")
+	if !strings.HasSuffix(contentTrimmed, oldTrimmed) {
+		return e, false
+	}
+	if strings.Count(contentTrimmed, oldTrimmed) != 1 {
+		return e, false
+	}
+	trail := content[len(contentTrimmed):]
+	newTrimmed := strings.TrimRight(e.newText, "\n")
+	newText := newTrimmed + trail
+	if newTrimmed == "" {
+		newText = ""
+	}
+	return editPair{oldText: oldTrimmed + trail, newText: newText}, true
 }
 
 // countOccurrences counts fuzzy-normalized occurrences of oldText in content.
@@ -274,6 +321,19 @@ func applyEditsToNormalizedContent(normalizedContent string, edits []editPair, p
 		}
 	}
 
+	// Reconcile EOF trailing newlines BEFORE deciding whether fuzzy matching is
+	// needed: a reconciled edit matches exactly, and must not drag the whole
+	// replacement into fuzzy-normalized space (which would rewrite quotes and
+	// dashes across every line it touches) over a newline count.
+	for i := range normEdits {
+		if fuzzyFindText(normalizedContent, normEdits[i].oldText).found {
+			continue
+		}
+		if reconciled, ok := reconcileEOFTrailingNewlines(normalizedContent, normEdits[i]); ok {
+			normEdits[i] = reconciled
+		}
+	}
+
 	usedFuzzy := false
 	for _, e := range normEdits {
 		if fuzzyFindText(normalizedContent, e.oldText).usedFuzzy {
@@ -325,11 +385,17 @@ func applyEditsToNormalizedContent(normalizedContent string, edits []editPair, p
 	return newContent, usedFuzzy, nil
 }
 
+// ErrTextNotFound is the sentinel behind every "could not find the exact text"
+// failure. The tool boundary attaches a recovery hint to exactly this case (the
+// model has to be shown the real bytes) and to no other, and matching on the
+// message text would silently stop working the day the wording changes.
+var ErrTextNotFound = errors.New("could not find the exact text")
+
 func notFoundError(path string, editIndex, total int) error {
 	if total == 1 {
-		return fmt.Errorf("could not find the exact text in %s; old_text must match exactly including all whitespace and newlines", path)
+		return fmt.Errorf("%w in %s; old_text must match exactly including all whitespace and newlines", ErrTextNotFound, path)
 	}
-	return fmt.Errorf("could not find edits[%d] in %s; old_text must match exactly including all whitespace and newlines", editIndex, path)
+	return fmt.Errorf("%w: edits[%d] in %s; old_text must match exactly including all whitespace and newlines", ErrTextNotFound, editIndex, path)
 }
 
 func duplicateError(path string, editIndex, total, occurrences int) error {
