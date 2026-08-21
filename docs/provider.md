@@ -21,19 +21,6 @@ providers:
 
 When using `moonshotai/kimi-k2.6`, provider routing to Moonshot is applied automatically.
 
-Anthropic config example:
-
-```yaml
-thread:
-  provider: anthropic
-  modelType: claude-opus-5 # or claude-sonnet-5
-
-providers:
-  anthropic:
-    apiKey: sk-ant-xxx
-    # apiBase: https://api.anthropic.com # optional
-```
-
 Moonshot CN (official) config example:
 
 ```yaml

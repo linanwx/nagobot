@@ -21,7 +21,7 @@ func TestKeepSupportedMedia_AudioKeptOnAudioModel(t *testing.T) {
 }
 
 func TestKeepSupportedMedia_AudioDroppedOnNonAudioModel(t *testing.T) {
-	th := newMediaTestThread("anthropic", "claude-haiku-4-5") // vision+pdf, NO audio
+	th := newMediaTestThread("openrouter", "moonshotai/kimi-k2.6") // vision, NO audio
 	got := th.keepSupportedMedia([]string{"<<media:audio/ogg:/tmp/v.ogg>>"})
 	if len(got) != 0 {
 		t.Errorf("audio marker should be dropped on a non-audio model, got %v", got)
@@ -30,9 +30,9 @@ func TestKeepSupportedMedia_AudioDroppedOnNonAudioModel(t *testing.T) {
 
 // TestKeepSupportedMedia_PerTypeDiscrimination proves the guard checks each
 // marker against the matching capability, not a blanket allow/deny: a
-// vision+pdf model keeps the image but drops the audio.
+// vision model keeps the image but drops the audio.
 func TestKeepSupportedMedia_PerTypeDiscrimination(t *testing.T) {
-	th := newMediaTestThread("anthropic", "claude-haiku-4-5")
+	th := newMediaTestThread("openrouter", "moonshotai/kimi-k2.6")
 	got := th.keepSupportedMedia([]string{
 		"<<media:image/jpeg:/tmp/a.jpg>>",
 		"<<media:audio/ogg:/tmp/b.ogg>>",

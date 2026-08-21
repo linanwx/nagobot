@@ -39,7 +39,6 @@ var providerURLs = map[string]string{
 	"openai":             "https://platform.openai.com/api-keys",
 	"deepseek":           "https://platform.deepseek.com",
 	"openrouter":         "https://openrouter.ai/keys",
-	"anthropic":          "https://console.anthropic.com",
 	"moonshot-cn":        "https://platform.moonshot.cn",
 	"moonshot-global":    "https://platform.moonshot.ai",
 	"zhipu-cn":           "https://open.bigmodel.cn",

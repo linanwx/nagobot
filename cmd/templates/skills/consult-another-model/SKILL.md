@@ -60,9 +60,12 @@ more than its correct ones earn.
 | GPT-5.6 Luna (max) | **−11.2** |
 | DeepSeek V4 Flash (max) | **−22.9** |
 
-That table is the published measurement, not a menu. **Gemini 3.5 Flash was
-removed from this deployment's whitelist and cannot be consulted** — the
-reachable leader is GPT-5.6 Sol (xhigh). The Gemini models you can route to are
+That table is the published measurement, not a menu. Two of its rows name
+models this deployment cannot reach: **Gemini 3.5 Flash** was retired from the
+whitelist, and **every Claude model was removed** — the Anthropic provider is
+gone and so are the `anthropic/*` routes on OpenRouter, on cost grounds. Do not
+try to consult either; the dispatch fails validation. The reachable leader is
+GPT-5.6 Sol (xhigh). The Gemini models you can route to are
 `gemini-3.7-flash`, which is not in this snapshot — treat it as unmeasured, not
 as a drop-in for the +22.7 row — and `gemini-3.5-flash-lite`, which is the +6.9
 row: a cheap second opinion, not a knowledge escalation.

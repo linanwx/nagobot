@@ -17,7 +17,7 @@ var initCmd = &cobra.Command{
 Examples:
   nagobot init --provider deepseek --model deepseek-v4-flash --api-key sk-xxx
   nagobot init --provider openrouter --api-key sk-xxx --model moonshotai/kimi-k2.6
-  nagobot init --provider anthropic --model claude-sonnet-5 --api-key sk-xxx --telegram-token BOT_TOKEN`,
+  nagobot init --provider openrouter --model moonshotai/kimi-k2.6 --api-key sk-xxx --telegram-token BOT_TOKEN`,
 	RunE: runInit,
 }
 

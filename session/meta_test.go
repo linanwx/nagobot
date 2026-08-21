@@ -11,11 +11,11 @@ func TestAppendTokenRatioSample_AppendsAndCaps(t *testing.T) {
 	// Append MaxTokenRatioSamples + 5 samples — older ones should be evicted.
 	for i := 0; i < MaxTokenRatioSamples+5; i++ {
 		ratio := float64(i + 1) // 1.0, 2.0, ... distinct values to verify FIFO order
-		AppendTokenRatioSample(dir, "openrouter", "claude-sonnet-5", ratio)
+		AppendTokenRatioSample(dir, "openrouter", "moonshotai/kimi-k2.6", ratio)
 	}
 
 	m := ReadMeta(dir)
-	bucket := m.TokenEstimateRatios["openrouter/claude-sonnet-5"]
+	bucket := m.TokenEstimateRatios["openrouter/moonshotai/kimi-k2.6"]
 	if len(bucket) != MaxTokenRatioSamples {
 		t.Fatalf("bucket size = %d, want %d", len(bucket), MaxTokenRatioSamples)
 	}
@@ -36,14 +36,14 @@ func TestAppendTokenRatioSample_AppendsAndCaps(t *testing.T) {
 func TestAppendTokenRatioSample_SeparatesByProviderModel(t *testing.T) {
 	dir := t.TempDir()
 
-	AppendTokenRatioSample(dir, "openrouter", "claude-sonnet-5", 1.05)
+	AppendTokenRatioSample(dir, "openrouter", "moonshotai/kimi-k2.6", 1.05)
 	AppendTokenRatioSample(dir, "deepseek", "deepseek-chat", 0.95)
 
 	m := ReadMeta(dir)
 	if len(m.TokenEstimateRatios) != 2 {
 		t.Fatalf("buckets = %d, want 2", len(m.TokenEstimateRatios))
 	}
-	if r := m.TokenEstimateRatios["openrouter/claude-sonnet-5"]; len(r) != 1 || r[0].Ratio != 1.05 {
+	if r := m.TokenEstimateRatios["openrouter/moonshotai/kimi-k2.6"]; len(r) != 1 || r[0].Ratio != 1.05 {
 		t.Errorf("openrouter bucket = %v", r)
 	}
 	if r := m.TokenEstimateRatios["deepseek/deepseek-chat"]; len(r) != 1 || r[0].Ratio != 0.95 {

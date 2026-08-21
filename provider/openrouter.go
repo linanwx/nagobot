@@ -98,18 +98,6 @@ var openRouterModels = map[string]openRouterModelMeta{
 		},
 		ProviderOrder: []string{"moonshotai"},
 	},
-	"anthropic/claude-sonnet-5": {
-		ThinkingOpts: []oaioption.RequestOption{
-			oaioption.WithJSONSet("reasoning", map[string]any{"effort": "high"}),
-		},
-		ProviderOrder: []string{"anthropic"},
-	},
-	"anthropic/claude-opus-5": {
-		ThinkingOpts: []oaioption.RequestOption{
-			oaioption.WithJSONSet("reasoning", map[string]any{"effort": "high"}),
-		},
-		ProviderOrder: []string{"anthropic"},
-	},
 	"z-ai/glm-5.3": {
 		ThinkingOpts: []oaioption.RequestOption{
 			oaioption.WithJSONSet("reasoning", map[string]any{"effort": "high"}),
@@ -134,12 +122,6 @@ var openRouterModels = map[string]openRouterModelMeta{
 		},
 		ProviderOrder: []string{"openai"},
 	},
-	"anthropic/claude-haiku-4.5": {
-		ThinkingOpts: []oaioption.RequestOption{
-			oaioption.WithJSONSet("reasoning", map[string]any{"effort": "high"}),
-		},
-		ProviderOrder: []string{"anthropic"},
-	},
 	"xiaomi/mimo-v2.5-pro": {
 		ThinkingOpts: []oaioption.RequestOption{
 			oaioption.WithJSONSet("reasoning", map[string]any{"effort": "high"}),
@@ -154,20 +136,17 @@ var openRouterModels = map[string]openRouterModelMeta{
 
 func init() {
 	RegisterProvider("openrouter", ProviderRegistration{
-		Models:       []string{"moonshotai/kimi-k2.6", "anthropic/claude-opus-5", "anthropic/claude-sonnet-5", "anthropic/claude-haiku-4.5", "z-ai/glm-5.3", "minimax/minimax-m3", "google/gemini-3.7-flash", "google/gemini-3.5-flash-lite", "google/gemini-3.1-flash-lite", "openai/gpt-5.4-mini", "xiaomi/mimo-v2.5-pro", "xiaomi/mimo-v2.5"},
-		VisionModels: []string{"moonshotai/kimi-k2.6", "anthropic/claude-opus-5", "anthropic/claude-sonnet-5", "anthropic/claude-haiku-4.5", "minimax/minimax-m3", "google/gemini-3.7-flash", "google/gemini-3.5-flash-lite", "google/gemini-3.1-flash-lite", "openai/gpt-5.4-mini", "xiaomi/mimo-v2.5"},
+		Models:       []string{"moonshotai/kimi-k2.6", "z-ai/glm-5.3", "minimax/minimax-m3", "google/gemini-3.7-flash", "google/gemini-3.5-flash-lite", "google/gemini-3.1-flash-lite", "openai/gpt-5.4-mini", "xiaomi/mimo-v2.5-pro", "xiaomi/mimo-v2.5"},
+		VisionModels: []string{"moonshotai/kimi-k2.6", "minimax/minimax-m3", "google/gemini-3.7-flash", "google/gemini-3.5-flash-lite", "google/gemini-3.1-flash-lite", "openai/gpt-5.4-mini", "xiaomi/mimo-v2.5"},
 		AudioModels:  []string{"google/gemini-3.7-flash", "google/gemini-3.5-flash-lite", "google/gemini-3.1-flash-lite", "xiaomi/mimo-v2.5"},
 		ContextWindows: map[string]int{
 			"moonshotai/kimi-k2.6":         262144,
-			"anthropic/claude-opus-5":      1000000,
-			"anthropic/claude-sonnet-5":    1000000,
 			"z-ai/glm-5.3":                 262144,
 			"minimax/minimax-m3":           524288,
 			"google/gemini-3.7-flash":      1048576,
 			"google/gemini-3.5-flash-lite": 1048576,
 			"google/gemini-3.1-flash-lite": 1048576,
 			"openai/gpt-5.4-mini":          400000,
-			"anthropic/claude-haiku-4.5":   200000,
 			"xiaomi/mimo-v2.5-pro":         1048576,
 			"xiaomi/mimo-v2.5":             1048576,
 		},
@@ -580,16 +559,6 @@ func (p *OpenRouterProvider) Chat(ctx context.Context, req *Request) (ChatResult
 	if len(meta.ProviderOrder) > 0 {
 		requestOpts = append(requestOpts,
 			oaioption.WithJSONSet("provider.order", meta.ProviderOrder),
-		)
-	}
-	// Enable prompt caching for Anthropic models.
-	// OpenRouter auto-places the cache breakpoint at the last cacheable block,
-	// caching the full prefix (tools + system + conversation history).
-	// Requires deterministic serialization — tools (tools.Defs), skills (skills.List),
-	// and session summaries (buildSessionsSummary) must be sorted.
-	if strings.HasPrefix(p.modelType, "anthropic/") {
-		requestOpts = append(requestOpts,
-			oaioption.WithJSONSet("cache_control", map[string]any{"type": "ephemeral"}),
 		)
 	}
 

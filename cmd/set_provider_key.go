@@ -20,7 +20,7 @@ var setProviderKeyCmd = &cobra.Command{
 
 Examples:
   nagobot set-provider-key --provider openai --api-key sk-xxx
-  nagobot set-provider-key --provider anthropic --api-key sk-xxx --api-base https://custom.endpoint
+  nagobot set-provider-key --provider deepseek --api-key sk-xxx --api-base https://custom.endpoint
   nagobot set-provider-key --list
   nagobot set-provider-key --provider openai           # show status
   nagobot set-provider-key --provider openai --clear`,
@@ -36,7 +36,7 @@ var (
 )
 
 func init() {
-	setProviderKeyCmd.Flags().StringVar(&provKeyProvider, "provider", "", "Provider name (e.g. openai, anthropic, deepseek)")
+	setProviderKeyCmd.Flags().StringVar(&provKeyProvider, "provider", "", "Provider name (e.g. openai, openrouter, deepseek)")
 	setProviderKeyCmd.Flags().StringVar(&provKeyAPIKey, "api-key", "", "API key value")
 	setProviderKeyCmd.Flags().StringVar(&provKeyAPIBase, "api-base", "", "Custom API base URL (optional)")
 	setProviderKeyCmd.Flags().BoolVar(&provKeyList, "list", false, "List all providers and their key status")

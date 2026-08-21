@@ -127,7 +127,7 @@ type SkillHubConfig struct {
 
 // ThreadConfig contains thread runtime defaults.
 type ThreadConfig struct {
-	Provider            string         `json:"provider" yaml:"provider"` // openrouter, anthropic, deepseek, moonshot-cn, moonshot-global, xai
+	Provider            string         `json:"provider" yaml:"provider"` // openrouter, deepseek, moonshot-cn, moonshot-global, xai
 	ModelType           string         `json:"modelType" yaml:"modelType"`
 	ModelName           string         `json:"modelName,omitempty" yaml:"modelName,omitempty"`                     // optional, defaults to modelType
 	Workspace           string         `json:"workspace,omitempty" yaml:"workspace,omitempty"`                     // defaults to ~/.nagobot/workspace
@@ -173,7 +173,6 @@ const (
 // ProvidersConfig contains provider API configurations.
 type ProvidersConfig struct {
 	OpenRouter        *ProviderConfig   `json:"openrouter,omitempty" yaml:"openrouter,omitempty"`
-	Anthropic         *ProviderConfig   `json:"anthropic,omitempty" yaml:"anthropic,omitempty"`
 	DeepSeek          *ProviderConfig   `json:"deepseek,omitempty" yaml:"deepseek,omitempty"`
 	MoonshotCN        *ProviderConfig   `json:"moonshotCN,omitempty" yaml:"moonshotCN,omitempty"`
 	MoonshotGlobal    *ProviderConfig   `json:"moonshotGlobal,omitempty" yaml:"moonshotGlobal,omitempty"`
@@ -223,8 +222,6 @@ func (p *ProvidersConfig) GetProviderConfig(name string) *ProviderConfig {
 		return p.OpenAI
 	case "openrouter":
 		return p.OpenRouter
-	case "anthropic":
-		return p.Anthropic
 	case "deepseek":
 		return p.DeepSeek
 	case "moonshot-cn":

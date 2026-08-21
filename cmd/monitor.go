@@ -265,7 +265,6 @@ func buildBalanceCheckers(cfg *config.Config, metricsDir string) []monitor.Balan
 			return token.AccessToken, token.AccountID
 		}},
 		&monitor.OpenRouterBalance{KeyFn: keyFn("openrouter")},
-		&monitor.UnsupportedBalance{Name: "anthropic", Reason: "no public balance API (Anthropic does not expose billing/credits endpoint)", KeyFn: keyFn("anthropic")},
 		&monitor.DeepSeekBalance{KeyFn: keyFn("deepseek")},
 		&monitor.MoonshotBalance{Name: "moonshot-cn", Base: "https://api.moonshot.cn/v1", KeyFn: keyFn("moonshot-cn")},
 		&monitor.MoonshotBalance{Name: "moonshot-global", Base: "https://api.moonshot.ai/v1", KeyFn: keyFn("moonshot-global")},

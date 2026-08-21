@@ -49,10 +49,19 @@ func TestRetiredModelsAreNotRegistered(t *testing.T) {
 		{"gemini", "gemini-3-flash-preview"},
 		{"openrouter", "google/gemini-3.5-flash"},
 		{"gemini", "gemini-3.5-flash"},
+		// The Anthropic vendor is gone entirely — the native provider and every
+		// anthropic/* route on OpenRouter. Both generations are listed because
+		// a config pinned to either must fail, not silently re-resolve.
 		{"anthropic", "claude-opus-4-6"},
 		{"anthropic", "claude-sonnet-4-6"},
+		{"anthropic", "claude-opus-5"},
+		{"anthropic", "claude-sonnet-5"},
+		{"anthropic", "claude-haiku-4-5"},
 		{"openrouter", "anthropic/claude-opus-4.6"},
 		{"openrouter", "anthropic/claude-sonnet-4.6"},
+		{"openrouter", "anthropic/claude-opus-5"},
+		{"openrouter", "anthropic/claude-sonnet-5"},
+		{"openrouter", "anthropic/claude-haiku-4.5"},
 		{"zhipu-cn", "glm-5.2"},
 		{"zhipu-global", "glm-5.2"},
 		{"openrouter", "z-ai/glm-5.2"},
@@ -280,12 +289,18 @@ func TestGemini35FlashLiteRegistration(t *testing.T) {
 // TestFableModelsAreNeverRegistered enforces a standing project policy: nagobot
 // does not support Anthropic's Fable line, on any provider, ever.
 //
+// Every Anthropic route was removed on cost grounds, so today this test has
+// nothing to catch — which is exactly why it stays. The vendor ban is a pricing
+// decision and could be revisited; the Fable ban is not, and it must survive
+// that reversal. Should any Anthropic route ever come back, Fable does not come
+// back with it.
+//
 // It is a sweep rather than a list of ids because the policy is about a FAMILY,
 // not about the ids that happen to exist today. `anthropic/claude-fable-5` is
-// routable on OpenRouter right now and would otherwise be a one-line addition
-// that nothing objects to; a future `claude-fable-6` has to be caught by the
-// same test without anyone remembering it exists. Enumerating ids would fail
-// exactly once — the first time someone adds the next one.
+// still routable on OpenRouter and would otherwise be a one-line addition that
+// nothing objects to; a future `claude-fable-6` has to be caught by the same
+// test without anyone remembering it exists. Enumerating ids would fail exactly
+// once — the first time someone adds the next one.
 func TestFableModelsAreNeverRegistered(t *testing.T) {
 	for _, providerName := range SupportedProviders() {
 		for _, model := range SupportedModelsForProvider(providerName) {
@@ -305,34 +320,5 @@ func TestFableModelsAreNeverRegistered(t *testing.T) {
 		if err := ValidateProviderModelType(tc.provider, tc.model); err == nil {
 			t.Errorf("ValidateProviderModelType(%q, %q) = nil, want an error", tc.provider, tc.model)
 		}
-	}
-}
-
-// TestAnthropicThinkingModeMatchesTheModelGeneration pins the split that decides
-// the request shape. Getting it wrong is not a degradation, it is a 400: an
-// adaptive-only model rejects `budget_tokens` AND every sampling parameter, so
-// a model added to the registry without a mode falls to anthropicThinkingOff and
-// silently loses thinking, while one wrongly marked budgeted fails every call.
-func TestAnthropicThinkingModeMatchesTheModelGeneration(t *testing.T) {
-	for _, m := range SupportedModelsForProvider("anthropic") {
-		if anthropicThinkingModeFor(m) == anthropicThinkingOff {
-			t.Errorf("anthropic model %q has no thinking mode — it would run without thinking", m)
-		}
-	}
-	for _, m := range []string{"claude-opus-5", "claude-sonnet-5"} {
-		if got := anthropicThinkingModeFor(m); got != anthropicThinkingAdaptive {
-			t.Errorf("anthropicThinkingModeFor(%q) = %v, want adaptive", m, got)
-		}
-		// Sampling parameters are rejected outright on these models, so the
-		// only correct temperature is "none sent" — a zero first return.
-		if temp, _ := anthropicRequestTemperature(anthropicThinkingModeFor(m), 0.7); temp != 0 {
-			t.Errorf("anthropicRequestTemperature(adaptive, 0.7) = %v, want 0 (send nothing)", temp)
-		}
-	}
-	if got := anthropicThinkingModeFor("claude-haiku-4-5"); got != anthropicThinkingBudgeted {
-		t.Errorf("anthropicThinkingModeFor(claude-haiku-4-5) = %v, want budgeted", got)
-	}
-	if temp, forced := anthropicRequestTemperature(anthropicThinkingBudgeted, 0.7); temp != 1 || !forced {
-		t.Errorf("anthropicRequestTemperature(budgeted, 0.7) = (%v, %v), want (1, true)", temp, forced)
 	}
 }

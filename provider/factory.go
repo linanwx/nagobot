@@ -11,9 +11,8 @@ import (
 )
 
 const (
-	sdkMaxRetries              = 2
-	anthropicFallbackMaxTokens = 1024
-	oauthExpiryGraceSec        = 30 // refresh token 30s before actual expiry
+	sdkMaxRetries       = 2
+	oauthExpiryGraceSec = 30 // refresh token 30s before actual expiry
 )
 
 // Factory creates provider instances for the requested provider/model.

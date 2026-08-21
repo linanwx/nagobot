@@ -895,7 +895,7 @@ func noProviderMessage() string {
 
 /init --provider openrouter --model moonshotai/kimi-k2.6 --api-key YOUR_KEY
 
-Supported providers: openrouter, anthropic, deepseek, openai`
+Supported providers: openrouter, deepseek, openai`
 }
 
 // resolvedProviderModel returns the provider and model name for the current agent.
