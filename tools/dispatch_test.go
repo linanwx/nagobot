@@ -376,17 +376,17 @@ func TestDispatch_SubagentModelOverride_OK(t *testing.T) {
 		currentKey:  "cli",
 		callerKind:  "user",
 		agents:      map[string]bool{"s": true},
-		validModels: map[string]bool{"openrouter:anthropic/claude-opus-4.6": true},
+		validModels: map[string]bool{"openrouter:anthropic/claude-opus-5": true},
 	}
 	outcome, res := runDispatch(t, host,
-		`{"sends": [{"to": "subagent", "params": {"agent": "s", "task_id": "hard-q", "provider": "openrouter", "model": "anthropic/claude-opus-4.6"}, "body": "go"}]}`)
+		`{"sends": [{"to": "subagent", "params": {"agent": "s", "task_id": "hard-q", "provider": "openrouter", "model": "anthropic/claude-opus-5"}, "body": "go"}]}`)
 	if outcome != "turn-terminated" {
 		t.Fatalf("outcome=%q; %s", outcome, res)
 	}
 	if len(host.subagentCalls) != 1 {
 		t.Fatalf("expected 1 subagent call, got %d", len(host.subagentCalls))
 	}
-	if got := host.subagentCalls[0]; got.Provider != "openrouter" || got.Model != "anthropic/claude-opus-4.6" {
+	if got := host.subagentCalls[0]; got.Provider != "openrouter" || got.Model != "anthropic/claude-opus-5" {
 		t.Errorf("override not plumbed: provider=%q model=%q", got.Provider, got.Model)
 	}
 }
@@ -423,7 +423,7 @@ func TestDispatch_SubagentModelOverride_RequiresBoth(t *testing.T) {
 func TestDispatch_ModelOverride_WrongTarget(t *testing.T) {
 	host := &mockDispatchHost{currentKey: "cli", callerKind: "user"}
 	_, res := runDispatch(t, host,
-		`{"sends": [{"to": "caller:session", "params": {"provider": "openrouter", "model": "anthropic/claude-opus-4.6"}, "body": "hi"}]}`)
+		`{"sends": [{"to": "caller:session", "params": {"provider": "openrouter", "model": "anthropic/claude-opus-5"}, "body": "hi"}]}`)
 	if !strings.Contains(res, "validation-error") || !strings.Contains(res, "override applies to to=subagent/to=subagent_fork only") {
 		t.Errorf("expected wrong-target validation error, got: %s", res)
 	}

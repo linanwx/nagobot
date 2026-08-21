@@ -77,12 +77,12 @@ func anthropicRateLimitMiddleware(req *http.Request, next aoption.MiddlewareNext
 
 func init() {
 	shared := ProviderRegistration{
-		Models:       []string{"claude-sonnet-4-6", "claude-opus-4-6", "claude-haiku-4-5"},
-		VisionModels: []string{"claude-sonnet-4-6", "claude-opus-4-6", "claude-haiku-4-5"},
+		Models:       []string{"claude-opus-5", "claude-sonnet-5", "claude-haiku-4-5"},
+		VisionModels: []string{"claude-opus-5", "claude-sonnet-5", "claude-haiku-4-5"},
 		ContextWindows: map[string]int{
-			"claude-sonnet-4-6": 1048576,
-			"claude-opus-4-6":   1048576,
-			"claude-haiku-4-5":  200000,
+			"claude-opus-5":    1000000,
+			"claude-sonnet-5":  1000000,
+			"claude-haiku-4-5": 200000,
 		},
 		Constructor: func(apiKey, apiBase, modelType, modelName string, maxTokens int, temperature float64) Provider {
 			return newAnthropicProvider(apiKey, apiBase, modelType, modelName, maxTokens, temperature)
@@ -112,20 +112,49 @@ const (
 	anthropicThinkingDefaultBudget = 2048
 )
 
-func anthropicThinkingEnabled(modelType string) bool {
+// anthropicThinkingMode is how a model wants its thinking configured, and it
+// has to be a mode rather than a bool because the two shapes are mutually
+// exclusive at the API: the 4.6+ family takes `{type:"adaptive"}` and answers
+// **400** to both `budget_tokens` and every sampling parameter, while pre-4.6
+// models take `{type:"enabled", budget_tokens:N}` and accept temperature. So
+// the same flag that picks the thinking block also decides whether a
+// temperature may be sent at all — sending one to Opus 5 fails the request.
+type anthropicThinkingMode int
+
+const (
+	anthropicThinkingOff anthropicThinkingMode = iota
+	anthropicThinkingBudgeted
+	anthropicThinkingAdaptive
+)
+
+func anthropicThinkingModeFor(modelType string) anthropicThinkingMode {
 	switch strings.TrimSpace(modelType) {
-	case "claude-sonnet-4-6", "claude-opus-4-6", "claude-haiku-4-5":
-		return true
+	case "claude-opus-5", "claude-sonnet-5":
+		return anthropicThinkingAdaptive
+	case "claude-haiku-4-5":
+		return anthropicThinkingBudgeted
 	default:
-		return false
+		return anthropicThinkingOff
 	}
 }
 
-func anthropicRequestTemperature(thinkingEnabled bool, configured float64) (float64, bool) {
-	if thinkingEnabled {
+func anthropicThinkingEnabled(modelType string) bool {
+	return anthropicThinkingModeFor(modelType) != anthropicThinkingOff
+}
+
+// anthropicRequestTemperature reports the temperature to send, and whether that
+// differs from what was configured. A zero first return means SEND NOTHING —
+// which is the only correct answer for an adaptive model, where the parameter
+// is rejected rather than ignored.
+func anthropicRequestTemperature(mode anthropicThinkingMode, configured float64) (float64, bool) {
+	switch mode {
+	case anthropicThinkingAdaptive:
+		return 0, configured != 0
+	case anthropicThinkingBudgeted:
 		return 1, configured != 1
+	default:
+		return configured, false
 	}
-	return configured, false
 }
 
 func anthropicThinkingBudget(maxTokens int) (int64, bool) {
@@ -476,7 +505,8 @@ func (p *AnthropicProvider) Chat(ctx context.Context, req *Request) (ChatResult,
 	}
 	inputChars := anthropicInputChars(systemPrompt, req.Messages)
 	tools := toAnthropicTools(req.Tools)
-	thinkingEnabled := anthropicThinkingEnabled(p.modelType)
+	thinkingMode := anthropicThinkingModeFor(p.modelType)
+	thinkingEnabled := thinkingMode != anthropicThinkingOff
 
 	logger.Info(
 		"anthropic request",
@@ -492,7 +522,7 @@ func (p *AnthropicProvider) Chat(ctx context.Context, req *Request) (ChatResult,
 	if maxTokens <= 0 {
 		maxTokens = anthropicFallbackMaxTokens
 	}
-	if thinkingEnabled && maxTokens <= anthropicThinkingMinBudget {
+	if thinkingMode == anthropicThinkingBudgeted && maxTokens <= anthropicThinkingMinBudget {
 		logger.Warn(
 			"anthropic max_tokens adjusted for thinking constraints",
 			"provider", "anthropic",
@@ -515,7 +545,11 @@ func (p *AnthropicProvider) Chat(ctx context.Context, req *Request) (ChatResult,
 			CacheControl: anthropic.NewCacheControlEphemeralParam(),
 		}}
 	}
-	if thinkingEnabled {
+	switch thinkingMode {
+	case anthropicThinkingAdaptive:
+		adaptive := anthropic.NewThinkingConfigAdaptiveParam()
+		params.Thinking = anthropic.ThinkingConfigParamUnion{OfAdaptive: &adaptive}
+	case anthropicThinkingBudgeted:
 		if budget, ok := anthropicThinkingBudget(maxTokens); ok {
 			params.Thinking = anthropic.ThinkingConfigParamOfEnabled(budget)
 		} else {
@@ -527,18 +561,31 @@ func (p *AnthropicProvider) Chat(ctx context.Context, req *Request) (ChatResult,
 			)
 		}
 	}
-	requestTemp, forcedTemp := anthropicRequestTemperature(thinkingEnabled, p.temperature)
+	requestTemp, forcedTemp := anthropicRequestTemperature(thinkingMode, p.temperature)
 	if requestTemp != 0 {
 		params.Temperature = anthropic.Float(requestTemp)
 	}
 	if forcedTemp {
-		logger.Info(
-			"anthropic temperature adjusted for thinking constraints",
-			"provider", "anthropic",
-			"modelType", p.modelType,
-			"configuredTemperature", p.temperature,
-			"requestTemperature", requestTemp,
-		)
+		// Say which of the two happened. On an adaptive model requestTemp is 0
+		// because nothing is sent at all, and logging that as
+		// "requestTemperature: 0" would assert a value the request does not
+		// carry.
+		if thinkingMode == anthropicThinkingAdaptive {
+			logger.Info(
+				"anthropic temperature dropped — model rejects sampling parameters",
+				"provider", "anthropic",
+				"modelType", p.modelType,
+				"configuredTemperature", p.temperature,
+			)
+		} else {
+			logger.Info(
+				"anthropic temperature adjusted for thinking constraints",
+				"provider", "anthropic",
+				"modelType", p.modelType,
+				"configuredTemperature", p.temperature,
+				"requestTemperature", requestTemp,
+			)
+		}
 	}
 
 	resp := &Response{ProviderLabel: "anthropic", ModelLabel: p.modelName}

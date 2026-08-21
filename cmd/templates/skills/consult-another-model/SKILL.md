@@ -98,9 +98,9 @@ number, not the per-token list price.
 than `kimi-k3`. Choose `kimi-k3` when a confident wrong answer would be worse
 than no answer.
 
-**Do not consult GLM-5.2, MiniMax-M3, or MiMo for facts.** They score 4.0, 1.4
-and 3.6 despite respectable reasoning scores — strong at thinking, weak at
-remembering.
+**Do not consult GLM, MiniMax-M3, or MiMo for facts.** They score 4.0 (measured
+on GLM-5.2), 1.4 and 3.6 despite respectable reasoning scores — strong at
+thinking, weak at remembering.
 
 ### Complex reasoning, analysis, algorithms, code
 
@@ -109,11 +109,15 @@ remembering.
 | `openai-oauth` | `gpt-5.6-sol[xhigh]` | 57.7 | **78.3** | 0.139 |
 | `moonshot-cn` / `moonshot-global` | `kimi-k3` | 57.1 | 76.2 | 0.954 |
 | `openai-oauth` | `gpt-5.6-terra[xhigh]` | 51.6 | 70.6 | 0.055 |
-| `zhipu-cn` | `glm-5.2` | 51.1 | 68.8 | 0.319 |
+| `zhipu-cn` | `glm-5.3` † | 51.1 | 68.8 | 0.319 |
 
 `gpt-5.6-sol[xhigh]` first. `kimi-k3` when you want a genuinely different
 architecture rather than a stronger one — useful for a second opinion that is
 not just a louder version of the same reasoning.
+
+† The GLM scores in this file were measured on **GLM-5.2**. The routable model
+is now `glm-5.3`, which this snapshot does not cover — read those numbers as
+its predecessor's, not as its own.
 
 ### Generating something — pages, layouts, charts, visual output
 
@@ -123,7 +127,7 @@ and frontend generation, not a knowledge benchmark:
 | provider | model | Design Elo | note |
 |---|---|---:|---|
 | `moonshot-cn` / `moonshot-global` | `kimi-k3` | **1420** | #1 overall, ahead of every OpenAI model |
-| `zhipu-cn` | `glm-5.2` | 1347 | |
+| `zhipu-cn` | `glm-5.3` | 1347 † | measured on GLM-5.2 |
 | `mimo` | `mimo-v2.5-pro` | 1313 | cheapest of the three by a wide margin |
 
 This is the one category where the reasoning leaders lose: `gpt-5.6-sol` sits

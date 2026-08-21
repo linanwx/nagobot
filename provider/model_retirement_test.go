@@ -1,6 +1,9 @@
 package provider
 
-import "testing"
+import (
+	"strings"
+	"testing"
+)
 
 func TestRetiredModelsAreNotRegistered(t *testing.T) {
 	cases := []struct {
@@ -46,6 +49,17 @@ func TestRetiredModelsAreNotRegistered(t *testing.T) {
 		{"gemini", "gemini-3-flash-preview"},
 		{"openrouter", "google/gemini-3.5-flash"},
 		{"gemini", "gemini-3.5-flash"},
+		{"anthropic", "claude-opus-4-6"},
+		{"anthropic", "claude-sonnet-4-6"},
+		{"openrouter", "anthropic/claude-opus-4.6"},
+		{"openrouter", "anthropic/claude-sonnet-4.6"},
+		{"zhipu-cn", "glm-5.2"},
+		{"zhipu-global", "glm-5.2"},
+		{"openrouter", "z-ai/glm-5.2"},
+		{"xai", "grok-4.20-0309-reasoning"},
+		{"xai", "grok-4.20-0309-non-reasoning"},
+		{"xai", "grok-4-1-fast-reasoning"},
+		{"xai", "grok-4-1-fast-non-reasoning"},
 	}
 
 	for _, tc := range cases {
@@ -260,5 +274,65 @@ func TestGemini35FlashLiteRegistration(t *testing.T) {
 	}
 	if len(meta.ThinkingOpts) != 0 {
 		t.Error("google/gemini-3.5-flash-lite has ThinkingOpts, want none — a lite model is priced for no reasoning, like 3.1-flash-lite")
+	}
+}
+
+// TestFableModelsAreNeverRegistered enforces a standing project policy: nagobot
+// does not support Anthropic's Fable line, on any provider, ever.
+//
+// It is a sweep rather than a list of ids because the policy is about a FAMILY,
+// not about the ids that happen to exist today. `anthropic/claude-fable-5` is
+// routable on OpenRouter right now and would otherwise be a one-line addition
+// that nothing objects to; a future `claude-fable-6` has to be caught by the
+// same test without anyone remembering it exists. Enumerating ids would fail
+// exactly once — the first time someone adds the next one.
+func TestFableModelsAreNeverRegistered(t *testing.T) {
+	for _, providerName := range SupportedProviders() {
+		for _, model := range SupportedModelsForProvider(providerName) {
+			if strings.Contains(strings.ToLower(model), "fable") {
+				t.Errorf("provider %q registers %q — Fable models are deliberately unsupported (see CLAUDE.md); remove it rather than relaxing this test",
+					providerName, model)
+			}
+		}
+	}
+
+	// The ids that exist today, asserted through the validator the rest of the
+	// system actually calls.
+	for _, tc := range []struct{ provider, model string }{
+		{"anthropic", "claude-fable-5"},
+		{"openrouter", "anthropic/claude-fable-5"},
+	} {
+		if err := ValidateProviderModelType(tc.provider, tc.model); err == nil {
+			t.Errorf("ValidateProviderModelType(%q, %q) = nil, want an error", tc.provider, tc.model)
+		}
+	}
+}
+
+// TestAnthropicThinkingModeMatchesTheModelGeneration pins the split that decides
+// the request shape. Getting it wrong is not a degradation, it is a 400: an
+// adaptive-only model rejects `budget_tokens` AND every sampling parameter, so
+// a model added to the registry without a mode falls to anthropicThinkingOff and
+// silently loses thinking, while one wrongly marked budgeted fails every call.
+func TestAnthropicThinkingModeMatchesTheModelGeneration(t *testing.T) {
+	for _, m := range SupportedModelsForProvider("anthropic") {
+		if anthropicThinkingModeFor(m) == anthropicThinkingOff {
+			t.Errorf("anthropic model %q has no thinking mode — it would run without thinking", m)
+		}
+	}
+	for _, m := range []string{"claude-opus-5", "claude-sonnet-5"} {
+		if got := anthropicThinkingModeFor(m); got != anthropicThinkingAdaptive {
+			t.Errorf("anthropicThinkingModeFor(%q) = %v, want adaptive", m, got)
+		}
+		// Sampling parameters are rejected outright on these models, so the
+		// only correct temperature is "none sent" — a zero first return.
+		if temp, _ := anthropicRequestTemperature(anthropicThinkingModeFor(m), 0.7); temp != 0 {
+			t.Errorf("anthropicRequestTemperature(adaptive, 0.7) = %v, want 0 (send nothing)", temp)
+		}
+	}
+	if got := anthropicThinkingModeFor("claude-haiku-4-5"); got != anthropicThinkingBudgeted {
+		t.Errorf("anthropicThinkingModeFor(claude-haiku-4-5) = %v, want budgeted", got)
+	}
+	if temp, forced := anthropicRequestTemperature(anthropicThinkingBudgeted, 0.7); temp != 1 || !forced {
+		t.Errorf("anthropicRequestTemperature(budgeted, 0.7) = (%v, %v), want (1, true)", temp, forced)
 	}
 }

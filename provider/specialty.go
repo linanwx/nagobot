@@ -8,7 +8,7 @@ import (
 // explicitSpecialtyModels restricts certain specialties to a hand-picked set of
 // allowed "provider/model" entries. The FIRST slash splits provider from model,
 // because model ids may themselves contain slashes (e.g. the openrouter id
-// "z-ai/glm-5.2"). A specialty absent here (and not a capability specialty below)
+// "z-ai/glm-5.3"). A specialty absent here (and not a capability specialty below)
 // is unrestricted: onboard offers every model the chosen provider supports.
 //
 // Currently empty. Its only member was "fast", which pinned the pre-think agent

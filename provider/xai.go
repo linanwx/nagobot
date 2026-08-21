@@ -16,23 +16,20 @@ const xaiAPIBase = "https://api.x.ai/v1"
 
 func init() {
 	RegisterProvider("xai", ProviderRegistration{
+		// grok-4.6 is one model id, not the -reasoning/-non-reasoning pair the
+		// 4.20 generation shipped as — that split does not exist past 4.3, and
+		// the provider passes modelType straight through as the API model name,
+		// so there is nothing to strip. Its 500K window is genuinely SMALLER
+		// than the 1M the retired 4.20 entries carried; registering 2000000
+		// here would let context grow past what the API accepts.
 		Models: []string{
-			"grok-4-1-fast-reasoning",
-			"grok-4-1-fast-non-reasoning",
-			"grok-4.20-0309-reasoning",
-			"grok-4.20-0309-non-reasoning",
+			"grok-4.6",
 		},
 		VisionModels: []string{
-			"grok-4-1-fast-reasoning",
-			"grok-4-1-fast-non-reasoning",
-			"grok-4.20-0309-reasoning",
-			"grok-4.20-0309-non-reasoning",
+			"grok-4.6",
 		},
 		ContextWindows: map[string]int{
-			"grok-4-1-fast-reasoning":      2000000,
-			"grok-4-1-fast-non-reasoning":  2000000,
-			"grok-4.20-0309-reasoning":     2000000,
-			"grok-4.20-0309-non-reasoning": 2000000,
+			"grok-4.6": 500000,
 		},
 		EnvKey:  "XAI_API_KEY",
 		EnvBase: "XAI_API_BASE",

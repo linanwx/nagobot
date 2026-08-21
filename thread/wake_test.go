@@ -92,12 +92,12 @@ func TestBuildWakePayload_FalseCapabilities_Omitted(t *testing.T) {
 	// Model without vision/audio → fields should NOT appear (omitted, not false).
 	loc := time.FixedZone("UTC+8", 8*3600)
 
-	// z-ai/glm-5.2 is not in VisionModels or AudioModels
+	// z-ai/glm-5.3 is not in VisionModels or AudioModels
 	payload := buildWakePayload(
 		WakeTelegram,
 		"Hello",
 		"thread-1", "telegram:123", "/tmp/sessions/telegram:123",
-		"telegram delivery", "openrouter/z-ai/glm-5.2", "soul",
+		"telegram delivery", "openrouter/z-ai/glm-5.3", "soul",
 		loc, "", "", "", "", "", "", time.Time{}, "", "",
 	)
 

@@ -20,9 +20,9 @@ const (
 
 func init() {
 	RegisterProvider("zhipu-cn", ProviderRegistration{
-		Models: []string{"glm-5.2"},
+		Models: []string{"glm-5.3"},
 		ContextWindows: map[string]int{
-			"glm-5.2": 1000000,
+			"glm-5.3": 1000000,
 		},
 		EnvKey:  "ZHIPU_API_KEY",
 		EnvBase: "ZHIPU_API_BASE",
@@ -32,9 +32,9 @@ func init() {
 	})
 
 	RegisterProvider("zhipu-global", ProviderRegistration{
-		Models: []string{"glm-5.2"},
+		Models: []string{"glm-5.3"},
 		ContextWindows: map[string]int{
-			"glm-5.2": 1000000,
+			"glm-5.3": 1000000,
 		},
 		EnvKey:  "ZHIPU_GLOBAL_API_KEY",
 		EnvBase: "ZHIPU_GLOBAL_API_BASE",
@@ -58,13 +58,13 @@ type ZhipuProvider struct {
 
 func zhipuThinkingEnabled(modelType string) bool {
 	m := strings.TrimSpace(modelType)
-	return m == "glm-5.2"
+	return m == "glm-5.3"
 }
 
 // zhipuReasoningEffort returns the reasoning_effort value to send for models
-// that support GLM-5.2's High/Max effort dial.
+// that support GLM-5.3's High/Max effort dial.
 func zhipuReasoningEffort(modelType string) string {
-	if strings.TrimSpace(modelType) == "glm-5.2" {
+	if strings.TrimSpace(modelType) == "glm-5.3" {
 		return "high"
 	}
 	return ""

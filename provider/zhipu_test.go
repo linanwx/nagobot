@@ -4,7 +4,7 @@ import "testing"
 
 func TestZhipuThinkingEnabled(t *testing.T) {
 	cases := map[string]bool{
-		"glm-5.2": true,
+		"glm-5.3": true,
 		"unknown": false,
 	}
 	for model, want := range cases {
@@ -16,7 +16,7 @@ func TestZhipuThinkingEnabled(t *testing.T) {
 
 func TestZhipuReasoningEffort(t *testing.T) {
 	cases := map[string]string{
-		"glm-5.2": "high",
+		"glm-5.3": "high",
 		"unknown": "",
 	}
 	for model, want := range cases {
@@ -27,10 +27,10 @@ func TestZhipuReasoningEffort(t *testing.T) {
 }
 
 func TestZhipuRequestTemperatureForcedWhenThinking(t *testing.T) {
-	// glm-5.2 enables thinking, which forces temperature to 1.
-	temp, forced := zhipuRequestTemperature("glm-5.2", 0.7)
+	// glm-5.3 enables thinking, which forces temperature to 1.
+	temp, forced := zhipuRequestTemperature("glm-5.3", 0.7)
 	if temp != 1 || !forced {
-		t.Errorf("zhipuRequestTemperature(glm-5.2, 0.7) = (%v, %v), want (1, true)", temp, forced)
+		t.Errorf("zhipuRequestTemperature(glm-5.3, 0.7) = (%v, %v), want (1, true)", temp, forced)
 	}
 	// Unknown/non-thinking models keep their configured temperature.
 	temp, forced = zhipuRequestTemperature("unknown", 0.7)
@@ -39,17 +39,21 @@ func TestZhipuRequestTemperatureForcedWhenThinking(t *testing.T) {
 	}
 }
 
-func TestZhipuGLM52Registration(t *testing.T) {
+func TestZhipuGLM53Registration(t *testing.T) {
 	for _, p := range []string{"zhipu-cn", "zhipu-global"} {
-		if err := ValidateProviderModelType(p, "glm-5.2"); err != nil {
-			t.Errorf("ValidateProviderModelType(%q, glm-5.2) = %v, want nil", p, err)
+		if err := ValidateProviderModelType(p, "glm-5.3"); err != nil {
+			t.Errorf("ValidateProviderModelType(%q, glm-5.3) = %v, want nil", p, err)
 		}
-		if got := ContextWindowForModel(p, "glm-5.2"); got != 1000000 {
-			t.Errorf("ContextWindowForModel(%q, glm-5.2) = %d, want 1000000", p, got)
+		if got := ContextWindowForModel(p, "glm-5.3"); got != 1000000 {
+			t.Errorf("ContextWindowForModel(%q, glm-5.3) = %d, want 1000000", p, got)
 		}
 	}
 }
 
+// TestSiliconflowGLM52Registration deliberately still names 5.2. SiliconFlow
+// serves open weights, and zai-org has published nothing past GLM-5.2 on
+// HuggingFace — GLM-5.3 exists only behind Z.ai's own API and OpenRouter, so
+// bumping this route would register a model SiliconFlow cannot serve.
 func TestSiliconflowGLM52Registration(t *testing.T) {
 	cases := map[string]string{
 		"siliconflow-cn":     "Pro/zai-org/GLM-5.2",
