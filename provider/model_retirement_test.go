@@ -79,6 +79,23 @@ func TestRetiredModelsAreNotRegistered(t *testing.T) {
 		{"xai", "grok-4.20-0309-non-reasoning"},
 		{"xai", "grok-4-1-fast-reasoning"},
 		{"xai", "grok-4-1-fast-non-reasoning"},
+		// The native mimo / minimax-cn / minimax-global providers are gone for
+		// the same reason gemini is: neither exposes a remaining balance to an
+		// inference key, and this deployment will not carry a provider it
+		// cannot see the bottom of. The models stay reachable on OpenRouter as
+		// xiaomi/mimo-* and minimax/minimax-m3, pinned to their own vendor's
+		// upstream (see TestVendorPinnedOpenRouterRoutes).
+		{"mimo", "mimo-v2.5-pro"},
+		{"mimo", "mimo-v2.5"},
+		{"minimax-cn", "minimax-m3"},
+		{"minimax-global", "minimax-m3"},
+		// xai goes with them, and it is the one removal that leaves NO route
+		// behind: `x-ai/grok-4.6` exists on OpenRouter but was deliberately not
+		// registered in its place. grok was never selected once in this
+		// deployment's entire history, so adding a route would have been
+		// adding, not simplifying. Re-registering it there is a one-line change
+		// if that ever stops being true.
+		{"xai", "grok-4.6"},
 	}
 
 	for _, tc := range cases {
@@ -329,6 +346,44 @@ func TestFableModelsAreNeverRegistered(t *testing.T) {
 	} {
 		if err := ValidateProviderModelType(tc.provider, tc.model); err == nil {
 			t.Errorf("ValidateProviderModelType(%q, %q) = nil, want an error", tc.provider, tc.model)
+		}
+	}
+}
+
+// TestVendorPinnedOpenRouterRoutes guards the models whose ONLY route is now
+// OpenRouter. For most entries an absent ProviderOrder is a missed
+// optimization; for these it is a silent substitution of the product.
+//
+// OpenRouter serves xiaomi/mimo-v2.5-pro from 7 upstreams and
+// minimax/minimax-m3 from 13, at quantizations ranging from bf16 down to fp4,
+// with several reported as "unknown". Unpinned, two identical requests can be
+// answered by two different sets of weights, and nothing in the response says
+// so. The native providers used to make this moot by reaching the vendor
+// directly; with them deleted, the pin is the only thing that still does.
+func TestVendorPinnedOpenRouterRoutes(t *testing.T) {
+	want := map[string]string{
+		"xiaomi/mimo-v2.5-pro":                  "xiaomi",
+		"xiaomi/mimo-v2.5":                      "xiaomi",
+		"minimax/minimax-m3":                    "minimax",
+		"deepseek/deepseek-v4-flash-vision-exp": "deepseek",
+	}
+	registered := make(map[string]bool)
+	for _, m := range SupportedModelsForProvider("openrouter") {
+		registered[m] = true
+	}
+	for model, upstream := range want {
+		if !registered[model] {
+			t.Errorf("%s is no longer registered on openrouter — it is the only route left to that model", model)
+			continue
+		}
+		meta, ok := openRouterModels[model]
+		if !ok {
+			t.Errorf("%s has no openRouterModels entry: it ships with the zero-value meta, so no upstream pin and no thinking opts", model)
+			continue
+		}
+		if len(meta.ProviderOrder) == 0 || meta.ProviderOrder[0] != upstream {
+			t.Errorf("%s ProviderOrder = %v, want first entry %q — unpinned, OpenRouter may answer from a differently quantized host",
+				model, meta.ProviderOrder, upstream)
 		}
 	}
 }

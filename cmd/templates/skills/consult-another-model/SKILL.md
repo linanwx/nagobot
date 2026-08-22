@@ -132,7 +132,7 @@ and frontend generation, not a knowledge benchmark:
 |---|---|---:|---|
 | `moonshot-cn` / `moonshot-global` | `kimi-k3` | **1420** | #1 overall, ahead of every OpenAI model |
 | `zhipu-cn` | `glm-5.3` | 1347 † | measured on GLM-5.2 |
-| `mimo` | `mimo-v2.5-pro` | 1313 | cheapest of the three by a wide margin |
+| `openrouter` | `xiaomi/mimo-v2.5-pro` | 1313 | cheapest of the three by a wide margin |
 
 This is the one category where the reasoning leaders lose: `gpt-5.6-sol` sits
 at 1358, behind Kimi K3.
@@ -145,7 +145,7 @@ When you want a second perspective more than you want raw capability:
 |---|---|---:|---|
 | `openai-oauth` | `gpt-5.6-terra[xhigh]` | 0.055 | different tier, nearly free |
 | `openrouter` | `google/gemini-3.1-flash-lite` | 0.034 | different vendor entirely |
-| `minimax-cn` / `minimax-global` | `minimax-m3` | 0.125 | different architecture |
+| `openrouter` | `minimax/minimax-m3` | 0.125 | different architecture |
 
 ### Never consult these
 

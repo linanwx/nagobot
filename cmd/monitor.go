@@ -271,9 +271,7 @@ func buildBalanceCheckers(cfg *config.Config, metricsDir string) []monitor.Balan
 		&monitor.ZhipuBalance{Name: "zhipu-cn", KeyFn: keyFn("zhipu-cn")},
 		&monitor.ZhipuBalance{Name: "zhipu-global", KeyFn: keyFn("zhipu-global")},
 		&monitor.UnsupportedBalance{Name: "openai", Reason: "no balance API (requires Admin Key for billing queries)", KeyFn: keyFn("openai")},
-		&monitor.UnsupportedBalance{Name: "minimax-cn", Reason: "no balance API (pay-as-you-go; coding plan keys can use /coding_plan/remains)", KeyFn: keyFn("minimax-cn")},
 		&monitor.UnsupportedBalance{Name: "siliconflow-cn", Reason: "balance unreliable: /v1/user/info totalBalance can go negative and diverges from real balance on credit-line accounts; real balance only via cookie-authed console (walletd-server)", KeyFn: keyFn("siliconflow-cn")},
 		&monitor.UnsupportedBalance{Name: "siliconflow-global", Reason: "balance unreliable: /v1/user/info totalBalance not trustworthy across account types; real balance only via cookie-authed console (walletd-server)", KeyFn: keyFn("siliconflow-global")},
-		&monitor.UnsupportedBalance{Name: "mimo", Reason: "no public balance API (check at platform.xiaomimimo.com)", KeyFn: keyFn("mimo")},
 	}
 }

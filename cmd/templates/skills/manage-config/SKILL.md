@@ -22,7 +22,9 @@ With custom API base URL:
 exec: {{WORKSPACE}}/bin/nagobot set-provider-key --provider <name> --api-key <api_key> --api-base <url>
 ```
 
-Supported providers: `openai`, `openrouter`, `deepseek`, `moonshot-cn`, `moonshot-global`, `zhipu-cn`, `zhipu-global`, `minimax-cn`, `minimax-global`, `siliconflow-cn`, `siliconflow-global`, `xai`, `mimo`. Gemini models are reachable only through `openrouter` (`google/gemini-*`) — the native `gemini` provider was removed.
+Supported providers: `openai`, `openrouter`, `deepseek`, `moonshot-cn`, `moonshot-global`, `zhipu-cn`, `zhipu-global`, `siliconflow-cn`, `siliconflow-global`.
+
+Gemini, MiMo and MiniMax are reachable **only through `openrouter`** — `google/gemini-*`, `xiaomi/mimo-*`, `minimax/minimax-m3`. Their native providers were removed because none of them exposes a remaining balance to an inference key. xAI was removed for the same reason and has **no** replacement route: grok is not registered anywhere, so do not try to select it.
 
 ### List All Provider Key Status
 

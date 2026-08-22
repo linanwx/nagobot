@@ -178,14 +178,10 @@ type ProvidersConfig struct {
 	MoonshotGlobal    *ProviderConfig   `json:"moonshotGlobal,omitempty" yaml:"moonshotGlobal,omitempty"`
 	ZhipuCN           *ProviderConfig   `json:"zhipuCN,omitempty" yaml:"zhipuCN,omitempty"`
 	ZhipuGlobal       *ProviderConfig   `json:"zhipuGlobal,omitempty" yaml:"zhipuGlobal,omitempty"`
-	MinimaxCN         *ProviderConfig   `json:"minimaxCN,omitempty" yaml:"minimaxCN,omitempty"`
-	MinimaxGlobal     *ProviderConfig   `json:"minimaxGlobal,omitempty" yaml:"minimaxGlobal,omitempty"`
 	SiliconflowCN     *ProviderConfig   `json:"siliconflowCN,omitempty" yaml:"siliconflowCN,omitempty"`
 	SiliconflowGlobal *ProviderConfig   `json:"siliconflowGlobal,omitempty" yaml:"siliconflowGlobal,omitempty"`
 	OpenAI            *ProviderConfig   `json:"openai,omitempty" yaml:"openai,omitempty"`
 	OpenAIOAuth       *OAuthTokenConfig `json:"openaiOAuth,omitempty" yaml:"openaiOAuth,omitempty"`
-	XAI               *ProviderConfig   `json:"xai,omitempty" yaml:"xai,omitempty"`
-	MiMo              *ProviderConfig   `json:"mimo,omitempty" yaml:"mimo,omitempty"`
 }
 
 // OAuthTokenConfig stores an OAuth token with optional refresh capability.
@@ -231,18 +227,10 @@ func (p *ProvidersConfig) GetProviderConfig(name string) *ProviderConfig {
 		return p.ZhipuCN
 	case "zhipu-global":
 		return p.ZhipuGlobal
-	case "minimax-cn":
-		return p.MinimaxCN
-	case "minimax-global":
-		return p.MinimaxGlobal
 	case "siliconflow-cn":
 		return p.SiliconflowCN
 	case "siliconflow-global":
 		return p.SiliconflowGlobal
-	case "xai":
-		return p.XAI
-	case "mimo":
-		return p.MiMo
 	}
 	return nil
 }

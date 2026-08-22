@@ -59,7 +59,7 @@ nagobot cli
 
 ## What it does
 
-- **Multi-provider** — DeepSeek, OpenAI, OpenRouter, Moonshot, Minimax, Zhipu, xAI, SiliconFlow, MiMo
+- **Multi-provider** — DeepSeek, OpenAI, OpenRouter, Moonshot, Zhipu, SiliconFlow
 - **Multi-channel** — Telegram, Discord, Feishu, Web, CLI
 - **Multi-agent** — Custom agent templates with async thread spawning
 - **Always on** — Cron scheduling, auto-restart, three-tier context compression

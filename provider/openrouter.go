@@ -130,15 +130,37 @@ var openRouterModels = map[string]openRouterModelMeta{
 		},
 		ProviderOrder: []string{"openai"},
 	},
+	// The three entries below are pinned to their own vendor's upstream, and on
+	// these models the pin is not a formality — it is the whole reason the
+	// native providers could be removed. OpenRouter serves mimo-v2.5-pro from 7
+	// hosts and minimax-m3 from 13, at quantizations from bf16 down to fp4 and
+	// several reported as "unknown". Unpinned, "the model" means whichever host
+	// OpenRouter picked that minute. Pinned to the vendor, it means the same
+	// weights the deleted native route reached.
 	"xiaomi/mimo-v2.5-pro": {
 		ThinkingOpts: []oaioption.RequestOption{
 			oaioption.WithJSONSet("reasoning", map[string]any{"effort": "high"}),
 		},
+		ProviderOrder: []string{"xiaomi"},
 	},
 	"xiaomi/mimo-v2.5": {
 		ThinkingOpts: []oaioption.RequestOption{
 			oaioption.WithJSONSet("reasoning", map[string]any{"effort": "high"}),
 		},
+		ProviderOrder: []string{"xiaomi"},
+	},
+	// minimax-m3 had NO entry at all, which is the failure mode
+	// TestGemini37FlashRegistration's comment describes: a registered model
+	// missing from this map gets the zero-value meta, so it shipped with
+	// thinking OFF (the native route turns it on for exactly this model) and no
+	// upstream pin, on the model with the widest quantization spread of any we
+	// route. Registered window stays 524288, which is what the Minimax upstream
+	// serves — the catalog's 1048576 is some other host's number.
+	"minimax/minimax-m3": {
+		ThinkingOpts: []oaioption.RequestOption{
+			oaioption.WithJSONSet("reasoning", map[string]any{"effort": "high"}),
+		},
+		ProviderOrder: []string{"minimax"},
 	},
 }
 
