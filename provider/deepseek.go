@@ -21,6 +21,16 @@ const deepSeekAPIBase = "https://api.deepseek.com"
 // E.g. "deepseek-v4-flash-instant" wires to "deepseek-v4-flash" with thinking off.
 const instantSuffix = "-instant"
 
+// dsVisionModel is the only DeepSeek model that accepts image input. It matches
+// deepseek-v4-flash on text, price and window, and takes the same thinking dial
+// (verified against the live API: thinking enabled / reasoning_effort max /
+// disabled all return 200), so it registers with the same -instant and [effort]
+// aliases as the text models rather than as a bare special case.
+//
+// The "-exp" is DeepSeek's own suffix and may be renamed upstream; it is the
+// wire id, so it cannot be dropped here.
+const dsVisionModel = "deepseek-v4-flash-vision-exp"
+
 // dsReasoningEfforts are the only two thinking depths DeepSeek accepts. They
 // are selectable per model via a bracket suffix ("deepseek-v4-pro[max]"), the
 // same shape openai uses (see parseModelEffort). "high" is the server-side
@@ -41,10 +51,10 @@ func dsWithEffortVariants(models []string, base ...string) []string {
 }
 
 func init() {
-	baseV4 := []string{"deepseek-v4-pro", "deepseek-v4-flash"}
+	baseV4 := []string{"deepseek-v4-pro", "deepseek-v4-flash", dsVisionModel}
 	models := []string{
-		"deepseek-v4-pro", "deepseek-v4-flash",
-		"deepseek-v4-pro-instant", "deepseek-v4-flash-instant",
+		"deepseek-v4-pro", "deepseek-v4-flash", dsVisionModel,
+		"deepseek-v4-pro-instant", "deepseek-v4-flash-instant", dsVisionModel + instantSuffix,
 	}
 	models = dsWithEffortVariants(models, baseV4...)
 
@@ -53,11 +63,22 @@ func init() {
 		windows[m] = 1000000
 	}
 
+	// Every alias of the vision model is vision-capable, not just the bare id:
+	// SupportsVision is keyed on the nagobot-facing modelType, which still
+	// carries the -instant / [effort] suffix when the caller picked one.
+	var visionModels []string
+	for _, m := range models {
+		if strings.HasPrefix(m, dsVisionModel) {
+			visionModels = append(visionModels, m)
+		}
+	}
+
 	RegisterProvider("deepseek", ProviderRegistration{
 		Models:         models,
+		VisionModels:   visionModels,
 		ContextWindows: windows,
-		EnvKey:  "DEEPSEEK_API_KEY",
-		EnvBase: "DEEPSEEK_API_BASE",
+		EnvKey:         "DEEPSEEK_API_KEY",
+		EnvBase:        "DEEPSEEK_API_BASE",
 		Constructor: func(apiKey, apiBase, modelType, modelName string, maxTokens int, temperature float64) Provider {
 			return newDeepSeekProvider(apiKey, apiBase, modelType, modelName, maxTokens, temperature)
 		},
@@ -81,14 +102,31 @@ type dsStreamOpts struct {
 	IncludeUsage bool `json:"include_usage"`
 }
 
+// dsContentPart is one element of a multimodal message body. DeepSeek follows
+// the OpenAI content-part shape: {"type":"text"} and {"type":"image_url"} with
+// a data: URL. The optional "detail" dial is deliberately not sent — DeepSeek
+// resizes to ~800x800 and caps an image at 384 tokens either way.
+type dsContentPart struct {
+	Type     string      `json:"type"`
+	Text     string      `json:"text,omitempty"`
+	ImageURL *dsImageURL `json:"image_url,omitempty"`
+}
+
+type dsImageURL struct {
+	URL string `json:"url"`
+}
+
 type dsThinking struct {
 	Type            string `json:"type"`                       // "enabled" | "disabled"
 	ReasoningEffort string `json:"reasoning_effort,omitempty"` // "high" | "max"; omitted = server default (high)
 }
 
 type dsMessage struct {
-	Role             string     `json:"role"`
-	Content          *string    `json:"content"`                     // nullable
+	Role string `json:"role"`
+	// Content is a plain string for text-only messages and a []dsContentPart
+	// when images ride along. It stays nullable: an assistant message that only
+	// carries tool_calls must send content:null.
+	Content          any        `json:"content"`
 	ReasoningContent *string    `json:"reasoning_content,omitempty"` // assistant only
 	ToolCalls        []ToolCall `json:"tool_calls,omitempty"`        // assistant only
 	ToolCallID       string     `json:"tool_call_id,omitempty"`      // tool only
@@ -247,7 +285,7 @@ func (p *DeepSeekProvider) Chat(ctx context.Context, req *Request) (ChatResult, 
 func (p *DeepSeekProvider) buildRequest(req *Request, thinkingEnabled, streaming bool) dsRequest {
 	r := dsRequest{
 		Model:    p.modelName,
-		Messages: toDSMessages(req.Messages),
+		Messages: toDSMessages(req.Messages, SupportsVision("deepseek", p.modelType)),
 		Tools:    req.Tools,
 		Stream:   streaming,
 	}
@@ -528,7 +566,54 @@ func (p *DeepSeekProvider) chatStream(ctx context.Context, dsReq dsRequest, star
 
 // ---------- helpers ----------
 
-func toDSMessages(messages []Message) []dsMessage {
+// dsImageContent builds a multimodal body for one message, or returns ok=false
+// when the message has no attachable image and must stay a plain string.
+//
+// Only image/* is considered: DeepSeek's vision model takes JPEG/PNG/GIF/WebP
+// and has no audio or PDF input at all, so an audio marker must fall through to
+// the text path rather than becoming an unsendable part.
+//
+// Markers are stripped from the text ONLY when their image is actually
+// attached. A non-vision model keeps the literal <<media:...>> in its tool
+// output on purpose — that path is how it learns the file's name and delegates
+// to the imagereader agent.
+func dsImageContent(text string, media []string) ([]dsContentPart, bool) {
+	cleaned, markers := ParseMediaMarkers(text)
+	if len(media) > 0 {
+		_, extra := ParseMediaMarkers(strings.Join(media, "\n"))
+		markers = append(markers, extra...)
+	}
+
+	var parts []dsContentPart
+	attached := false
+	for _, marker := range markers {
+		if !strings.HasPrefix(marker.MimeType, "image/") {
+			continue
+		}
+		b64, err := ReadFileAsBase64(marker.FilePath)
+		if err != nil {
+			logger.Warn("deepseek image read failed, sending text only",
+				"path", marker.FilePath, "err", err)
+			continue
+		}
+		parts = append(parts, dsContentPart{
+			Type:     "image_url",
+			ImageURL: &dsImageURL{URL: "data:" + marker.MimeType + ";base64," + b64},
+		})
+		attached = true
+	}
+	if !attached {
+		return nil, false
+	}
+	if cleaned == "" {
+		// The message was nothing but markers; an empty text part would be
+		// noise, so send the image on its own.
+		return parts, true
+	}
+	return append([]dsContentPart{{Type: "text", Text: cleaned}}, parts...), true
+}
+
+func toDSMessages(messages []Message, visionCapable bool) []dsMessage {
 	// DeepSeek V4 wire rules (empirically verified; see /tmp/deepseek-empirical):
 	//   - reasoning_content KEY must be present on every assistant message
 	//     (else API returns 400: "must be passed back to the API").
@@ -548,7 +633,7 @@ func toDSMessages(messages []Message) []dsMessage {
 		switch m.Role {
 		case "assistant":
 			if m.Content != "" {
-				dm.Content = &m.Content
+				dm.Content = m.Content
 			}
 			rc := m.ReasoningContent // may be "" if trimmed or never had reasoning
 			dm.ReasoningContent = &rc
@@ -562,8 +647,22 @@ func toDSMessages(messages []Message) []dsMessage {
 				}
 				dm.ToolCalls = tcs
 			}
-		default: // system, user, tool
-			dm.Content = &m.Content
+		case "user", "tool":
+			// Images are legal in user and tool messages only. Verified against
+			// the live API: a system message returns 400 "Image in system
+			// message is unsupported" and an assistant message 400 "Image in
+			// assistant message is not supported", while a tool message is
+			// accepted AND read — so unlike the OpenAI-shaped providers, there
+			// is no need to defer tool media into a synthetic user message.
+			if visionCapable {
+				if parts, ok := dsImageContent(m.Content, m.Media); ok {
+					dm.Content = parts
+					break
+				}
+			}
+			dm.Content = m.Content
+		default: // system
+			dm.Content = m.Content
 		}
 		out = append(out, dm)
 	}

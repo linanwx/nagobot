@@ -1,7 +1,10 @@
 package provider
 
 import (
+	"encoding/base64"
 	"encoding/json"
+	"os"
+	"path/filepath"
 	"slices"
 	"strings"
 	"testing"
@@ -34,7 +37,7 @@ func TestToDSMessagesAlwaysIncludesReasoningKey(t *testing.T) {
 		{Role: "assistant", Content: "final", ReasoningContent: "final thought"},
 	}
 
-	out := toDSMessages(msgs)
+	out := toDSMessages(msgs, false)
 	body, err := json.Marshal(out)
 	if err != nil {
 		t.Fatalf("marshal: %v", err)
@@ -84,7 +87,7 @@ func TestToDSMessagesPassesReasoningForMidChainToolCalls(t *testing.T) {
 		{Role: "assistant", Content: "done", ReasoningContent: "iter2 thinking"},
 	}
 
-	out := toDSMessages(msgs)
+	out := toDSMessages(msgs, false)
 	body, _ := json.Marshal(out)
 	wire := string(body)
 
@@ -111,7 +114,7 @@ func TestToDSMessagesTrimmedReasoningSendsEmptyString(t *testing.T) {
 			}},
 		},
 	}
-	out := toDSMessages(msgs)
+	out := toDSMessages(msgs, false)
 	if out[1].ReasoningContent == nil {
 		t.Fatal("reasoning_content pointer must be non-nil (key must appear on wire)")
 	}
@@ -224,6 +227,167 @@ func TestDeepSeekEffortVariantsRegistered(t *testing.T) {
 			if reg.ContextWindows[name] == 0 {
 				t.Errorf("%s missing a context window", name)
 			}
+		}
+	}
+}
+
+// --- vision ---
+
+// dsTestImage writes a tiny real PNG and returns its path plus the marker that
+// references it.
+func dsTestImage(t *testing.T) (path, marker string) {
+	t.Helper()
+	// 1x1 PNG.
+	png, err := base64.StdEncoding.DecodeString(
+		"iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==")
+	if err != nil {
+		t.Fatalf("decode fixture: %v", err)
+	}
+	path = filepath.Join(t.TempDir(), "pixel.png")
+	if err := os.WriteFile(path, png, 0o600); err != nil {
+		t.Fatalf("write fixture: %v", err)
+	}
+	return path, "<<media:image/png:" + path + ">>"
+}
+
+// dsPartsOf returns the message's content as parts, or nil when it is a plain
+// string. Marshalling first is deliberate: the wire shape is what DeepSeek
+// judges, not the Go type.
+func dsPartsOf(t *testing.T, m dsMessage) []dsContentPart {
+	t.Helper()
+	body, err := json.Marshal(m.Content)
+	if err != nil {
+		t.Fatalf("marshal content: %v", err)
+	}
+	var parts []dsContentPart
+	if err := json.Unmarshal(body, &parts); err != nil {
+		return nil // plain string
+	}
+	return parts
+}
+
+// The gate is not cosmetic: deepseek-v4-flash answers an image part with
+// 400 "This model does not support image", so an ungated attach would break
+// every turn that carries a screenshot on the default model.
+func TestToDSMessagesAttachesImagesOnlyWhenVisionCapable(t *testing.T) {
+	_, marker := dsTestImage(t)
+	msgs := []Message{{Role: "user", Content: "what is this?", Media: []string{marker}}}
+
+	blind := toDSMessages(msgs, false)
+	if parts := dsPartsOf(t, blind[0]); parts != nil {
+		t.Fatalf("non-vision model got image parts: %+v", parts)
+	}
+
+	seeing := toDSMessages(msgs, true)
+	parts := dsPartsOf(t, seeing[0])
+	if len(parts) != 2 {
+		t.Fatalf("want text+image parts, got %+v", parts)
+	}
+	if parts[0].Type != "text" || parts[0].Text != "what is this?" {
+		t.Errorf("first part must carry the prompt text, got %+v", parts[0])
+	}
+	if parts[1].Type != "image_url" || parts[1].ImageURL == nil ||
+		!strings.HasPrefix(parts[1].ImageURL.URL, "data:image/png;base64,") {
+		t.Errorf("second part must be a data-URL image, got %+v", parts[1])
+	}
+}
+
+// Verified against the live API: a system message returns 400 "Image in system
+// message is unsupported" and an assistant message 400 "Image in assistant
+// message is not supported". Both roles must stay plain strings even when the
+// model can see.
+func TestToDSMessagesNeverPutsImagesInSystemOrAssistant(t *testing.T) {
+	_, marker := dsTestImage(t)
+	msgs := []Message{
+		{Role: "system", Content: "ref " + marker, Media: []string{marker}},
+		{Role: "assistant", Content: "here " + marker, Media: []string{marker}},
+	}
+	out := toDSMessages(msgs, true)
+	for i, m := range out {
+		if parts := dsPartsOf(t, m); parts != nil {
+			t.Errorf("%s message (index %d) carries image parts; DeepSeek will 400. parts=%+v",
+				m.Role, i, parts)
+		}
+	}
+}
+
+// A tool message keeps its image inline. This is the deliberate divergence from
+// the OpenAI-shaped providers, which must defer tool media into a synthetic
+// user message; DeepSeek accepts it in place and the model reads it.
+func TestToDSMessagesKeepsToolImagesInPlace(t *testing.T) {
+	_, marker := dsTestImage(t)
+	msgs := []Message{
+		{Role: "user", Content: "look"},
+		{Role: "assistant", ToolCalls: []ToolCall{{
+			ID: "c1", Type: "function",
+			Function: FunctionCall{Name: "shot", Arguments: `{}`},
+		}}},
+		{Role: "tool", ToolCallID: "c1", Name: "shot", Content: "screenshot: " + marker},
+	}
+	out := toDSMessages(msgs, true)
+	if len(out) != 3 {
+		t.Fatalf("no message may be injected or dropped, got %d", len(out))
+	}
+	parts := dsPartsOf(t, out[2])
+	if len(parts) != 2 || parts[1].Type != "image_url" {
+		t.Fatalf("tool message must carry its image, got %+v", parts)
+	}
+	// The marker is consumed, not echoed alongside the image it produced.
+	if strings.Contains(parts[0].Text, "<<media:") {
+		t.Errorf("marker left in attached text: %q", parts[0].Text)
+	}
+}
+
+// A non-vision model keeps the literal marker in its tool output on purpose:
+// that text is how it learns the file name and delegates to imagereader.
+func TestToDSMessagesLeavesMarkersForBlindModels(t *testing.T) {
+	_, marker := dsTestImage(t)
+	msgs := []Message{{Role: "tool", ToolCallID: "c1", Content: "shot: " + marker}}
+	out := toDSMessages(msgs, false)
+	got, _ := out[0].Content.(string)
+	if !strings.Contains(got, "<<media:") {
+		t.Errorf("blind model lost the marker it needs to delegate: %q", got)
+	}
+}
+
+// DeepSeek's vision model takes images only — no audio, no PDF. A non-image
+// marker must fall through to the text path rather than become a part the API
+// cannot accept.
+func TestToDSMessagesIgnoresNonImageMedia(t *testing.T) {
+	msgs := []Message{{
+		Role:    "user",
+		Content: "transcribe",
+		Media:   []string{"<<media:audio/ogg:/tmp/does-not-matter.ogg>>"},
+	}}
+	out := toDSMessages(msgs, true)
+	if parts := dsPartsOf(t, out[0]); parts != nil {
+		t.Fatalf("audio must not become a content part, got %+v", parts)
+	}
+}
+
+// SupportsVision is keyed on the nagobot-facing modelType, which still carries
+// the -instant / [effort] suffix. Registering only the bare id would leave
+// "deepseek-v4-flash-vision-exp[max]" silently blind.
+func TestEveryDeepSeekVisionAliasIsVisionCapable(t *testing.T) {
+	aliases := []string{
+		"deepseek-v4-flash-vision-exp",
+		"deepseek-v4-flash-vision-exp-instant",
+		"deepseek-v4-flash-vision-exp[high]",
+		"deepseek-v4-flash-vision-exp[max]",
+	}
+	for _, a := range aliases {
+		if !slices.Contains(providerModelTypes["deepseek"], a) {
+			t.Errorf("%s is not registered", a)
+			continue
+		}
+		if !SupportsVision("deepseek", a) {
+			t.Errorf("%s registered but not vision-capable", a)
+		}
+	}
+	// The text models must NOT be: they 400 on an image part.
+	for _, blind := range []string{"deepseek-v4-flash", "deepseek-v4-pro", "deepseek-v4-flash-instant"} {
+		if SupportsVision("deepseek", blind) {
+			t.Errorf("%s must not be vision-capable — the API rejects images on it", blind)
 		}
 	}
 }
