@@ -22,7 +22,7 @@ With custom API base URL:
 exec: {{WORKSPACE}}/bin/nagobot set-provider-key --provider <name> --api-key <api_key> --api-base <url>
 ```
 
-Supported providers: `openai`, `openrouter`, `deepseek`, `gemini`, `moonshot-cn`, `moonshot-global`, `zhipu-cn`, `zhipu-global`, `minimax-cn`, `minimax-global`, `siliconflow-cn`, `siliconflow-global`, `mimo`.
+Supported providers: `openai`, `openrouter`, `deepseek`, `moonshot-cn`, `moonshot-global`, `zhipu-cn`, `zhipu-global`, `minimax-cn`, `minimax-global`, `siliconflow-cn`, `siliconflow-global`, `xai`, `mimo`. Gemini models are reachable only through `openrouter` (`google/gemini-*`) — the native `gemini` provider was removed.
 
 ### List All Provider Key Status
 

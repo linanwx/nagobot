@@ -48,7 +48,17 @@ func TestRetiredModelsAreNotRegistered(t *testing.T) {
 		{"openrouter", "google/gemini-3-flash-preview"},
 		{"gemini", "gemini-3-flash-preview"},
 		{"openrouter", "google/gemini-3.5-flash"},
+		// The native gemini provider is gone: Google exposes no per-key
+		// remaining-balance endpoint at all (only RPM/TPM/RPD and tier), which
+		// makes it unusable for a personal deployment that has to know what is
+		// left. The google/* routes on OpenRouter stay — OpenRouter's own
+		// balance is queryable, so the models remain reachable through a route
+		// that can be monitored. Every model the provider ever served is listed
+		// so a config pinned to one fails loudly instead of re-resolving.
 		{"gemini", "gemini-3.5-flash"},
+		{"gemini", "gemini-3.7-flash"},
+		{"gemini", "gemini-3.5-flash-lite"},
+		{"gemini", "gemini-3.1-flash-lite"},
 		// The Anthropic vendor is gone entirely — the native provider and every
 		// anthropic/* route on OpenRouter. Both generations are listed because
 		// a config pinned to either must fail, not silently re-resolve.
@@ -186,7 +196,8 @@ func TestGemini37FlashRegistration(t *testing.T) {
 		provider string
 		model    string
 	}{
-		{"gemini", "gemini-3.7-flash"},
+		// OpenRouter only: the native gemini provider was removed (no
+		// remaining-balance endpoint of any kind, see the retirement list).
 		{"openrouter", "google/gemini-3.7-flash"},
 	}
 
@@ -219,8 +230,8 @@ func TestGemini37FlashRegistration(t *testing.T) {
 	}
 
 	// Adding a model must not displace the ones already registered.
-	if err := ValidateProviderModelType("gemini", "gemini-3.1-flash-lite"); err != nil {
-		t.Errorf("ValidateProviderModelType(gemini, gemini-3.1-flash-lite) = %v, want nil", err)
+	if err := ValidateProviderModelType("openrouter", "google/gemini-3.1-flash-lite"); err != nil {
+		t.Errorf("ValidateProviderModelType(openrouter, google/gemini-3.1-flash-lite) = %v, want nil", err)
 	}
 }
 
@@ -253,7 +264,6 @@ func TestGemini35FlashLiteRegistration(t *testing.T) {
 		provider string
 		model    string
 	}{
-		{"gemini", "gemini-3.5-flash-lite"},
 		{"openrouter", "google/gemini-3.5-flash-lite"},
 	}
 

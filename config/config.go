@@ -184,7 +184,6 @@ type ProvidersConfig struct {
 	SiliconflowGlobal *ProviderConfig   `json:"siliconflowGlobal,omitempty" yaml:"siliconflowGlobal,omitempty"`
 	OpenAI            *ProviderConfig   `json:"openai,omitempty" yaml:"openai,omitempty"`
 	OpenAIOAuth       *OAuthTokenConfig `json:"openaiOAuth,omitempty" yaml:"openaiOAuth,omitempty"`
-	Gemini            *ProviderConfig   `json:"gemini,omitempty" yaml:"gemini,omitempty"`
 	XAI               *ProviderConfig   `json:"xai,omitempty" yaml:"xai,omitempty"`
 	MiMo              *ProviderConfig   `json:"mimo,omitempty" yaml:"mimo,omitempty"`
 }
@@ -240,8 +239,6 @@ func (p *ProvidersConfig) GetProviderConfig(name string) *ProviderConfig {
 		return p.SiliconflowCN
 	case "siliconflow-global":
 		return p.SiliconflowGlobal
-	case "gemini":
-		return p.Gemini
 	case "xai":
 		return p.XAI
 	case "mimo":

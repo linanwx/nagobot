@@ -16,15 +16,15 @@ func TestBuildWakePayload_SupportsVisionAudio(t *testing.T) {
 		WakeTelegram,
 		"Hello with image",
 		"thread-1", "telegram:123", "/tmp/sessions/telegram:123",
-		"telegram delivery", "gemini/gemini-3.7-flash", "soul",
+		"telegram delivery", "openrouter/google/gemini-3.7-flash", "soul",
 		loc, "user", "", "", "", "", "", time.Time{}, "", "",
 	)
 
 	if !strings.Contains(payload, "supports_vision: true") {
-		t.Errorf("expected supports_vision: true for gemini, got:\n%s", payload)
+		t.Errorf("expected supports_vision: true for the openrouter gemini route, got:\n%s", payload)
 	}
 	if !strings.Contains(payload, "supports_audio: true") {
-		t.Errorf("expected supports_audio: true for gemini, got:\n%s", payload)
+		t.Errorf("expected supports_audio: true for the openrouter gemini route, got:\n%s", payload)
 	}
 }
 
@@ -62,7 +62,7 @@ func TestBuildWakePayload_SystemSource_WithCapabilities(t *testing.T) {
 		WakeHeartbeat,
 		"Heartbeat pulse",
 		"thread-1", "telegram:123", "/tmp/sessions/telegram:123",
-		"", "gemini/gemini-3.7-flash", "soul",
+		"", "openrouter/google/gemini-3.7-flash", "soul",
 		loc, "system", "", "", "", "", "", time.Time{}, "", "",
 	)
 

@@ -65,10 +65,11 @@ models this deployment cannot reach: **Gemini 3.5 Flash** was retired from the
 whitelist, and **every Claude model was removed** — the Anthropic provider is
 gone and so are the `anthropic/*` routes on OpenRouter, on cost grounds. Do not
 try to consult either; the dispatch fails validation. The reachable leader is
-GPT-5.6 Sol (xhigh). The Gemini models you can route to are
-`gemini-3.7-flash`, which is not in this snapshot — treat it as unmeasured, not
-as a drop-in for the +22.7 row — and `gemini-3.5-flash-lite`, which is the +6.9
-row: a cheap second opinion, not a knowledge escalation.
+GPT-5.6 Sol (xhigh). Gemini is still reachable, but **only through
+`openrouter`** — the native `gemini` provider was removed, so the id you dispatch
+is `google/gemini-3.7-flash` (not in this snapshot; treat it as unmeasured, not
+as a drop-in for the +22.7 row) or `google/gemini-3.5-flash-lite`, which is the
++6.9 row: a cheap second opinion, not a knowledge escalation.
 
 Read the bottom of that table carefully: several models commonly used as
 session defaults are **net-negative on world knowledge**. If you are running on
@@ -143,7 +144,7 @@ When you want a second perspective more than you want raw capability:
 | provider | model | $/task | why |
 |---|---|---:|---|
 | `openai-oauth` | `gpt-5.6-terra[xhigh]` | 0.055 | different tier, nearly free |
-| `gemini` | `gemini-3.1-flash-lite` | 0.034 | different vendor entirely |
+| `openrouter` | `google/gemini-3.1-flash-lite` | 0.034 | different vendor entirely |
 | `minimax-cn` / `minimax-global` | `minimax-m3` | 0.125 | different architecture |
 
 ### Never consult these

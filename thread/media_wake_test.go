@@ -12,7 +12,7 @@ func newMediaTestThread(provName, model string) *Thread {
 }
 
 func TestKeepSupportedMedia_AudioKeptOnAudioModel(t *testing.T) {
-	th := newMediaTestThread("gemini", "gemini-3.1-flash-lite") // audio-capable
+	th := newMediaTestThread("openrouter", "google/gemini-3.1-flash-lite") // audio-capable
 	in := []string{"<<media:audio/ogg:/tmp/v.ogg>>"}
 	got := th.keepSupportedMedia(in)
 	if len(got) != 1 || got[0] != in[0] {
@@ -43,14 +43,14 @@ func TestKeepSupportedMedia_PerTypeDiscrimination(t *testing.T) {
 }
 
 func TestKeepSupportedMedia_MalformedDropped(t *testing.T) {
-	th := newMediaTestThread("gemini", "gemini-3.1-flash-lite")
+	th := newMediaTestThread("openrouter", "google/gemini-3.1-flash-lite")
 	if got := th.keepSupportedMedia([]string{"not-a-marker"}); len(got) != 0 {
 		t.Errorf("malformed marker should be dropped, got %v", got)
 	}
 }
 
 func TestKeepSupportedMedia_Empty(t *testing.T) {
-	th := newMediaTestThread("gemini", "gemini-3.1-flash-lite")
+	th := newMediaTestThread("openrouter", "google/gemini-3.1-flash-lite")
 	if got := th.keepSupportedMedia(nil); got != nil {
 		t.Errorf("nil in should give nil out, got %v", got)
 	}

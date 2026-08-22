@@ -275,8 +275,6 @@ func (c *Config) EnsureProviderConfigFor(providerName string) *ProviderConfig {
 		c.Providers.SiliconflowCN = pc
 	case "siliconflow-global":
 		c.Providers.SiliconflowGlobal = pc
-	case "gemini":
-		c.Providers.Gemini = pc
 	case "xai":
 		c.Providers.XAI = pc
 	case "mimo":
@@ -431,8 +429,6 @@ func (c *Config) providerConfigEnv() (*ProviderConfig, string, string, error) {
 		return c.Providers.SiliconflowCN, "SILICONFLOW_API_KEY", "SILICONFLOW_API_BASE", nil
 	case "siliconflow-global":
 		return c.Providers.SiliconflowGlobal, "SILICONFLOW_GLOBAL_API_KEY", "SILICONFLOW_GLOBAL_API_BASE", nil
-	case "gemini":
-		return c.Providers.Gemini, "GEMINI_API_KEY", "GEMINI_API_BASE", nil
 	case "xai":
 		return c.Providers.XAI, "XAI_API_KEY", "XAI_API_BASE", nil
 	case "mimo":
