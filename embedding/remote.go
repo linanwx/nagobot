@@ -1,5 +1,5 @@
 // Package embedding provides a client for OpenAI-compatible /embeddings
-// endpoints (SiliconFlow, OpenRouter). The capability is strictly optional:
+// endpoints (OpenRouter today). The capability is strictly optional:
 // which backend to use — or whether one exists at all — is resolved from
 // configuration at call time, and callers are expected to degrade gracefully
 // when no backend is configured.
@@ -7,12 +7,11 @@
 // This replaces a local-Ollama client. The sidecar was dropped because remote
 // embedding costs cents per month while the ~1GB resident Ollama process
 // dictated the deployment's machine size; the model moved from
-// qwen3-embedding:0.6b to Qwen3-Embedding-4B in the same change (the 4B is the
-// best-behaved endpoint measured: SiliconFlow serves it at ~170ms p50 with no
-// tail, and with instruction formatting it scores 0 misses / 15∕15 held-out on
-// the destructive set, vs 11 misses for the raw-text 0.6b). The 8B is NOT a
-// drop-in upgrade: SiliconFlow's 8B serving shows a 36% rate of >2s calls,
-// which blows the pre-think budget more often than it answers inside it.
+// qwen3-embedding:0.6b to Qwen3-Embedding-4B in the same change (with
+// instruction formatting the 4B scores 0 misses / 15∕15 held-out on the
+// destructive set, vs 11 misses for the raw-text 0.6b). The 8B is NOT a
+// drop-in upgrade: its serving shows a 36% rate of >2s calls, which blows the
+// pre-think budget more often than it answers inside it.
 package embedding
 
 import (
@@ -26,8 +25,8 @@ import (
 
 // Backend is one resolved remote embedding endpoint.
 type Backend struct {
-	Name   string // provider slug ("siliconflow-cn"); part of the model identity
-	URL    string // full endpoint URL for POST, e.g. https://api.siliconflow.cn/v1/embeddings
+	Name   string // provider slug ("openrouter"); part of the model identity
+	URL    string // full endpoint URL for POST, e.g. https://openrouter.ai/api/v1/embeddings
 	APIKey string
 	Model  string // model name as the endpoint spells it, e.g. Qwen/Qwen3-Embedding-4B
 }
@@ -54,8 +53,8 @@ func NewChain(resolve func() *Backend) *Client {
 
 // Model returns the identity of the resolved backend+model, or ok=false when
 // no backend is configured. The identity includes the provider slug so caches
-// keyed on it rebuild when the chain resolves differently (e.g. a SiliconFlow
-// key appears and takes precedence over OpenRouter).
+// keyed on it rebuild if the backend is ever repointed at a different endpoint
+// serving the same model name.
 func (c *Client) Model(ctx context.Context) (string, bool) {
 	b := c.resolve()
 	if b == nil {

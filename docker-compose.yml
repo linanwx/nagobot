@@ -8,9 +8,9 @@
 # never in-place self-update.
 #
 # Pre-think embedding (the semantic layer of the `destructive` detector, plus
-# search/coder/skills routing) uses a remote backend: a SILICONFLOW_API_KEY or
-# OPENROUTER_API_KEY enables it. Without either, that layer degrades to regex
-# — every feature still works, but destructive-action detection is much weaker.
+# search/coder/skills routing) uses a remote backend: OPENROUTER_API_KEY is the
+# only one, and it enables it. Without that key, that layer degrades to regex —
+# every feature still works, but destructive-action detection is much weaker.
 
 services:
   nagobot:
@@ -25,11 +25,10 @@ services:
       - NAGOBOT_PROVIDER=${NAGOBOT_PROVIDER:-deepseek}
       - NAGOBOT_MODEL=${NAGOBOT_MODEL:-deepseek-v4-flash}
       # Provider keys / channel tokens — read live from env, set what you have.
-      # SILICONFLOW_API_KEY / OPENROUTER_API_KEY also power pre-think embedding.
+      # OPENROUTER_API_KEY also powers pre-think embedding.
       - DEEPSEEK_API_KEY=${DEEPSEEK_API_KEY:-}
       - OPENAI_API_KEY=${OPENAI_API_KEY:-}
       - OPENROUTER_API_KEY=${OPENROUTER_API_KEY:-}
-      - SILICONFLOW_API_KEY=${SILICONFLOW_API_KEY:-}
       - MOONSHOT_API_KEY=${MOONSHOT_API_KEY:-}
       - TELEGRAM_BOT_TOKEN=${TELEGRAM_BOT_TOKEN:-}
       - DISCORD_BOT_TOKEN=${DISCORD_BOT_TOKEN:-}

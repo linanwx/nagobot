@@ -49,25 +49,3 @@ func TestZhipuGLM53Registration(t *testing.T) {
 		}
 	}
 }
-
-// TestSiliconflowGLM52Registration deliberately still names 5.2. SiliconFlow
-// serves open weights, and zai-org has published nothing past GLM-5.2 on
-// HuggingFace — GLM-5.3 exists only behind Z.ai's own API and OpenRouter, so
-// bumping this route would register a model SiliconFlow cannot serve.
-func TestSiliconflowGLM52Registration(t *testing.T) {
-	cases := map[string]string{
-		"siliconflow-cn":     "Pro/zai-org/GLM-5.2",
-		"siliconflow-global": "zai-org/GLM-5.2",
-	}
-	for p, model := range cases {
-		if err := ValidateProviderModelType(p, model); err != nil {
-			t.Errorf("ValidateProviderModelType(%q, %q) = %v, want nil", p, model, err)
-		}
-		if !siliconflowThinkingEnabled(model) {
-			t.Errorf("siliconflowThinkingEnabled(%q) = false, want true", model)
-		}
-		if got := siliconflowReasoningEffort(model); got != "high" {
-			t.Errorf("siliconflowReasoningEffort(%q) = %q, want high", model, got)
-		}
-	}
-}

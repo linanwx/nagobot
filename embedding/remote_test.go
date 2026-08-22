@@ -20,10 +20,10 @@ func TestModel_NoBackendConfigured(t *testing.T) {
 
 func TestModel_IdentityIncludesProvider(t *testing.T) {
 	c := NewChain(func() *Backend {
-		return &Backend{Name: "siliconflow-cn", Model: "Qwen/Qwen3-Embedding-4B"}
+		return &Backend{Name: "openrouter", Model: "qwen/qwen3-embedding-4b"}
 	})
 	id, ok := c.Model(context.Background())
-	if !ok || id != "siliconflow-cn/Qwen/Qwen3-Embedding-4B" {
+	if !ok || id != "openrouter/qwen/qwen3-embedding-4b" {
 		t.Fatalf("got %q ok=%v", id, ok)
 	}
 }

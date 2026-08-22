@@ -96,6 +96,15 @@ func TestRetiredModelsAreNotRegistered(t *testing.T) {
 		// adding, not simplifying. Re-registering it there is a one-line change
 		// if that ever stops being true.
 		{"xai", "grok-4.6"},
+		// SiliconFlow goes for a third reason, not the balance one: its
+		// /v1/user/info answers a Bearer key fine but reports 0 (2026-08-22)
+		// or -47.52 (2026-06-27) against a real console balance of ~¥48 on a
+		// credit-line account, so the number was never usable. The account is
+		// refunded and closed out. Nothing is stranded — SiliconFlow served
+		// open weights and was pinned to GLM-5.2, one generation behind the
+		// glm-5.3 that zhipu-cn / zhipu-global / openrouter all serve today.
+		{"siliconflow-cn", "Pro/zai-org/GLM-5.2"},
+		{"siliconflow-global", "zai-org/GLM-5.2"},
 	}
 
 	for _, tc := range cases {

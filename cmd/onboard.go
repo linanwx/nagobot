@@ -36,15 +36,13 @@ const backSentinel = "__back__"
 
 // providerURLs maps provider names to their API key portal URLs.
 var providerURLs = map[string]string{
-	"openai":             "https://platform.openai.com/api-keys",
-	"deepseek":           "https://platform.deepseek.com",
-	"openrouter":         "https://openrouter.ai/keys",
-	"moonshot-cn":        "https://platform.moonshot.cn",
-	"moonshot-global":    "https://platform.moonshot.ai",
-	"zhipu-cn":           "https://open.bigmodel.cn",
-	"zhipu-global":       "https://z.ai",
-	"siliconflow-cn":     "https://cloud.siliconflow.cn",
-	"siliconflow-global": "https://cloud.siliconflow.com",
+	"openai":          "https://platform.openai.com/api-keys",
+	"deepseek":        "https://platform.deepseek.com",
+	"openrouter":      "https://openrouter.ai/keys",
+	"moonshot-cn":     "https://platform.moonshot.cn",
+	"moonshot-global": "https://platform.moonshot.ai",
+	"zhipu-cn":        "https://open.bigmodel.cn",
+	"zhipu-global":    "https://z.ai",
 }
 
 func runOnboard(cmd *cobra.Command, _ []string) error {

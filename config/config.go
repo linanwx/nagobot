@@ -172,16 +172,14 @@ const (
 
 // ProvidersConfig contains provider API configurations.
 type ProvidersConfig struct {
-	OpenRouter        *ProviderConfig   `json:"openrouter,omitempty" yaml:"openrouter,omitempty"`
-	DeepSeek          *ProviderConfig   `json:"deepseek,omitempty" yaml:"deepseek,omitempty"`
-	MoonshotCN        *ProviderConfig   `json:"moonshotCN,omitempty" yaml:"moonshotCN,omitempty"`
-	MoonshotGlobal    *ProviderConfig   `json:"moonshotGlobal,omitempty" yaml:"moonshotGlobal,omitempty"`
-	ZhipuCN           *ProviderConfig   `json:"zhipuCN,omitempty" yaml:"zhipuCN,omitempty"`
-	ZhipuGlobal       *ProviderConfig   `json:"zhipuGlobal,omitempty" yaml:"zhipuGlobal,omitempty"`
-	SiliconflowCN     *ProviderConfig   `json:"siliconflowCN,omitempty" yaml:"siliconflowCN,omitempty"`
-	SiliconflowGlobal *ProviderConfig   `json:"siliconflowGlobal,omitempty" yaml:"siliconflowGlobal,omitempty"`
-	OpenAI            *ProviderConfig   `json:"openai,omitempty" yaml:"openai,omitempty"`
-	OpenAIOAuth       *OAuthTokenConfig `json:"openaiOAuth,omitempty" yaml:"openaiOAuth,omitempty"`
+	OpenRouter     *ProviderConfig   `json:"openrouter,omitempty" yaml:"openrouter,omitempty"`
+	DeepSeek       *ProviderConfig   `json:"deepseek,omitempty" yaml:"deepseek,omitempty"`
+	MoonshotCN     *ProviderConfig   `json:"moonshotCN,omitempty" yaml:"moonshotCN,omitempty"`
+	MoonshotGlobal *ProviderConfig   `json:"moonshotGlobal,omitempty" yaml:"moonshotGlobal,omitempty"`
+	ZhipuCN        *ProviderConfig   `json:"zhipuCN,omitempty" yaml:"zhipuCN,omitempty"`
+	ZhipuGlobal    *ProviderConfig   `json:"zhipuGlobal,omitempty" yaml:"zhipuGlobal,omitempty"`
+	OpenAI         *ProviderConfig   `json:"openai,omitempty" yaml:"openai,omitempty"`
+	OpenAIOAuth    *OAuthTokenConfig `json:"openaiOAuth,omitempty" yaml:"openaiOAuth,omitempty"`
 }
 
 // OAuthTokenConfig stores an OAuth token with optional refresh capability.
@@ -227,10 +225,6 @@ func (p *ProvidersConfig) GetProviderConfig(name string) *ProviderConfig {
 		return p.ZhipuCN
 	case "zhipu-global":
 		return p.ZhipuGlobal
-	case "siliconflow-cn":
-		return p.SiliconflowCN
-	case "siliconflow-global":
-		return p.SiliconflowGlobal
 	}
 	return nil
 }

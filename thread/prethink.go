@@ -55,10 +55,10 @@ const (
 	//
 	// 3s, not the 2s the local-Ollama era used: the budget must cover the p90 of
 	// one remote round-trip from the WORST deployed host, or the semantic layer
-	// silently degrades to regex exactly where it is needed. Measured warm p50 to
-	// SiliconFlow: ~170ms from a CN VPS, but ~1.5s from a Mac whose route to .cn
-	// goes the long way — at a 2s budget that host lost the destructive
-	// classifier on a coin flip.
+	// silently degrades to regex exactly where it is needed. Warm p50 to
+	// OpenRouter is ~500ms with a heavy right tail — its qwen3-embedding-4b has
+	// exactly one upstream (DeepInfra), measured P(>3s) ≈ 3% per call, which is
+	// why the whole message is embedded in ONE request rather than four.
 	preThinkBudget = 3 * time.Second
 )
 
@@ -327,7 +327,7 @@ func WarmLocalPreThink(reg *skills.Registry) {
 		start := time.Now()
 		if !warmPreThinkIndexes(skillCandidatesFrom(reg)) {
 			logger.Warn("pre-think: no embedding backend configured, running on regex only",
-				"note", "<destructive> loses its semantic layer without one; configure a siliconflow or openrouter key")
+				"note", "<destructive> loses its semantic layer without one; configure an openrouter key")
 			return
 		}
 		logger.Info("pre-think: local indexes warm", "took", time.Since(start).Round(time.Millisecond))

@@ -32,7 +32,7 @@ One command: it writes `~/.nagobot/docker-compose.yml`, asks for a provider API 
 
 Everything lives in `~/.nagobot` — config, sessions, memory, plus the compose file and `.env` — the same layout as a native install, so migrating between native and container is zero-copy and backup/uninstall is one directory. Update by re-running the script, or `docker compose -f ~/.nagobot/docker-compose.yml pull && docker compose -f ~/.nagobot/docker-compose.yml up -d`.
 
-The image (`ghcr.io/linanwx/nagobot`, amd64/arm64) ships python3 with document libs, poppler, node, and ripgrep, so the agent's exec tool is fully capable in the container. Add a `SILICONFLOW_API_KEY` or `OPENROUTER_API_KEY` to `~/.nagobot/.env` to enable semantic pre-think (recommended — it powers destructive-action detection).
+The image (`ghcr.io/linanwx/nagobot`, amd64/arm64) ships python3 with document libs, poppler, node, and ripgrep, so the agent's exec tool is fully capable in the container. Add an `OPENROUTER_API_KEY` to `~/.nagobot/.env` to enable semantic pre-think (recommended — it powers destructive-action detection).
 
 ### Native (macOS / Linux)
 
@@ -59,7 +59,7 @@ nagobot cli
 
 ## What it does
 
-- **Multi-provider** — DeepSeek, OpenAI, OpenRouter, Moonshot, Zhipu, SiliconFlow
+- **Multi-provider** — DeepSeek, OpenAI, OpenRouter, Moonshot, Zhipu
 - **Multi-channel** — Telegram, Discord, Feishu, Web, CLI
 - **Multi-agent** — Custom agent templates with async thread spawning
 - **Always on** — Cron scheduling, auto-restart, three-tier context compression

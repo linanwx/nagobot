@@ -267,10 +267,6 @@ func (c *Config) EnsureProviderConfigFor(providerName string) *ProviderConfig {
 		c.Providers.ZhipuCN = pc
 	case "zhipu-global":
 		c.Providers.ZhipuGlobal = pc
-	case "siliconflow-cn":
-		c.Providers.SiliconflowCN = pc
-	case "siliconflow-global":
-		c.Providers.SiliconflowGlobal = pc
 	default:
 		return nil
 	}
@@ -413,10 +409,6 @@ func (c *Config) providerConfigEnv() (*ProviderConfig, string, string, error) {
 		return c.Providers.ZhipuCN, "ZHIPU_API_KEY", "ZHIPU_API_BASE", nil
 	case "zhipu-global":
 		return c.Providers.ZhipuGlobal, "ZHIPU_GLOBAL_API_KEY", "ZHIPU_GLOBAL_API_BASE", nil
-	case "siliconflow-cn":
-		return c.Providers.SiliconflowCN, "SILICONFLOW_API_KEY", "SILICONFLOW_API_BASE", nil
-	case "siliconflow-global":
-		return c.Providers.SiliconflowGlobal, "SILICONFLOW_GLOBAL_API_KEY", "SILICONFLOW_GLOBAL_API_BASE", nil
 	default:
 		return nil, "", "", errors.New("unknown provider: " + c.GetProvider())
 	}

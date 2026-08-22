@@ -25,8 +25,8 @@ import (
 // for this model rejects a request with that many inputs: measured 0/8 on an
 // 85-input batch, and still 429 after 210s of complete silence, while a
 // 16-input request carrying 91K tokens went through fine. The constraint is the
-// number of inputs, not their size. So on every deployment without a
-// SiliconFlow key those two indexes NEVER built, retried every 60s forever, and
+// number of inputs, not their size. So on every deployment whose backend was
+// OpenRouter those two indexes NEVER built, retried every 60s forever, and
 // left <destructive> running on the verb table alone — which scores 0/15 on the
 // held-out set, and whose failure direction is "an irreversible action proceeds
 // unconfirmed".
@@ -39,9 +39,10 @@ import (
 //
 // Vectors are stored L2-normalized as float32. Cross-provider agreement for
 // this model was measured at min cosine 0.999867 across SiliconFlow CN,
-// SiliconFlow Global and OpenRouter, and float32 rounding is ~6e-8 — three
-// orders below that disagreement and four below the 0.05 decision margin. So
-// one table serves the whole backend chain.
+// SiliconFlow Global and OpenRouter — three orders above float32 rounding
+// (~6e-8) and four below the 0.05 decision margin. Only the OpenRouter route
+// survives, but the measurement is why normalizeModelName can fold spellings
+// rather than keying the table per endpoint.
 //
 // Regenerate with:
 //
@@ -72,7 +73,7 @@ var (
 func bakedKey(text string) [bakedKeySize]byte { return sha256.Sum256([]byte(text)) }
 
 // normalizeModelName strips the provider prefix and case so that the same
-// weights spelled "Qwen/Qwen3-Embedding-4B" (SiliconFlow) and
+// weights spelled "Qwen/Qwen3-Embedding-4B" (how the anchors were baked) and
 // "qwen/qwen3-embedding-4b" (OpenRouter) resolve to one identity.
 func normalizeModelName(m string) string {
 	m = strings.ToLower(strings.TrimSpace(m))

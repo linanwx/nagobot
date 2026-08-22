@@ -47,34 +47,6 @@ providers:
     # apiBase: https://api.moonshot.ai/v1 # optional
 ```
 
-SiliconFlow CN config example:
-
-```yaml
-thread:
-  provider: siliconflow-cn
-  modelType: Pro/zai-org/GLM-5.2
-
-providers:
-  siliconflowCN:
-    apiKey: sk-xxx
-    # apiBase: https://api.siliconflow.cn/v1 # optional
-```
-
-SiliconFlow Global config example:
-
-```yaml
-thread:
-  provider: siliconflow-global
-  modelType: zai-org/GLM-5.2
-
-providers:
-  siliconflowGlobal:
-    apiKey: sk-xxx
-    # apiBase: https://api.siliconflow.com/v1 # optional
-```
-
-**Note:** SiliconFlow CN and Global are fully separate accounts with separate API keys and different model IDs for the same underlying model — CN uses `Pro/zai-org/GLM-5.2` (paid-tier prefix), Global uses `zai-org/GLM-5.2`. SiliconFlow hosts these models on its own infrastructure as an alternative to zai's overloaded endpoints. Reasoning (`reasoning_content`) is enabled by default on both endpoints and the bot sends `reasoning_effort: high` to engage the High effort tier. Other SiliconFlow-hosted models can be added later on demand.
-
 Zhipu / Z.ai native config example (GLM-5.3):
 
 ```yaml
@@ -89,5 +61,3 @@ providers:
 ```
 
 **Note:** GLM-5.3 is a 1M-context (1,000,000 tokens), 128K-max-output reasoning model, text-only. Thinking is enabled automatically (`thinking.type: enabled`) and the bot sends `reasoning_effort: high` for the speed/quality-balanced High tier. Because thinking is on, the request temperature is forced to `1`. The same `glm-5.3` model id is used on both `zhipu-cn` (open.bigmodel.cn) and `zhipu-global` (api.z.ai). GLM-5.3 is also routable via OpenRouter as `z-ai/glm-5.3` (routed window 262,144 — deliberately below the model's real 1M, carried over from the 5.2 entry).
-
-The SiliconFlow routes above stay on **GLM-5.2** on purpose: SiliconFlow serves open weights, and zai-org has published nothing past 5.2 on HuggingFace, so GLM-5.3 exists only behind Z.ai's own API and OpenRouter. Bump those two entries once the 5.3 weights appear in SiliconFlow's catalog.
