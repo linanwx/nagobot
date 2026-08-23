@@ -286,7 +286,10 @@ function MessageCard({ msg, index }: { msg: ApiMessage; index: number }) {
         {msg.skip_trim && <Chip className="bg-muted">skip-trim</Chip>}
         {msg.id && (
           <span
-            className="text-muted-foreground/50 max-w-40 truncate font-mono text-[10px]"
+            // No fixed cap: the header wraps, so a long id takes its own line
+            // and stays readable. min-w-0 keeps truncate as the last resort
+            // for an id wider than the whole row.
+            className="text-muted-foreground/50 min-w-0 truncate font-mono text-[10px]"
             title={msg.id}
           >
             {msg.id}
