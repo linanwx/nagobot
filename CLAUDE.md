@@ -674,9 +674,15 @@ Dream step 7 closes it, deliberately narrowly:
 - **This is the only place a dream writes to the user's own work product.** Everything else it touches belongs to the runtime, so the edit is one correction, never a rewrite, and the changed file is named in that night's `dream.md` — the trail for a 3am edit nobody watched.
 - Step 7 runs **before** file-track, so the catalog is rebuilt from corrected files. A quiet night skips it by construction (nothing was said), unlike the memory and file-track steps which run regardless.
 
-### The dream's session summary is now conditional
+### The dream's session summary is a topic label, and conditional
 
-`set-summary` used to run every dream night unconditionally ("Refresh it every dream night, even when the past 24 hours were quiet"). It now runs only when the current summary has gone stale. The judgement needs no new tooling: `{{SESSIONS_SUMMARY}}` (`agent/agent.go:buildSessionsSummary` → the `active-sessions.md` section) filters out `:threads:` keys and nothing else, so **a session's own row is already in its own system prompt** as `- {{SESSIONKEY}}: …`. The skill lists the stale triggers (title no longer names the session / state it describes has changed / the past 24h changed what the session is *about* / no row at all) and otherwise says write nothing.
+**`set-summary` classifies a session; it does not summarize one.** The field answers "what is this session about" in the fewest words that distinguish it from twenty others — no status, no progress, no version numbers, no open questions. That is a correction of what it used to ask for, which was "who this is, what it's about, **its current state**", with a worked example carrying a version number and two in-flight bug fixes.
+
+The reason is that this one string has two consumers and both want a name, not a report: it renders into **every agent's system prompt** as a `- <key>: <summary>` row (`agent/agent.go:buildSessionsSummary` → `active-sessions.md`), and the **web UI shows it as the session's name** in the sidebar and header. Detail written here is wrong the moment the work moves, and wrong *silently*, in every prompt of every session, until some future night happens to notice. Everything it used to carry is already held better elsewhere — the conversation, `memory/`, and that night's `dream.md`.
+
+The nightly cost falls out of this for free: a topic changes far less often than a state does, so the common outcome is that the step writes nothing.
+
+**`set-summary` runs only when the current label has gone stale**, which needs no new tooling: `buildSessionsSummary` filters out `:threads:` keys and nothing else, so **a session's own row is already in its own system prompt** as `- {{SESSIONKEY}}: …`. Triggers: no row at all / it no longer names what the session is about / **it reads as a status report**, which is what drains the backlog of old-shape summaries — that one fires even when every word is still true, or the deployed status-report labels would survive indefinitely under a topic-only rule that only watches for topic change.
 
 ### There is no memory-search command
 

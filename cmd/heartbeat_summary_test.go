@@ -14,7 +14,7 @@ import (
 // dream skips step 4 — exactly backwards for a session that has never had a
 // summary written.
 func TestHeartbeatWakeCarriesSessionSummaryOnlyWhenDreaming(t *testing.T) {
-	const summary = "Nansen main session. Fact-checking AI news."
+	const summary = "AI news and fact-checking with Nansen"
 	now := time.Now()
 
 	dreaming := buildHeartbeatMessage("", "", 3, time.Hour, now, hbTaskDream, summary)

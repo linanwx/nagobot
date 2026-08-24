@@ -42,17 +42,20 @@ This is a BACKGROUND task. You will NOT message the user.
 
    **Rewrite it if any of these is true:**
    - `session_summary` says none is on record.
-   - The opening title no longer names what this session is (the topic moved on, or the session grew into something else).
-   - It describes a state that has since changed — work it calls in progress is finished, a version/number in it is outdated, a question it says is open has been answered.
-   - Something from the past 24 hours changed what this session *is about*, not merely adding one more day of the same thing.
+   - It no longer names what this session is about — the topic moved on, or the session grew into something else.
+   - It reads as a status report rather than a label: it carries specifics — a version, a number, what was in progress, a question that was open. That detail does not belong in this field at all, so rewrite it as a topic **even if every word of it is still true**.
 
-   **Otherwise leave it alone and move on** — say nothing, write nothing. A quiet night, or a day that continued the same work the summary already describes, needs no new summary. Rewriting an accurate summary into a differently-worded accurate summary costs a turn and buys nothing, and this step used to run unconditionally every night.
+   **Otherwise leave it alone and move on** — say nothing, write nothing. A topic changes far less often than a state does, so most nights this step writes nothing; that is the expected outcome, not a miss. Rewriting an accurate topic into a differently-worded accurate topic costs a turn and buys nothing.
 
-   When you do rewrite: distill the whole session — who this is, what it's about, its current state — into a factual summary of **at most 200 characters**, weighted toward recent activity, written in the language the conversation predominantly uses.
+   **This field classifies the session. It does not summarize it.** Its one job is to let a reader pick this session out of a list of twenty: what the session is about, and who it is with if that is what distinguishes it. Nothing else. At most 200 characters, and most sessions want far fewer — written in the language the conversation predominantly uses.
+
+   **Leave the details out on purpose.** No progress, no status, no version numbers, no what-happened-today, no open questions. Those already live in three places that hold them better than one prompt row can — the conversation itself, `memory/`, and the dream you just wrote. A row that carries them is wrong the moment the work moves, and it is wrong *silently*, in every agent's system prompt, until some future night happens to notice.
 
    **One single line — no line breaks anywhere.** This one is absolute: the summary is injected into every agent's system prompt as one `- <session key>: <summary>` row, and an embedded newline splits that row so the tail reads as a separate session.
 
-   **Lead with a short title that names this session, then the gist** — guidance, not a rule. The web UI uses this summary AS the session's name (truncated to a single line in both the sidebar and the header), so the opening words are the only thing a human has to pick the right session out of a list; spend them on identifying it rather than warming up to it. Usual shape: `<short title>. <what it is about and where it stands>`, e.g. `nagobot web client. Fixing the mobile paste crash and empty bubbles; v1.6.81 live on all three bots.` Judge each session on its own, though — a thin or barely-used session may be fully described by the title alone, and padding it out with filler is worse than a summary that is just three words.
+   Shape: a topic, optionally narrowed by who or what it concerns — `nagobot web 客户端`, `与 Nansen 的日常对话`, `房屋租赁与搬家`, `英国签证与出入境`. Compare the old shape this replaces: `nagobot web client. Fixing the mobile paste crash and empty bubbles; v1.6.81 live on all three bots.` — everything after the first three words is detail that will be wrong next week. Three words is a good summary here, not a lazy one.
+
+   The web UI uses this text AS the session's name in the sidebar and header, which is the same job asked twice: a name identifies, it does not report.
 
    Save it:
 

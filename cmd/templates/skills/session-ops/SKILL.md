@@ -64,18 +64,21 @@ Sampling is **deterministic** (no randomness): messages are picked at evenly spa
 
 ## set-summary
 
-Set or update the summary for a session.
+Set or update a session's **topic label** — despite the command name, this is a
+classification, not a summary.
 
 ```
 exec: {{WORKSPACE}}/bin/nagobot set-summary <key> <summary>
 ```
 
 - `<key>`: Session key
-- `<summary>`: Summary text (≤200 characters recommended). Must be a single line
-  — it renders as one `- <key>: <summary>` row in every agent's system prompt, so
-  a line break splits the row. Prefer leading with a short title naming the
-  session, then the gist, since the web UI shows this text as the session's name
-  clamped to one or two lines; a thin session may need nothing but the title.
+- `<summary>`: What the session is about, in the fewest words that let a reader
+  pick it out of a list — a topic, optionally narrowed by who or what it
+  concerns (`nagobot web 客户端`, `与 Nansen 的日常对话`). **No status, progress,
+  version numbers, or open questions**: this text sits in every agent's system
+  prompt and in the web UI as the session's name, and detail put here goes stale
+  silently in both. ≤200 characters, usually far fewer. Must be a single line —
+  it renders as one `- <key>: <summary>` row, so a line break splits the row.
 
 Writes to `system/sessions_summary.json`. Automatically cleans up entries with `summary_at` older than 7 days and reports what was cleaned.
 

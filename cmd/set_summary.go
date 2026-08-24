@@ -15,8 +15,15 @@ import (
 )
 
 var setSummaryCmd = &cobra.Command{
-	Use:     "set-summary <key> <summary>",
-	Short:   "Set the summary for a session",
+	Use:   "set-summary <key> <summary>",
+	Short: "Set a session's topic label",
+	Long: `Set a session's topic label — what the session is ABOUT, not what happened in it.
+
+The text is injected into every agent's system prompt as one "- <key>: <summary>"
+row and is shown by the web UI as the session's name, so it exists to classify:
+the fewest words that let a reader pick this session out of a list. Keep status,
+progress, version numbers and open questions out of it — detail put here goes
+stale silently in both places. Single line, at most 200 characters.`,
 	GroupID: "internal",
 	Args:    cobra.ExactArgs(2),
 	RunE:    runSetSummary,
