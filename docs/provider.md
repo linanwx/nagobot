@@ -79,4 +79,6 @@ Everything above was measured against the live API on 2026-08-26, and two of the
 
 Both OpenRouter routes are pinned to the `z-ai` upstream. On `z-ai/glm-5.3-flash` that pin is doing real work: Z.AI and Novita both serve fp8, but a Cloudflare host is listed at quantization `unknown` for twice the price, so an unpinned route can silently answer from different weights.
 
-The OpenRouter window for `z-ai/glm-5.3` was **262,144 until 2026-08-26, and that was a bug, not a policy** — 262,144 is `kimi-k2.6`'s window and `glm-5.2`'s max output, never any GLM's context. It made the bot compress and trim a 1M model at a quarter of its capacity, with no error anywhere. Both routes now register 1,000,000, matching the native ones (`TestGLM53WindowsAgreeAcrossRoutes`).
+The OpenRouter window for `z-ai/glm-5.3` was **262,144 until 2026-08-26, and that was a bug, not a policy** — 262,144 is `kimi-k2.6`'s window and `glm-5.2`'s max output, never any GLM's context. Both routes now register 1,000,000, matching the native ones (`TestGLM53WindowsAgreeAcrossRoutes`).
+
+The effect on a running bot is smaller than the registration difference suggests, because the number that governs compression is `EffectiveContextWindow` = **min(model window, `thread.contextWindowTokens`)**, and that config value defaults to 300,000. Every deployment today sits at the default, so this fix moves the OpenRouter GLM route from 262,144 to 300,000 — real, but ~14%, not 4x. The full 1M only becomes reachable on a deployment that also raises `contextWindowTokens`.
