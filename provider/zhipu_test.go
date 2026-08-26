@@ -115,10 +115,8 @@ func TestGLM53FlashOpenRouterRoute(t *testing.T) {
 	if len(meta.ProviderOrder) == 0 || meta.ProviderOrder[0] != "z-ai" {
 		t.Errorf("ProviderOrder = %v, want first entry \"z-ai\"", meta.ProviderOrder)
 	}
-	// Empty on purpose: see the openRouterModels comment. An effort of "high"
-	// measured 91/150/141 reasoning tokens against 632/798/1032 with no field.
-	if len(meta.ThinkingOpts) != 0 {
-		t.Errorf("ThinkingOpts = %d opts, want 0 — any effort we can send on this family is shallower than the vendor default", len(meta.ThinkingOpts))
+	if len(meta.ThinkingOpts) == 0 {
+		t.Error("ThinkingOpts is empty — the route would inherit the vendor default (max) instead of the chosen \"high\"")
 	}
 }
 
@@ -155,11 +153,8 @@ func TestZhipuSendsThinkingParamsAtTopLevel(t *testing.T) {
 				t.Errorf("%s: thinking.clear_thinking = %v, want false — it doubles the reasoning that comes back", model, thinking["clear_thinking"])
 			}
 		}
-		// No effort field, deliberately. "high" is BELOW the vendor's own
-		// default depth on this family — measured at ~10x less reasoning than
-		// sending nothing — so shipping it silently made the model think less.
-		if got, present := body["reasoning_effort"]; present {
-			t.Errorf("%s: reasoning_effort = %v, want the field absent — \"high\" is shallower than the server default here", model, got)
+		if got := body["reasoning_effort"]; got != "high" {
+			t.Errorf("%s: reasoning_effort = %v, want \"high\"", model, got)
 		}
 		if got := body["temperature"]; got != float64(1) {
 			t.Errorf("%s: temperature = %v, want 1 — thinking is on, which forces it", model, got)

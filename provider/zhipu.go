@@ -52,6 +52,11 @@ func init() {
 	})
 }
 
+// zhipuReasoningEffort is the depth sent for every GLM-5.3 model. See the
+// request-options block in Chat for why "high" is the shallow-ish setting and
+// not the deep one.
+const zhipuReasoningEffort = "high"
+
 // ZhipuProvider implements the Provider interface for Zhipu GLM API.
 type ZhipuProvider struct {
 	providerName string
@@ -159,30 +164,40 @@ func (p *ZhipuProvider) Chat(ctx context.Context, req *Request) (ChatResult, err
 	// is an unknown object this endpoint ignores, so anything inside it was
 	// silently dropped while the request still returned 200.
 	//
-	// NO reasoning_effort is sent, and that is a measured decision, not an
-	// omission. On this family "high" is not a high setting — it is far BELOW
-	// the depth the server picks on its own. Measured on glm-5.3-flash with the
-	// real system prompt and tool set, reasoning tokens over three runs each:
+	// "high" is a deliberate COST choice and it is BELOW the vendor default,
+	// which is max. The name is a trap: the family's three legal tiers order as
+	// low < high < max, and max is what you get by sending nothing. Measured on
+	// glm-5.3-flash with the real system prompt and tool set, reasoning tokens
+	// over three runs each:
 	//
-	//	low         7,   9,   29
-	//	high       31,  61,  139
-	//	(no field) 580, 743, 1000
-	//	max       807, 997, 2051
+	//	low         ~9                    (n=3)
+	//	high        median  47, range 7-63    <- here
+	//	(no field)  median 711, range 383-827
+	//	max         median 594, range 442-959
 	//
-	// The same ordering holds through OpenRouter (high 91–150, no field
-	// 632–1032, max 815–1669). Sending "high" therefore cost about a 10x
-	// reduction in thinking versus sending nothing. Leaving the field out lets
-	// the vendor pick, which is both the deeper setting and the one this code
-	// was accidentally getting for months while the extra_body wrapper ate it.
+	// "no field" and max are the same distribution, which is what confirms the
+	// documented default: omitting the field gives max. high is about 1/14 of it.
 	//
-	// clear_thinking:false is the vendor's own recommendation and it measurably
-	// doubles the reasoning that comes back (899/1361/1488 against
-	// 580/743/1000 with no effort field).
+	// So this buys a fast, cheap chat model that barely deliberates. Raising it
+	// is a one-word change; the trade is latency and output tokens, not
+	// correctness.
+	//
+	// Expect most easy turns at this tier to report ZERO reasoning: over 10
+	// trivial questions, 6 came back with none. The model is declining to
+	// deliberate, not losing a field — the only fix is a deeper tier.
+	//
+	// clear_thinking:false is sent because the vendor recommends it, and for no
+	// stronger reason than that. The obvious hypothesis — that the default
+	// clear_thinking:true makes the server discard a short trace — was tested
+	// head-to-head and refuted (7/10 zero-reasoning turns with it false against
+	// 6/10 with it default), and an earlier apparent doubling of depth from it
+	// was n=3 noise that vanished at n=10.
 	requestOpts := []oaioption.RequestOption{}
 	if thinkingEnabled {
 		requestOpts = append(requestOpts,
 			oaioption.WithJSONSet("thinking.type", "enabled"),
 			oaioption.WithJSONSet("thinking.clear_thinking", false),
+			oaioption.WithJSONSet("reasoning_effort", zhipuReasoningEffort),
 		)
 	}
 
