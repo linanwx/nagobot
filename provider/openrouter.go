@@ -104,6 +104,18 @@ var openRouterModels = map[string]openRouterModelMeta{
 		},
 		ProviderOrder: []string{"z-ai"},
 	},
+	// Same effort dial as glm-5.3 above — the vendor doc says this model takes
+	// no reasoning_effort, and the live API disagrees: low/high/max are all 200
+	// on both models and all four other tiers are 400 on both. Trust the probe.
+	// The pin is load-bearing on day one: Z.AI and Novita both serve fp8, but a
+	// Cloudflare host is already listed at quantization "unknown" for twice the
+	// price, which is exactly the silent substitution the pins exist to stop.
+	"z-ai/glm-5.3-flash": {
+		ThinkingOpts: []oaioption.RequestOption{
+			oaioption.WithJSONSet("reasoning", map[string]any{"effort": "high"}),
+		},
+		ProviderOrder: []string{"z-ai"},
+	},
 	// No ThinkingOpts: DeepSeek turns thinking on by itself at effort "high",
 	// which is exactly what the native route's bare alias sends. Pinning the
 	// upstream still matters even though DeepSeek is the only one serving this
@@ -166,12 +178,25 @@ var openRouterModels = map[string]openRouterModelMeta{
 
 func init() {
 	RegisterProvider("openrouter", ProviderRegistration{
-		Models:       []string{"moonshotai/kimi-k2.6", "z-ai/glm-5.3", "deepseek/deepseek-v4-flash-vision-exp", "minimax/minimax-m3", "google/gemini-3.7-flash", "google/gemini-3.5-flash-lite", "google/gemini-3.1-flash-lite", "openai/gpt-5.4-mini", "xiaomi/mimo-v2.5-pro", "xiaomi/mimo-v2.5"},
-		VisionModels: []string{"moonshotai/kimi-k2.6", "deepseek/deepseek-v4-flash-vision-exp", "minimax/minimax-m3", "google/gemini-3.7-flash", "google/gemini-3.5-flash-lite", "google/gemini-3.1-flash-lite", "openai/gpt-5.4-mini", "xiaomi/mimo-v2.5"},
+		Models:       []string{"moonshotai/kimi-k2.6", "z-ai/glm-5.3", "z-ai/glm-5.3-flash", "deepseek/deepseek-v4-flash-vision-exp", "minimax/minimax-m3", "google/gemini-3.7-flash", "google/gemini-3.5-flash-lite", "google/gemini-3.1-flash-lite", "openai/gpt-5.4-mini", "xiaomi/mimo-v2.5-pro", "xiaomi/mimo-v2.5"},
+		VisionModels: []string{"moonshotai/kimi-k2.6", "z-ai/glm-5.3-flash", "deepseek/deepseek-v4-flash-vision-exp", "minimax/minimax-m3", "google/gemini-3.7-flash", "google/gemini-3.5-flash-lite", "google/gemini-3.1-flash-lite", "openai/gpt-5.4-mini", "xiaomi/mimo-v2.5"},
 		AudioModels:  []string{"google/gemini-3.7-flash", "google/gemini-3.5-flash-lite", "google/gemini-3.1-flash-lite", "xiaomi/mimo-v2.5"},
 		ContextWindows: map[string]int{
 			"moonshotai/kimi-k2.6": 262144,
-			"z-ai/glm-5.3":         262144,
+			// 1000000, not the 262144 this line carried from 2026-06 (d574abb,
+			// where it arrived with z-ai/glm-5.2) to 2026-08-26. 262144 was
+			// never any GLM's context window: it is both kimi-k2.6's window,
+			// one line above in this same map, and glm-5.2's max OUTPUT, which
+			// the catalog still reports as exactly that. Whichever it was
+			// copied from, it then rode a rename (5.2 → 5.3) untouched, because
+			// a window that is only too SMALL raises no error — it just
+			// compresses and trims a 1M-context model at a quarter of its
+			// capacity, forever, silently. The sole pinned upstream (Z.AI)
+			// serves 1,048,576 and the vendor doc says "1M 上下文窗口"; 1000000
+			// is what the native zhipu routes register, and one model must not
+			// carry two different windows on two routes.
+			"z-ai/glm-5.3":       1000000,
+			"z-ai/glm-5.3-flash": 1000000,
 			// 1000000, not the catalog's 1048576: the sole upstream is DeepSeek
 			// itself, so the real ceiling is the one the native deepseek route
 			// registers, and the two must not disagree about one model.

@@ -18,11 +18,17 @@ const (
 	zhipuGlobalAPIBase = "https://api.z.ai/api/paas/v4"
 )
 
+// glm-5.3 is text-only; glm-5.3-flash is natively multimodal (image / video /
+// file) and is the only GLM registered as vision-capable. Video and file input
+// have no marker in this codebase, so only images actually reach it — the
+// registration claims exactly what the media pipeline can deliver.
 func init() {
 	RegisterProvider("zhipu-cn", ProviderRegistration{
-		Models: []string{"glm-5.3"},
+		Models:       []string{"glm-5.3", "glm-5.3-flash"},
+		VisionModels: []string{"glm-5.3-flash"},
 		ContextWindows: map[string]int{
-			"glm-5.3": 1000000,
+			"glm-5.3":       1000000,
+			"glm-5.3-flash": 1000000,
 		},
 		EnvKey:  "ZHIPU_API_KEY",
 		EnvBase: "ZHIPU_API_BASE",
@@ -32,9 +38,11 @@ func init() {
 	})
 
 	RegisterProvider("zhipu-global", ProviderRegistration{
-		Models: []string{"glm-5.3"},
+		Models:       []string{"glm-5.3", "glm-5.3-flash"},
+		VisionModels: []string{"glm-5.3-flash"},
 		ContextWindows: map[string]int{
-			"glm-5.3": 1000000,
+			"glm-5.3":       1000000,
+			"glm-5.3-flash": 1000000,
 		},
 		EnvKey:  "ZHIPU_GLOBAL_API_KEY",
 		EnvBase: "ZHIPU_GLOBAL_API_BASE",
@@ -56,15 +64,36 @@ type ZhipuProvider struct {
 	client       openai.Client
 }
 
+// zhipuThinkingEnabled reports whether the model runs with thinking on.
+//
+// Every GLM-5.3 model does, unconditionally: "enabled" is the ONLY value
+// thinking.type accepts, and "disabled" is a 400 ("该模型始终思考，不支持关闭
+// 思考"). So this never varies today — it is kept as a predicate because it
+// also decides the forced temperature below, and because the next GLM may
+// bring the switch back.
 func zhipuThinkingEnabled(modelType string) bool {
-	m := strings.TrimSpace(modelType)
-	return m == "glm-5.3"
+	switch strings.TrimSpace(modelType) {
+	case "glm-5.3", "glm-5.3-flash":
+		return true
+	}
+	return false
 }
 
-// zhipuReasoningEffort returns the reasoning_effort value to send for models
-// that support GLM-5.3's High/Max effort dial.
+// zhipuReasoningEffort returns the reasoning_effort value to send.
+//
+// The dial is real and it moves: measured against open.bigmodel.cn, the same
+// arithmetic question produced 32 / ~90 / ~135 characters of reasoning at low /
+// unset / max, identically on both models. The legal set is exactly
+// {low, high, max} — none, minimal, medium and xhigh are all 400 on this
+// family, even though the error message lists them, because each of them would
+// mean "think less than low" or names a tier GLM does not have.
+//
+// glm-5.3-flash takes the same dial as glm-5.3, so both send "high": the flash
+// model is cheaper per token, not shallower per thought, and picking its depth
+// is a routing decision (which specialty points at it), not a property of the
+// model id.
 func zhipuReasoningEffort(modelType string) string {
-	if strings.TrimSpace(modelType) == "glm-5.3" {
+	if zhipuThinkingEnabled(modelType) {
 		return "high"
 	}
 	return ""
@@ -106,7 +135,7 @@ func (p *ZhipuProvider) Chat(ctx context.Context, req *Request) (ChatResult, err
 	start := time.Now()
 	inputChars := inputChars(req.Messages)
 
-	messages, err := toOpenAIChatMessages(req.Messages, false, false, false)
+	messages, err := toOpenAIChatMessages(req.Messages, SupportsVision(p.providerName, p.modelType), false, false)
 	if err != nil {
 		return nil, fmt.Errorf("failed to convert messages: %w", err)
 	}
@@ -145,15 +174,25 @@ func (p *ZhipuProvider) Chat(ctx context.Context, req *Request) (ChatResult, err
 		)
 	}
 
+	// Both fields are TOP-LEVEL, and that is the whole point of this block.
+	// They used to be sent under an "extra_body" wrapper, which is a Python-SDK
+	// convention the client unwraps before the request goes out — not part of
+	// the wire protocol. open.bigmodel.cn simply ignores an unknown top-level
+	// object, so the wrapper turned both settings into dead weight and returned
+	// 200 the whole time: verified by sending extra_body.thinking.type
+	// "disabled" (200, still thinks) next to a top-level "disabled" (400), and
+	// by sending an unknown field of the same shape, which behaves identically.
+	// A silently-ignored parameter is the worst outcome available here — the
+	// request looks configured and is not.
 	requestOpts := []oaioption.RequestOption{}
 	if thinkingEnabled {
 		requestOpts = append(requestOpts,
-			oaioption.WithJSONSet("extra_body.thinking.type", "enabled"),
+			oaioption.WithJSONSet("thinking.type", "enabled"),
 		)
 	}
 	if effort := zhipuReasoningEffort(p.modelType); effort != "" {
 		requestOpts = append(requestOpts,
-			oaioption.WithJSONSet("extra_body.reasoning_effort", effort),
+			oaioption.WithJSONSet("reasoning_effort", effort),
 		)
 	}
 
