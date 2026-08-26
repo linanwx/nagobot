@@ -79,26 +79,6 @@ func zhipuThinkingEnabled(modelType string) bool {
 	return false
 }
 
-// zhipuReasoningEffort returns the reasoning_effort value to send.
-//
-// The dial is real and it moves: measured against open.bigmodel.cn, the same
-// arithmetic question produced 32 / ~90 / ~135 characters of reasoning at low /
-// unset / max, identically on both models. The legal set is exactly
-// {low, high, max} — none, minimal, medium and xhigh are all 400 on this
-// family, even though the error message lists them, because each of them would
-// mean "think less than low" or names a tier GLM does not have.
-//
-// glm-5.3-flash takes the same dial as glm-5.3, so both send "high": the flash
-// model is cheaper per token, not shallower per thought, and picking its depth
-// is a routing decision (which specialty points at it), not a property of the
-// model id.
-func zhipuReasoningEffort(modelType string) string {
-	if zhipuThinkingEnabled(modelType) {
-		return "high"
-	}
-	return ""
-}
-
 func zhipuRequestTemperature(modelType string, configured float64) (float64, bool) {
 	if zhipuThinkingEnabled(modelType) {
 		return 1, configured != 1
@@ -174,25 +154,35 @@ func (p *ZhipuProvider) Chat(ctx context.Context, req *Request) (ChatResult, err
 		)
 	}
 
-	// Both fields are TOP-LEVEL, and that is the whole point of this block.
-	// They used to be sent under an "extra_body" wrapper, which is a Python-SDK
-	// convention the client unwraps before the request goes out — not part of
-	// the wire protocol. open.bigmodel.cn simply ignores an unknown top-level
-	// object, so the wrapper turned both settings into dead weight and returned
-	// 200 the whole time: verified by sending extra_body.thinking.type
-	// "disabled" (200, still thinks) next to a top-level "disabled" (400), and
-	// by sending an unknown field of the same shape, which behaves identically.
-	// A silently-ignored parameter is the worst outcome available here — the
-	// request looks configured and is not.
+	// TOP-LEVEL, not under an "extra_body" wrapper. That wrapper is a Python-SDK
+	// convention the client unwraps before the request goes out; on the wire it
+	// is an unknown object this endpoint ignores, so anything inside it was
+	// silently dropped while the request still returned 200.
+	//
+	// NO reasoning_effort is sent, and that is a measured decision, not an
+	// omission. On this family "high" is not a high setting — it is far BELOW
+	// the depth the server picks on its own. Measured on glm-5.3-flash with the
+	// real system prompt and tool set, reasoning tokens over three runs each:
+	//
+	//	low         7,   9,   29
+	//	high       31,  61,  139
+	//	(no field) 580, 743, 1000
+	//	max       807, 997, 2051
+	//
+	// The same ordering holds through OpenRouter (high 91–150, no field
+	// 632–1032, max 815–1669). Sending "high" therefore cost about a 10x
+	// reduction in thinking versus sending nothing. Leaving the field out lets
+	// the vendor pick, which is both the deeper setting and the one this code
+	// was accidentally getting for months while the extra_body wrapper ate it.
+	//
+	// clear_thinking:false is the vendor's own recommendation and it measurably
+	// doubles the reasoning that comes back (899/1361/1488 against
+	// 580/743/1000 with no effort field).
 	requestOpts := []oaioption.RequestOption{}
 	if thinkingEnabled {
 		requestOpts = append(requestOpts,
 			oaioption.WithJSONSet("thinking.type", "enabled"),
-		)
-	}
-	if effort := zhipuReasoningEffort(p.modelType); effort != "" {
-		requestOpts = append(requestOpts,
-			oaioption.WithJSONSet("reasoning_effort", effort),
+			oaioption.WithJSONSet("thinking.clear_thinking", false),
 		)
 	}
 

@@ -23,22 +23,6 @@ func TestZhipuThinkingEnabled(t *testing.T) {
 	}
 }
 
-func TestZhipuReasoningEffort(t *testing.T) {
-	cases := map[string]string{
-		"glm-5.3": "high",
-		// Same dial, same value: glm-5.3-flash is cheaper per token, not
-		// shallower per thought. Probed against the live API, low/high/max are
-		// 200 on both models and none/minimal/medium/xhigh are 400 on both.
-		"glm-5.3-flash": "high",
-		"unknown":       "",
-	}
-	for model, want := range cases {
-		if got := zhipuReasoningEffort(model); got != want {
-			t.Errorf("zhipuReasoningEffort(%q) = %q, want %q", model, got, want)
-		}
-	}
-}
-
 func TestZhipuRequestTemperatureForcedWhenThinking(t *testing.T) {
 	// glm-5.3 enables thinking, which forces temperature to 1.
 	temp, forced := zhipuRequestTemperature("glm-5.3", 0.7)
@@ -131,8 +115,10 @@ func TestGLM53FlashOpenRouterRoute(t *testing.T) {
 	if len(meta.ProviderOrder) == 0 || meta.ProviderOrder[0] != "z-ai" {
 		t.Errorf("ProviderOrder = %v, want first entry \"z-ai\"", meta.ProviderOrder)
 	}
-	if len(meta.ThinkingOpts) == 0 {
-		t.Error("ThinkingOpts is empty — the flash route would run at the upstream default depth while z-ai/glm-5.3 runs at high")
+	// Empty on purpose: see the openRouterModels comment. An effort of "high"
+	// measured 91/150/141 reasoning tokens against 632/798/1032 with no field.
+	if len(meta.ThinkingOpts) != 0 {
+		t.Errorf("ThinkingOpts = %d opts, want 0 — any effort we can send on this family is shallower than the vendor default", len(meta.ThinkingOpts))
 	}
 }
 
@@ -161,11 +147,19 @@ func TestZhipuSendsThinkingParamsAtTopLevel(t *testing.T) {
 		thinking, ok := body["thinking"].(map[string]any)
 		if !ok {
 			t.Errorf("%s: no top-level thinking object in %v", model, keysOf(body))
-		} else if thinking["type"] != "enabled" {
-			t.Errorf("%s: thinking.type = %v, want \"enabled\" (the only value this family accepts)", model, thinking["type"])
+		} else {
+			if thinking["type"] != "enabled" {
+				t.Errorf("%s: thinking.type = %v, want \"enabled\" (the only value this family accepts)", model, thinking["type"])
+			}
+			if thinking["clear_thinking"] != false {
+				t.Errorf("%s: thinking.clear_thinking = %v, want false — it doubles the reasoning that comes back", model, thinking["clear_thinking"])
+			}
 		}
-		if got := body["reasoning_effort"]; got != "high" {
-			t.Errorf("%s: reasoning_effort = %v, want \"high\"", model, got)
+		// No effort field, deliberately. "high" is BELOW the vendor's own
+		// default depth on this family — measured at ~10x less reasoning than
+		// sending nothing — so shipping it silently made the model think less.
+		if got, present := body["reasoning_effort"]; present {
+			t.Errorf("%s: reasoning_effort = %v, want the field absent — \"high\" is shallower than the server default here", model, got)
 		}
 		if got := body["temperature"]; got != float64(1) {
 			t.Errorf("%s: temperature = %v, want 1 — thinking is on, which forces it", model, got)

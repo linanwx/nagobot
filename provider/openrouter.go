@@ -98,22 +98,22 @@ var openRouterModels = map[string]openRouterModelMeta{
 		},
 		ProviderOrder: []string{"moonshotai"},
 	},
+	// Neither GLM entry sends a reasoning effort, and the empty ThinkingOpts is
+	// the decision rather than an omission. Both models always think; the dial
+	// only picks a depth, and on this family "high" lands far BELOW the depth
+	// the vendor picks unprompted. Measured through this route on
+	// z-ai/glm-5.3-flash, reasoning tokens over three runs each: high 91/150/141,
+	// no field 632/798/1032, max 815/1221/1669 — the native route reproduces the
+	// same ordering. Sending "high" bought roughly a 6x cut in thinking.
+	//
+	// The upstream pin is separate and load-bearing on day one: Z.AI and Novita
+	// both serve fp8, but a Cloudflare host is already listed at quantization
+	// "unknown" for twice the price, which is exactly the silent substitution
+	// the pins exist to stop.
 	"z-ai/glm-5.3": {
-		ThinkingOpts: []oaioption.RequestOption{
-			oaioption.WithJSONSet("reasoning", map[string]any{"effort": "high"}),
-		},
 		ProviderOrder: []string{"z-ai"},
 	},
-	// Same effort dial as glm-5.3 above — the vendor doc says this model takes
-	// no reasoning_effort, and the live API disagrees: low/high/max are all 200
-	// on both models and all four other tiers are 400 on both. Trust the probe.
-	// The pin is load-bearing on day one: Z.AI and Novita both serve fp8, but a
-	// Cloudflare host is already listed at quantization "unknown" for twice the
-	// price, which is exactly the silent substitution the pins exist to stop.
 	"z-ai/glm-5.3-flash": {
-		ThinkingOpts: []oaioption.RequestOption{
-			oaioption.WithJSONSet("reasoning", map[string]any{"effort": "high"}),
-		},
 		ProviderOrder: []string{"z-ai"},
 	},
 	// No ThinkingOpts: DeepSeek turns thinking on by itself at effort "high",
