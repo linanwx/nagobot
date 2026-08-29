@@ -63,7 +63,6 @@ func buildThreadManager(cfg *config.Config, enableSessions bool) (*thread.Manage
 
 	// Build the local pre-think embedding indexes now, off the critical path, so the
 	// first user message does not pay ~1.5s for them.
-	thread.WarmLocalPreThink(skillRegistry)
 
 	toolRegistry := tools.NewRegistry()
 	toolLogsDir := filepath.Join(workspace, "logs", "tool_calls")

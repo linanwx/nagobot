@@ -17,7 +17,6 @@ func TestParentSessionKey(t *testing.T) {
 	cases := []struct{ in, want string }{
 		{"cli", "cli"},
 		{"telegram:42", "telegram:42"},
-		{"cli:prethink", "cli"},
 		{"cli:fork:summarize", "cli"},
 		{"cli:threads:search-abc", "cli"},
 		{"discord:123:threads:foo", "discord:123"},

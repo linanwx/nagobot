@@ -17,7 +17,7 @@ func TestBuildWakePayload_SupportsVisionAudio(t *testing.T) {
 		"Hello with image",
 		"thread-1", "telegram:123", "/tmp/sessions/telegram:123",
 		"telegram delivery", "openrouter/google/gemini-3.7-flash", "soul",
-		loc, "user", "", "", "", "", "", time.Time{}, "", "",
+		loc, "user", "", "", "", "", "", time.Time{}, "",
 	)
 
 	if !strings.Contains(payload, "supports_vision: true") {
@@ -39,7 +39,7 @@ func TestBuildWakePayload_MediaFields_OneLine(t *testing.T) {
 		loc, "user", "", "",
 		"[Media: photo]\nimage_path: /tmp/media/img.jpg\ncaption: hi",
 		"[image preview: a cat\nsitting on\r\na table]",
-		"", time.Time{}, "", "",
+		"", time.Time{}, "",
 	)
 
 	if !strings.Contains(payload, "media: '[Media: photo] image_path: /tmp/media/img.jpg caption: hi'") {
@@ -63,7 +63,7 @@ func TestBuildWakePayload_SystemSource_WithCapabilities(t *testing.T) {
 		"Heartbeat pulse",
 		"thread-1", "telegram:123", "/tmp/sessions/telegram:123",
 		"", "openrouter/google/gemini-3.7-flash", "soul",
-		loc, "system", "", "", "", "", "", time.Time{}, "", "",
+		loc, "system", "", "", "", "", "", time.Time{}, "",
 	)
 
 	if !strings.Contains(payload, "supports_vision: true") {
@@ -80,7 +80,7 @@ func TestBuildWakePayload_NoModel_NoMultimodalInfo(t *testing.T) {
 		"Hello",
 		"thread-1", "telegram:123", "/tmp/sessions/telegram:123",
 		"telegram delivery", "", "soul",
-		loc, "", "", "", "", "", "", time.Time{}, "", "",
+		loc, "", "", "", "", "", "", time.Time{}, "",
 	)
 
 	if strings.Contains(payload, "supports_vision") {
@@ -98,7 +98,7 @@ func TestBuildWakePayload_FalseCapabilities_Omitted(t *testing.T) {
 		"Hello",
 		"thread-1", "telegram:123", "/tmp/sessions/telegram:123",
 		"telegram delivery", "openrouter/z-ai/glm-5.3", "soul",
-		loc, "", "", "", "", "", "", time.Time{}, "", "",
+		loc, "", "", "", "", "", "", time.Time{}, "",
 	)
 
 	if strings.Contains(payload, "supports_vision") {
@@ -114,7 +114,7 @@ func TestBuildWakePayload_FalseCapabilities_Omitted(t *testing.T) {
 func TestMarkInjected_Basic(t *testing.T) {
 	loc := time.UTC
 	payload := buildWakePayload(
-		WakeTelegram, "Hi", "t-1", "telegram:1", "", "telegram delivery", "", "soul", loc, "user", "", "", "", "", "", time.Time{}, "", "",
+		WakeTelegram, "Hi", "t-1", "telegram:1", "", "telegram delivery", "", "soul", loc, "user", "", "", "", "", "", time.Time{}, "",
 	)
 	out := markInjected(payload)
 	if !strings.Contains(out, "injected: true") {
@@ -132,7 +132,7 @@ func TestMarkInjected_PreservesMultiLineActionScalar(t *testing.T) {
 		"the body content",
 		"t-1", "discord:s1", "/sessions/discord/s1",
 		"reply forwarded to caller", "", "soul",
-		loc, "system", "", "", "", "", "discord:s1:threads:foo", time.Time{}, "", "",
+		loc, "system", "", "", "", "", "discord:s1:threads:foo", time.Time{}, "",
 	)
 	if !strings.Contains(payload, "action: |") {
 		// Wake action hint may not always be a block scalar depending on
@@ -176,16 +176,14 @@ func TestMarkInjected_PreservesMultiLineActionScalar(t *testing.T) {
 }
 
 func TestBuildWakePayload_RecentChatInMarkdownBody(t *testing.T) {
-	// The media-preview sibling sessions are what carry RecentChat now. Pre-think
-	// used to be the other one; it no longer wakes a session at all, since it is
-	// computed locally (see prethink.go), so its wake source is gone.
+	// The media-preview sibling sessions are what carry RecentChat.
 	loc := time.UTC
 	payload := buildWakePayload(
 		WakeImagePreview,
 		"What now?",
 		"t-1", "discord:1:imagepreview", "/sessions/discord/1/imagepreview",
 		"imagepreview delivery", "openrouter/google/gemini-3.1-flash-lite", "imagereader",
-		loc, "system", "", "", "", "", "", time.Time{}, "Custom instruction.", "user: earlier\nassistant: reply",
+		loc, "system", "", "", "", "", "", time.Time{}, "user: earlier\nassistant: reply",
 	)
 
 	mapping, body, ok := sysmsg.ParseFrontmatter(payload)
@@ -195,13 +193,8 @@ func TestBuildWakePayload_RecentChatInMarkdownBody(t *testing.T) {
 	if sysmsg.LookupScalar(mapping, "recent_chat") != "" {
 		t.Fatalf("recent_chat leaked into YAML frontmatter:\n%s", payload)
 	}
-	// Pre-think output PRECEDES the source's own action hint; it does not replace
-	// it. Until 2026-08-02 it did, overwriting whatever wakeActionHint returned
-	// with a bare "A user sent a message, please respond." — here that would have
-	// discarded the image-preview instructions entirely.
-	wantAction := "<pre_think>Custom instruction.</pre_think> " + wakeActionHint(WakeImagePreview)
-	if got := sysmsg.LookupScalar(mapping, "action"); got != wantAction {
-		t.Fatalf("action should keep both the pre-think block and the source hint:\ngot:  %s\nwant: %s", got, wantAction)
+	if got := sysmsg.LookupScalar(mapping, "action"); got != wakeActionHint(WakeImagePreview) {
+		t.Fatalf("action should be the source hint:\ngot:  %s\nwant: %s", got, wakeActionHint(WakeImagePreview))
 	}
 	for _, want := range []string{"## history", "user: earlier", "## message", "What now?", "## instruction", "Use the history as conversation context", "Follow the YAML action field"} {
 		if !strings.Contains(body, want) {
@@ -220,7 +213,7 @@ func TestBuildWakePayload_UsesEnqueuedAt(t *testing.T) {
 		WakeTelegram, "hi",
 		"t-1", "telegram:1", "",
 		"telegram delivery", "", "soul",
-		loc, "user", "", "", "", "", "", enqueued, "", "",
+		loc, "user", "", "", "", "", "", enqueued, "",
 	)
 
 	if !strings.Contains(payload, "time: 2026-05-09T12:05:06+08:00") {
@@ -235,7 +228,7 @@ func TestBuildWakePayload_ZeroEnqueuedAtFallsBackToNow(t *testing.T) {
 		WakeTelegram, "hi",
 		"t-1", "telegram:1", "",
 		"telegram delivery", "", "soul",
-		loc, "user", "", "", "", "", "", time.Time{}, "", "",
+		loc, "user", "", "", "", "", "", time.Time{}, "",
 	)
 
 	if !strings.Contains(payload, "time: ") {

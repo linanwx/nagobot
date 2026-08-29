@@ -192,7 +192,7 @@ function PromptsDialog() {
               <p className="text-muted-foreground shrink-0 text-xs">
                 {selectedEntry.description}
                 <span className="text-muted-foreground/60">
-                  {" · "}
+                  {selectedEntry.description ? " · " : ""}
                   {selectedEntry.name}
                 </span>
               </p>

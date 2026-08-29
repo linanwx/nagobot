@@ -15,9 +15,6 @@ const MaxTokenRatioSamples = 10
 
 const metaFileName = "meta.json"
 
-// PreThinkSessionSuffix is the session key suffix for pre-think sibling sessions.
-const PreThinkSessionSuffix = ":prethink"
-
 // AudioPreviewSessionSuffix is the session key suffix for audio-preview sibling
 // sessions (upfront transcription of incoming voice messages).
 const AudioPreviewSessionSuffix = ":audiopreview"
@@ -39,13 +36,12 @@ const QuoteSessionSuffix = ":quote"
 const PinSessionSuffix = ":pin"
 
 // IsInternalSiblingSession reports whether the key is an internal helper sibling
-// session (pre-think / media-preview / progress-summary / quote / pin). These run
+// session (media-preview / progress-summary / quote / pin). These run
 // auxiliary agents on behalf of a parent session and carry no standalone
 // conversation, so they must be excluded from session-summary and other "real
 // session" enumerations.
 func IsInternalSiblingSession(key string) bool {
-	return strings.HasSuffix(key, PreThinkSessionSuffix) ||
-		strings.HasSuffix(key, AudioPreviewSessionSuffix) ||
+	return strings.HasSuffix(key, AudioPreviewSessionSuffix) ||
 		strings.HasSuffix(key, ImagePreviewSessionSuffix) ||
 		strings.HasSuffix(key, ProgressSummarySessionSuffix) ||
 		strings.HasSuffix(key, QuoteSessionSuffix) ||

@@ -29,7 +29,6 @@ func TestObservableSession(t *testing.T) {
 		{"web:abc" + session.QuoteSessionSuffix, false},
 		{"discord:123" + session.PinSessionSuffix, false},
 		{"telegram:9" + session.ImagePreviewSessionSuffix, false},
-		{"cli" + session.PreThinkSessionSuffix, false},
 		// Children address their parent, which is itself mirrored.
 		{"discord:123" + session.ThreadsSessionInfix + "search", false},
 		{"cli" + session.ForkSessionInfix + "plan", false},

@@ -139,8 +139,9 @@ export async function fetchConfig(): Promise<unknown> {
 
 export type PromptFileEntry = {
   name: string;
-  // Server-curated display label and one-line description of the file's role
-  // in the runtime (the list is a whitelist of runtime-injected files).
+  // Display label, and a one-line description that only the fixed top-level
+  // files carry — section entries are derived from the sections directory and
+  // have no description.
   label: string;
   description: string;
   size: number;

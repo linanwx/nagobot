@@ -27,8 +27,7 @@ func TestNeedSummaryFilter(t *testing.T) {
 		{Key: "telegram:123:threads:2026-04-01-18-00-00-def", UpdatedAt: fmtTime(now.Add(-4 * time.Hour)), ChangedSinceSummary: true, MessageCount: 30},
 		// Should INCLUDE: normal session, not recently summarized
 		{Key: "discord:normal", UpdatedAt: fmtTime(now.Add(-5 * time.Hour)), SummaryAt: fmtTime(now.Add(-30 * time.Hour)), TotalMessages: 100, ChangedSinceSummary: true, MessageCount: 100},
-		// Should EXCLUDE: internal sibling sessions (prethink/media-preview)
-		{Key: "telegram:123:prethink", UpdatedAt: fmtTime(now.Add(-4 * time.Hour)), ChangedSinceSummary: true, MessageCount: 20},
+		// Should EXCLUDE: internal sibling sessions (media-preview)
 		{Key: "telegram:123:audiopreview", UpdatedAt: fmtTime(now.Add(-4 * time.Hour)), ChangedSinceSummary: true, MessageCount: 20},
 		{Key: "telegram:123:imagepreview", UpdatedAt: fmtTime(now.Add(-4 * time.Hour)), ChangedSinceSummary: true, MessageCount: 20},
 	}

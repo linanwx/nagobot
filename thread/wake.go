@@ -351,14 +351,7 @@ func (t *Thread) RunOnce(ctx context.Context) {
 		obs.Str("model", mod),
 	)
 	sender := senderOrDefault(msg.Sender, msg.Source)
-	// Pre-think: analyze the request locally (regex + a local embedding model) and
-	// generate a tailored action hint before the main model sees the message. This
-	// used to be a blocking call to a `fast` LLM; it now costs milliseconds.
-	var actionOverride string
-	if sysmsg.IsUserVisibleSource(msg.Source) {
-		actionOverride = preThinkAction(ctx, t, msg.Message)
-	}
-	userMessage := buildWakePayload(msg.Source, msg.Message, t.id, t.sessionKey, sessionDir, deliveryLabel, modelLabel, agentName, loc, sender, msg.SenderName, msg.SenderID, msg.MediaInfo, msg.MediaPreview, msg.CallerSessionKey, msg.EnqueuedAt, actionOverride, msg.RecentChat)
+	userMessage := buildWakePayload(msg.Source, msg.Message, t.id, t.sessionKey, sessionDir, deliveryLabel, modelLabel, agentName, loc, sender, msg.SenderName, msg.SenderID, msg.MediaInfo, msg.MediaPreview, msg.CallerSessionKey, msg.EnqueuedAt, msg.RecentChat)
 
 	// Build injection function: between tool iterations, drain inbox for
 	// mergeable user messages and inject them into the LLM conversation.
@@ -387,7 +380,7 @@ func (t *Thread) RunOnce(ctx context.Context) {
 			select {
 			case next := <-t.inbox:
 				if canMerge(msg, next) {
-					payload := buildWakePayload(next.Source, next.Message, t.id, t.sessionKey, sessionDir, deliveryLabel, modelLabel, agentName, loc, senderOrDefault(next.Sender, next.Source), next.SenderName, next.SenderID, next.MediaInfo, next.MediaPreview, next.CallerSessionKey, next.EnqueuedAt, "", next.RecentChat)
+					payload := buildWakePayload(next.Source, next.Message, t.id, t.sessionKey, sessionDir, deliveryLabel, modelLabel, agentName, loc, senderOrDefault(next.Sender, next.Source), next.SenderName, next.SenderID, next.MediaInfo, next.MediaPreview, next.CallerSessionKey, next.EnqueuedAt, next.RecentChat)
 					if payload != "" {
 						payload = markInjected(payload)
 						// An injected message IS its own persisted entry (it is
@@ -452,10 +445,9 @@ func (t *Thread) RunOnce(ctx context.Context) {
 // Uses YAML frontmatter + markdown body so the AI knows the wake context
 // and the sender (user vs system).
 //
-// actionOverride, when non-empty, replaces the default wakeActionHint for this
-// payload (used by pre-think). recentChat is rendered into the markdown body
-// (not YAML frontmatter) so long chat history stays out of metadata.
-func buildWakePayload(source WakeSource, message, threadID, sessionKey, sessionDir, deliveryLabel, model, agent string, loc *time.Location, sender, senderName, senderID, mediaInfo, mediaPreview, callerSessionKey string, enqueuedAt time.Time, actionOverride, recentChat string) string {
+// recentChat is rendered into the markdown body (not YAML frontmatter) so long
+// chat history stays out of metadata.
+func buildWakePayload(source WakeSource, message, threadID, sessionKey, sessionDir, deliveryLabel, model, agent string, loc *time.Location, sender, senderName, senderID, mediaInfo, mediaPreview, callerSessionKey string, enqueuedAt time.Time, recentChat string) string {
 	message = strings.TrimSpace(message)
 	if message == "" {
 		return ""
@@ -490,27 +482,7 @@ func buildWakePayload(source WakeSource, message, threadID, sessionKey, sessionD
 		MediaPreview:     oneLine(mediaPreview),
 		CallerSessionKey: callerSessionKey,
 	}
-	// The action field is the source's own instruction, optionally preceded by a
-	// <pre_think> block. Either half may be absent, and the assembly must survive
-	// each case independently — this used to be nested inside `if h != ""`, which
-	// would now drop the pre-think block entirely on a user message, since user
-	// sources no longer carry a standing hint (see wakeActionHint).
-	//
-	// Two earlier shapes are worth not going back to. First, the block REPLACED
-	// the source hint: `hint = h` was assigned and then overwritten by a one-line
-	// restatement, so every message a classifier fired for silently lost the real
-	// instruction — sampled on one live Discord session, 17 of 30 user messages,
-	// i.e. the majority path. Second, the block carried an inline explanation of
-	// what it was (~50 characters on every one of those messages); that sentence
-	// now lives in the wake-and-delivery section, which rides the providers'
-	// CACHED prefix (tools → system → messages) while this payload is the newest
-	// message and never is. What the explanation could NOT be trusted to do is
-	// mark where the advisory part stops — that is the closing tag's job, and it
-	// is why the tag stayed when the sentence went.
 	hint := wakeActionHint(source)
-	if actionOverride != "" {
-		hint = strings.TrimSpace("<pre_think>" + actionOverride + "</pre_think> " + hint)
-	}
 	if hint != "" {
 		header.Action = hint
 	}

@@ -324,3 +324,53 @@ func loadSections(dir string) (map[string]*Section, error) {
 	}
 	return result, nil
 }
+
+// SectionFile is one section's on-disk identity: enough to list and address a
+// section file without assembling a prompt.
+type SectionFile struct {
+	File     string // base name, e.g. "context.md"
+	Name     string // frontmatter name, or the base name without ".md"
+	Priority int
+}
+
+// ListSectionFiles enumerates the section files in dir, ordered the way Build
+// renders them: by (priority, name). A missing directory yields nil, and a file
+// whose frontmatter will not parse still appears — under its file name, so a
+// half-written section stays addressable rather than vanishing.
+//
+// This exists so callers that expose sections (the web prompt editor) derive
+// their set from the directory instead of a hand-maintained list. A list has to
+// be updated by whoever adds a section, and a missed row is invisible: the
+// section is live in every prompt and absent from the editor.
+func ListSectionFiles(dir string) []SectionFile {
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return nil
+	}
+	var out []SectionFile
+	for _, e := range entries {
+		if e.IsDir() || !strings.HasSuffix(e.Name(), ".md") {
+			continue
+		}
+		sf := SectionFile{File: e.Name(), Name: strings.TrimSuffix(e.Name(), ".md")}
+		if data, err := os.ReadFile(filepath.Join(dir, e.Name())); err == nil {
+			if header, _, ok := splitFrontMatter(string(data)); ok {
+				var sec Section
+				if yaml.Unmarshal([]byte(header), &sec) == nil {
+					if sec.Name != "" {
+						sf.Name = sec.Name
+					}
+					sf.Priority = sec.Priority
+				}
+			}
+		}
+		out = append(out, sf)
+	}
+	sort.Slice(out, func(i, j int) bool {
+		if out[i].Priority != out[j].Priority {
+			return out[i].Priority < out[j].Priority
+		}
+		return out[i].Name < out[j].Name
+	})
+	return out
+}

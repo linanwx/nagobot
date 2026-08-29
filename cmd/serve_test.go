@@ -94,8 +94,8 @@ func TestBuildDefaultSinkFor_DiscordInvalidSessionKeysAreSilent(t *testing.T) {
 		emptySet   bool
 	}{
 		{
-			name:       "prethink sibling",
-			sessionKey: "discord:1502707848944287895:prethink",
+			name:       "imagepreview sibling",
+			sessionKey: "discord:1502707848944287895:imagepreview",
 			emptySet:   true,
 		},
 		{

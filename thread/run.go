@@ -545,9 +545,6 @@ func (t *Thread) executeRunner(ctx, runCtx context.Context, p provider.Provider,
 // parentSessionKey strips known sibling/fork markers from a session key.
 // Returns the input unchanged if no marker matches.
 func parentSessionKey(key string) string {
-	if strings.HasSuffix(key, session.PreThinkSessionSuffix) {
-		return strings.TrimSuffix(key, session.PreThinkSessionSuffix)
-	}
 	if strings.HasSuffix(key, session.AudioPreviewSessionSuffix) {
 		return strings.TrimSuffix(key, session.AudioPreviewSessionSuffix)
 	}

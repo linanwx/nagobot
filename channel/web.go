@@ -22,6 +22,7 @@ import (
 	"github.com/coder/websocket"
 	"github.com/coder/websocket/wsjson"
 	"github.com/klauspost/compress/gzhttp"
+	"github.com/linanwx/nagobot/agent"
 	"github.com/linanwx/nagobot/auth"
 	cronpkg "github.com/linanwx/nagobot/cron"
 	"github.com/linanwx/nagobot/config"
@@ -1727,20 +1728,41 @@ type promptFileEntry struct {
 	Modified    string `json:"modified"`
 }
 
-// globalPromptFiles is the whitelist, in display order. Name is the path
-// relative to {workspace}/system and doubles as the /api/prompts/{name} key.
-var globalPromptFiles = []promptFileEntry{
+// topLevelPromptFiles are the workspace-level prompt files. They carry no
+// frontmatter, so their labels stay hand-written here.
+var topLevelPromptFiles = []promptFileEntry{
 	{Name: "GLOBAL.md", Label: "Global persona", Description: "Role and persona instructions injected into every user-facing agent."},
 	{Name: "world_knowledge.md", Label: "World knowledge", Description: "Recent world events beyond the model training cutoff; rewritten nightly by the world-knowledge cron."},
 	{Name: "people_knowledge.md", Label: "People knowledge", Description: "Cross-session knowledge about people, with dated facts and confidence."},
-	{Name: "sections/context.md", Label: "Context", Description: "System-prompt section: date and environment placeholders, and what a session and a lifeform are."},
-	{Name: "sections/wake-and-delivery.md", Label: "Wake and delivery", Description: "System-prompt section: the wake frontmatter fields, and where a turn's plain text goes."},
-	{Name: "sections/dispatch.md", Label: "Dispatch", Description: "System-prompt section: reaching other agents and sessions."},
-	{Name: "sections/session-files.md", Label: "Session files", Description: "System-prompt section: which files in a session directory to read, and which never to."},
-	{Name: "sections/tools.md", Label: "Tools", Description: "System-prompt section: tool list injection."},
-	{Name: "sections/skills.md", Label: "Skills", Description: "System-prompt section: skill list injection."},
-	{Name: "sections/agent-definitions.md", Label: "Agent definitions", Description: "System-prompt section: available agent names."},
-	{Name: "sections/active-sessions.md", Label: "Active sessions", Description: "System-prompt section: cross-session awareness summary."},
+}
+
+// promptFileSpecs derives the editable set: the fixed top-level files, then every
+// section in {workspace}/system/sections in the order Build renders them.
+//
+// The section half used to be a hand-written list parallel to the directory, and
+// a missed row was invisible in the worst way — the section was live in every
+// agent's prompt and absent from the editor. Deriving it also keeps the path
+// check below honest: the same scan answers "what may be listed" and "what may
+// be read", so the two cannot disagree.
+func promptFileSpecs(workspace string) []promptFileEntry {
+	specs := append([]promptFileEntry(nil), topLevelPromptFiles...)
+	for _, sf := range agent.ListSectionFiles(filepath.Join(workspace, "system", "sections")) {
+		specs = append(specs, promptFileEntry{
+			Name:  "sections/" + sf.File,
+			Label: sectionPromptLabel(sf.Name),
+		})
+	}
+	return specs
+}
+
+// sectionPromptLabel renders a section's frontmatter name as a display label:
+// "wake-and-delivery" -> "Wake and delivery".
+func sectionPromptLabel(name string) string {
+	label := strings.ReplaceAll(name, "-", " ")
+	if label == "" {
+		return name
+	}
+	return strings.ToUpper(label[:1]) + label[1:]
 }
 
 func (w *WebChannel) handlePrompts(rw http.ResponseWriter, r *http.Request) {
@@ -1753,7 +1775,7 @@ func (w *WebChannel) handlePrompts(rw http.ResponseWriter, r *http.Request) {
 		return
 	}
 	files := []promptFileEntry{}
-	for _, spec := range globalPromptFiles {
+	for _, spec := range promptFileSpecs(w.workspace) {
 		info, err := os.Stat(filepath.Join(w.workspace, "system", filepath.FromSlash(spec.Name)))
 		if err != nil {
 			continue // not present in this workspace — skip, keep order
@@ -1779,9 +1801,11 @@ func (w *WebChannel) handlePromptFile(rw http.ResponseWriter, r *http.Request) {
 		return
 	}
 	name := strings.TrimPrefix(r.URL.Path, "/api/prompts/")
-	// Exact whitelist match — the only paths this handler can ever read.
+	// Exact match against the derived set — the only paths this handler can ever
+	// read. Membership, not shape: the names come from a ReadDir of the sections
+	// directory, so a traversal string can never be one of them.
 	allowed := false
-	for _, spec := range globalPromptFiles {
+	for _, spec := range promptFileSpecs(w.workspace) {
 		if spec.Name == name {
 			allowed = true
 			break
