@@ -28,9 +28,19 @@ Otherwise **read the staging file in pages** with `read_file` (use `offset`/`lim
 
 **The `(sender)` in parentheses is who spoke — use it as the attribution.** On a `user` line it is the human's display name, and it is the ONLY reliable one: group chats happen to repeat the name inside the content as a `[Name]: ` prefix, but on web, CLI and DMs the parenthesized sender is all there is, so a line like `user (Kingsley): …` and a line like `user: …` differ in whether the speaker is knowable at all. A `user` line with no sender is an unattributed message — reason about it from context, and do not silently assign it to whoever spoke last. On an `assistant` line the sender is the origin that drove a bot-initiated message (a cron id, a caller session key); a plain reply has none. Never file the bot's own `assistant` lines as a person.
 
-## 3. Extract people from each conversation
+## 3. Decide who earns a section
 
-From each conversation, extract every **person** that appears — including the user(s) themselves, family members, colleagues, friends, and third parties they talk about. For each person capture:
+This file answers *who are the people around this user* — the people whose lives touch theirs. It is not a topic index. Someone the user merely **asked about** is the subject of a conversation, not a person in their life.
+
+**A section goes to** the user(s) themselves and anyone they actually deal with: family, friends, colleagues, teachers, doctors, landlords, neighbours — anyone they meet, message, owe something to, or have to plan around.
+
+**A public figure gets no section.** An artist, politician, founder, researcher, celebrity, or any figure the conversation discusses at arm's length is a topic. A fact-check, a news thread, a gossip story, a music-history question — however long that discussion ran, however many messages it took — produces no section. This is the default, and it is what nearly every public figure gets.
+
+**The one exception needs both halves.** The figure has come up on **several separate days**, *and* the user has a concrete personal stake in them: a booked lesson, a ticket already held, a decision waiting on them. A prospective piano teacher whose trial lesson is booked is a person; the composer of the piece being practised is not, however often it is played.
+
+Nothing is lost by refusing a section. Whatever the user did, will do, or decided goes as a dated bullet in **that user's own** section — "2026-08-23 saw The Weeknd at Croke Park with Kingsley" is useful under the user and useless under the singer. The rest stays in the conversation and the session memory files, which is where a one-off question already lives.
+
+For every person that does earn a section, capture:
 
 - **Identity**: name (or stable handle) + relationship/role to the user.
 - **Recent activity**: what they did/experienced in the window, with dates.
@@ -54,6 +64,7 @@ read_file: {{WORKSPACE}}/system/people_knowledge.md
 - **Confidence**: raise it when a fact is corroborated (across today's sessions, repeated on a later night, or stated explicitly); lower it for single-mention, inferred, or second-hand claims. Note contradictions rather than silently overwriting.
 - **Age-out**: drop a person, or a stale plan, only when their newest dated fact is clearly old (e.g. > 30 days) and nothing has refreshed it. Turn passed plans (a "future" date now in the past) into outcomes, or remove them.
 - Drop entries that never carried real signal — don't pad the file with empty names.
+- **Retire what fails the bar in step 3.** That bar governs the whole file, not just tonight's findings: a public-figure section left behind by an earlier run is deleted the next time you write the file, even when today's conversation never mentioned them. Fold anything still worth keeping into the relevant user's own section before removing it.
 
 ## 5. Write the file
 
@@ -86,6 +97,7 @@ Requirements:
 - Date every dated fact so the soul can judge whether it is still current (a "future" plan may already have passed).
 - Write in the same language the people use in conversation.
 - Be factual. Do **not** invent activities, plans, or motivations to fill a section — omit what you do not have, or mark it low confidence.
+- Keep the file small. It is injected **in full** into the system prompt of every user-facing turn, so every line here is re-sent on every message of every session. A section that will never change what the assistant says is pure cost.
 
 ## 6. Finish
 
@@ -97,6 +109,7 @@ Call `dispatch({})` to end the turn.
 
 - **Read raw chat via `recent-chat`** (the append-only `chat.jsonl`, last 24h only). Never use `read-session` or `sample-session` — they return compressed/sampled context and lose history.
 - **Always merge, never blind-overwrite.** Read the existing file first; today's 24h window is an increment on top of it, not a replacement.
+- **People, not topics.** A public figure the user only discussed gets no section of their own — see step 3 for the bar and the one exception.
 - This is a non-interactive cron turn — there is no user to ask; act on the sessions or end.
 - If there was no activity in the last 24h, or you find no new people with real signal, leave the existing file exactly as it is — call `dispatch({})` and stop.
 - Keep it factual and concise. No greetings, no commentary outside the file.
