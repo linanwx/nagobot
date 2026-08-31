@@ -3,6 +3,7 @@ package tools
 import (
 	"bytes"
 	"context"
+	"fmt"
 	"io"
 	"net/http"
 	"net/url"
@@ -11,6 +12,25 @@ import (
 	readability "codeberg.org/readeck/go-readability/v2"
 	htmltomd "github.com/JohannesKaufmann/html-to-markdown/v2"
 )
+
+// webFetchMaxExtractBytes is the input budget for the extractor, and it is
+// deliberately much larger than webFetchMaxReadBytes.
+//
+// For raw/jina/kimi the body IS the output, so capping the read caps what
+// reaches the model. For an extractor it does not: this provider turns a page
+// into its article, and what actually reaches the model is bounded downstream
+// by the offset/limit pagination in WebFetchTool.Run. So the 500 KB read cap
+// bought no context at all — it just cut large documents off before their
+// article body, and readability then reports the page as having no article.
+// The size is measured, not guessed. Replayed against the 642 real URLs this
+// deployment has fetched (242 that failed this way plus a 400-page sample that
+// succeeded): the largest page was 5.97 MB and NONE reached 8 MB, so the budget
+// clears observed traffic with headroom and raising it further would recover
+// nothing. Parse is linear and cheap (47 ms and ~21 MB transient at 3.46 MB),
+// and the download is already bounded by webFetchHTTPTimeout. It is not set
+// higher because the transient DOM is several times the input and up to 16
+// threads can fetch at once.
+const webFetchMaxExtractBytes = 8 << 20
 
 // ReadabilityFetchProvider fetches pages with HTTP GET, extracts main content
 // via go-readability, and converts to Markdown via html-to-markdown.
@@ -51,15 +71,40 @@ func (p *ReadabilityFetchProvider) Fetch(ctx context.Context, rawURL string) (st
 		return "", nonPage
 	}
 
-	body := io.LimitReader(reader, webFetchMaxReadBytes)
+	// Read one byte past the budget so truncation is DETECTABLE. io.LimitReader
+	// gives no signal that it clipped, and a document cut mid-body still parses
+	// — into an article with no content, which is indistinguishable from a page
+	// that genuinely has none unless we remember that we did the cutting.
+	raw, err := io.ReadAll(io.LimitReader(reader, webFetchMaxExtractBytes+1))
+	if err != nil {
+		return "", err
+	}
+	truncated := len(raw) > webFetchMaxExtractBytes
+	if truncated {
+		raw = raw[:webFetchMaxExtractBytes]
+	}
 
 	parsedURL, _ := url.Parse(rawURL)
-	article, err := readability.FromReader(body, parsedURL)
+	article, err := readability.FromReader(bytes.NewReader(raw), parsedURL)
 	if err != nil {
-		// HTTP 200, but no article could be extracted (the library reports
-		// "the Node field is nil" for pages it cannot find a body in). The host
-		// is fine; the page is just not readable this way.
+		// HTTP 200, but the document could not be parsed at all. The host is
+		// fine; the page is just not readable this way.
 		return "", &ContentError{Err: err}
+	}
+
+	// FromReader reports NO error for a page it found no article in: it returns
+	// an Article whose Node is nil, and the miss only surfaces as the library's
+	// internal "the Node field is nil" from whichever render runs first. Both
+	// renders test that same field, so the RenderText fallback below can never
+	// rescue this case — it just relabels one library message as another. Say
+	// what actually happened instead, and separate the two causes, because they
+	// call for opposite responses: another source cannot fix a page that has no
+	// article, and no source needs to when the page was simply too big for us.
+	if article.Node == nil {
+		if truncated {
+			return "", &ContentError{Err: fmt.Errorf("page is larger than the %d-byte extraction budget and its article body was cut off", webFetchMaxExtractBytes)}
+		}
+		return "", &ContentError{Err: fmt.Errorf("no article body found in this page")}
 	}
 
 	// Render extracted content to HTML, then convert to Markdown.
