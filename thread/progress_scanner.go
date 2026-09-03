@@ -16,6 +16,14 @@ const (
 	progressScanInterval = 30 * time.Second // how often the scanner sweeps active threads
 	progressMinElapsed   = 60               // seconds a turn must have run before its first report
 	progressInterval     = 60 * time.Second // minimum gap between reports for one thread
+	// progressStreamingQuiet is how long after the last user-visible text delta
+	// a turn still counts as "answering". Text alone proves nothing — measured
+	// across the fleet, 8.5% of tool-calling assistant messages open with prose
+	// (p50 72 runes) and then call a tool — so the signal is not that text
+	// appeared but that it is STILL appearing. 10s is far longer than the gap
+	// between deltas of a live generation, and short enough that a preamble
+	// followed by a slow tool becomes reportable well inside one 30s sweep.
+	progressStreamingQuiet = 10 * time.Second
 	// progressOriginCap bounds the origin-request runes kept in ExecMetrics and
 	// fed to the summarizer (rune-safe via truncateStr).
 	progressOriginCap = 2000
@@ -119,6 +127,17 @@ func (p *ProgressScanner) selectReports(now time.Time) []reportJob {
 			continue
 		}
 		seen[key] = true
+
+		// Hold off while the answer is visibly arriving. A progress note exists
+		// to break a silent wait; delivered on top of a reply the user is
+		// already reading it is pure interruption. Suppression is transient —
+		// the next sweep reports if the text stopped and the turn ran on — and
+		// it fails in the safe direction: a zero stamp (non-streaming provider,
+		// or no text yet) suppresses nothing, so behaviour is unchanged
+		// wherever we cannot actually tell.
+		if !info.LastTextDeltaAt.IsZero() && now.Sub(info.LastTextDeltaAt) < progressStreamingQuiet {
+			continue
+		}
 
 		p.mu.Lock()
 		last, had := p.lastReport[key]

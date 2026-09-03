@@ -196,6 +196,14 @@ type ExecMetrics struct {
 	CurrentTool    string // empty when not executing a tool
 	ToolCalls      []ToolCallRecord
 
+	// LastTextDeltaAt is when this turn last emitted USER-VISIBLE text. It is
+	// what lets the progress scanner tell "waiting in silence" from "the answer
+	// is already arriving on screen"; seeing text at all cannot, because a
+	// preamble may still be followed by tool calls in the same message.
+	// Zero when the turn has streamed no text — including every non-streaming
+	// provider, which reports nothing and must therefore change no behaviour.
+	LastTextDeltaAt time.Time
+
 	// Last-turn token data — overwritten (not accumulated) each LLM call by the runner.
 	PromptEstimated      int
 	CompletionEstimated  int
@@ -221,6 +229,18 @@ func (m *ExecMetrics) StartIteration() {
 func (m *ExecMetrics) SetCurrentTool(name string) {
 	m.mu.Lock()
 	m.CurrentTool = name
+	m.mu.Unlock()
+}
+
+// NoteTextDelta stamps the arrival of a user-visible text delta.
+//
+// Deliberately NOT called for reasoning deltas: a long think is exactly when a
+// progress note is worth most, since nothing has reached the user yet. The lock
+// is taken on every delta rather than throttled — deltas arrive tens per second
+// against a mutex read once per 30s scan, so there is no contention to save.
+func (m *ExecMetrics) NoteTextDelta(at time.Time) {
+	m.mu.Lock()
+	m.LastTextDeltaAt = at
 	m.mu.Unlock()
 }
 

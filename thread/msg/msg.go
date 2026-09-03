@@ -89,6 +89,10 @@ type ThreadInfo struct {
 	TurnWakeSource string    `json:"turnWakeSource,omitempty"` // wake source of the currently running turn
 	OriginRequest  string    `json:"originRequest,omitempty"`  // trimmed wake body of the running turn (frontmatter stripped)
 	TurnStart      time.Time `json:"turnStart,omitzero"`       // start time of the running turn (identifies the turn across scans)
+	// LastTextDeltaAt is when the running turn last emitted user-visible text;
+	// zero if it has emitted none (or the provider does not stream). Raw rather
+	// than a derived age, like TurnStart above, so the reader owns the policy.
+	LastTextDeltaAt time.Time `json:"lastTextDeltaAt,omitzero"`
 }
 
 // WakeSource identifies how a thread was woken.

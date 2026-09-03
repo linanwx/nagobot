@@ -455,6 +455,12 @@ func (r *Runner) callLLM(ctx context.Context, chatReq *provider.Request) (*llmCa
 			}
 			switch delta.Type {
 			case provider.DeltaText:
+				// Only DeltaText stamps this. DeltaReasoning must not: nothing
+				// has reached the user during a long think, which is precisely
+				// when a progress note earns its place.
+				if r.metrics != nil {
+					r.metrics.NoteTextDelta(time.Now())
+				}
 				if r.onStream != nil {
 					r.onStream(streamID, delta.Text)
 				}

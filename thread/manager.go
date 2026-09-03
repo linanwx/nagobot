@@ -443,6 +443,7 @@ func threadInfo(t *Thread) tools.ThreadInfo {
 		info.ElapsedSec = int(time.Since(t.execMetrics.TurnStart).Seconds())
 		info.ToolTrace = append([]ToolCallRecord(nil), t.execMetrics.ToolCalls...)
 		info.TurnStart = t.execMetrics.TurnStart
+		info.LastTextDeltaAt = t.execMetrics.LastTextDeltaAt
 		info.OriginRequest = t.execMetrics.OriginRequest
 		t.execMetrics.mu.Unlock()
 		info.TurnWakeSource = string(t.lastWakeSource)
