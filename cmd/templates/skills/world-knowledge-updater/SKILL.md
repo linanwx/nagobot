@@ -113,7 +113,7 @@ The file must follow this exact format:
 ```
 
 Requirements:
-- Total length ≤ 1000 words for the world sections (excluding the header), plus ≤ 250 words for "Watched Domains" — every word here is re-sent in every agent's system prompt on every turn, so an item that will never change what the assistant says is pure cost
+- **Hard limits, counted before you write: ≤ 1000 words for the world sections** (excluding the header) **and ≤ 250 for "Watched Domains".** Over either one, delete the weakest bullets until you are under — do not shorten every bullet into uselessness, and do not treat the number as a target to approach from above. Every word here is re-sent in every agent's system prompt on every turn of every session, so a bullet that will never change what the assistant says is pure cost
 - Each bullet: event title + date + 1-2 sentence factual description
 - No opinions, speculation, or filler
 - Write in English
