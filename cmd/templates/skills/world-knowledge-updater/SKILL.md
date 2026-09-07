@@ -69,7 +69,7 @@ If the read fails (the file does not exist — the people-knowledge cron has nev
 
 **Derive interests, not facts.** Read the sections for what these people *keep coming back to* — the **Motivation**, **Upcoming / direction** and **Highlights** fields hold it most reliably, and an activity repeated across several dates counts too. A one-off mention is not an interest. Turn each into a domain you can search: "piano practice and repertoire" → classical-piano releases/competitions; "coffee brewing experiments" → specialty-coffee developments; "self-hosted home automation" → that ecosystem's releases and breaking changes.
 
-Pick **at most 3 domains**, most-recurring first, and run **one `web_search` each**, date-qualified to the same lookback window — three is the whole budget for this step, and it is small on purpose (step 5 says why). Verify with `web_fetch` only when a snippet is ambiguous.
+Pick **at most 5 domains**, most-recurring first, and run **one `web_search` each**, date-qualified to the same lookback window. Verify with `web_fetch` only when a snippet is ambiguous.
 
 Keep an item only if it is **a dated development in that domain, inside the lookback window, that a model trained before the cutoff would not know**. That is the whole bar — do **not** apply step 3's "impacts the next 5 years of world development" filter here, which would reject every one of them. A domain that turns up nothing new contributes nothing; drop it rather than padding.
 
@@ -82,7 +82,7 @@ Two more things this section is not:
 
 ### 5. Write the summary
 
-**Stop searching and write.** This single `write_file` emits the whole file — several thousand tokens of tool argument — out of the same bounded output budget your reasoning draws on, and it is the only step that produces anything durable. A run that keeps searching to perfect its material arrives at this call with a huge context and too little budget left, spends what remains deliberating, and ends having written **nothing** — every search before it wasted. That is the failure mode to avoid, and it is why steps 2 and 4 are capped: **~15 searches across the whole run**. Compose from the material you have, in one pass, without re-deliberating what to include.
+**Stop searching and write.** This single `write_file` emits the whole file — several thousand tokens of tool argument — out of the same bounded output budget your reasoning draws on, and it is the only step that produces anything durable. A run that keeps searching to perfect its material arrives at this call with a huge context and too little budget left, spends what remains deliberating, and ends having written **nothing** — every search before it wasted. That is the failure mode to avoid, and it is why steps 2 and 4 are capped: **~17 searches across the whole run**. Compose from the material you have, in one pass, without re-deliberating what to include.
 
 Compose a markdown summary and write it to the system file:
 
