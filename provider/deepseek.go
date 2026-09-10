@@ -18,25 +18,44 @@ import (
 const deepSeekAPIBase = "https://api.deepseek.com"
 
 // instantSuffix marks DeepSeek model aliases that disable thinking mode.
-// E.g. "deepseek-v4-flash-instant" wires to "deepseek-v4-flash" with thinking off.
+// E.g. "deepseek-flash-instant" wires to "deepseek-flash" with thinking off.
 const instantSuffix = "-instant"
 
-// dsVisionModel is the only DeepSeek model that accepts image input. It matches
-// deepseek-v4-flash on text, price and window, and takes the same thinking dial
-// (verified against the live API: thinking enabled / reasoning_effort max /
-// disabled all return 200), so it registers with the same -instant and [effort]
-// aliases as the text models rather than as a bare special case.
+// dsFlashModel is DeepSeek-V4.1-Flash, released 2026-09-10. The wire id carries
+// no version at all — "deepseek-flash", not "deepseek-v4.1-flash" (OpenRouter
+// spells the same model the other way; see openrouter.go, and do not assume one
+// id works on both routes).
 //
-// The "-exp" is DeepSeek's own suffix and may be renamed upstream; it is the
-// wire id, so it cannot be dropped here.
-const dsVisionModel = "deepseek-v4-flash-vision-exp"
+// It replaces BOTH retired predecessors with one model: deepseek-v4-flash and
+// deepseek-v4-flash-vision-exp are gone, and DeepSeek routes those two names
+// here "temporarily", with no announced end date. It is natively multimodal, so
+// there is no longer a separate vision id to register — 1M context, 384K max
+// output, and 4.4x cheaper input / 3.3x cheaper output than deepseek-v4-pro.
+const dsFlashModel = "deepseek-flash"
 
-// dsReasoningEfforts are the only two thinking depths DeepSeek accepts. They
-// are selectable per model via a bracket suffix ("deepseek-v4-pro[max]"), the
-// same shape openai uses (see parseModelEffort). "high" is the server-side
-// default; "max" is for the hardest math / planning / multi-step agent work
-// and produces much longer chains of thought.
-var dsReasoningEfforts = []string{"high", "max"}
+// dsReasoningEfforts is the FULL set the API accepts, read out of the
+// deserializer's own rejection message rather than guessed:
+//
+//	reasoning_effort: unknown variant `bogus`, expected one of
+//	`none`, `minimal`, `low`, `medium`, `high`, `xhigh`, `max`
+//
+// They are selectable per model via a bracket suffix ("deepseek-flash[max]"),
+// the same shape openai uses (see parseModelEffort). Omitting the field leaves
+// DeepSeek's own default, which sits between "low" and "high".
+//
+// Measured on deepseek-flash, reasoning tokens on one fixed prompt at n=8:
+// minimal mean 1728, medium 3601, max 4222 — a real ~2.4x ladder, but one that
+// needs n>=8 to see past the per-call variance. deepseek-v4-pro (n=4) runs
+// none 0 / low 1841 / high 4931.
+var dsReasoningEfforts = []string{"none", "minimal", "low", "medium", "high", "xhigh", "max"}
+
+// dsEffortNone is the one tier that cannot be expressed as an effort alongside
+// thinking.type. Measured: "thinking":{"type":"enabled"} OVERRIDES a top-level
+// "reasoning_effort":"none" (median 3163 reasoning tokens, n=5), while "none"
+// sent without a thinking field yields 0 every time (5/5). thinking.type is the
+// master switch, so newDeepSeekProvider folds [none] into thinking-off rather
+// than shipping an enum value that silently means its opposite.
+const dsEffortNone = "none"
 
 // dsWithEffortVariants appends "model[effort]" entries for every base model so
 // the whitelist and context-window registries treat each tier as a first-class
@@ -51,24 +70,27 @@ func dsWithEffortVariants(models []string, base ...string) []string {
 }
 
 func init() {
-	baseV4 := []string{"deepseek-v4-pro", "deepseek-v4-flash", dsVisionModel}
+	base := []string{dsFlashModel, "deepseek-v4-pro"}
 	models := []string{
-		"deepseek-v4-pro", "deepseek-v4-flash", dsVisionModel,
-		"deepseek-v4-pro-instant", "deepseek-v4-flash-instant", dsVisionModel + instantSuffix,
+		dsFlashModel, "deepseek-v4-pro",
+		dsFlashModel + instantSuffix, "deepseek-v4-pro" + instantSuffix,
 	}
-	models = dsWithEffortVariants(models, baseV4...)
+	models = dsWithEffortVariants(models, base...)
 
 	windows := map[string]int{}
 	for _, m := range models {
 		windows[m] = 1000000
 	}
 
-	// Every alias of the vision model is vision-capable, not just the bare id:
-	// SupportsVision is keyed on the nagobot-facing modelType, which still
-	// carries the -instant / [effort] suffix when the caller picked one.
+	// V4.1-Flash is natively multimodal, so vision is now a property of the
+	// mainline model rather than of a separate experimental id. Every alias
+	// counts, not just the bare one: SupportsVision is keyed on the
+	// nagobot-facing modelType, which still carries the -instant / [effort]
+	// suffix when the caller picked one. deepseek-v4-pro has no vision at all
+	// (the pricing table says so outright) and must not appear here.
 	var visionModels []string
 	for _, m := range models {
-		if strings.HasPrefix(m, dsVisionModel) {
+		if strings.HasPrefix(m, dsFlashModel) {
 			visionModels = append(visionModels, m)
 		}
 	}
@@ -96,6 +118,18 @@ type dsRequest struct {
 	Stream        bool          `json:"stream"`
 	StreamOptions *dsStreamOpts `json:"stream_options,omitempty"`
 	Thinking      *dsThinking   `json:"thinking,omitempty"`
+	// ReasoningEffort is TOP-LEVEL, and that placement is the whole point of
+	// this field existing separately from dsThinking. It used to be nested
+	// inside "thinking", where the API silently ignored it: a bogus value
+	// nested returns 200, the same value at top level returns 400 naming the
+	// enum. So every [high]/[max] alias ever shipped ran at the server default
+	// while the request looked correct and the tests stayed green — the same
+	// shape as zhipu's extra_body defect, and the same reason the guard for it
+	// (TestDeepSeekSendsReasoningEffortAtTopLevel) asserts on the marshalled
+	// body rather than on the provider's fields.
+	//
+	// Empty means omit, which is DeepSeek's own default depth.
+	ReasoningEffort string `json:"reasoning_effort,omitempty"`
 }
 
 type dsStreamOpts struct {
@@ -104,8 +138,15 @@ type dsStreamOpts struct {
 
 // dsContentPart is one element of a multimodal message body. DeepSeek follows
 // the OpenAI content-part shape: {"type":"text"} and {"type":"image_url"} with
-// a data: URL. The optional "detail" dial is deliberately not sent — DeepSeek
-// resizes to ~800x800 and caps an image at 384 tokens either way.
+// a data: URL. The optional "detail" dial is deliberately not sent.
+//
+// V4.1-Flash dropped the old vision-exp model's flat 384-token cap and tiles
+// instead. Measured prompt_tokens for one image plus a two-token prompt:
+// <=512x512 -> 190 (a floor), 1024x1024 -> 658, 1920x1080 -> 974,
+// 3000x2000 -> 983. EstimateImageTokens still overestimates against this
+// (~2764 for 1920x1080), which is the safe direction for a budget guard, so it
+// is left alone — see the note in CLAUDE.md about why a provider-dependent
+// estimate is not a local change.
 type dsContentPart struct {
 	Type     string      `json:"type"`
 	Text     string      `json:"text,omitempty"`
@@ -116,9 +157,12 @@ type dsImageURL struct {
 	URL string `json:"url"`
 }
 
+// dsThinking is the master switch, and it outranks ReasoningEffort: sending
+// type "enabled" alongside reasoning_effort "none" still thinks. The API also
+// accepts "adaptive" (let the model choose), which nagobot does not send —
+// every model rule here names a depth on purpose.
 type dsThinking struct {
-	Type            string `json:"type"`                       // "enabled" | "disabled"
-	ReasoningEffort string `json:"reasoning_effort,omitempty"` // "high" | "max"; omitted = server default (high)
+	Type string `json:"type"` // "adaptive" | "enabled" | "disabled"
 }
 
 type dsMessage struct {
@@ -233,6 +277,14 @@ func newDeepSeekProvider(apiKey, apiBase, modelType, modelName string, maxTokens
 	if !slices.Contains(dsReasoningEfforts, effort) {
 		effort = "" // unknown tier: fall through to DeepSeek's own default
 	}
+	// [none] is thinking-OFF, not a depth. Left as an effort it would be
+	// overridden by thinking.type "enabled" and the turn would reason anyway,
+	// so it folds into exactly the state an -instant alias produces. This is
+	// the only enum value that cannot survive as itself.
+	if effort == dsEffortNone {
+		thinking = false
+		effort = ""
+	}
 	if apiBase == "" {
 		apiBase = deepSeekAPIBase
 	}
@@ -261,9 +313,10 @@ func (p *DeepSeekProvider) endpoint() string {
 func (p *DeepSeekProvider) Chat(ctx context.Context, req *Request) (ChatResult, error) {
 	start := time.Now()
 	inputChars := inputChars(req.Messages)
-	// Thinking mode is off only for -instant aliases. Effort comes from a
-	// [bracket] suffix; without one the bare v4-pro/v4-flash aliases send no
-	// reasoning_effort and DeepSeek applies its own default (high).
+	// Thinking mode is off for -instant aliases and for [none]. Effort comes
+	// from a [bracket] suffix; without one the bare aliases send no
+	// reasoning_effort at all and DeepSeek applies its own default depth,
+	// measured to sit between "low" and "high".
 	thinkingEnabled := p.thinking
 
 	logger.Info(
@@ -297,7 +350,8 @@ func (p *DeepSeekProvider) buildRequest(req *Request, thinkingEnabled, streaming
 		r.Temperature = &t
 	}
 	if thinkingEnabled {
-		r.Thinking = &dsThinking{Type: "enabled", ReasoningEffort: p.effort}
+		r.Thinking = &dsThinking{Type: "enabled"}
+		r.ReasoningEffort = p.effort
 	} else {
 		r.Thinking = &dsThinking{Type: "disabled"}
 	}

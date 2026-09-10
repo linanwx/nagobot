@@ -8,7 +8,7 @@ import (
 
 const (
 	defaultProvider            = "deepseek"
-	defaultModelType           = "deepseek-v4-flash"
+	defaultModelType           = "deepseek-flash"
 	// defaultMaxTokens is the output reservation. Deliberately small: observed
 	// outputs are 700–3,500 tokens, and every token reserved here lowers the
 	// context budget guard's trigger line — at 65536 the guard fired barely

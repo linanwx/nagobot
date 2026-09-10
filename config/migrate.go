@@ -2,13 +2,21 @@ package config
 
 import "github.com/linanwx/nagobot/logger"
 
-// legacyDeepSeekModelRename maps retired DeepSeek model IDs to their V4
-// successors. DeepSeek themselves route both legacy names to deepseek-v4-flash
-// (reasoner → flash thinking, chat → flash non-thinking) until 2026-07-24 UTC,
-// after which the old names stop resolving entirely.
+// legacyDeepSeekModelRename maps retired DeepSeek model IDs to their current
+// successor. The target moved to deepseek-flash (V4.1-Flash) on 2026-09-10,
+// when deepseek-v4-flash was itself retired — a migration whose destination is
+// also dead just relocates the failure.
+//
+// Deliberately NOT listed here: deepseek-v4-flash and
+// deepseek-v4-flash-vision-exp. DeepSeek still routes both to deepseek-flash,
+// so a config naming one keeps working against the API — which is exactly why
+// it must fail HERE instead. Silently rewriting a live pin would hide that the
+// deployment is riding an alias with no announced end date; the registry drops
+// the ids (see TestRetiredModelsAreNotRegistered) and each config is updated by
+// hand.
 var legacyDeepSeekModelRename = map[string]string{
-	"deepseek-reasoner": "deepseek-v4-flash",
-	"deepseek-chat":     "deepseek-v4-flash",
+	"deepseek-reasoner": "deepseek-flash",
+	"deepseek-chat":     "deepseek-flash",
 }
 
 var legacyKimiModelRename = map[string]map[string]string{

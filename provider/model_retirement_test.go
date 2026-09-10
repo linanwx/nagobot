@@ -105,6 +105,26 @@ func TestRetiredModelsAreNotRegistered(t *testing.T) {
 		// glm-5.3 that zhipu-cn / zhipu-global / openrouter all serve today.
 		{"siliconflow-cn", "Pro/zai-org/GLM-5.2"},
 		{"siliconflow-global", "zai-org/GLM-5.2"},
+		// DeepSeek retired V4-Flash and V4-Flash-Vision-Exp on 2026-09-10 and
+		// folded both into one natively-multimodal deepseek-flash (V4.1-Flash).
+		// They are listed here even though DeepSeek still ROUTES both names to
+		// the new model: that routing is announced as temporary with no end
+		// date, so a config left pointing at one is a deployment riding an
+		// alias that can vanish without warning. Failing at config load is the
+		// only moment that is visible. Every alias is enumerated because
+		// ValidateProviderModelType keys on the full modelType string.
+		{"deepseek", "deepseek-v4-flash"},
+		{"deepseek", "deepseek-v4-flash-instant"},
+		{"deepseek", "deepseek-v4-flash[high]"},
+		{"deepseek", "deepseek-v4-flash[max]"},
+		{"deepseek", "deepseek-v4-flash-vision-exp"},
+		{"deepseek", "deepseek-v4-flash-vision-exp-instant"},
+		{"deepseek", "deepseek-v4-flash-vision-exp[high]"},
+		{"deepseek", "deepseek-v4-flash-vision-exp[max]"},
+		// The OpenRouter route went with it. deepseek/deepseek-v4.1-flash
+		// replaces it there and is cheaper for the same vendor weights
+		// ($0.15/$0.60 against the retired route's $0.22/$0.66).
+		{"openrouter", "deepseek/deepseek-v4-flash-vision-exp"},
 	}
 
 	for _, tc := range cases {
@@ -363,18 +383,19 @@ func TestFableModelsAreNeverRegistered(t *testing.T) {
 // OpenRouter. For most entries an absent ProviderOrder is a missed
 // optimization; for these it is a silent substitution of the product.
 //
-// OpenRouter serves xiaomi/mimo-v2.5-pro from 7 upstreams and
-// minimax/minimax-m3 from 13, at quantizations ranging from bf16 down to fp4,
-// with several reported as "unknown". Unpinned, two identical requests can be
+// OpenRouter serves xiaomi/mimo-v2.5-pro from 7 upstreams, minimax/minimax-m3
+// from 13 and deepseek/deepseek-v4.1-flash from 3 (DeepSeek and Novita both
+// reporting an unknown quantization, DeepInfra at fp8), at quantizations
+// ranging from bf16 down to fp4. Unpinned, two identical requests can be
 // answered by two different sets of weights, and nothing in the response says
 // so. The native providers used to make this moot by reaching the vendor
 // directly; with them deleted, the pin is the only thing that still does.
 func TestVendorPinnedOpenRouterRoutes(t *testing.T) {
 	want := map[string]string{
-		"xiaomi/mimo-v2.5-pro":                  "xiaomi",
-		"xiaomi/mimo-v2.5":                      "xiaomi",
-		"minimax/minimax-m3":                    "minimax",
-		"deepseek/deepseek-v4-flash-vision-exp": "deepseek",
+		"xiaomi/mimo-v2.5-pro":         "xiaomi",
+		"xiaomi/mimo-v2.5":             "xiaomi",
+		"minimax/minimax-m3":           "minimax",
+		"deepseek/deepseek-v4.1-flash": "deepseek",
 	}
 	registered := make(map[string]bool)
 	for _, m := range SupportedModelsForProvider("openrouter") {

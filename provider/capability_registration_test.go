@@ -45,13 +45,19 @@ func TestCapabilityListsOnlyNameRegisteredModels(t *testing.T) {
 	}
 }
 
-// The DeepSeek vision model is reachable by two routes and they must agree:
+// The DeepSeek flash model is reachable by two routes and they must agree:
 // same model, same ceiling, both able to see. A route registered in Models but
 // missing from VisionModels would accept the model and silently drop images.
-func TestDeepSeekVisionIsConsistentAcrossBothRoutes(t *testing.T) {
+//
+// The two routes spell it DIFFERENTLY — native "deepseek-flash" carries no
+// version, OpenRouter's "deepseek/deepseek-v4.1-flash" does — so the ids are
+// written out rather than derived from one constant. That divergence is the
+// vendor's, not ours, and it is exactly the kind of thing a derived id would
+// hide by making one route unregistered instead of mismatched.
+func TestDeepSeekFlashIsConsistentAcrossBothRoutes(t *testing.T) {
 	routes := map[string]string{
-		"deepseek":   dsVisionModel,
-		"openrouter": "deepseek/" + dsVisionModel,
+		"deepseek":   dsFlashModel,
+		"openrouter": "deepseek/deepseek-v4.1-flash",
 	}
 	windows := map[string]int{}
 	for provider, model := range routes {

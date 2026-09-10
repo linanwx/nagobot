@@ -138,9 +138,9 @@ func TestDeepSeekInstantSuffix(t *testing.T) {
 		wantThinking bool
 		wantWireType string
 	}{
-		{"deepseek-v4-flash", "deepseek-v4-flash", true, "enabled"},
+		{"deepseek-flash", "deepseek-flash", true, "enabled"},
 		{"deepseek-v4-pro", "deepseek-v4-pro", true, "enabled"},
-		{"deepseek-v4-flash-instant", "deepseek-v4-flash", false, "disabled"},
+		{"deepseek-flash-instant", "deepseek-flash", false, "disabled"},
 		{"deepseek-v4-pro-instant", "deepseek-v4-pro", false, "disabled"},
 	}
 	for _, tc := range tests {
@@ -168,46 +168,114 @@ func TestDeepSeekInstantSuffix(t *testing.T) {
 	}
 }
 
-// A [bracket] suffix on the model name selects DeepSeek's reasoning depth:
-// the bracket is stripped from the wire model and re-emitted as
-// thinking.reasoning_effort. Bare aliases send no effort field at all so the
-// server applies its own default — writing "high" explicitly would be the same
-// value today but would silently pin us if DeepSeek moves that default.
+// A [bracket] suffix on the model name selects DeepSeek's reasoning depth: the
+// bracket is stripped from the wire model and re-emitted as a TOP-LEVEL
+// reasoning_effort. Bare aliases send no effort field at all so the server
+// applies its own default — naming a tier explicitly would pin us if DeepSeek
+// moves it.
 func TestDeepSeekReasoningEffortSuffix(t *testing.T) {
 	tests := []struct {
-		modelType  string
-		wantWire   string
-		wantEffort string
+		modelType    string
+		wantWire     string
+		wantEffort   string
+		wantThinking bool
 	}{
-		{"deepseek-v4-pro[high]", "deepseek-v4-pro", "high"},
-		{"deepseek-v4-pro[max]", "deepseek-v4-pro", "max"},
-		{"deepseek-v4-flash[high]", "deepseek-v4-flash", "high"},
-		{"deepseek-v4-flash[max]", "deepseek-v4-flash", "max"},
-		{"deepseek-v4-pro", "deepseek-v4-pro", ""},
-		// Unregistered tiers borrowed from other providers must not reach the
-		// wire — DeepSeek 400s on anything outside high/max.
-		{"deepseek-v4-pro[low]", "deepseek-v4-pro", ""},
-		{"deepseek-v4-pro[xhigh]", "deepseek-v4-pro", ""},
+		{"deepseek-v4-pro[high]", "deepseek-v4-pro", "high", true},
+		{"deepseek-v4-pro[max]", "deepseek-v4-pro", "max", true},
+		{"deepseek-flash[minimal]", "deepseek-flash", "minimal", true},
+		{"deepseek-flash[low]", "deepseek-flash", "low", true},
+		{"deepseek-flash[medium]", "deepseek-flash", "medium", true},
+		{"deepseek-flash[xhigh]", "deepseek-flash", "xhigh", true},
+		{"deepseek-flash[max]", "deepseek-flash", "max", true},
+		{"deepseek-v4-pro", "deepseek-v4-pro", "", true},
+		// [none] is the one tier that cannot ride as an effort: thinking.type
+		// "enabled" outranks it on the wire (measured), so it must arrive as
+		// thinking-off with no effort field, exactly like an -instant alias.
+		{"deepseek-flash[none]", "deepseek-flash", "", false},
+		{"deepseek-v4-pro[none]", "deepseek-v4-pro", "", false},
+		// A tier borrowed from another provider must not reach the wire —
+		// DeepSeek 400s on anything outside its own seven.
+		{"deepseek-v4-pro[ultra]", "deepseek-v4-pro", "", true},
 	}
 	for _, tc := range tests {
 		p := newDeepSeekProvider("k", "", tc.modelType, tc.modelType, 0, 0)
 		if p.modelName != tc.wantWire {
 			t.Errorf("%s: wire modelName = %q, want %q", tc.modelType, p.modelName, tc.wantWire)
 		}
-		if !p.thinking {
-			t.Errorf("%s: thinking must stay on for effort variants", tc.modelType)
+		if p.thinking != tc.wantThinking {
+			t.Errorf("%s: thinking = %v, want %v", tc.modelType, p.thinking, tc.wantThinking)
 		}
 		r := p.buildRequest(&Request{Messages: []Message{{Role: "user", Content: "q"}}}, p.thinking, true)
-		if r.Thinking == nil || r.Thinking.Type != "enabled" {
-			t.Fatalf("%s: thinking = %+v, want type=enabled", tc.modelType, r.Thinking)
+		wantType := "disabled"
+		if tc.wantThinking {
+			wantType = "enabled"
 		}
-		if r.Thinking.ReasoningEffort != tc.wantEffort {
-			t.Errorf("%s: reasoning_effort = %q, want %q", tc.modelType, r.Thinking.ReasoningEffort, tc.wantEffort)
+		if r.Thinking == nil || r.Thinking.Type != wantType {
+			t.Fatalf("%s: thinking = %+v, want type=%s", tc.modelType, r.Thinking, wantType)
 		}
-		body, _ := json.Marshal(r.Thinking)
+		if r.ReasoningEffort != tc.wantEffort {
+			t.Errorf("%s: reasoning_effort = %q, want %q", tc.modelType, r.ReasoningEffort, tc.wantEffort)
+		}
+		body, _ := json.Marshal(r)
 		if tc.wantEffort == "" && strings.Contains(string(body), "reasoning_effort") {
 			t.Errorf("%s: reasoning_effort must be omitted from the wire: %s", tc.modelType, body)
 		}
+	}
+}
+
+// TestDeepSeekSendsReasoningEffortAtTopLevel asserts on the MARSHALLED body,
+// because every cheaper check passed for months while the parameter was dead.
+//
+// reasoning_effort used to be a field of dsThinking, i.e. nested inside the
+// "thinking" object. DeepSeek ignores it there — silently, with a 200 and a
+// perfectly good answer — so every [high] / [max] alias ever configured ran at
+// the server default. The API is unambiguous once you ask it the right way:
+//
+//	nested   "reasoning_effort":"bogus"  -> HTTP 200
+//	toplevel "reasoning_effort":"bogus"  -> HTTP 400, unknown variant `bogus`,
+//	                                       expected one of `none`, `minimal`,
+//	                                       `low`, `medium`, `high`, `xhigh`, `max`
+//
+// A silently-dropped parameter is strictly worse than a rejected one, and the
+// only place the difference is visible is the bytes. This is the same defect,
+// and the same guard, as TestZhipuSendsThinkingParamsAtTopLevel.
+func TestDeepSeekSendsReasoningEffortAtTopLevel(t *testing.T) {
+	p := newDeepSeekProvider("k", "", "deepseek-flash[max]", "deepseek-flash[max]", 0, 0)
+	r := p.buildRequest(&Request{Messages: []Message{{Role: "user", Content: "q"}}}, p.thinking, true)
+
+	body, err := json.Marshal(r)
+	if err != nil {
+		t.Fatalf("marshal: %v", err)
+	}
+	var wire map[string]json.RawMessage
+	if err := json.Unmarshal(body, &wire); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+
+	got, ok := wire["reasoning_effort"]
+	if !ok {
+		t.Fatalf("reasoning_effort missing from the top level of the request body: %s", body)
+	}
+	if string(got) != `"max"` {
+		t.Errorf("top-level reasoning_effort = %s, want \"max\"", got)
+	}
+
+	var thinking map[string]json.RawMessage
+	if err := json.Unmarshal(wire["thinking"], &thinking); err != nil {
+		t.Fatalf("unmarshal thinking: %v", err)
+	}
+	if _, nested := thinking["reasoning_effort"]; nested {
+		t.Errorf("reasoning_effort is nested inside thinking, where DeepSeek ignores it: %s", body)
+	}
+}
+
+// The registered tiers must be exactly what the API's own deserializer accepts.
+// Both directions matter: a missing tier is unreachable from config, and an
+// invented one 400s the whole turn at request time rather than at config time.
+func TestDeepSeekReasoningEffortsMatchTheAPIEnum(t *testing.T) {
+	want := []string{"none", "minimal", "low", "medium", "high", "xhigh", "max"}
+	if !slices.Equal(dsReasoningEfforts, want) {
+		t.Errorf("dsReasoningEfforts = %v, want %v (the enum in the API's own 400)", dsReasoningEfforts, want)
 	}
 }
 
@@ -218,7 +286,7 @@ func TestDeepSeekEffortVariantsRegistered(t *testing.T) {
 	if !ok {
 		t.Fatal("deepseek not registered")
 	}
-	for _, base := range []string{"deepseek-v4-pro", "deepseek-v4-flash"} {
+	for _, base := range []string{"deepseek-v4-pro", dsFlashModel} {
 		for _, e := range dsReasoningEfforts {
 			name := base + "[" + e + "]"
 			if !slices.Contains(reg.Models, name) {
@@ -266,9 +334,10 @@ func dsPartsOf(t *testing.T, m dsMessage) []dsContentPart {
 	return parts
 }
 
-// The gate is not cosmetic: deepseek-v4-flash answers an image part with
-// 400 "This model does not support image", so an ungated attach would break
-// every turn that carries a screenshot on the default model.
+// The gate is not cosmetic: DeepSeek's text-only models answer an image part
+// with 400 "This model does not support image" — they fail the whole turn
+// rather than ignoring the part — so an ungated attach would break every turn
+// that carries a screenshot on deepseek-v4-pro.
 func TestToDSMessagesAttachesImagesOnlyWhenVisionCapable(t *testing.T) {
 	_, marker := dsTestImage(t)
 	msgs := []Message{{Role: "user", Content: "what is this?", Media: []string{marker}}}
@@ -367,13 +436,14 @@ func TestToDSMessagesIgnoresNonImageMedia(t *testing.T) {
 
 // SupportsVision is keyed on the nagobot-facing modelType, which still carries
 // the -instant / [effort] suffix. Registering only the bare id would leave
-// "deepseek-v4-flash-vision-exp[max]" silently blind.
+// "deepseek-flash[max]" silently blind.
 func TestEveryDeepSeekVisionAliasIsVisionCapable(t *testing.T) {
 	aliases := []string{
-		"deepseek-v4-flash-vision-exp",
-		"deepseek-v4-flash-vision-exp-instant",
-		"deepseek-v4-flash-vision-exp[high]",
-		"deepseek-v4-flash-vision-exp[max]",
+		dsFlashModel,
+		dsFlashModel + instantSuffix,
+	}
+	for _, e := range dsReasoningEfforts {
+		aliases = append(aliases, dsFlashModel+"["+e+"]")
 	}
 	for _, a := range aliases {
 		if !slices.Contains(providerModelTypes["deepseek"], a) {
@@ -384,8 +454,9 @@ func TestEveryDeepSeekVisionAliasIsVisionCapable(t *testing.T) {
 			t.Errorf("%s registered but not vision-capable", a)
 		}
 	}
-	// The text models must NOT be: they 400 on an image part.
-	for _, blind := range []string{"deepseek-v4-flash", "deepseek-v4-pro", "deepseek-v4-flash-instant"} {
+	// v4-pro must NOT be: the pricing table lists Vision as unsupported for it,
+	// and the API rejects an image part outright.
+	for _, blind := range []string{"deepseek-v4-pro", "deepseek-v4-pro-instant", "deepseek-v4-pro[max]"} {
 		if SupportsVision("deepseek", blind) {
 			t.Errorf("%s must not be vision-capable — the API rejects images on it", blind)
 		}

@@ -23,7 +23,7 @@ services:
     environment:
       # First-boot config bootstrap (ignored once config.yaml exists):
       - NAGOBOT_PROVIDER=${NAGOBOT_PROVIDER:-deepseek}
-      - NAGOBOT_MODEL=${NAGOBOT_MODEL:-deepseek-v4-flash}
+      - NAGOBOT_MODEL=${NAGOBOT_MODEL:-deepseek-flash}
       # Provider keys / channel tokens — read live from env, set what you have.
       # OPENROUTER_API_KEY also powers pre-think embedding.
       - DEEPSEEK_API_KEY=${DEEPSEEK_API_KEY:-}

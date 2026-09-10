@@ -121,12 +121,15 @@ var openRouterModels = map[string]openRouterModelMeta{
 		},
 		ProviderOrder: []string{"z-ai"},
 	},
-	// No ThinkingOpts: DeepSeek turns thinking on by itself at effort "high",
-	// which is exactly what the native route's bare alias sends. Pinning the
-	// upstream still matters even though DeepSeek is the only one serving this
-	// model today — it is what keeps a later third-party host from silently
-	// answering with different quantization.
-	"deepseek/deepseek-v4-flash-vision-exp": {
+	// No ThinkingOpts: DeepSeek turns thinking on by itself, which is exactly
+	// what the native route's bare alias sends.
+	//
+	// The pin is no longer precautionary. Where the retired vision-exp route
+	// had DeepSeek as its only upstream, V4.1-Flash is served by three —
+	// DeepSeek (quantization unreported), Novita (unreported) and DeepInfra at
+	// fp8 — so unpinned, two identical requests can be answered by two
+	// different sets of weights with nothing in the response saying so.
+	"deepseek/deepseek-v4.1-flash": {
 		ProviderOrder: []string{"deepseek"},
 	},
 	"google/gemini-3.7-flash": {
@@ -183,8 +186,8 @@ var openRouterModels = map[string]openRouterModelMeta{
 
 func init() {
 	RegisterProvider("openrouter", ProviderRegistration{
-		Models:       []string{"moonshotai/kimi-k2.6", "z-ai/glm-5.3", "z-ai/glm-5.3-flash", "deepseek/deepseek-v4-flash-vision-exp", "minimax/minimax-m3", "google/gemini-3.7-flash", "google/gemini-3.5-flash-lite", "google/gemini-3.1-flash-lite", "openai/gpt-5.4-mini", "xiaomi/mimo-v2.5-pro", "xiaomi/mimo-v2.5"},
-		VisionModels: []string{"moonshotai/kimi-k2.6", "z-ai/glm-5.3-flash", "deepseek/deepseek-v4-flash-vision-exp", "minimax/minimax-m3", "google/gemini-3.7-flash", "google/gemini-3.5-flash-lite", "google/gemini-3.1-flash-lite", "openai/gpt-5.4-mini", "xiaomi/mimo-v2.5"},
+		Models:       []string{"moonshotai/kimi-k2.6", "z-ai/glm-5.3", "z-ai/glm-5.3-flash", "deepseek/deepseek-v4.1-flash", "minimax/minimax-m3", "google/gemini-3.7-flash", "google/gemini-3.5-flash-lite", "google/gemini-3.1-flash-lite", "openai/gpt-5.4-mini", "xiaomi/mimo-v2.5-pro", "xiaomi/mimo-v2.5"},
+		VisionModels: []string{"moonshotai/kimi-k2.6", "z-ai/glm-5.3-flash", "deepseek/deepseek-v4.1-flash", "minimax/minimax-m3", "google/gemini-3.7-flash", "google/gemini-3.5-flash-lite", "google/gemini-3.1-flash-lite", "openai/gpt-5.4-mini", "xiaomi/mimo-v2.5"},
 		AudioModels:  []string{"google/gemini-3.7-flash", "google/gemini-3.5-flash-lite", "google/gemini-3.1-flash-lite", "xiaomi/mimo-v2.5"},
 		ContextWindows: map[string]int{
 			"moonshotai/kimi-k2.6": 262144,
@@ -202,17 +205,17 @@ func init() {
 			// carry two different windows on two routes.
 			"z-ai/glm-5.3":       1000000,
 			"z-ai/glm-5.3-flash": 1000000,
-			// 1000000, not the catalog's 1048576: the sole upstream is DeepSeek
-			// itself, so the real ceiling is the one the native deepseek route
-			// registers, and the two must not disagree about one model.
-			"deepseek/deepseek-v4-flash-vision-exp": 1000000,
-			"minimax/minimax-m3":                    524288,
-			"google/gemini-3.7-flash":               1048576,
-			"google/gemini-3.5-flash-lite":          1048576,
-			"google/gemini-3.1-flash-lite":          1048576,
-			"openai/gpt-5.4-mini":                   400000,
-			"xiaomi/mimo-v2.5-pro":                  1048576,
-			"xiaomi/mimo-v2.5":                      1048576,
+			// 1000000, not the catalog's 1048576: the vendor documents 1M and
+			// the native deepseek route registers 1000000, and one model must
+			// not carry two different windows on two routes.
+			"deepseek/deepseek-v4.1-flash": 1000000,
+			"minimax/minimax-m3":           524288,
+			"google/gemini-3.7-flash":      1048576,
+			"google/gemini-3.5-flash-lite": 1048576,
+			"google/gemini-3.1-flash-lite": 1048576,
+			"openai/gpt-5.4-mini":          400000,
+			"xiaomi/mimo-v2.5-pro":         1048576,
+			"xiaomi/mimo-v2.5":             1048576,
 		},
 		EnvKey:  "OPENROUTER_API_KEY",
 		EnvBase: "OPENROUTER_API_BASE",

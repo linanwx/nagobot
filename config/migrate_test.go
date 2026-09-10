@@ -14,10 +14,10 @@ func TestMigrateLegacyModelNames_ThreadLevel(t *testing.T) {
 	if !cfg.migrateLegacyModelNames() {
 		t.Fatalf("expected migration to report changes")
 	}
-	if cfg.Thread.ModelType != "deepseek-v4-flash" {
+	if cfg.Thread.ModelType != "deepseek-flash" {
 		t.Errorf("ModelType not migrated: got %q", cfg.Thread.ModelType)
 	}
-	if cfg.Thread.ModelName != "deepseek-v4-flash" {
+	if cfg.Thread.ModelName != "deepseek-flash" {
 		t.Errorf("ModelName not migrated: got %q", cfg.Thread.ModelName)
 	}
 
@@ -45,10 +45,10 @@ func TestMigrateLegacyModelNames_PerSpecialtyRouting(t *testing.T) {
 		t.Fatalf("expected migration to report changes")
 	}
 
-	if got := FindModelRule(cfg.Thread.Models, ModelRuleSpecialty, "chat").ModelType; got != "deepseek-v4-flash" {
+	if got := FindModelRule(cfg.Thread.Models, ModelRuleSpecialty, "chat").ModelType; got != "deepseek-flash" {
 		t.Errorf("chat specialty not migrated: got %q", got)
 	}
-	if got := FindModelRule(cfg.Thread.Models, ModelRuleSpecialty, "reason").ModelType; got != "deepseek-v4-flash" {
+	if got := FindModelRule(cfg.Thread.Models, ModelRuleSpecialty, "reason").ModelType; got != "deepseek-flash" {
 		t.Errorf("reason specialty not migrated: got %q", got)
 	}
 	if got := FindModelRule(cfg.Thread.Models, ModelRuleSpecialty, "untouch").ModelType; got != "deepseek-chat" {
@@ -102,10 +102,39 @@ func TestMigrateLegacyModelNames_NoOp(t *testing.T) {
 	cfg := &Config{
 		Thread: ThreadConfig{
 			Provider:  "deepseek",
-			ModelType: "deepseek-v4-flash",
+			ModelType: "deepseek-flash",
 		},
 	}
 	if cfg.migrateLegacyModelNames() {
-		t.Errorf("V4-only config reported changes")
+		t.Errorf("current-model config reported changes")
+	}
+}
+
+// The retired V4-Flash names are deliberately NOT migrated, and that omission
+// is a decision, not an oversight — so it is pinned.
+//
+// DeepSeek still routes deepseek-v4-flash and deepseek-v4-flash-vision-exp to
+// V4.1-Flash, with no announced end date, which is precisely why a silent
+// rewrite here would be wrong: it would hide that a deployment is pinned to an
+// alias that can stop resolving at any time. The provider registry drops the
+// ids instead (TestRetiredModelsAreNotRegistered), so such a config fails loudly
+// at load and is corrected by hand.
+func TestMigrateLeavesRetiredFlashNamesToFailLoudly(t *testing.T) {
+	for _, name := range []string{"deepseek-v4-flash", "deepseek-v4-flash-instant", "deepseek-v4-flash-vision-exp"} {
+		cfg := &Config{
+			Thread: ThreadConfig{
+				Provider:  "deepseek",
+				ModelType: name,
+				Models: []ModelRule{
+					{Type: ModelRuleSpecialty, Name: "chat", Provider: "deepseek", ModelType: name},
+				},
+			},
+		}
+		if cfg.migrateLegacyModelNames() {
+			t.Errorf("%s was silently rewritten; it must reach the registry and fail there", name)
+		}
+		if cfg.Thread.ModelType != name {
+			t.Errorf("%s rewritten to %q", name, cfg.Thread.ModelType)
+		}
 	}
 }

@@ -150,9 +150,9 @@ When you want a second perspective more than you want raw capability:
 ### Never consult these
 
 - **Your own family's models, from your own session.** Consulting
-  `deepseek-v4-pro` from a DeepSeek-routed session is a sideways move, not an
-  escalation — same training data, same blind spots.
-- **`-instant` aliases** (`deepseek-v4-flash-instant`). Thinking is disabled;
+  `deepseek-flash` or `deepseek-v4-pro` from a DeepSeek-routed session is a
+  sideways move, not an escalation — same training data, same blind spots.
+- **`-instant` aliases** (`deepseek-flash-instant`). Thinking is disabled;
   they drop ~13 Intelligence points and exist for throughput.
 - **Non-reasoning variants of reasoning models.** `gpt-5.6-sol` with reasoning
   off scores +0.85 Omniscience against +20.6 with `[xhigh]` — the same weights,
@@ -161,8 +161,9 @@ When you want a second perspective more than you want raw capability:
 ## Reading the model strings
 
 - **A bracket suffix is an effort tier and is part of the model string.**
-  `gpt-5.6-*` accepts `[low] [medium] [high] [xhigh]`; `deepseek-v4-*` accepts
-  `[high] [max]`. No bracket means the provider's server-side default, which is
+  `gpt-5.6-*` accepts `[low] [medium] [high] [xhigh]`; DeepSeek models accept
+  `[none] [minimal] [low] [medium] [high] [xhigh] [max]`, where `[none]` is
+  thinking-off (the same state as an `-instant` alias). No bracket means the provider's server-side default, which is
   not necessarily its best tier.
 - **Higher effort is not monotonically better.** `gpt-5.6-sol[xhigh]` beats
   `[high]` on Coding *and* costs a quarter as much. Never assume "more effort =
