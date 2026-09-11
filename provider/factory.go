@@ -275,6 +275,22 @@ func GetProviderRegistration(name string) (ProviderRegistration, bool) {
 	return reg, ok
 }
 
+// OAuthAccessToken returns a usable OAuth access token for an OAuth-only
+// provider, refreshing the stored one first when it has expired.
+//
+// Anything outside the inference path that needs this token MUST come through
+// here rather than reading cfg.GetOAuthToken(name).AccessToken. The refresh is
+// lazy and fires from exactly one place — providerAPIKey, i.e. when a turn
+// actually builds this provider — so a raw read returns whatever was last
+// persisted, which is a dead token on any deployment that has not routed a turn
+// to the provider since it expired. That is not hypothetical: kingsley's daily
+// balance probe sent a six-day-expired JWT to the usage endpoint every five
+// minutes and reported the 401 as a credential problem, because nothing routes
+// to openai-oauth there and so nothing ever refreshed it.
+func OAuthAccessToken(cfg *config.Config, providerName string) string {
+	return oauthAccessToken(cfg, providerName)
+}
+
 // ProviderAPIKeyForPreview returns the API key for a provider (exported for media preview).
 func ProviderAPIKeyForPreview(cfg *config.Config, providerName string) string {
 	return providerAPIKey(cfg, providerName)

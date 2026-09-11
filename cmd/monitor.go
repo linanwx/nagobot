@@ -12,6 +12,7 @@ import (
 
 	"github.com/linanwx/nagobot/config"
 	"github.com/linanwx/nagobot/monitor"
+	"github.com/linanwx/nagobot/provider"
 )
 
 var monitorCmd = &cobra.Command{
@@ -253,17 +254,49 @@ func buildBalanceCheckers(cfg *config.Config, metricsDir string) []monitor.Balan
 		// snapshot, and for the daemon's poller that snapshot is taken once at
 		// startup — using it here is what let a rotated token go unnoticed for
 		// the life of the process.
-		&monitor.OpenAIQuota{CredsFn: func() (string, string) {
-			cur, err := config.Load()
-			if err != nil || cur == nil {
-				return "", ""
-			}
-			token := cur.GetOAuthToken("openai-oauth")
-			if token == nil {
-				return "", ""
-			}
-			return token.AccessToken, token.AccountID
-		}},
+		&monitor.OpenAIQuota{
+			ConfiguredFn: func() bool {
+				cur, err := config.Load()
+				if err != nil || cur == nil {
+					return false
+				}
+				token := cur.GetOAuthToken("openai-oauth")
+				return token != nil && token.AccessToken != ""
+			},
+			CredsFn: func() (string, string, error) {
+				cur, err := config.Load()
+				if err != nil {
+					return "", "", fmt.Errorf("config load failed: %w", err)
+				}
+				if cur == nil {
+					return "", "", nil
+				}
+				stored := cur.GetOAuthToken("openai-oauth")
+				if stored == nil || stored.AccessToken == "" {
+					return "", "", nil
+				}
+				// Resolve through the provider's own accessor so an expired
+				// token is refreshed here exactly as it would be for an
+				// inference call. Reading stored.AccessToken is the whole bug:
+				// refresh fires only when a turn builds this provider, so on a
+				// deployment that routes nothing to openai-oauth the stored
+				// token stays expired forever and this probe 401s forever.
+				token := provider.OAuthAccessToken(cur, "openai-oauth")
+				if token == "" {
+					return "", "", fmt.Errorf(
+						"OAuth token expired %s and could not be refreshed — re-authenticate with: nagobot auth login openai",
+						formatOAuthExpiry(stored.ExpiresAt))
+				}
+				// Refresh rewrites the stored token in place, so re-read the
+				// account id rather than reusing the pre-refresh one: a refresh
+				// response carrying a new id_token updates it.
+				accountID := stored.AccountID
+				if fresh := cur.GetOAuthToken("openai-oauth"); fresh != nil {
+					accountID = fresh.AccountID
+				}
+				return token, accountID, nil
+			},
+		},
 		&monitor.OpenRouterBalance{KeyFn: keyFn("openrouter")},
 		&monitor.DeepSeekBalance{KeyFn: keyFn("deepseek")},
 		&monitor.MoonshotBalance{Name: "moonshot-cn", Base: "https://api.moonshot.cn/v1", KeyFn: keyFn("moonshot-cn")},
@@ -272,4 +305,23 @@ func buildBalanceCheckers(cfg *config.Config, metricsDir string) []monitor.Balan
 		&monitor.ZhipuBalance{Name: "zhipu-global", KeyFn: keyFn("zhipu-global")},
 		&monitor.UnsupportedBalance{Name: "openai", Reason: "no balance API (requires Admin Key for billing queries)", KeyFn: keyFn("openai")},
 	}
+}
+
+// formatOAuthExpiry renders a token expiry for an operator-facing error: the
+// wall-clock instant plus how long ago it passed, because "expired six days ago
+// and nothing renewed it" is the actionable half of the message.
+func formatOAuthExpiry(expiresAt int64) string {
+	if expiresAt <= 0 {
+		return "at an unknown time"
+	}
+	t := time.Unix(expiresAt, 0).UTC()
+	stamp := t.Format("2006-01-02 15:04 UTC")
+	hours := int(time.Since(t).Hours())
+	if hours <= 0 {
+		return stamp
+	}
+	if hours >= 24 {
+		return fmt.Sprintf("%s (%dd%dh ago)", stamp, hours/24, hours%24)
+	}
+	return fmt.Sprintf("%s (%dh ago)", stamp, hours)
 }

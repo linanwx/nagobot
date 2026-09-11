@@ -2,6 +2,7 @@ package monitor
 
 import (
 	"context"
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -77,9 +78,9 @@ func TestLoadBalanceInvalid(t *testing.T) {
 func TestOpenAIQuotaResolvesCredentialsPerCall(t *testing.T) {
 	token := "tok-before-rotation"
 	calls := 0
-	q := &OpenAIQuota{CredsFn: func() (string, string) {
+	q := &OpenAIQuota{ConfiguredFn: func() bool {
 		calls++
-		return token, "acct-1"
+		return token != ""
 	}}
 
 	if !q.Available() {
@@ -101,12 +102,28 @@ func TestOpenAIQuotaResolvesCredentialsPerCall(t *testing.T) {
 	}
 }
 
+// Available gates every five-minute poll, so it must answer from stored config
+// alone. CredsFn may refresh an expired token over the network, and calling it
+// from here would put that round trip on the gate of every checker sweep.
+func TestOpenAIQuotaAvailableDoesNotResolveCredentials(t *testing.T) {
+	q := &OpenAIQuota{
+		ConfiguredFn: func() bool { return true },
+		CredsFn: func() (string, string, error) {
+			t.Fatal("Available resolved credentials; that path may hit the network")
+			return "", "", nil
+		},
+	}
+	if !q.Available() {
+		t.Fatal("expected the checker to be available")
+	}
+}
+
 // A checker with no OAuth configured must not put "Bearer " on the wire just to
 // be told 401 and then report that as a credential problem.
 func TestOpenAIQuotaWithoutTokenSkipsTheRequest(t *testing.T) {
 	for name, q := range map[string]*OpenAIQuota{
 		"nil CredsFn": {},
-		"empty token": {CredsFn: func() (string, string) { return "", "" }},
+		"empty token": {CredsFn: func() (string, string, error) { return "", "", nil }},
 	} {
 		info, err := q.Check(context.Background())
 		if err != nil {
@@ -118,5 +135,34 @@ func TestOpenAIQuotaWithoutTokenSkipsTheRequest(t *testing.T) {
 		if strings.Contains(info.Error, "HTTP") {
 			t.Fatalf("%s: request went out anyway: %q", name, info.Error)
 		}
+	}
+}
+
+// A credential that exists but cannot be renewed is a different operator
+// problem from one that was never configured, and the two must not share a
+// message: "no OAuth token configured" sends whoever reads it to `auth login`
+// for a token that is sitting in config, which is exactly the wrong-remedy
+// alert this checker's comment already warns about. It must also not reach the
+// wire — a token we know is dead buys nothing but a 401.
+func TestOpenAIQuotaReportsUnrenewableCredentialDistinctly(t *testing.T) {
+	q := &OpenAIQuota{
+		ConfiguredFn: func() bool { return true },
+		CredsFn: func() (string, string, error) {
+			return "", "", errors.New("OAuth token expired 2026-09-04 23:00 UTC (5d21h ago) and could not be refreshed — re-authenticate with: nagobot auth login openai")
+		},
+	}
+
+	info, err := q.Check(context.Background())
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if strings.Contains(info.Error, "HTTP") {
+		t.Fatalf("request went out with a credential known to be dead: %q", info.Error)
+	}
+	if strings.Contains(info.Error, "no OAuth token configured") {
+		t.Fatalf("an unrenewable credential was reported as an absent one: %q", info.Error)
+	}
+	if !strings.Contains(info.Error, "could not be refreshed") {
+		t.Fatalf("error does not say why the credential is unusable: %q", info.Error)
 	}
 }

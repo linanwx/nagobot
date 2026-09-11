@@ -194,28 +194,57 @@ func (b *DeepSeekBalance) Check(ctx context.Context) (*BalanceInfo, error) {
 // and every poll after that reports a dead credential — observed live on
 // kingsley, where the token rotated 08-05 23:00 UTC and the daily health check
 // began claiming "OAuth token expired" while inference kept working fine.
+//
+// Resolving per call is necessary but not sufficient, and the other half took a
+// second outage to find: re-reading a token that EXPIRED and was never renewed
+// gets you the same dead token every time. Refresh is lazy and lives on the
+// inference path alone, so a deployment that routes nothing to openai-oauth
+// never renews the credential at all — kingsley's expired 09-04 23:00 UTC and
+// this probe reported 401 every five minutes for the six days that followed,
+// with inference entirely unaffected because no turn ever asked for it. So
+// CredsFn must resolve through the refreshing path, not read the stored field.
 type OpenAIQuota struct {
-	// CredsFn returns the current access token and account id, both empty when
-	// no OAuth credential is configured.
-	CredsFn func() (accessToken, accountID string)
+	// CredsFn returns credentials that are usable RIGHT NOW: it resolves the
+	// access token through the same refresh-on-expiry path the inference side
+	// uses, so it may make a network call and is invoked from Check only, never
+	// from Available. Reading the stored token instead is what left this probe
+	// sending an expired JWT for six days — the refresh is lazy and fires only
+	// when a turn actually routes to the provider, and nothing had.
+	//
+	// It returns ("", "", nil) when no credential is configured, and an error
+	// when one exists but cannot be made usable — expired with no working
+	// refresh. Those two are different operator problems and must not share a
+	// message.
+	CredsFn func() (accessToken, accountID string, err error)
+
+	// ConfiguredFn reports whether an OAuth credential exists at all, reading
+	// stored config and nothing else. Available gates every poll, so it must
+	// stay free of network calls.
+	ConfiguredFn func() bool
 }
 
 func (b *OpenAIQuota) Provider() string { return "openai-oauth" }
 
-func (b *OpenAIQuota) creds() (string, string) {
+func (b *OpenAIQuota) creds() (string, string, error) {
 	if b.CredsFn == nil {
-		return "", ""
+		return "", "", nil
 	}
 	return b.CredsFn()
 }
 
 func (b *OpenAIQuota) Available() bool {
-	token, _ := b.creds()
-	return token != ""
+	return b.ConfiguredFn != nil && b.ConfiguredFn()
 }
 
 func (b *OpenAIQuota) Check(ctx context.Context) (*BalanceInfo, error) {
-	token, accountID := b.creds()
+	token, accountID, credErr := b.creds()
+	// A credential that exists but could not be renewed is a real, actionable
+	// failure and says so in its own words. Reporting it as "no OAuth token
+	// configured" would send the operator to `auth login` for a token that is
+	// sitting right there in config.
+	if credErr != nil {
+		return &BalanceInfo{Provider: "openai-oauth", Error: credErr.Error()}, nil
+	}
 	if token == "" {
 		return &BalanceInfo{Provider: "openai-oauth", Error: "no OAuth token configured (run: nagobot auth login openai)"}, nil
 	}
