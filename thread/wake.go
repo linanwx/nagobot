@@ -627,15 +627,15 @@ func wakeActionHint(source WakeSource) string {
 	}
 	switch source {
 	case WakeSession:
-		return "Another nagobot session sent you a message, which is ONLY visible to you.\n\n" +
-			"To reply to THAT session you must dispatch — plain text does not reach it. Plain text goes to your own human instead (and on a session with no human of its own it reaches nobody and will be rejected).\n\n" +
-			"Examples:\n" +
-			"1. `dispatch(to=caller:session)` — communicate with the nagobot session that sent you the message.\n" +
-			"2. plain reply text — tell your own human, without answering the caller.\n" +
-			"3. `dispatch(to=session, params={session_key: ...})` — send to a specific nagobot session.\n" +
-			"4. `dispatch({})` — silent end, no delivery.\n\n" +
-			"When replying to another session, start your reply body with a standalone line:\n" +
-			"`> Re: \"<subject>\"`\n" +
+		// One line, no newlines: the YAML marshaller renders a multi-line action as
+		// a `|-` block scalar and a single-line one as a plain quoted scalar.
+		return "The following message was sent by another nagobot session. It is invisible to the human — only you can see it. " +
+			"If you need the human to read it: write the message as this turn's reply content, which delivers it to the user. " +
+			"(Only when you are human-facing session. If you are subagent, skip this option) " +
+			"Else, if you need to reply to the session that sent you the message: call `dispatch(to=caller:session)`. " +
+			"Else, if you need to reply to a specific session you know: call `dispatch(to=session, params={session_key: ...})`. " +
+			"Else, if you need a silent end with no delivery: call `dispatch({})`. " +
+			"When replying to another session, start your reply body with a standalone line: `> Re: \"<subject>\"` " +
 			"`<subject>` = ≤200 chars from the incoming request, newlines collapsed to spaces. Pick the most informative span."
 	case WakeCron:
 		return "A scheduled cron task has started. Execute it based on the provided job context. " +
