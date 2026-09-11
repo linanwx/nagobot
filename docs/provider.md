@@ -66,7 +66,7 @@ providers:
 |---|---|---|
 | input | text only — an image is a `400` | text + image (natively multimodal; video/file are not wired here) |
 | thinking | always on, cannot be disabled | same |
-| `reasoning_effort` | `high` | `high` — below the vendor default, see below |
+| `reasoning_effort` | vendor default (`max`), or a tier from an `[low\|high\|max]` suffix | same |
 | OpenRouter route | `z-ai/glm-5.3` | `z-ai/glm-5.3-flash` |
 | price (OpenRouter, per 1M) | $1.40 in / $4.40 out | $0.075 in / $0.25 out |
 
@@ -78,21 +78,38 @@ Everything above was measured against the live API on 2026-08-26, and two of the
   | tier | reasoning tokens, 8 runs | median |
   |---|---|---|
   | `low` | 7, 9, 29 (n=3) | ~9 |
-  | **`high` (what we send)** | **7, 28, 43, 45, 49, 50, 58, 63** | **47** |
+  | `high` (what we used to send) | 7, 28, 43, 45, 49, 50, 58, 63 | 47 |
   | no field | 383, 542, 591, 709, 714, 741, 813, 827 | 711 |
   | `max` | 442, 569, 571, 584, 604, 616, 667, 959 | 594 |
 
   `max` and "no field" are the same distribution, which confirms the documented default: **omitting the field gives you `max`.** `high` is roughly **1/14** of it.
 
-  The same ordering holds through OpenRouter (`high` 91–150, no field 632–1032, `max` 815–1669). We send `high` deliberately: it buys a fast, cheap chat model that barely deliberates. Raising it is a one-word change and the trade is latency and output tokens, not correctness.
+  The same ordering holds through OpenRouter (`high` 91–150, no field 632–1032, `max` 815–1669).
 
-- **At `high`, most easy turns return NO reasoning at all, and that is the model, not the transport.** Over 10 trivial questions, 6 came back with zero reasoning tokens — the model simply does not deliberate when it sees no need. This is the symptom to expect in the UI at this tier, and the only real fix is a deeper tier.
+  **The tier is now chosen per model rule, by a bracket suffix, and a bare alias sends no field at all.** `glm-5.3` and `glm-5.3-flash` are registered with `[low]` / `[high]` / `[max]` variants alongside the bare id (`zhipuWithEffortVariants`, the same mechanism DeepSeek uses). A bare `glm-5.3-flash` omits `reasoning_effort` entirely and gets the vendor default — which on this family is the DEEPEST tier, so the safe default is the absent one. `TestZhipuEffortTierRidesTheBracket` asserts the absence, not just the values.
 
-- **`thinking.clear_thinking: false` is sent because the vendor recommends it, and we could not measure any benefit.** The obvious hypothesis — that the default `clear_thinking: true` makes the server discard a short trace — was tested directly and does not hold: 7/10 zero-reasoning turns with it false against 6/10 with it default. An earlier apparent doubling of depth (66/74/94 against 31/61/139) did not survive a larger sample. It is kept as a vendor recommendation on a flag that costs nothing, not as a fix for anything.
+- **Sending `high` costs ~4x the reasoning on an answer-only turn and ~36x on a tool-calling turn, and that second number is why this is no longer shipped.** The penalty is not a constant factor on the tier — it interacts with tool availability. Measured live on `glm-5.3-flash`, n=5, identical request, streamed:
 
-**Both parameters used to be sent under an `extra_body` wrapper, and neither was ever applied.** There is an irony worth recording: because the wrapper ate `reasoning_effort: high`, the model had been running at the vendor default (`max`) all along, which is far deeper. v1.7.49 fixed the transport, and delivering the long-intended `high` cut reasoning about 10x — visible in production within a minute of the routing switch. v1.7.51 keeps `high` as an explicit cost choice, now stated as one in the code.
+  | turn shape | `high` median | field omitted | ratio |
+  |---|---|---|---|
+  | answer only | 781 | 2989 | 3.8x |
+  | **tools offered, model calls one** | **53** | **1931** | **36x** |
 
- `extra_body` is a Python-SDK convention that the Python client unwraps before sending; on the wire it is just an unknown object, which this endpoint ignores. It returned `200` every time, so nothing ever surfaced it. Fixed 2026-08-26 — both fields are now top-level, guarded by `TestZhipuSendsThinkingParamsAtTopLevel`, which asserts on the marshalled body because every check above that level passed throughout. Note this is a real behavior change on `glm-5.3`: it now actually runs at `high` instead of the server default.
+  53 reasoning tokens is not deliberation, it is a rounding error — so inside an agentic loop, where nearly every turn calls a tool, `high` reads as *literally zero thinking*. `glm-5.3` reproduces it (88–107 against 1407–2991).
+
+  **What this looks like in production is the model doing its thinking in `exec`.** Confirmed from the deployment's own logs rather than inferred: over 24h and 131 responses, **85.2% of tool-calling turns returned zero reasoning tokens**, and across all history there are **47 turns where the model called `bash` with a bare `echo` of prose** — a scratchpad, not a command — every one of them on `glm-5.3-flash`, against zero such calls in ~3000 `exec` calls from 19 other models. 46 of the 46 prose-length ones sat on turns with `reasoning_tokens == 0`. The tightest control available is same-session, same-agent, model-swapped: `soul` at 60 exec / 5 echo on GLM against 18 exec / 0 echo on DeepSeek. Denied a reasoning budget, the model bought one back through the tool loop — at the cost of a round trip per thought.
+
+  Ruled out with evidence before landing on the tier: transport and parsing (`reasoningInResponse` agreed with `reasoningTokens > 0` in 131/131), context length (82K of filler still reasoned), the model imitating its own echo history (a clean session is also zero), tool availability alone, and the `reasoning_content` echo-back the vendor requires for interleaved thinking — which this codebase already does (`provider/openrouter.go`, `extras["reasoning_content"]`) and which changed nothing in an A/B at step 2 of a loop.
+
+  The `high` × tool-call interaction appears to be unreported — a web search turned up the enum and the default, and nothing on either this penalty or on echo-as-scratchpad.
+
+- **`thinking.clear_thinking: false` is not a depth dial and never was.** The hypothesis it was once kept for — that the default `true` makes the server discard a short trace — was tested head-to-head and refuted: 7/10 zero-reasoning turns with it false against 6/10 with it default, and an apparent doubling of depth (66/74/94 against 31/61/139) did not survive a larger sample. What it actually controls is whether reasoning blocks from PREVIOUS turns survive into this one, which is the vendor's Preserved Thinking and the thing `toOpenAIChatMessages` feeds by echoing `reasoning_content` back on assistant messages. It stays `false` for that reason, on a flag that costs nothing — not as a fix for zero-reasoning turns, which it does not affect.
+
+**Both parameters used to be sent under an `extra_body` wrapper, and neither was ever applied — which is the whole reason `high` ever shipped.** Because the wrapper ate `reasoning_effort: high`, the model had been running at the vendor default (`max`) all along. v1.7.49 fixed the transport and kept the value the broken code had *intended* to send; delivering the long-intended `high` cut reasoning about 10x, visible in production within a minute of the routing switch, and v1.7.51 restated it as a deliberate cost choice. It was not one — it was a value nobody had ever observed in effect.
+
+**A parameter that was never delivered has no known-good value. Restoring transport is not restoring behaviour, and the value has to be re-measured as if it were new.** That is the lesson worth keeping from this whole sequence: the regression survived two releases because "the code always meant to send `high`" reads as provenance and is not.
+
+ `extra_body` is a Python-SDK convention that the Python client unwraps before sending; on the wire it is just an unknown object, which this endpoint ignores. It returned `200` every time, so nothing ever surfaced it. Fixed 2026-08-26 — both fields are now top-level, guarded by `TestZhipuSendsThinkingParamsAtTopLevel`, which asserts on the marshalled body because every check above that level passed throughout. Note the guard survives the tier change unaltered: what it pins is that these fields reach the wire top-level at all.
 
 Both OpenRouter routes are pinned to the `z-ai` upstream. On `z-ai/glm-5.3-flash` that pin is doing real work: Z.AI and Novita both serve fp8, but a Cloudflare host is listed at quantization `unknown` for twice the price, so an unpinned route can silently answer from different weights.
 

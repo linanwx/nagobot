@@ -12,9 +12,12 @@ import (
 
 func TestZhipuThinkingEnabled(t *testing.T) {
 	cases := map[string]bool{
-		"glm-5.3":       true,
-		"glm-5.3-flash": true,
-		"unknown":       false,
+		"glm-5.3":            true,
+		"glm-5.3-flash":      true,
+		"glm-5.3-flash[max]": true,
+		"glm-5.3[low]":       true,
+		"unknown":            false,
+		"unknown[max]":       false,
 	}
 	for model, want := range cases {
 		if got := zhipuThinkingEnabled(model); got != want {
@@ -37,14 +40,28 @@ func TestZhipuRequestTemperatureForcedWhenThinking(t *testing.T) {
 }
 
 func TestZhipuGLM53Registration(t *testing.T) {
+	// Every [effort] variant must be a first-class model type. An unregistered
+	// one is rejected by ValidateProviderModelType, so the routing rule naming
+	// it fails the turn; a registered one missing from ContextWindows silently
+	// gets a zero window instead.
+	want := []string{
+		"glm-5.3", "glm-5.3-flash",
+		"glm-5.3[low]", "glm-5.3[high]", "glm-5.3[max]",
+		"glm-5.3-flash[low]", "glm-5.3-flash[high]", "glm-5.3-flash[max]",
+	}
 	for _, p := range []string{"zhipu-cn", "zhipu-global"} {
-		for _, m := range []string{"glm-5.3", "glm-5.3-flash"} {
+		for _, m := range want {
 			if err := ValidateProviderModelType(p, m); err != nil {
 				t.Errorf("ValidateProviderModelType(%q, %q) = %v, want nil", p, m, err)
 			}
 			if got := ContextWindowForModel(p, m); got != 1000000 {
 				t.Errorf("ContextWindowForModel(%q, %q) = %d, want 1000000", p, m, got)
 			}
+		}
+		// A tier outside the vendor's enum must not be quietly accepted and
+		// then dropped to the default — the rule is a typo and should fail.
+		if err := ValidateProviderModelType(p, "glm-5.3-flash[medium]"); err == nil {
+			t.Errorf("ValidateProviderModelType(%q, \"glm-5.3-flash[medium]\") = nil, want an error: this family rejects that tier with a 400", p)
 		}
 	}
 }
@@ -82,9 +99,16 @@ func TestGLM53WindowsAgreeAcrossRoutes(t *testing.T) {
 // every image with no error, and a registered text model sends image parts the
 // upstream will reject.
 func TestGLM53FlashSeesImages(t *testing.T) {
+	// The [effort] variants are included deliberately: SupportsVision is keyed
+	// on the nagobot-facing modelType, bracket and all, so a variant left out
+	// of VisionModels drops every image with no error anywhere.
 	for _, tc := range []struct{ provider, model string }{
 		{"zhipu-cn", "glm-5.3-flash"},
 		{"zhipu-global", "glm-5.3-flash"},
+		{"zhipu-cn", "glm-5.3-flash[low]"},
+		{"zhipu-cn", "glm-5.3-flash[high]"},
+		{"zhipu-cn", "glm-5.3-flash[max]"},
+		{"zhipu-global", "glm-5.3-flash[max]"},
 		{"openrouter", "z-ai/glm-5.3-flash"},
 	} {
 		if !SupportsVision(tc.provider, tc.model) {
@@ -94,6 +118,8 @@ func TestGLM53FlashSeesImages(t *testing.T) {
 	for _, tc := range []struct{ provider, model string }{
 		{"zhipu-cn", "glm-5.3"},
 		{"zhipu-global", "glm-5.3"},
+		{"zhipu-cn", "glm-5.3[max]"},
+		{"zhipu-global", "glm-5.3[max]"},
 		{"openrouter", "z-ai/glm-5.3"},
 	} {
 		if SupportsVision(tc.provider, tc.model) {
@@ -102,21 +128,24 @@ func TestGLM53FlashSeesImages(t *testing.T) {
 	}
 }
 
-// TestGLM53FlashOpenRouterRoute guards the two decisions that a passing request
-// cannot show you: the upstream pin (Z.AI and Novita serve fp8, a Cloudflare
-// host is listed at quantization "unknown" for twice the price) and the effort
-// dial, which the vendor doc claims this model does not have and the live API
-// accepts on both models.
-func TestGLM53FlashOpenRouterRoute(t *testing.T) {
-	meta, ok := openRouterModels["z-ai/glm-5.3-flash"]
-	if !ok {
-		t.Fatal("z-ai/glm-5.3-flash has no openRouterModels entry: it would ship with the zero-value meta, so no upstream pin")
-	}
-	if len(meta.ProviderOrder) == 0 || meta.ProviderOrder[0] != "z-ai" {
-		t.Errorf("ProviderOrder = %v, want first entry \"z-ai\"", meta.ProviderOrder)
-	}
-	if len(meta.ThinkingOpts) == 0 {
-		t.Error("ThinkingOpts is empty — the route would inherit the vendor default (max) instead of the chosen \"high\"")
+// TestGLM53OpenRouterRoute guards two decisions a passing request cannot show
+// you: the upstream pin (Z.AI and Novita serve fp8, a Cloudflare host is listed
+// at quantization "unknown" for twice the price), and the ABSENCE of an effort
+// pin. The second is the easier one to undo by accident — re-adding a "high"
+// here looks like a harmless cost tweak and silently drops this route below the
+// vendor default, which is where the no-reasoning defect came from.
+func TestGLM53OpenRouterRoute(t *testing.T) {
+	for _, model := range []string{"z-ai/glm-5.3", "z-ai/glm-5.3-flash"} {
+		meta, ok := openRouterModels[model]
+		if !ok {
+			t.Fatalf("%s has no openRouterModels entry: it would ship with the zero-value meta, so no upstream pin", model)
+		}
+		if len(meta.ProviderOrder) == 0 || meta.ProviderOrder[0] != "z-ai" {
+			t.Errorf("%s: ProviderOrder = %v, want first entry \"z-ai\"", model, meta.ProviderOrder)
+		}
+		if len(meta.ThinkingOpts) != 0 {
+			t.Errorf("%s: ThinkingOpts is non-empty — this route must send no effort so the vendor default (max) applies; the tier is chosen per rule on the native route", model)
+		}
 	}
 }
 
@@ -150,14 +179,61 @@ func TestZhipuSendsThinkingParamsAtTopLevel(t *testing.T) {
 				t.Errorf("%s: thinking.type = %v, want \"enabled\" (the only value this family accepts)", model, thinking["type"])
 			}
 			if thinking["clear_thinking"] != false {
-				t.Errorf("%s: thinking.clear_thinking = %v, want false — it doubles the reasoning that comes back", model, thinking["clear_thinking"])
+				t.Errorf("%s: thinking.clear_thinking = %v, want false — Preserved Thinking, which toOpenAIChatMessages feeds by echoing reasoning_content back", model, thinking["clear_thinking"])
 			}
-		}
-		if got := body["reasoning_effort"]; got != "high" {
-			t.Errorf("%s: reasoning_effort = %v, want \"high\"", model, got)
 		}
 		if got := body["temperature"]; got != float64(1) {
 			t.Errorf("%s: temperature = %v, want 1 — thinking is on, which forces it", model, got)
+		}
+	}
+}
+
+// TestZhipuEffortTierRidesTheBracket asserts on the marshalled body for the
+// same reason the test above does: this parameter has been silently dropped
+// twice in this codebase (zhipu's extra_body wrapper, deepseek's nested
+// placement), and both times every cheaper check passed — the provider built,
+// the request returned 200, the model answered, the tests stayed green.
+//
+// The absent case is the load-bearing one. A bare alias must send NO
+// reasoning_effort key at all, because on this family the vendor default (max)
+// is the DEEPEST tier and any value we could name is shallower. Sending
+// "high" here is what produced 0 reasoning tokens on 85% of tool-calling turns
+// in production.
+func TestZhipuEffortTierRidesTheBracket(t *testing.T) {
+	for _, tc := range []struct {
+		modelType string
+		wantWire  string
+		wantEffor any // nil = the key must be absent
+	}{
+		{"glm-5.3-flash", "glm-5.3-flash", nil},
+		{"glm-5.3", "glm-5.3", nil},
+		{"glm-5.3-flash[low]", "glm-5.3-flash", "low"},
+		{"glm-5.3-flash[high]", "glm-5.3-flash", "high"},
+		{"glm-5.3-flash[max]", "glm-5.3-flash", "max"},
+		{"glm-5.3[max]", "glm-5.3", "max"},
+		// Not in the vendor enum: fall through to the default rather than
+		// forwarding a value the endpoint answers with a 400.
+		{"glm-5.3-flash[medium]", "glm-5.3-flash", nil},
+	} {
+		body := captureZhipuRequestBody(t, tc.modelType)
+
+		// A bracket on the wire model name is a 400 from the endpoint, so the
+		// suffix must never survive into "model".
+		if got := body["model"]; got != tc.wantWire {
+			t.Errorf("%s: wire model = %v, want %q — the [effort] bracket must be stripped before the request", tc.modelType, got, tc.wantWire)
+		}
+
+		got, present := body["reasoning_effort"]
+		if tc.wantEffor == nil {
+			if present {
+				t.Errorf("%s: reasoning_effort = %v, want the key ABSENT so the vendor default (max) applies", tc.modelType, got)
+			}
+			continue
+		}
+		if !present {
+			t.Errorf("%s: no reasoning_effort in %v, want %q", tc.modelType, keysOf(body), tc.wantEffor)
+		} else if got != tc.wantEffor {
+			t.Errorf("%s: reasoning_effort = %v, want %q", tc.modelType, got, tc.wantEffor)
 		}
 	}
 }

@@ -4,6 +4,7 @@ package provider
 import (
 	"context"
 	"fmt"
+	"slices"
 	"strings"
 	"time"
 
@@ -18,54 +19,88 @@ const (
 	zhipuGlobalAPIBase = "https://api.z.ai/api/paas/v4"
 )
 
+const (
+	glm53Model      = "glm-5.3"
+	glm53FlashModel = "glm-5.3-flash"
+	glm53Window     = 1000000
+)
+
+// zhipuReasoningEfforts is the vendor's own enum, and the ORDER IS THE TRAP:
+// low < high < max, with max the DEFAULT that an absent field selects. So
+// "high" is the middle tier, not the top one. docs.bigmodel.cn states both
+// halves outright: it glosses max as "default and recommended, deep reasoning",
+// high as "enhanced reasoning" and low as "light reasoning", and specifies
+// `reasoning_effort: {default: max, enum: [max, high, low]}`. Anything outside
+// the three is a 400 on GLM-5.3 / GLM-5.3-Flash.
+//
+// Tiers are selectable per model via a bracket suffix ("glm-5.3-flash[low]"),
+// the same shape openai and deepseek use (see parseModelEffort). A bare alias
+// sends NO reasoning_effort and gets the vendor default.
+var zhipuReasoningEfforts = []string{"low", "high", "max"}
+
+// zhipuWithEffortVariants appends "model[effort]" entries for every base model
+// so the whitelist, vision and context-window registries treat each tier as a
+// first-class model type.
+//
+// Vision in particular is keyed on the nagobot-facing modelType, bracket and
+// all (visionCapable[provider+":"+modelType]), so a variant left out of
+// VisionModels is not a missing tier — it is a model that silently drops every
+// image with no error anywhere.
+func zhipuWithEffortVariants(models []string, base ...string) []string {
+	for _, m := range base {
+		for _, e := range zhipuReasoningEfforts {
+			models = append(models, m+"["+e+"]")
+		}
+	}
+	return models
+}
+
 // glm-5.3 is text-only; glm-5.3-flash is natively multimodal (image / video /
 // file) and is the only GLM registered as vision-capable. Video and file input
 // have no marker in this codebase, so only images actually reach it — the
 // registration claims exactly what the media pipeline can deliver.
 func init() {
+	base := []string{glm53Model, glm53FlashModel}
+	models := zhipuWithEffortVariants(slices.Clone(base), base...)
+	vision := zhipuWithEffortVariants([]string{glm53FlashModel}, glm53FlashModel)
+	windows := map[string]int{}
+	for _, m := range models {
+		windows[m] = glm53Window
+	}
+
 	RegisterProvider("zhipu-cn", ProviderRegistration{
-		Models:       []string{"glm-5.3", "glm-5.3-flash"},
-		VisionModels: []string{"glm-5.3-flash"},
-		ContextWindows: map[string]int{
-			"glm-5.3":       1000000,
-			"glm-5.3-flash": 1000000,
-		},
-		EnvKey:  "ZHIPU_API_KEY",
-		EnvBase: "ZHIPU_API_BASE",
+		Models:         models,
+		VisionModels:   vision,
+		ContextWindows: windows,
+		EnvKey:         "ZHIPU_API_KEY",
+		EnvBase:        "ZHIPU_API_BASE",
 		Constructor: func(apiKey, apiBase, modelType, modelName string, maxTokens int, temperature float64) Provider {
 			return newZhipuProvider("zhipu-cn", apiKey, apiBase, zhipuCNAPIBase, modelType, modelName, maxTokens, temperature)
 		},
 	})
 
 	RegisterProvider("zhipu-global", ProviderRegistration{
-		Models:       []string{"glm-5.3", "glm-5.3-flash"},
-		VisionModels: []string{"glm-5.3-flash"},
-		ContextWindows: map[string]int{
-			"glm-5.3":       1000000,
-			"glm-5.3-flash": 1000000,
-		},
-		EnvKey:  "ZHIPU_GLOBAL_API_KEY",
-		EnvBase: "ZHIPU_GLOBAL_API_BASE",
+		Models:         models,
+		VisionModels:   vision,
+		ContextWindows: windows,
+		EnvKey:         "ZHIPU_GLOBAL_API_KEY",
+		EnvBase:        "ZHIPU_GLOBAL_API_BASE",
 		Constructor: func(apiKey, apiBase, modelType, modelName string, maxTokens int, temperature float64) Provider {
 			return newZhipuProvider("zhipu-global", apiKey, apiBase, zhipuGlobalAPIBase, modelType, modelName, maxTokens, temperature)
 		},
 	})
 }
 
-// zhipuReasoningEffort is the depth sent for every GLM-5.3 model. See the
-// request-options block in Chat for why "high" is the shallow-ish setting and
-// not the deep one.
-const zhipuReasoningEffort = "high"
-
 // ZhipuProvider implements the Provider interface for Zhipu GLM API.
 type ZhipuProvider struct {
 	providerName string
 	apiKey       string
 	apiBase      string
-	modelName    string
-	modelType    string
+	modelName    string // wire model name sent to Zhipu (bracket stripped)
+	modelType    string // nagobot-facing alias (may carry an [effort] bracket)
 	maxTokens    int
 	temperature  float64
+	effort       string // tier from an [effort] bracket; "" = vendor default (max)
 	client       openai.Client
 }
 
@@ -77,8 +112,13 @@ type ZhipuProvider struct {
 // also decides the forced temperature below, and because the next GLM may
 // bring the switch back.
 func zhipuThinkingEnabled(modelType string) bool {
-	switch strings.TrimSpace(modelType) {
-	case "glm-5.3", "glm-5.3-flash":
+	// Strip the [effort] bracket first: it is part of the nagobot-facing alias,
+	// not of the model's identity, and an unmatched name here would turn
+	// thinking off AND release the forced temperature on a model that requires
+	// both.
+	base, _ := parseModelEffort(strings.TrimSpace(modelType))
+	switch base {
+	case glm53Model, glm53FlashModel:
 		return true
 	}
 	return false
@@ -94,6 +134,15 @@ func zhipuRequestTemperature(modelType string, configured float64) (float64, boo
 func newZhipuProvider(providerName, apiKey, apiBase, defaultBase, modelType, modelName string, maxTokens int, temperature float64) *ZhipuProvider {
 	if modelName == "" {
 		modelName = modelType
+	}
+	// The tier rides on modelType — that is the name a routing rule is written
+	// with — while modelName is what goes on the wire, where a bracket is a 400.
+	// Stripping both independently keeps an explicit thread.modelName override
+	// from smuggling one through.
+	modelName, _ = parseModelEffort(modelName)
+	_, effort := parseModelEffort(strings.TrimSpace(modelType))
+	if !slices.Contains(zhipuReasoningEfforts, effort) {
+		effort = "" // no bracket, or a tier this family rejects: vendor default
 	}
 
 	baseURL := normalizeSDKBaseURL(apiBase, defaultBase, "/chat/completions")
@@ -111,6 +160,7 @@ func newZhipuProvider(providerName, apiKey, apiBase, defaultBase, modelType, mod
 		modelType:    modelType,
 		maxTokens:    maxTokens,
 		temperature:  temperature,
+		effort:       effort,
 		client:       client,
 	}
 }
@@ -132,6 +182,7 @@ func (p *ZhipuProvider) Chat(ctx context.Context, req *Request) (ChatResult, err
 		"modelType", p.modelType,
 		"modelName", p.modelName,
 		"thinkingEnabled", thinkingEnabled,
+		"reasoningEffort", p.effort,
 		"toolCount", len(req.Tools),
 		"inputChars", inputChars,
 	)
@@ -164,41 +215,52 @@ func (p *ZhipuProvider) Chat(ctx context.Context, req *Request) (ChatResult, err
 	// is an unknown object this endpoint ignores, so anything inside it was
 	// silently dropped while the request still returned 200.
 	//
-	// "high" is a deliberate COST choice and it is BELOW the vendor default,
-	// which is max. The name is a trap: the family's three legal tiers order as
-	// low < high < max, and max is what you get by sending nothing. Measured on
-	// glm-5.3-flash with the real system prompt and tool set, reasoning tokens
-	// over three runs each:
+	// reasoning_effort is sent ONLY when a bracket suffix asked for a tier. A
+	// bare alias omits the field and takes the vendor default (max), which is
+	// the deepest setting — see zhipuReasoningEfforts for why the enum's order
+	// is a trap.
 	//
-	//	low         ~9                    (n=3)
-	//	high        median  47, range 7-63    <- here
-	//	(no field)  median 711, range 383-827
-	//	max         median 594, range 442-959
+	// This file shipped a hard-coded "high" from 2026-08-26 to 2026-09-11, and
+	// what that cost is worth recording, because the answer-only measurements
+	// that justified it hid the real damage. Measured against the live endpoint
+	// on glm-5.3-flash, n=5, streaming, identical request, reasoning tokens:
 	//
-	// "no field" and max are the same distribution, which is what confirms the
-	// documented default: omitting the field gives max. high is about 1/14 of it.
+	//	turn shape                 high        field omitted
+	//	answers directly        median  781    median 2989
+	//	emits a tool call       median   53    median 1931
 	//
-	// So this buys a fast, cheap chat model that barely deliberates. Raising it
-	// is a one-word change; the trade is latency and output tokens, not
-	// correctness.
+	// So the penalty is ~4x when the model is answering and ~36x when it is
+	// about to call a tool — and in an agentic loop the second row is the
+	// common case (69% of this deployment's GLM turns carried tool_calls).
+	// glm-5.3 behaves the same (88-107 against 1407-2991).
 	//
-	// Expect most easy turns at this tier to report ZERO reasoning: over 10
-	// trivial questions, 6 came back with none. The model is declining to
-	// deliberate, not losing a field — the only fix is a deeper tier.
+	// Downstream, a tool-calling turn with no deliberation left the model
+	// improvising one: 47 turns wrote their own chain of thought into
+	// exec `echo "<reasoning prose>"`, read it back as tool output, and
+	// answered from that. All 47 were glm-5.3-flash — zero across ~3000 exec
+	// calls from the other 19 models sharing the same prompt and tools — and
+	// all 46 of the prose-length ones sat on a turn whose reasoning_tokens was
+	// 0. The saving was ~2000 output tokens per call; each induced round trip
+	// re-sent ~152,000 prompt tokens.
 	//
-	// clear_thinking:false is sent because the vendor recommends it, and for no
-	// stronger reason than that. The obvious hypothesis — that the default
-	// clear_thinking:true makes the server discard a short trace — was tested
-	// head-to-head and refuted (7/10 zero-reasoning turns with it false against
-	// 6/10 with it default), and an earlier apparent doubling of depth from it
-	// was n=3 noise that vanished at n=10.
+	// clear_thinking:false opts into Preserved Thinking, which the vendor says
+	// requires passing historical reasoning_content back complete and in order
+	// — toOpenAIChatMessages does (extras["reasoning_content"]). The docs also
+	// scope it explicitly: it affects only the historical thinking blocks
+	// carried ACROSS turns, and does not change whether the model produces or
+	// emits thinking within the current one. So it cannot deepen this turn, and
+	// a head-to-head over 10 turns found exactly that null (7/10 zero-reasoning
+	// with it false against 6/10 default). It is kept for cross-turn
+	// continuity, not for depth.
 	requestOpts := []oaioption.RequestOption{}
 	if thinkingEnabled {
 		requestOpts = append(requestOpts,
 			oaioption.WithJSONSet("thinking.type", "enabled"),
 			oaioption.WithJSONSet("thinking.clear_thinking", false),
-			oaioption.WithJSONSet("reasoning_effort", zhipuReasoningEffort),
 		)
+		if p.effort != "" {
+			requestOpts = append(requestOpts, oaioption.WithJSONSet("reasoning_effort", p.effort))
+		}
 	}
 
 	resp := &Response{ProviderLabel: p.providerName, ModelLabel: p.modelName}

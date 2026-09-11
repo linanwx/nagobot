@@ -98,27 +98,29 @@ var openRouterModels = map[string]openRouterModelMeta{
 		},
 		ProviderOrder: []string{"moonshotai"},
 	},
-	// Both GLM entries send effort "high", which on this family is BELOW the
-	// vendor default of max — low < high < max, and max is what an absent field
-	// gives you. Measured through this route on z-ai/glm-5.3-flash, reasoning
-	// tokens over three runs each: high 91/150/141, no field 632/798/1032, max
-	// 815/1221/1669; the native route reproduces the ordering. This is a cost
-	// choice, not a correctness one.
+	// No ThinkingOpts on either GLM entry, which leaves the vendor default —
+	// max, the DEEPEST tier on this family, since low < high < max and an
+	// absent field selects max. Both entries used to pin "high" as a cost
+	// choice; measured through this route, that is 91/150/141 reasoning tokens
+	// against 632/798/1032 for no field, and on the native route the same dial
+	// costs ~36x on tool-calling turns specifically (see zhipu.go, which
+	// carries the full measurement and what it did to production).
+	//
+	// The tier is now chosen per routing rule by a bracket suffix on the NATIVE
+	// route only ("glm-5.3-flash[low]"). This route has no bracket parsing at
+	// all — openRouterModels is keyed on the bare modelType and modelName goes
+	// on the wire verbatim — so a bracketed type here would both miss its meta
+	// (losing the upstream pin) and 404. Adding it means teaching this provider
+	// parseModelEffort, which no OpenRouter model needs today.
 	//
 	// The upstream pin is separate and load-bearing on day one: Z.AI and Novita
 	// both serve fp8, but a Cloudflare host is already listed at quantization
 	// "unknown" for twice the price, which is exactly the silent substitution
 	// the pins exist to stop.
 	"z-ai/glm-5.3": {
-		ThinkingOpts: []oaioption.RequestOption{
-			oaioption.WithJSONSet("reasoning", map[string]any{"effort": "high"}),
-		},
 		ProviderOrder: []string{"z-ai"},
 	},
 	"z-ai/glm-5.3-flash": {
-		ThinkingOpts: []oaioption.RequestOption{
-			oaioption.WithJSONSet("reasoning", map[string]any{"effort": "high"}),
-		},
 		ProviderOrder: []string{"z-ai"},
 	},
 	// No ThinkingOpts: DeepSeek turns thinking on by itself, which is exactly
