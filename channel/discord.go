@@ -3,12 +3,15 @@ package channel
 import (
 	"context"
 	"fmt"
+	"net/http"
 	"os"
 	"path/filepath"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/bwmarrin/discordgo"
+	"github.com/gorilla/websocket"
 	"github.com/linanwx/nagobot/config"
 	"github.com/linanwx/nagobot/logger"
 )
@@ -16,6 +19,23 @@ import (
 const (
 	discordMessageBufferSize = 100
 	DiscordMaxMessageLength  = 2000
+
+	// discordOpenTimeout bounds a single Open() attempt. discordgo's Open()
+	// performs two deadline-less blocking ReadMessage calls (waiting for the
+	// Op 10 Hello and the READY/RESUMED packets) while holding the session
+	// mutex; if the server accepts the websocket but never speaks again,
+	// Open() blocks forever and every other session call deadlocks on the
+	// mutex. An Open() that outlives the timeout is abandoned.
+	discordOpenTimeout = 20 * time.Second
+	// The supervisor checks DataReady every discordWatchInterval and rebuilds
+	// the session after discordNotReadyLimit consecutive not-ready checks.
+	// ~2 minutes lets discordgo's own reconnect loop survive transient drops
+	// (its backoff passes 64s within that window) before we intervene.
+	discordWatchInterval = 30 * time.Second
+	discordNotReadyLimit = 4
+	// discordStartAttempts bounds the initial connect attempts inside Start()
+	// so the hot-reload loop that calls us never blocks for long.
+	discordStartAttempts = 3
 )
 
 // DiscordChannel implements the Channel interface for Discord.
@@ -23,8 +43,9 @@ type DiscordChannel struct {
 	token         string
 	allowedGuilds map[string]bool // guild ID allowlist, empty = allow all
 	allowedUsers  map[string]bool // user ID allowlist, empty = allow all
-	mediaDir      string // local directory for downloaded media files
+	mediaDir      string          // local directory for downloaded media files
 	session       *discordgo.Session
+	sessionMu     sync.Mutex // guards session; the supervisor swaps it while other goroutines read it
 	messages      chan *Message
 	done          chan struct{}
 	stopOnce      sync.Once
@@ -62,40 +83,167 @@ func NewDiscordChannel(cfg *config.Config) Channel {
 
 func (d *DiscordChannel) Name() string { return "discord" }
 
-func (d *DiscordChannel) Start(ctx context.Context) error {
+func (d *DiscordChannel) currentSession() *discordgo.Session {
+	d.sessionMu.Lock()
+	defer d.sessionMu.Unlock()
+	return d.session
+}
+
+func (d *DiscordChannel) setSession(s *discordgo.Session) {
+	d.sessionMu.Lock()
+	defer d.sessionMu.Unlock()
+	d.session = s
+}
+
+// newSession builds a fresh discordgo session. Each rebuild gets its own
+// session because a session whose Open() hung keeps its mutex locked forever —
+// it cannot be reused, only abandoned.
+func (d *DiscordChannel) newSession() (*discordgo.Session, error) {
 	dg, err := discordgo.New("Bot " + d.token)
 	if err != nil {
-		return fmt.Errorf("discord session creation failed: %w", err)
+		return nil, err
 	}
 
 	dg.Identify.Intents = discordgo.IntentsGuildMessages |
 		discordgo.IntentsDirectMessages |
 		discordgo.IntentMessageContent
 
-	dg.AddHandler(d.handleMessageCreate)
+	// An abandoned session's own reconnect loop may revive it later and
+	// reconnect to the gateway; drop its events so only the current session's
+	// messages are processed.
+	dg.AddHandler(d.sessionHandler())
 
-	if err := dg.Open(); err != nil {
-		return fmt.Errorf("discord connection failed: %w", err)
+	// Explicit handshake timeout (gorilla's default is 45s): fail fast so the
+	// bounded Open() below spends its budget on the reads that have no deadline.
+	dg.Dialer = &websocket.Dialer{
+		Proxy:            http.ProxyFromEnvironment,
+		HandshakeTimeout: 15 * time.Second,
 	}
-	d.session = dg
-	logger.Info("discord bot connected", "username", dg.State.User.Username)
+	return dg, nil
+}
 
-	go func() {
-		<-ctx.Done()
-		_ = d.Stop()
-	}()
+// sessionHandler returns the MessageCreate handler bound to this channel. It
+// drops events from sessions other than the current one: an abandoned session
+// (its Open() hung, or its reconnect loop revived after a rebuild) may still
+// deliver gateway events, and processing them would duplicate messages.
+func (d *DiscordChannel) sessionHandler() func(*discordgo.Session, *discordgo.MessageCreate) {
+	return func(s *discordgo.Session, m *discordgo.MessageCreate) {
+		if s != d.currentSession() {
+			return
+		}
+		d.handleMessageCreate(s, m)
+	}
+}
 
-	logger.Info("discord channel started")
-	return nil
+// connect runs Open() under a hard timeout. On timeout the session is
+// abandoned: the goroutine stuck inside Open() leaks (unavoidable — it holds
+// the session mutex), and the caller retries with a fresh session.
+func discordConnect(dg *discordgo.Session, timeout time.Duration) error {
+	errCh := make(chan error, 1)
+	go func() { errCh <- dg.Open() }()
+	select {
+	case err := <-errCh:
+		return err
+	case <-time.After(timeout):
+		go func() {
+			if err := <-errCh; err == nil {
+				// Open() eventually succeeded after we gave up on it.
+				_ = dg.Close()
+			}
+		}()
+		return fmt.Errorf("discord Open timed out after %s (session abandoned)", timeout)
+	}
+}
+
+func (d *DiscordChannel) Start(ctx context.Context) error {
+	var lastErr error
+	for attempt := 1; attempt <= discordStartAttempts; attempt++ {
+		dg, err := d.newSession()
+		if err != nil {
+			return fmt.Errorf("discord session creation failed: %w", err)
+		}
+		if err := discordConnect(dg, discordOpenTimeout); err != nil {
+			lastErr = fmt.Errorf("discord connection failed: %w", err)
+			logger.Warn("discord connect attempt failed", "attempt", attempt, "err", err)
+			continue
+		}
+		d.setSession(dg)
+		logger.Info("discord bot connected", "username", dg.State.User.Username)
+
+		go d.supervise(ctx)
+		go func() {
+			<-ctx.Done()
+			_ = d.Stop()
+		}()
+
+		logger.Info("discord channel started")
+		return nil
+	}
+	return lastErr
+}
+
+// supervise watches the session and rebuilds it when it stays not-ready past
+// the tolerance window. This covers both a hung Open() (deadlocked session,
+// discordgo's reconnect can never run again) and any other silent death where
+// discordgo's own infinite reconnect loop has given up or was never started.
+func (d *DiscordChannel) supervise(ctx context.Context) {
+	ticker := time.NewTicker(discordWatchInterval)
+	defer ticker.Stop()
+	notReady := 0
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-d.done:
+			return
+		case <-ticker.C:
+			if dg := d.currentSession(); dg != nil && dg.DataReady {
+				notReady = 0
+				continue
+			}
+			notReady++
+			if notReady < discordNotReadyLimit {
+				continue
+			}
+			notReady = 0
+			logger.Warn("discord session not ready for too long, rebuilding",
+				"checks", discordNotReadyLimit, "interval", discordWatchInterval.String())
+			d.rebuild()
+		}
+	}
+}
+
+// rebuild swaps the current session for a freshly connected one. The old
+// session is only abandoned, never synchronously closed — its Close() can
+// block forever on the mutex a hung Open() still holds.
+func (d *DiscordChannel) rebuild() {
+	if old := d.currentSession(); old != nil {
+		d.setSession(nil)
+		go func() { _ = old.Close() }() // best effort; may leak if hung
+	}
+	dg, err := d.newSession()
+	if err != nil {
+		logger.Warn("discord session rebuild: creation failed", "err", err)
+		return
+	}
+	if err := discordConnect(dg, discordOpenTimeout); err != nil {
+		logger.Warn("discord session rebuild: connect failed", "err", err)
+		go func() { _ = dg.Close() }()
+		return
+	}
+	d.setSession(dg)
+	logger.Info("discord bot reconnected", "username", dg.State.User.Username)
 }
 
 func (d *DiscordChannel) Stop() error {
 	d.stopOnce.Do(func() {
 		close(d.done)
-		if d.session != nil {
-			_ = d.session.Close()
-			d.session = nil
+		// Close in the background: on a hung session it blocks forever, and
+		// StopAll must not stall behind it.
+		if ses := d.currentSession(); ses != nil {
+			go func() { _ = ses.Close() }()
 		}
+		d.setSession(nil)
 		close(d.messages)
 		logger.Info("discord channel stopped")
 	})
@@ -103,10 +251,11 @@ func (d *DiscordChannel) Stop() error {
 }
 
 func (d *DiscordChannel) Send(_ context.Context, resp *Response) error {
-	if d.session == nil {
+	ses := d.currentSession()
+	if ses == nil {
 		return fmt.Errorf("discord session not started")
 	}
-	replyTo, err := d.resolveTarget(resp.ReplyTo)
+	replyTo, err := d.resolveTarget(ses, resp.ReplyTo)
 	if err != nil {
 		return err
 	}
@@ -114,7 +263,7 @@ func (d *DiscordChannel) Send(_ context.Context, resp *Response) error {
 	text := convertTablesToLists(resp.Text)
 	chunks := SplitMessage(text, DiscordMaxMessageLength)
 	for _, chunk := range chunks {
-		if _, err := d.session.ChannelMessageSend(replyTo, chunk); err != nil {
+		if _, err := ses.ChannelMessageSend(replyTo, chunk); err != nil {
 			return fmt.Errorf("discord send error: %w", err)
 		}
 	}
@@ -123,12 +272,12 @@ func (d *DiscordChannel) Send(_ context.Context, resp *Response) error {
 
 // resolveTarget resolves a "dm:{userID}" target to a real DM channel ID.
 // Plain channel IDs pass through unchanged.
-func (d *DiscordChannel) resolveTarget(target string) (string, error) {
+func (d *DiscordChannel) resolveTarget(ses *discordgo.Session, target string) (string, error) {
 	userID, ok := strings.CutPrefix(target, "dm:")
 	if !ok {
 		return target, nil
 	}
-	ch, err := d.session.UserChannelCreate(userID)
+	ch, err := ses.UserChannelCreate(userID)
 	if err != nil {
 		return "", fmt.Errorf("discord DM channel creation failed: %w", err)
 	}
@@ -137,10 +286,11 @@ func (d *DiscordChannel) resolveTarget(target string) (string, error) {
 
 // SendImage uploads ref as a Discord attachment. Target convention matches Send.
 func (d *DiscordChannel) SendImage(_ context.Context, replyTo string, ref ImageRef) error {
-	if d.session == nil {
+	ses := d.currentSession()
+	if ses == nil {
 		return fmt.Errorf("discord session not started")
 	}
-	target, err := d.resolveTarget(replyTo)
+	target, err := d.resolveTarget(ses, replyTo)
 	if err != nil {
 		return err
 	}
@@ -150,7 +300,7 @@ func (d *DiscordChannel) SendImage(_ context.Context, replyTo string, ref ImageR
 	}
 	defer f.Close()
 
-	_, err = d.session.ChannelMessageSendComplex(target, &discordgo.MessageSend{
+	_, err = ses.ChannelMessageSendComplex(target, &discordgo.MessageSend{
 		Files: []*discordgo.File{{
 			Name:        filepath.Base(ref.Path),
 			ContentType: ref.Mime,
@@ -170,10 +320,11 @@ var _ ImageSender = (*DiscordChannel)(nil)
 // Send. Discord enforces its own size limit (25 MB without Nitro boost) and
 // rejects oversized uploads — the error is returned to the caller for logging.
 func (d *DiscordChannel) SendDoc(_ context.Context, replyTo string, ref DocRef) error {
-	if d.session == nil {
+	ses := d.currentSession()
+	if ses == nil {
 		return fmt.Errorf("discord session not started")
 	}
-	target, err := d.resolveTarget(replyTo)
+	target, err := d.resolveTarget(ses, replyTo)
 	if err != nil {
 		return err
 	}
@@ -188,7 +339,7 @@ func (d *DiscordChannel) SendDoc(_ context.Context, replyTo string, ref DocRef) 
 		name = filepath.Base(ref.Path)
 	}
 
-	_, err = d.session.ChannelMessageSendComplex(target, &discordgo.MessageSend{
+	_, err = ses.ChannelMessageSendComplex(target, &discordgo.MessageSend{
 		Files: []*discordgo.File{{
 			Name:        name,
 			ContentType: ref.Mime,
@@ -348,10 +499,11 @@ func (d *DiscordChannel) Messages() <-chan *Message {
 
 // ReactTo adds an emoji reaction to a message (accumulative).
 func (d *DiscordChannel) ReactTo(_ context.Context, chatID, msgID, emoji string) error {
-	if d.session == nil {
+	ses := d.currentSession()
+	if ses == nil {
 		return nil
 	}
-	_ = d.session.MessageReactionAdd(chatID, msgID, emoji)
+	_ = ses.MessageReactionAdd(chatID, msgID, emoji)
 	return nil
 }
 
