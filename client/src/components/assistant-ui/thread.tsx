@@ -61,9 +61,12 @@ import {
 import {
   createContext,
   useContext,
+  useRef,
   useState,
   type ComponentType,
+  type CompositionEvent,
   type FC,
+  type KeyboardEvent,
   type PropsWithChildren,
 } from "react";
 import { useTranslation } from "react-i18next";
@@ -657,12 +660,57 @@ const ThreadSuggestionItem: FC = () => {
   );
 };
 
+/*
+  Pressing Enter to commit an IME composition (Chinese/Japanese/Korean input)
+  must not also send the message — the half-typed romanisation would go out
+  as raw English letters. The library's ComposerInput guards this with a
+  single nativeEvent.isComposing check, which real browsers slip past:
+  Chrome-based ones deliver the committing keydown with isComposing=false
+  and keyCode=229, and Safari fires the keydown only after compositionend,
+  by which time isComposing is false too. Both leak into requestSubmit().
+
+  Cover all three shapes here: the 229 keydown, any keydown while a
+  composition is open, and the instant right after compositionend (Safari's
+  ordering). preventDefault() is enough to stop the send — the library
+  composes our handler ahead of its own and skips it once the event is
+  default-prevented — while the IME still commits its text, because the
+  229 keydown is informational and has no page-level default action.
+*/
+const useImeEnterGuard = () => {
+  const composingRef = useRef(false);
+  // -Infinity, not 0: with 0 the "just ended" window would also swallow an
+  // Enter in the first 100ms of the document timeline, before any
+  // composition has ever happened.
+  const composeEndedAtRef = useRef(-Infinity);
+  return {
+    onCompositionStart: () => {
+      composingRef.current = true;
+    },
+    onCompositionEnd: (e: CompositionEvent<HTMLElement>) => {
+      composingRef.current = false;
+      composeEndedAtRef.current = e.timeStamp;
+    },
+    onKeyDown: (e: KeyboardEvent<HTMLElement>) => {
+      if (e.key !== "Enter") return;
+      if (
+        e.nativeEvent.isComposing ||
+        e.keyCode === 229 ||
+        composingRef.current ||
+        e.timeStamp - composeEndedAtRef.current < 100
+      ) {
+        e.preventDefault();
+      }
+    },
+  };
+};
+
 const Composer: FC = () => {
   const { t } = useTranslation();
   // On touch devices auto-focus pops the software keyboard, so every focus
   // trigger (mount, scroll-to-bottom arrow, run start, thread switch) must
   // stay off — the user taps the input when they actually want to type.
   const coarsePointer = useCoarsePointer();
+  const imeEnterGuard = useImeEnterGuard();
   return (
     <ComposerPrimitive.Root className="aui-composer-root relative flex w-full flex-col">
       <ComposerPrimitive.AttachmentDropzone asChild>
@@ -680,6 +728,7 @@ const Composer: FC = () => {
             autoFocus={!coarsePointer}
             enterKeyHint="send"
             aria-label={t("thread.messageInput")}
+            {...imeEnterGuard}
           />
           <ComposerAction />
         </div>
@@ -1155,6 +1204,7 @@ const UserMessage: FC = () => {
 
 const EditComposer: FC = () => {
   const { t } = useTranslation();
+  const imeEnterGuard = useImeEnterGuard();
   return (
     <MessagePrimitive.Root
       data-slot="aui_edit-composer-wrapper"
@@ -1164,6 +1214,7 @@ const EditComposer: FC = () => {
         <ComposerPrimitive.Input
           className="aui-edit-composer-input text-foreground min-h-14 w-full resize-none bg-transparent px-4 pt-3 pb-1 text-base outline-none"
           autoFocus
+          {...imeEnterGuard}
         />
         <div className="aui-edit-composer-footer mx-2.5 mb-2.5 flex items-center gap-1.5 self-end">
           <ComposerPrimitive.Cancel asChild>
