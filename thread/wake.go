@@ -636,7 +636,8 @@ func wakeActionHint(source WakeSource) string {
 			"Else, if you need to reply to a specific session you know: call `dispatch(to=session, params={session_key: ...})`. " +
 			"Else, if you need a silent end with no delivery: call `dispatch({})`. " +
 			"When replying to another session, start your reply body with a standalone line: `> Re: \"<subject>\"` " +
-			"`<subject>` = ≤200 chars from the incoming request, newlines collapsed to spaces. Pick the most informative span."
+			"`<subject>` = ≤200 chars from the incoming request, newlines collapsed to spaces. Pick the most informative span. " +
+			"Never dispatch to the sending session a reply that is only a bare acknowledgment (e.g. just `收到` or `ok`) — meaningless inter-session communication is not allowed: report the information briefly to the human as this turn's reply content."
 	case WakeCron:
 		return "A scheduled cron task has started. Execute it based on the provided job context. " +
 			"Non-interactive: there is no user to answer questions this turn — do not ask for clarification; act on the job context or end silently. " +
