@@ -57,8 +57,9 @@ export type StreamFrame = {
 };
 
 // Media the client already uploaded via POST /api/media, referenced by the
-// basename that endpoint returned.
-export type OutboundMedia = { name: string; mime?: string };
+// basename that endpoint returned. filename is the user's original name; the
+// server puts it in the media_summary as file_name.
+export type OutboundMedia = { name: string; mime?: string; filename?: string };
 
 type OutboundFrame =
   | { type: "bind"; session_id: string }

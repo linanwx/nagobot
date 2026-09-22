@@ -71,6 +71,13 @@ func resolveMediaPath(workspace, raw string) (string, error) {
 	return p, nil
 }
 
+// activeContentExtensions are the extensions a browser will execute or
+// interpret as markup when served from this origin. An uploaded (or
+// bot-downloaded) page must never run as same-origin script of the console.
+var activeContentExtensions = map[string]bool{
+	".html": true, ".htm": true, ".svg": true, ".xhtml": true, ".xml": true,
+}
+
 // serveMediaFile resolves raw and writes the file, or the reason it will not.
 func (w *WebChannel) serveMediaFile(rw http.ResponseWriter, r *http.Request, raw string) {
 	path, err := resolveMediaPath(w.workspace, raw)
@@ -82,8 +89,18 @@ func (w *WebChannel) serveMediaFile(rw http.ResponseWriter, r *http.Request, raw
 		return
 	}
 	rw.Header().Set("Cache-Control", mediaCacheControl)
+	// Media now includes user-uploaded files, so the serve side must not let
+	// one execute in the console's origin. nosniff stops content-type
+	// sniffing, and re-typing active-content files as text/plain stops the
+	// browser from parsing them at all — the bytes stay intact for download
+	// and read_file, which is all anyone legitimately does with them.
+	rw.Header().Set("X-Content-Type-Options", "nosniff")
+	if activeContentExtensions[strings.ToLower(filepath.Ext(path))] {
+		rw.Header().Set("Content-Type", "text/plain; charset=utf-8")
+	}
 	// http.ServeFile sets Content-Type from the extension and handles
-	// range requests (audio/video seeking) for free.
+	// range requests (audio/video seeking) for free — and leaves a
+	// pre-set Content-Type alone, which the override above relies on.
 	http.ServeFile(rw, r, path)
 }
 
@@ -104,13 +121,18 @@ func (w *WebChannel) handleMedia(rw http.ResponseWriter, r *http.Request) {
 	w.serveMediaFile(rw, r, filepath.Join("media", sub))
 }
 
-// handleMediaUpload accepts a raw image body at POST /api/media, writes it into
+// handleMediaUpload accepts a raw file body at POST /api/media, writes it into
 // {workspace}/media, and returns {"name": "<basename>"}. The name is what the
 // client then attaches to its next "message" WS frame (as `media`), which the
 // message handler turns into a media_summary — identical to how Telegram/Discord
 // attach a downloaded photo. Auth-protected (wrapped by protected() in Start).
-// Only image/* is accepted; other types are rejected so the console can't be
-// used as a generic file drop.
+//
+// Accepted types are anything saveMediaFile can resolve to an allowed
+// extension: from the ?filename= query parameter (the original file name — the
+// body is raw bytes, so the name cannot ride a multipart field) or, failing
+// that, from the Content-Type. That keeps the endpoint a media pipe rather
+// than a generic file drop: unknown or disallowed types (executables, video,
+// …) are refused with 415, and the 20 MB body cap stands.
 // GET /api/media?path=… is the read side that shares this route. It exists
 // because the paths the model writes cannot ride in a URL path segment: an
 // absolute one would produce "/api/media//root/…", whose double slash the mux
@@ -134,10 +156,9 @@ func (w *WebChannel) handleMediaUpload(rw http.ResponseWriter, r *http.Request) 
 	}
 
 	contentType := strings.TrimSpace(strings.SplitN(r.Header.Get("Content-Type"), ";", 2)[0])
-	if !strings.HasPrefix(contentType, "image/") {
-		http.Error(rw, "only image uploads are supported", http.StatusUnsupportedMediaType)
-		return
-	}
+	// The name is used only to resolve an extension, but a path-shaped value
+	// must still never survive the boundary; basename-clean it here once.
+	filename := filepath.Base(filepath.Clean(r.URL.Query().Get("filename")))
 
 	mediaDir := filepath.Join(w.workspace, "media")
 	if err := os.MkdirAll(mediaDir, 0755); err != nil {
@@ -147,12 +168,59 @@ func (w *WebChannel) handleMediaUpload(rw http.ResponseWriter, r *http.Request) 
 
 	// http.MaxBytesReader caps the body at the same 20 MB ceiling saveMediaFile
 	// enforces, so an oversize upload is refused at the transport layer too.
-	name, err := saveMediaFile(mediaDir, contentType, http.MaxBytesReader(rw, r.Body, 20<<20))
+	name, err := saveMediaFile(mediaDir, filename, contentType, http.MaxBytesReader(rw, r.Body, 20<<20))
 	if err != nil {
-		http.Error(rw, "upload failed: "+err.Error(), http.StatusBadRequest)
+		status := http.StatusBadRequest
+		if errors.Is(err, errUnsupportedFileType) {
+			status = http.StatusUnsupportedMediaType
+		}
+		http.Error(rw, "upload failed: "+err.Error(), status)
 		return
 	}
 
 	rw.Header().Set("Content-Type", "application/json")
 	_ = json.NewEncoder(rw).Encode(map[string]string{"name": name})
+}
+
+// webFilename sanitizes the client-supplied original name for the
+// media_summary: basename-cleaned, control characters stripped (a newline in
+// file_name could forge a whole summary line the model would trust), and
+// capped at a sane display length. Empty result means "no name to show".
+func webFilename(raw string) string {
+	name := truncateRunes(filepath.Base(filepath.Clean(strings.TrimSpace(raw))), 120)
+	var b strings.Builder
+	for _, r := range name {
+		if r < 32 || r == 127 {
+			continue
+		}
+		b.WriteRune(r)
+	}
+	out := strings.TrimSpace(b.String())
+	if out == "" || out == "." || out == string(filepath.Separator) {
+		return ""
+	}
+	return out
+}
+
+// webMediaSummary classifies a stored upload by the extension of the file on
+// disk — not the client's mime string, which is spoofable — into the same
+// media_summary shapes Telegram/Discord/WeCom emit. Image/audio path keys hook
+// the dispatcher's preview agents; document/file paths route the model to
+// read_file. The second return reports whether this is an image, which the
+// message handler uses to pick the caption-less placeholder text.
+func webMediaSummary(workspace, storedName, originalName string) (summary string, isImage bool) {
+	path := filepath.Join(workspace, "media", storedName)
+	ext := strings.ToLower(filepath.Ext(storedName))
+	name := webFilename(originalName)
+	switch {
+	case imageMediaExtensions[ext]:
+		// Photos keep the pre-file-upload shape (type "photo", no file_name):
+		// a generated img-* name carries no information worth surfacing.
+		return MediaSummary("photo", "image_path", path), true
+	case audioMediaExtensions[ext]:
+		return MediaSummary("audio", "file_name", name, "audio_path", path), false
+	case ext == ".pdf":
+		return MediaSummary("document", "file_name", name, "document_path", path), false
+	}
+	return MediaSummary("file", "file_name", name, "file_path", path), false
 }

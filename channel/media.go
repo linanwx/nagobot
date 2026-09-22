@@ -3,6 +3,7 @@ package channel
 import (
 	"crypto/rand"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -93,29 +94,91 @@ func downloadMedia(mediaDir, url string) string {
 	return filePath
 }
 
+// errUnsupportedFileType reports an upload whose type resolved to no allowed
+// extension from either its filename or its content type. The web upload
+// handler maps it to 415; anything else saveMediaFile returns is an I/O
+// failure and maps to 4xx/5xx generically.
+var errUnsupportedFileType = errors.New("unsupported file type")
+
+// imageMediaExtensions / audioMediaExtensions back both the upload whitelist
+// and the media_summary classification, so they are named sets rather than
+// inline switch arms: webMediaSummary asks "is this an image/audio extension"
+// while the whitelist asks "is this allowed at all", and the two must not
+// drift apart.
+var imageMediaExtensions = map[string]bool{
+	".jpg": true, ".jpeg": true, ".png": true, ".gif": true,
+	".webp": true, ".bmp": true,
+}
+
+var audioMediaExtensions = map[string]bool{
+	".ogg": true, ".oga": true, ".opus": true, ".mp3": true,
+	".wav": true, ".m4a": true, ".flac": true, ".aac": true,
+}
+
+// allowedMediaExtensions is the one whitelist of extensions a file may carry
+// into {workspace}/media: images, audio, documents, plain text, code, and
+// archives. Video is deliberately absent — no provider can consume it, so
+// Telegram/Discord never download it either. Extending the set is the whole
+// procedure for accepting a new type.
+var allowedMediaExtensions = map[string]bool{}
+
+func init() {
+	for ext := range imageMediaExtensions {
+		allowedMediaExtensions[ext] = true
+	}
+	for ext := range audioMediaExtensions {
+		allowedMediaExtensions[ext] = true
+	}
+	for _, ext := range []string{
+		// Documents.
+		".pdf", ".docx", ".doc", ".xlsx", ".xls", ".pptx", ".ppt", ".rtf",
+		// Plain text and data.
+		".csv", ".tsv", ".txt", ".md", ".json", ".xml", ".yaml", ".yml",
+		".html", ".htm",
+		// Code and config.
+		".py", ".go", ".js", ".mjs", ".ts", ".tsx", ".jsx", ".sh", ".bash",
+		".zsh", ".rb", ".rs", ".java", ".c", ".h", ".cpp", ".hpp", ".cs",
+		".php", ".sql", ".log", ".ini", ".toml", ".conf", ".cfg", ".env",
+		// Archives.
+		".zip", ".tar", ".gz", ".7z", ".rar",
+	} {
+		allowedMediaExtensions[ext] = true
+	}
+}
+
 // saveMediaFile writes raw bytes from r into mediaDir under a generated name
-// derived from contentType (same naming scheme as downloadMedia), returning the
-// basename. Used by channels that receive bytes directly (e.g. the web console's
-// paste/upload) rather than a URL to fetch. Caps the read at maxMediaSize.
-// Returns an error if the content type has no known extension.
-func saveMediaFile(mediaDir, contentType string, r io.Reader) (string, error) {
+// derived from contentType and filename (same naming scheme as downloadMedia),
+// returning the basename. Used by channels that receive bytes directly (e.g.
+// the web console's paste/upload) rather than a URL to fetch. Caps the read at
+// maxMediaSize.
+//
+// The client-supplied filename is the primary source for the extension: a
+// code file arrives as text/plain or application/octet-stream, and only its
+// name says ".py". Content-Type is the fallback for pasted blobs whose
+// generated name carries the right type anyway ("image.png"). A file with no
+// allowed extension from either source is rejected — that check is the upload
+// endpoint's whole type policy.
+func saveMediaFile(mediaDir, filename, contentType string, r io.Reader) (string, error) {
 	if mediaDir == "" {
 		return "", fmt.Errorf("media directory unavailable")
 	}
-	ext := extensionFromContentType(contentType)
+	ext := extensionFromFilename(filename)
 	if ext == "" {
-		return "", fmt.Errorf("unsupported content type %q", contentType)
+		ext = extensionFromContentType(contentType)
+	}
+	if ext == "" {
+		return "", fmt.Errorf("%w: content type %q, filename %q", errUnsupportedFileType, contentType, filename)
 	}
 
+	// Prefix follows the resolved extension, not the content type: a PDF
+	// arriving as octet-stream with a filename is still a pdf-* file.
 	prefix := "media"
 	switch {
-	case strings.HasPrefix(contentType, "image/"):
+	case imageMediaExtensions[ext]:
 		prefix = "img"
-	case strings.HasPrefix(contentType, "audio/"):
+	case audioMediaExtensions[ext]:
 		prefix = "audio"
-	case strings.HasPrefix(contentType, "video/"):
-		prefix = "video"
-	case strings.HasPrefix(contentType, "application/pdf"):
+	case ext == ".pdf":
 		prefix = "pdf"
 	}
 
@@ -145,18 +208,17 @@ func extensionFromURL(url string) string {
 		url = url[:idx]
 	}
 	ext := strings.ToLower(filepath.Ext(url))
-	switch ext {
-	case ".jpg", ".jpeg", ".png", ".gif", ".webp", ".bmp":
-		return ext
-	case ".ogg", ".oga", ".mp3", ".wav", ".m4a", ".flac", ".aac", ".opus":
-		return ext
-	case ".pdf", ".docx", ".doc", ".xlsx", ".xls", ".pptx", ".ppt",
-		".csv", ".tsv", ".txt", ".md", ".rtf",
-		".json", ".xml", ".yaml", ".yml", ".html", ".htm",
-		".zip", ".tar", ".gz", ".7z", ".rar":
+	if allowedMediaExtensions[ext] {
 		return ext
 	}
 	return ""
+}
+
+// extensionFromFilename resolves an upload's original file name against the
+// whitelist. Basename-cleaned so a path-shaped name resolves to its tail, the
+// same rule the stored-name path applies.
+func extensionFromFilename(name string) string {
+	return extensionFromURL(filepath.Base(strings.TrimSpace(name)))
 }
 
 func extensionFromContentType(ct string) string {

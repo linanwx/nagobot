@@ -119,9 +119,13 @@ type webInboundMessage struct {
 // webInboundMedia references a file the client already uploaded via
 // POST /api/media. Name is the basename returned by that endpoint; the message
 // handler resolves it under {workspace}/media and turns it into a media_summary.
+// Filename is the user's original file name, forwarded so the summary can say
+// file_name: 报告.docx instead of the server's generated name. Untrusted —
+// sanitized by webFilename before it reaches the summary.
 type webInboundMedia struct {
-	Name string `json:"name"`
-	Mime string `json:"mime,omitempty"`
+	Name     string `json:"name"`
+	Mime     string `json:"mime,omitempty"`
+	Filename string `json:"filename,omitempty"`
 }
 
 type webOutboundMessage struct {
@@ -593,6 +597,7 @@ func (w *WebChannel) handleWS(rw http.ResponseWriter, r *http.Request) {
 			// must exist under {workspace}/media, so a client cannot smuggle an
 			// arbitrary path into image_path (which the model may later read).
 			var mediaSummaries []string
+			allImages := true
 			if w.workspace != "" {
 				for _, m := range req.Media {
 					name := filepath.Base(filepath.Clean(strings.TrimSpace(m.Name)))
@@ -603,7 +608,11 @@ func (w *WebChannel) handleWS(rw http.ResponseWriter, r *http.Request) {
 					if _, err := os.Stat(path); err != nil {
 						continue
 					}
-					mediaSummaries = append(mediaSummaries, MediaSummary("photo", "image_path", path))
+					summary, isImage := webMediaSummary(w.workspace, name, m.Filename)
+					if !isImage {
+						allImages = false
+					}
+					mediaSummaries = append(mediaSummaries, summary)
 				}
 			}
 
@@ -611,9 +620,15 @@ func (w *WebChannel) handleWS(rw http.ResponseWriter, r *http.Request) {
 				continue
 			}
 			if text == "" {
-				// Image-only turn: give the wake a body, mirroring Telegram's
-				// "[Photo received]" placeholder for a caption-less photo.
-				text = "[Image received]"
+				// Attachment-only turn: give the wake a body, mirroring
+				// Telegram's "[Photo received]" placeholder. The split matters
+				// for the model: "[Image received]" promises something a
+				// vision pass can see, "[File received]" points at read_file.
+				if allImages {
+					text = "[Image received]"
+				} else {
+					text = "[File received]"
+				}
 			}
 
 			client.mu.Lock()

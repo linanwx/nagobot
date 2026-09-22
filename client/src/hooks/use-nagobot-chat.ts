@@ -21,7 +21,7 @@ import {
   type StreamFrame,
 } from "@/lib/ws";
 import {
-  imageAttachmentAdapter,
+  mediaAttachmentAdapter,
   useActiveUploads,
 } from "@/lib/attachment-adapter";
 
@@ -1047,14 +1047,23 @@ export function useNagobotChat(
       const text = quote && typed !== "" ? `${quote}\n\n${typed}` : typed;
 
       // Attachments are uploaded by the adapter before onNew runs; each carries
-      // an image part whose `image` is /api/media/{name}. Recover the basename
-      // to forward on the WS frame and to echo the thumbnail optimistically.
+      // a part whose URL is /api/media/{name}. Recover the basename to forward
+      // on the WS frame and to echo optimistically — image parts carry it in
+      // `image`, file parts in `data`.
       const media: MediaRef[] = [];
       for (const att of message.attachments ?? []) {
         for (const part of att.content ?? []) {
           if (part.type === "image" && typeof part.image === "string") {
             const base = part.image.split("/").pop();
             if (base) media.push({ name: decodeURIComponent(base), kind: "image" });
+          } else if (part.type === "file" && typeof part.data === "string") {
+            const base = part.data.split("/").pop();
+            if (base)
+              media.push({
+                name: decodeURIComponent(base),
+                kind: "file",
+                filename: att.name,
+              });
           }
         }
       }
@@ -1070,7 +1079,7 @@ export function useNagobotChat(
         socketRef.current?.send(
           id,
           text,
-          media.map((m) => ({ name: m.name })),
+          media.map((m) => ({ name: m.name, filename: m.filename })),
         ) ?? false;
 
       // The chip is minted either way, and that is the point. A send that never
@@ -1124,7 +1133,7 @@ export function useNagobotChat(
         socketRef.current?.send(
           id,
           item.text,
-          (item.media ?? []).map((m) => ({ name: m.name })),
+          (item.media ?? []).map((m) => ({ name: m.name, filename: m.filename })),
         ) ?? false;
       updatePending((prev) =>
         prev.map((p) =>
@@ -1288,7 +1297,7 @@ export function useNagobotChat(
     // composer is the whole point; the old behaviour took the text, showed it
     // as a bubble that was in no session file, and left them to retype it.
     isSendDisabled: status !== "open",
-    adapters: { attachments: imageAttachmentAdapter },
+    adapters: { attachments: mediaAttachmentAdapter },
   });
 
   return {

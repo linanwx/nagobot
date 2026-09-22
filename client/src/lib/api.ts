@@ -234,6 +234,10 @@ export type MediaRef = {
   // Basename served at /api/media/{name}.
   name: string;
   kind: "image" | "audio" | "file";
+  // The user's original file name, forwarded on the WS frame so the backend's
+  // media_summary can say file_name: 报告.docx instead of the generated name.
+  // Only uploads carry it; refs recovered from history have none.
+  filename?: string;
 };
 
 function mediaKindFromMime(mime: string): MediaRef["kind"] {
@@ -299,13 +303,22 @@ export function mediaURL(name: string): string {
 // Takes a Blob, not a File: the attachment adapter re-encodes before uploading,
 // and a canvas hands back a bare Blob. Only `type` and the bytes are read here,
 // which a Blob has; the server names the stored file itself.
+//
+// filename is the user's original file name. The body is raw bytes, not a
+// multipart form, so it rides a query parameter instead — and it matters for
+// more than display: a code file arrives as text/plain or octet-stream, and
+// the server resolves its allowed extension from this name.
 export function uploadMedia(
   file: Blob,
   onProgress?: (loaded: number, total: number) => void,
+  filename?: string,
 ): Promise<{ name: string }> {
   return new Promise((resolve, reject) => {
     const xhr = new XMLHttpRequest();
-    xhr.open("POST", "/api/media");
+    xhr.open(
+      "POST",
+      filename ? `/api/media?filename=${encodeURIComponent(filename)}` : "/api/media",
+    );
     xhr.setRequestHeader(
       "Content-Type",
       file.type || "application/octet-stream",

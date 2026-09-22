@@ -7,16 +7,16 @@ import type {
 } from "@assistant-ui/react";
 import { mediaURL, uploadMedia } from "@/lib/api";
 
-// imageAttachmentAdapter wires the composer's attachment UI (the "+" button, the
-// drag-drop dropzone, AND clipboard paste — assistant-ui routes pasted images
-// through the same adapter) to the nagobot backend.
+// mediaAttachmentAdapter wires the composer's attachment UI (the "+" button,
+// the drag-drop dropzone, AND clipboard paste — assistant-ui routes pasted
+// images through the same adapter) to the nagobot backend.
 //
-// Flow: add() registers a local pending image (renders a thumbnail from the
-// File immediately); send() shrinks it to the long edge the providers bill for,
-// uploads the bytes to /api/media, and stores the returned basename as an
-// ImageMessagePart whose `image` is the media URL. The chat send path (onNew)
-// reads that URL back to a basename and forwards it on the "message" WS frame,
-// which the backend turns into a media_summary.
+// Flow: add() registers a local pending file (renders a thumbnail from the
+// File immediately); send() shrinks images to the long edge the providers bill
+// for, uploads the bytes to /api/media, and stores the returned basename as a
+// message part whose URL is the media URL. The chat send path (onNew) reads
+// that URL back to a basename and forwards it on the "message" WS frame, which
+// the backend turns into a media_summary.
 //
 // The upload also publishes its progress here, and that exists to close a window
 // in which the UI showed nothing at all. The composer clears the text and the
@@ -28,9 +28,10 @@ import { mediaURL, uploadMedia } from "@/lib/api";
 // upload as a queue chip for exactly that gap, so the click is acknowledged
 // immediately and the message chip takes over the moment the bytes land.
 //
-// Only images are accepted — the backend upload endpoint rejects everything
-// else, so keeping `accept` in sync avoids a picker that offers unsendable
-// files.
+// `accept` mirrors the backend's extension whitelist (channel/media.go's
+// allowedMediaExtensions): images, audio, documents, text and code files,
+// archives. Video is excluded there too — no provider can consume it — so the
+// picker never offers a file the upload would refuse with 415.
 
 // randomID returns a unique attachment id. crypto.randomUUID is unavailable
 // outside secure contexts (a plain-http origin, e.g. reaching the daemon by LAN
@@ -159,15 +160,35 @@ export function useActiveUploads(): readonly UploadState[] {
   );
 }
 
-export const imageAttachmentAdapter: AttachmentAdapter = {
-  accept: "image/*",
+// Comma-separated MIME types and extensions, the HTML `accept` attribute
+// grammar. Keep aligned with the server's allowedMediaExtensions (the comment
+// on the adapter above explains why the two must not drift).
+const acceptedTypes = [
+  "image/*",
+  "audio/*",
+  "application/pdf",
+  ".doc", ".docx", ".xls", ".xlsx", ".ppt", ".pptx", ".rtf",
+  ".csv", ".tsv", ".txt", ".md", ".json", ".xml", ".yaml", ".yml",
+  ".html", ".htm",
+  ".py", ".go", ".js", ".mjs", ".ts", ".tsx", ".jsx", ".sh", ".bash",
+  ".zsh", ".rb", ".rs", ".java", ".c", ".h", ".cpp", ".hpp", ".cs",
+  ".php", ".sql", ".log", ".ini", ".toml", ".conf", ".cfg", ".env",
+  ".zip", ".tar", ".gz", ".7z", ".rar",
+].join(",");
+
+export const mediaAttachmentAdapter: AttachmentAdapter = {
+  accept: acceptedTypes,
 
   async add({ file }): Promise<PendingAttachment> {
     return {
       id: randomID(),
-      type: "image",
+      // The attachment type drives rendering: images get a thumbnail tile and
+      // the preview dialog, everything else the file tile. The mime prefix is
+      // the only signal that cannot lie about the bytes the way an extension
+      // can, and a wrong guess here costs a generic icon, nothing more.
+      type: file.type.startsWith("image/") ? "image" : "file",
       name: file.name,
-      contentType: file.type,
+      contentType: file.type || undefined,
       file,
       // Nothing is uploading yet: send() does that, and the composer only
       // calls it once the user hits send. Saying "running/uploading" here
@@ -184,9 +205,12 @@ export const imageAttachmentAdapter: AttachmentAdapter = {
     active.set(id, { id, name, percent: 0 });
     publish();
 
+    const isImage = attachment.type === "image";
     // Shrink before uploading. The chip is already on screen at 0% for this
-    // stretch, which is honest: no bytes have moved yet.
-    const body = await shrink(attachment.file);
+    // stretch, which is honest: no bytes have moved yet. Only images —
+    // Compressor decodes through an <img>, so on any other file it would just
+    // fail and hand back the original anyway.
+    const body = isImage ? await shrink(attachment.file) : attachment.file;
 
     let uploaded: string;
     try {
@@ -202,7 +226,7 @@ export const imageAttachmentAdapter: AttachmentAdapter = {
           if (!cur || cur.percent === percent) return;
           active.set(id, { ...cur, percent });
           publish();
-        })
+        }, name)
       ).name;
     } catch (e) {
       // Kept in the store rather than deleted. The composer's own catch restores
@@ -218,12 +242,22 @@ export const imageAttachmentAdapter: AttachmentAdapter = {
 
     active.delete(id);
     publish();
+    // The URL doubles as the carrier for the uploaded basename: onNew parses
+    // it back out. mediaURL encodes the name; onNew decodes it.
+    const url = mediaURL(uploaded);
     return {
       ...attachment,
       status: { type: "complete" },
-      // The URL doubles as the carrier for the uploaded basename: onNew parses
-      // it back out. mediaURL encodes the name; onNew decodes it.
-      content: [{ type: "image", image: mediaURL(uploaded) }],
+      content: isImage
+        ? [{ type: "image", image: url }]
+        : [
+            {
+              type: "file",
+              filename: name,
+              data: url,
+              mimeType: attachment.contentType ?? "application/octet-stream",
+            },
+          ],
     };
   },
 
