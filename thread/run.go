@@ -84,6 +84,7 @@ func (t *Thread) run(ctx context.Context, userMessage, userMessageID string, med
 	defer func() {
 		t.mu.Lock()
 		t.execMetrics = nil
+		t.lastTurnMetrics = metrics
 		t.mu.Unlock()
 	}()
 
@@ -486,8 +487,9 @@ func (t *Thread) executeRunner(ctx, runCtx context.Context, p provider.Provider,
 	runner.OnIterationEnd(injectFn)
 
 	// OnNoToolCalls: enforce explicit dispatch on wake sources where naive
-	// text routing is ambiguous (currently WakeSession — covers peer-asked
-	// and child-completed). The hook suppresses the about-to-fire sink
+	// text routing is ambiguous (currently WakeSession, a peer asking us
+	// something). Only sessions that are neither user-facing nor a dispatched
+	// child are held to it. The hook suppresses the about-to-fire sink
 	// delivery and returns a system reminder; the runner persists the
 	// rejected text, appends the reminder, and iterates again until the
 	// model emits dispatch (or maxIterations aborts).
@@ -510,12 +512,26 @@ func (t *Thread) executeRunner(ctx, runCtx context.Context, p provider.Provider,
 		// its own human (see contentSink). Naive text is therefore a legitimate
 		// way to end the turn, and replying to the peer is what
 		// dispatch(to=caller:session) is for. Only sessions with no human of
-		// their own — subagents, forks, internal sessions — must keep iterating
-		// until they dispatch, since their content would otherwise go nowhere.
+		// their own and no parent reading their result (cron and internal
+		// sessions) must answer a peer with a dispatch, since their content
+		// would otherwise go nowhere.
 		if t.IsUserFacing() {
 			return nil
 		}
+		// A dispatched child ends its turn with plain text by design: that text
+		// IS its result. Nothing forwards it; the progress scanner reports the
+		// end of the turn to the session that dispatched it, which reads the
+		// result from the child's session file.
+		if _, isChild := session.ImmediateParentKey(t.sessionKey); isChild {
+			return nil
+		}
 		if peerKey == "" {
+			return nil
+		}
+		// dispatch no longer ends the turn, so a session that already answered
+		// with a dispatch still gets one more LLM call and ends it with text.
+		// Rejecting that text would loop until maxIterations.
+		if t.hasDispatched() {
 			return nil
 		}
 		t.SetSuppressSink()

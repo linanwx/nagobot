@@ -259,30 +259,6 @@ type DispatchHost interface {
 	// sinkLabel — human-readable destination shown back to the LLM on
 	//             successful caller delivery.
 	CallerInfo() (kind msg.CallerKind, callerKey, sinkLabel string)
-	// ContentReachesSomeone reports whether text the model writes as assistant
-	// content alongside this tool_call actually gets delivered — to its human on
-	// a user-facing session, or to the caller on a subagent/fork. False only when
-	// the content would be dropped outright: heartbeat/compression turns and
-	// suppressed sinks. dispatch uses it for exactly one thing: never demand text
-	// this turn could not deliver anyway.
-	ContentReachesSomeone() bool
-	// CallerIsOwnChild reports whether the session that woke this turn is a
-	// subagent or fork this session spawned — the return leg of delegated work,
-	// as opposed to a peer session asking a question. Both arrive as
-	// CallerKindSession and are indistinguishable by wake source.
-	CallerIsOwnChild() bool
-	// SettleTurnContent disposes of the assistant content emitted alongside this
-	// tool_call, now that dispatch knows how the turn ends. deliver=true asks it
-	// to send the text if the runner did not (the runner only auto-delivers a
-	// tool_call-bearing message on chunkable sinks, assuming a final message will
-	// follow — a turn-ending dispatch means none will). deliver=false only
-	// accounts for text that goes nowhere.
-	//
-	// Returns the destination label when this call delivered the text, and
-	// otherwise the outcome naming why it did not (already logged host-side —
-	// content is never discarded silently). Both zero means nothing to do: no
-	// content, or the runner already delivered it.
-	SettleTurnContent(ctx context.Context, content string, deliver bool) (destination string, outcome msg.SettleOutcome)
 	AgentExists(name string) bool
 	SessionExists(key string) bool
 	SendToCaller(ctx context.Context, body string) error
@@ -294,15 +270,12 @@ type DispatchHost interface {
 	// descriptive error otherwise (never silent). Both args are non-empty.
 	ValidateModelOverride(provider, model string) error
 	WakeSession(ctx context.Context, sessionKey, body string) error
+	// SignalHalt ends the turn once the current tool batch completes. Only
+	// dispatch({}) uses it; every routing dispatch leaves the turn running.
 	SignalHalt()
-	// ClearSuppressSink re-enables end-of-turn sink delivery. Called after a
-	// batched (non-terminating) dispatch: SendToCaller suppresses the sink to
-	// prevent double delivery, but a continuing turn must still deliver its
-	// eventual final text.
-	ClearSuppressSink()
 }
 
-// DispatchTool is the unified turn-terminating routing primitive.
+// DispatchTool is the asynchronous routing primitive between sessions.
 type DispatchTool struct {
 	host DispatchHost
 }
@@ -318,26 +291,25 @@ func (t *DispatchTool) Def() provider.ToolDef {
 		Type: "function",
 		Function: provider.FunctionDef{
 			Name: "dispatch",
-			Description: "Routing primitive for reaching OTHER agents and sessions. It does NOT reach your own human: to speak to the human on this session's channel, simply write your reply as ordinary assistant text and end the turn — there is no to=user target. The server decides whether that text reaches the human from the wake source alone: a heartbeat or compression turn never reaches the human no matter what it writes, while a user, cron, or peer-session turn does. " +
-				"dispatch ends the turn ONLY when it is the sole tool call in your message. Batched alongside other tool calls, every send still delivers but the turn CONTINUES — you will see the other tools' results and keep working.\n" +
+			Description: "Asynchronous routing primitive for reaching OTHER agents and sessions. It does NOT reach your own human: to speak to the human on this session's channel, simply write your reply as ordinary assistant text; there is no to=user target. The server decides whether that text reaches the human from the wake source alone: a heartbeat or compression turn never reaches the human no matter what it writes, while a user, cron, or peer-session turn does.\n" +
+				"dispatch is asynchronous: every send is delivered and your turn CONTINUES: you get the tool result and keep working. It never waits for the target. When you hand work to a subagent, tell your human what you did in your reply text and finish the turn; do NOT wait or poll. When a subagent/fork you dispatched ends its turn, you are notified automatically by a `progress` wake carrying a short report and the child's session file. Read the file to see its actual result.\n" +
 				"Each entry in `sends` has a `to` field selecting the target:\n" +
-				"- caller:session — reply to the caller AND assert the caller is another session (cross-session wake; `caller_session_key` is present in wake YAML). Fails validation if the actual caller is the channel user or system.\n" +
-				"- subagent: spawn a new subagent thread, or wake existing at same task_id. Takes to/body plus params: task_id (required), agent?, provider?+model? (optional model override).\n" +
-				"- fork: branch current session as new agent thread, or wake existing at same task_id. Takes to/body plus the same params as subagent.\n" +
-				"- session: wake ANOTHER session's AI. The body becomes that session's wake message, processed by ITS AI (own agent/persona/history) — it is NOT delivered verbatim to that session's human user; the target AI decides what, if anything, to say to its own human (by writing its reply text). Takes to/body plus params in one of two mutually exclusive forms: (1) session_key — exact key of an EXISTING session (validation fails if it does not exist); (2) channel + user_id — address a channel endpoint directly, creating the session if missing. Use form 2 to initiate contact with a user who may never have talked to the bot. Either way, the target's dispatch(to=caller:session) routes back to YOUR session (ping-pong recurses until one side halts).\n\n" +
-				"Which form to pick when replying to whoever woke you: read `caller_session_key` in the wake YAML frontmatter. Present → dispatch(to=caller:session) (a peer session woke you). Absent AND this session is user-facing → the channel user woke you: do NOT dispatch, just write your reply as ordinary text. System sources (cron/heartbeat/compression) have no caller to reply to — write your reply (delivered only if the source allows) or dispatch({}). " +
-				"Empty sends — dispatch({}) — is silent turn termination; nothing delivered, history recorded. Only use when you genuinely have nothing to say AND the caller does not need to know you finished. If you received a cross-session wake you believe was mis-routed, dispatch(to=caller:session) with an explanation — do NOT silently drop it via dispatch({}) (the caller never learns). " +
-				"Assistant content alongside a dispatch call: dispatch itself delivers ONLY each send's `body`. The content field is your speech to your own human, and it is delivered independently whenever this turn's wake source allows it — so writing your report in content while routing work with dispatch is the NORMAL, recommended shape, and when you hand work off you SHOULD tell your human what you just did. Where this turn has no destination for plain content (a heartbeat turn, or a session with no human of its own) the content is not delivered, and the tool result tells you exactly what became of it — so nothing is lost silently, but anything that must reach someone belongs in a send `body`. " +
-				"REQUIRED on user-woken turns: if the wake came from your human (sender: user) and this dispatch is your sole tool call — so the turn ENDS here — the message MUST also carry your reply text. Ending a turn with routing alone leaves the person who asked with nothing while the work goes elsewhere; such a call is rejected, nothing is sent, and the turn continues so you can add the text and re-issue it. dispatch({}) with no sends is exempt — that is how you deliberately say nothing. " +
-				"Common mistakes to avoid: (a) do NOT use to=session to reply to whoever woke you — that is to=caller:session; to=session wakes a DIFFERENT session. (b) Do NOT dispatch in order to reach your own human — there is no to=user; end the turn with plain text instead. (c) Do NOT use plain text to answer a cross-session caller — text goes to your own human, not the caller; use to=caller:session. " +
-				"On success the turn ends (if dispatch was the sole tool call). On validation error the turn continues — fix and re-call. " +
+				"- caller:session: send a message to the session that woke you AND assert the caller is another session (`caller_session_key` is present in wake YAML). Fails validation if the actual caller is the channel user or system.\n" +
+				"- subagent: spawn a new subagent thread, or wake the existing one at the same task_id (e.g. to ask it to fix or continue its work). Takes to/body plus params: task_id (required), agent?, provider?+model? (optional model override).\n" +
+				"- subagent_fork: same as subagent, but the new thread inherits your (stripped) history. Takes the same params.\n" +
+				"- session: wake ANOTHER session's AI. The body becomes that session's wake message, processed by ITS AI (own agent/persona/history). It is NOT delivered verbatim to that session's human user; the target AI decides what, if anything, to say to its own human (by writing its reply text). Takes to/body plus params in one of two mutually exclusive forms: (1) session_key: exact key of an EXISTING session (validation fails if it does not exist); (2) channel + user_id: address a channel endpoint directly, creating the session if missing. Use form 2 to initiate contact with a user who may never have talked to the bot. Either way, the target's dispatch(to=caller:session) routes back to YOUR session.\n\n" +
+				"If you are a dispatched subagent/fork yourself: your final reply text IS your result: the thread that dispatched you is notified when your turn ends and reads it from your session. You do not need to dispatch it back; to=caller:session is optional, for sending a message mid-work.\n" +
+				"Which form to pick when answering whoever woke you: read `caller_session_key` in the wake YAML frontmatter. Present → dispatch(to=caller:session) (a peer session woke you). Absent AND this session is user-facing → the channel user woke you: do NOT dispatch, just write your reply as ordinary text. System sources (cron/heartbeat/compression) have no caller to reply to: write your reply (delivered only if the source allows) or dispatch({}). " +
+				"Empty sends, i.e. dispatch({}), is the one form that ENDS the turn: silent termination, nothing delivered, history recorded, and only when it is the sole tool call in your message (batched with other tool calls it is a no-op). Use it when you genuinely have nothing to say. If you received a cross-session wake you believe was mis-routed, dispatch(to=caller:session) with an explanation; do NOT silently drop it via dispatch({}) (the caller never learns). " +
+				"Common mistakes to avoid: (a) do NOT use to=session to reply to whoever woke you, that is to=caller:session; to=session wakes a DIFFERENT session. (b) Do NOT dispatch in order to reach your own human: there is no to=user, write plain text instead. (c) Do NOT use plain text to answer a cross-session peer caller: text goes to your own human, not the caller; use to=caller:session. " +
+				"On validation error nothing is sent: fix and re-call. " +
 				"dispatch fires NOW — it has no delay/schedule parameter. For any future or delayed wake (including a delayed self-wake), use the manage-cron skill, not dispatch.",
 			Parameters: map[string]any{
 				"type": "object",
 				"properties": map[string]any{
 					"sends": map[string]any{
 						"type":        "array",
-						"description": "List of dispatch entries. Empty or omitted means silent termination.",
+						"description": "List of dispatch entries. Empty or omitted (dispatch({}) called alone) silently ends the turn.",
 						"items": map[string]any{
 							"type": "object",
 							"properties": map[string]any{
@@ -424,42 +396,27 @@ func (t *DispatchTool) run(ctx context.Context, args json.RawMessage) string {
 	}
 	normalizeSends(a.Sends)
 
-	// Content written alongside a dispatch call is the normal shape, not an
-	// error: the content is this session's report to its own reader, the sends
-	// are the routing to other agents. Whether it actually goes out is settled
-	// once the turn's ending is known (see settleContent below) — there is no
-	// content check here. The old rule that hard-rejected >= 50 runes of content
-	// was written when dispatch(to=user) existed and a send body could carry
-	// text to one's own human; without that target its instruction ("move it
-	// into a send body") is unsatisfiable, so it was deleted with the target.
-	rawContent := strings.TrimSpace(provider.AssistantContentFromContext(ctx))
-	contentReaches := t.host.ContentReachesSomeone()
-
-	// Solo = dispatch is the only tool call in this assistant message.
-	// Batched with other tool calls, sends still deliver but the turn
-	// continues: halting here would discard the sibling tools' results and
-	// cut off the model's reasoning mid-work. Batch size 0 means the caller
-	// didn't plumb the context (tests, direct invocation) — treat as solo.
-	solo := provider.ToolBatchSizeFromContext(ctx) <= 1
-
-	// HIGHEST PRIORITY: dispatch({}) is ALWAYS a valid silent termination,
-	// regardless of session kind, caller kind, or any other rule. The model
-	// explicitly chose to say nothing — respect it and end the turn.
+	// dispatch({}) is the one form that ends the turn: the model explicitly
+	// chose to say nothing. It halts only when it is the sole tool call in the
+	// message (batched, halting would discard the sibling tools' results), so
+	// a batched empty dispatch is a no-op. Batch size 0 means the caller didn't
+	// plumb the context (tests, direct invocation): treat as solo.
 	if len(a.Sends) == 0 {
-		if !solo {
+		if provider.ToolBatchSizeFromContext(ctx) > 1 {
 			return toolResult("dispatch", map[string]any{
 				"outcome": "no-op",
-			}, "Nothing sent and the turn was NOT terminated: dispatch only ends the turn when it is the sole tool call in your message, and this call was batched with other tool calls. Continue working with their results; when finished, call dispatch({}) alone to end the turn silently.")
+			}, "Nothing sent and the turn was NOT ended: dispatch({}) only ends the turn when it is the sole tool call in your message, and this call was batched with other tool calls. Continue working with their results; when finished, write your reply or call dispatch({}) alone to end silently.")
 		}
 		t.host.SignalHalt()
 		return toolResult("dispatch", map[string]any{
 			"outcome": "turn-terminated-silent",
-		}, "Turn terminated silently. No delivery; history recorded."+
-			// deliver=false: dispatch({}) is a deliberate choice to say nothing,
-			// so any content it carried is meant to go nowhere. Still settled,
-			// so the drop is logged rather than vanishing.
-			t.settleContent(ctx, rawContent, false))
+		}, "Turn terminated silently. No delivery; history recorded.")
 	}
+
+	// Every routing dispatch is asynchronous: the sends go out and the turn
+	// continues. Content written alongside the call is an ordinary
+	// intermediate message and the turn's final message speaks for it, so
+	// there is nothing to settle here.
 
 	// Validate entire batch first (all-or-nothing on validation): a batch that
 	// half-delivers and then reports an error is worse than one that delivers
@@ -468,46 +425,7 @@ func (t *DispatchTool) run(ctx context.Context, args json.RawMessage) string {
 		return buildDispatchErrorResult(errs)
 	}
 
-	// A solo dispatch ENDS the turn. When someone is waiting on this turn and it
-	// routes the work somewhere else without saying a word, they asked a question
-	// and got silence — the reply exists, but it went to a subagent or a peer
-	// session instead. Content is the ONLY channel to one's own reader (there is
-	// no to=user), so demand it before letting the turn close.
-	//
-	// Two wakes have someone waiting:
-	//   - the human just spoke (CallerKindUser), or
-	//   - our own subagent/fork just reported back (CallerKindSession + the
-	//     caller key is our child). That is the return leg of work WE delegated:
-	//     somewhere up the chain a human asked turn 1's question and is still
-	//     waiting. Ending silently on the answer's arrival strands them.
-	// A peer session asking us something is excluded — nobody is waiting on a
-	// human-facing reply there, and narrating every peer exchange would be worse
-	// than silence.
-	//
-	// Narrow on two more axes:
-	//   - solo only: batched with other tool calls the turn continues, so the
-	//     model still gets its chance to speak.
-	//   - contentReaches only: never demand text this turn cannot deliver
-	//     (heartbeat/compression turns), or the model would be trapped in an
-	//     unsatisfiable loop.
-	// Empty dispatch({}) is exempt by construction — it returns above, and it is
-	// the model explicitly choosing silence rather than forgetting to speak.
-	if solo && contentReaches && rawContent == "" {
-		kind, _, _ := t.host.CallerInfo()
-		waiting := kind == msg.CallerKindUser ||
-			(kind == msg.CallerKindSession && t.host.CallerIsOwnChild())
-		if waiting {
-			return toolResult("dispatch", map[string]any{
-				"outcome": "validation-error",
-			}, "Validation failed — no sends were executed. Fix and re-call dispatch; the turn continues.\n\n"+
-				"Reason: this dispatch is the only tool call in your message, so it ENDS the turn — but your message carries no assistant text, and someone is waiting on a reply from this session. They would see nothing at all while the work was handed to someone else.\n\n"+
-				"Fix: write what you want them to know as ordinary assistant text in the SAME message as this dispatch call (e.g. \"Looking into it — I've asked the research subagent.\"), then re-issue the dispatch unchanged. Content is the only way to reach this session's own reader; dispatch delivers each send's `body` to OTHER agents.\n"+
-				"If you truly mean to say nothing to them, call dispatch({}) with no sends instead — that ends the turn silently on purpose.")
-		}
-	}
-
-	// Execute. Partial failure possible — the halt decision (solo only) is
-	// the same either way: executed deliveries cannot be unrolled.
+	// Execute. Partial failure possible: executed deliveries cannot be unrolled.
 	executed := make([]ExecutedItem, 0, len(a.Sends))
 	var execErrs []DispatchError
 	for i, send := range a.Sends {
@@ -524,59 +442,10 @@ func (t *DispatchTool) run(ctx context.Context, args json.RawMessage) string {
 		executed = append(executed, item)
 	}
 
-	// Settle AFTER execution, and before the halt. After, because an executed
-	// to=caller:session suppresses the sink — on a subagent that is the very same
-	// destination content would go to, and waking the caller twice is worse than
-	// dropping prose. Before the halt only for clarity; the runner reads the halt
-	// flag once tools finish either way.
-	//
-	// deliver only on the solo path: a batched dispatch leaves the turn running,
-	// so the eventual final assistant message is what speaks.
-	note := t.settleContent(ctx, rawContent, solo)
-
-	if solo {
-		t.host.SignalHalt()
-	} else {
-		t.host.ClearSuppressSink()
-	}
 	if len(execErrs) > 0 {
-		return buildDispatchMixedResult(executed, execErrs, solo) + note
+		return buildDispatchMixedResult(executed, execErrs)
 	}
-	return buildDispatchSuccessResult(executed, solo) + note
-}
-
-// settleContent hands the turn's assistant content to the host now that the
-// ending is known, and turns the outcome into a note appended to the tool
-// result. Empty note means there was nothing to say: no content, or the runner
-// already delivered it live.
-//
-// Each outcome gets its own note. One shared "this reached nobody — put it in a
-// send body" was accurate for SettleNoReader and misleading for the rest: on
-// SettleTurnContinues the turn is still running and the final message is what
-// speaks, and on SettleAlreadySentToCaller the reader did get the news, in the
-// send's own body. Both of those read as "your words vanished, say them again",
-// which is an instruction to duplicate.
-func (t *DispatchTool) settleContent(ctx context.Context, content string, deliver bool) string {
-	if content == "" {
-		return ""
-	}
-	dest, outcome := t.host.SettleTurnContent(ctx, content, deliver)
-	if dest != "" {
-		return "\n\nYour message text was delivered — " + dest + "."
-	}
-	switch outcome {
-	case msg.SettleNoReader:
-		return "\n\n⚠️ The text in this message reached nobody: this turn has no destination for plain content. Only each send's `body` went out. If that text was meant for someone, it has to go in a send body."
-	case msg.SettleTurnContinues:
-		return "\n\nNote: this turn is still running, so the text in this message was not delivered as the reply — your final message is. No need to repeat it."
-	case msg.SettleAlreadySentToCaller:
-		return "\n\nNote: the text in this message was not sent separately — on this session it would go to the same place your caller reply just went, and they already have it. No need to repeat it."
-	case msg.SettleDeliveryFailed:
-		return "\n\n⚠️ Delivery of the text in this message FAILED (the sends above still went out). If it matters, try again or route it through a send `body`."
-	case msg.SettleDiscarded:
-		return "\n\n⚠️ The text in this message was DISCARDED: this session has no channel of its own, so plain content is dropped. Only each send's `body` went out. If that text was meant for someone, it has to go in a send body."
-	}
-	return ""
+	return buildDispatchSuccessResult(executed)
 }
 
 // validateAll performs all static, existence, and dedup checks.
@@ -788,10 +657,9 @@ func describeExecuted(ex ExecutedItem) string {
 	return "Dispatched " + body + " to=" + string(ex.To) + " at session " + ex.SessionKey + "."
 }
 
-
 func buildDispatchErrorResult(errs []DispatchError) string {
 	var sb strings.Builder
-	sb.WriteString("Validation failed — no sends were executed. Fix and re-call dispatch; the turn continues.\n\nErrors:\n")
+	sb.WriteString("Validation failed: no sends were executed. Fix and re-call dispatch.\n\nErrors:\n")
 	for _, e := range errs {
 		if e.To != "" {
 			fmt.Fprintf(&sb, "  - send #%d (to=%s): %s\n", e.Index, e.To, e.Detail)
@@ -804,44 +672,33 @@ func buildDispatchErrorResult(errs []DispatchError) string {
 	}, strings.TrimRight(sb.String(), "\n"))
 }
 
-// turnContinuesNote explains a batched dispatch's non-terminating result.
-// Deliveries above it in the result are real — the model must not resend.
-const turnContinuesNote = "Turn NOT terminated: this dispatch was batched with other tool calls, and dispatch only ends the turn when it is the sole tool call in your message. The deliveries above are already sent — do NOT resend them. Continue working with the other tools' results; then end the turn with a final dispatch called alone, or with plain text (default delivery)."
+// turnContinuesNote closes every result that delivered something. The
+// deliveries above it are real (the model must not resend them) and the turn
+// is still running, so the model still owes its own reader the final word.
+const turnContinuesNote = "The turn continues: dispatch never waits for the target, and the deliveries above are already sent (do NOT resend them). " +
+	"A subagent/fork you dispatched notifies you automatically with a `progress` wake when its turn ends; do not wait or poll for it. " +
+	"Now finish this turn: tell your human what you just did in plain reply text, or call dispatch({}) alone if there is nothing worth saying."
 
-func buildDispatchSuccessResult(executed []ExecutedItem, solo bool) string {
+func buildDispatchSuccessResult(executed []ExecutedItem) string {
 	var sb strings.Builder
-	ending := "Turn ended."
-	if !solo {
-		ending = "Turn continues."
-	}
 	if len(executed) == 1 {
-		fmt.Fprintf(&sb, "Executed 1 send. %s\n\n", ending)
+		sb.WriteString("Executed 1 send.\n\n")
 	} else {
-		fmt.Fprintf(&sb, "Executed %d sends. %s\n\n", len(executed), ending)
+		fmt.Fprintf(&sb, "Executed %d sends.\n\n", len(executed))
 	}
 	for i, ex := range executed {
 		fmt.Fprintf(&sb, "  %d. %s\n", i+1, describeExecuted(ex))
 	}
-	if !solo {
-		sb.WriteString("\n")
-		sb.WriteString(turnContinuesNote)
-	}
-	outcome := "turn-terminated"
-	if !solo {
-		outcome = "delivered-turn-continues"
-	}
+	sb.WriteString("\n")
+	sb.WriteString(turnContinuesNote)
 	return toolResult("dispatch", map[string]any{
-		"outcome": outcome,
-	}, strings.TrimRight(sb.String(), "\n"))
+		"outcome": "delivered",
+	}, sb.String())
 }
 
-func buildDispatchMixedResult(executed []ExecutedItem, errs []DispatchError, solo bool) string {
+func buildDispatchMixedResult(executed []ExecutedItem, errs []DispatchError) string {
 	var sb strings.Builder
-	ending := "Turn ended"
-	if !solo {
-		ending = "Turn continues"
-	}
-	fmt.Fprintf(&sb, "Partial failure: %d send(s) executed, %d failed. %s — executed deliveries cannot be unrolled.\n", len(executed), len(errs), ending)
+	fmt.Fprintf(&sb, "Partial failure: %d send(s) executed, %d failed. Executed deliveries cannot be unrolled.\n", len(executed), len(errs))
 	if len(executed) > 0 {
 		sb.WriteString("\nExecuted:\n")
 		for i, ex := range executed {
@@ -858,11 +715,9 @@ func buildDispatchMixedResult(executed []ExecutedItem, errs []DispatchError, sol
 			}
 		}
 	}
-	if !solo {
-		sb.WriteString("\n")
-		sb.WriteString(turnContinuesNote)
-	}
+	sb.WriteString("\n")
+	sb.WriteString(turnContinuesNote)
 	return toolResult("dispatch", map[string]any{
 		"outcome": "partial-failure",
-	}, strings.TrimRight(sb.String(), "\n"))
+	}, sb.String())
 }

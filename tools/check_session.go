@@ -60,8 +60,9 @@ func (t *CheckSessionTool) Def() provider.ToolDef {
 				// Derived, not spelled out: this sits in the cached tool prefix,
 				// so a stale target name here is shown to every model on every
 				// turn while nothing rejects it.
-				"Use this after dispatch (" + targetsAccepting("task_id") + ") to follow up on a child session by its " +
-				"resolved session_key.",
+				"Useful for checking the actual state of a child session you dispatched (" + targetsAccepting("task_id") + ") by its " +
+				"resolved session_key, e.g. whether it is still running after its end-of-turn notice. " +
+				"Do NOT poll it while waiting for a child: its end-of-turn notice arrives on its own as a `progress` wake.",
 			Parameters: map[string]any{
 				"type": "object",
 				"properties": map[string]any{

@@ -240,8 +240,10 @@ distinct `task_id`s.
 
 ## Handling the answer
 
-The consult is **asynchronous**. Your dispatch ends the turn. Later you wake
-with `source: child_completed` and the consultant's answer as the wake body.
+The consult is **asynchronous**. The dispatch returns at once and your turn
+continues; do not wait or poll. When the consultant's turn ends you wake with
+`source: progress` and `event: turn_ended`. The notice is not the answer: read
+the consultant's last `role=assistant` entry from the `session_file` it names.
 
 - **You remain responsible for the result.** The consultant saw none of the
   real context, so check its answer against reality before acting — read the
@@ -263,9 +265,8 @@ with `source: child_completed` and the consultant's answer as the wake body.
 ## Telling the user you are working
 
 A consult takes as long as a full turn on a large model. If a human is waiting,
-batch the dispatch with your reply text so they are not left in silence — a
-dispatch batched with other content delivers and the turn continues, whereas a
-solo dispatch ends the turn:
+tell them in your reply text so they are not left in silence. The dispatch does
+not end the turn, so the note and the dispatch can go in either order:
 
 ```
 Let me double-check this properly — one moment.

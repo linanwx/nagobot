@@ -100,12 +100,12 @@ func TestBuildSystemMessage_QuoteSafety(t *testing.T) {
 	// Field values with colons, quotes, backslashes, special YAML chars must
 	// round-trip safely — old manual quoting heuristics could corrupt these.
 	tricky := map[string]string{
-		"path":   "/etc/hosts:80",
-		"json":   `{"k":"v"}`,
-		"quote":  `"already quoted"`,
-		"colon":  "key: value with colon",
-		"yes":    "yes",
-		"newln":  "line1\nline2",
+		"path":  "/etc/hosts:80",
+		"json":  `{"k":"v"}`,
+		"quote": `"already quoted"`,
+		"colon": "key: value with colon",
+		"yes":   "yes",
+		"newln": "line1\nline2",
 	}
 	out := BuildSystemMessage("test", tricky, "")
 	mapping, _, ok := ParseFrontmatter(out)

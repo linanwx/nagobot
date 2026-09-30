@@ -19,4 +19,4 @@ Be concise but thorough. Return findings as plain text.
 
 ## Missing Audio Path
 
-If your task does not contain an audio file path, you cannot proceed. Reply to the parent thread requesting it to pass you the audio file path — either by waking you with the path, or by creating a new child thread with the path in the task.
+If your task does not contain an audio file path, you cannot proceed. Say so as your final reply: state that the audio file path is missing and that the session that dispatched you must wake you again (same task_id) with the path in the task. It reads your reply when your turn ends.

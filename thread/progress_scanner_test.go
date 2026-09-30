@@ -1,10 +1,13 @@
 package thread
 
 import (
+	"context"
+	"errors"
 	"strings"
 	"testing"
 	"time"
 
+	"github.com/linanwx/nagobot/session"
 	"github.com/linanwx/nagobot/thread/msg"
 )
 
@@ -253,5 +256,93 @@ func TestDeliverToAncestor_WakesParent(t *testing.T) {
 	}
 	if !strings.Contains(wake.Message, "6m12s") || !strings.Contains(wake.Message, "14 steps") {
 		t.Errorf("wake body missing elapsed/steps header: %s", wake.Message)
+	}
+}
+
+func TestTurnEndTarget(t *testing.T) {
+	cases := []struct {
+		key    string
+		source WakeSource
+		want   string
+		ok     bool
+	}{
+		{"telegram:99:threads:find-x", WakeSession, "telegram:99", true},
+		{"telegram:99:threads:find-x", WakeResume, "telegram:99", true},
+		// A child that was waiting on its own child finishes on the grandchild's
+		// end-of-turn notice, and that turn is reported too.
+		{"telegram:99:threads:find-x", WakeProgress, "telegram:99", true},
+		// Nested: reported to the session that dispatched it, not the root.
+		{"cli:threads:a:fork:b", WakeSession, "cli:threads:a", true},
+		{"telegram:99:threads:find-x", WakeHeartbeat, "", false},
+		{"telegram:99:threads:find-x", WakeCompression, "", false},
+		{"telegram:99", WakeSession, "", false},
+		{"telegram:99:threads:find-x" + session.ProgressSummarySessionSuffix, WakeProgressSum, "", false},
+	}
+	for _, tc := range cases {
+		got, ok := turnEndTarget(TurnEnd{SessionKey: tc.key, Source: tc.source})
+		if got != tc.want || ok != tc.ok {
+			t.Errorf("%s/%s: got (%q, %v), want (%q, %v)", tc.key, tc.source, got, ok, tc.want, tc.ok)
+		}
+	}
+}
+
+// The end-of-turn notice is the only way a dispatching session learns its
+// child finished, so it must go out even when no summary can be written.
+func TestReportTurnEnd_NotifiesParentWithoutSummarizer(t *testing.T) {
+	m := NewManager(nil)
+	parent := &Thread{id: "p", sessionKey: "telegram:99", state: threadIdle, inbox: make(chan *WakeMessage, 8), signal: m.signal}
+	m.threads[parent.sessionKey] = parent
+	ps := NewProgressScanner(m)
+
+	te := TurnEnd{
+		SessionKey: "telegram:99:threads:find-x",
+		Source:     WakeSession,
+		Info:       msg.ThreadInfo{ElapsedSec: 372, TotalToolCalls: 14},
+		FinalReply: "Found it: the answer is 42.",
+	}
+	ps.reportTurnEnd(context.Background(), "telegram:99", te)
+
+	if len(parent.inbox) != 1 {
+		t.Fatalf("expected 1 wake in the parent inbox, got %d", len(parent.inbox))
+	}
+	wake := <-parent.inbox
+	if wake.Source != WakeProgress {
+		t.Errorf("source = %q, want progress", wake.Source)
+	}
+	for _, want := range []string{progressTurnEndedTag, "child_session: telegram:99:threads:find-x", "6m12s", "14 steps", "No summary", "last role=assistant entry"} {
+		if !strings.Contains(wake.Message, want) {
+			t.Errorf("notice missing %q:\n%s", want, wake.Message)
+		}
+	}
+	if strings.Contains(wake.Message, "the answer is 42") {
+		t.Error("the notice must not carry the child's reply: the parent reads it from the session file")
+	}
+}
+
+func TestReportTurnEnd_ErrorTurnSaysSo(t *testing.T) {
+	m := NewManager(nil)
+	parent := &Thread{id: "p", sessionKey: "cli", state: threadIdle, inbox: make(chan *WakeMessage, 8), signal: m.signal}
+	m.threads[parent.sessionKey] = parent
+	ps := NewProgressScanner(m)
+
+	ps.reportTurnEnd(context.Background(), "cli", TurnEnd{SessionKey: "cli:threads:x", Source: WakeSession, Err: errors.New("provider exploded")})
+	wake := <-parent.inbox
+	if !strings.Contains(wake.Message, "ERROR: provider exploded") || !strings.Contains(wake.Message, "with an error") {
+		t.Errorf("error turn notice must name the error:\n%s", wake.Message)
+	}
+}
+
+func TestBuildTurnEndSummaryRequest(t *testing.T) {
+	out := buildTurnEndSummaryRequest(TurnEnd{
+		Info:       msg.ThreadInfo{OriginRequest: "find the answer", TotalToolCalls: 1, ToolTrace: []msg.ToolCallRecord{{Name: "web_search", ArgsSummary: "q"}}},
+		FinalReply: "Still waiting on the grandchild.",
+	})
+	for _, want := range []string{summaryModeTurnEnd, "find the answer", "web_search(q)", "ENDED", "Still waiting on the grandchild."} {
+		if !strings.Contains(out, want) {
+			t.Errorf("request missing %q:\n%s", want, out)
+		}
+	}
+	if !strings.HasPrefix(buildSummaryRequest(msg.ThreadInfo{}), summaryModeProgress) {
+		t.Error("a running-progress request must state its mode first")
 	}
 }

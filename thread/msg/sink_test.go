@@ -117,8 +117,7 @@ func TestSinkSetDropsSinkWithoutSend(t *testing.T) {
 }
 
 // TestSinkSetLiveDeliveryModes pins the split that replaced the Chunkable bool:
-// the runner asks the set which live modes exist, and SettleTurnContent asks for
-// the destinations that got neither — the only ones it may still send to.
+// the runner asks the set which live modes exist.
 func TestSinkSetLiveDeliveryModes(t *testing.T) {
 	var log []string
 	chunked := recordingSink("chunked", &log, nil).Chunked()
@@ -141,11 +140,6 @@ func TestSinkSetLiveDeliveryModes(t *testing.T) {
 		t.Fatalf("Chunk delivery = %q, want the chunk sink only", got)
 	}
 
-	settle := set.WithoutLiveDelivery()
-	if settle.Label() != "terminal" {
-		t.Fatalf("WithoutLiveDelivery = %q, want the sink with neither mode", settle.Label())
-	}
-
 	// WithoutChunking suppresses intermediates without touching live streaming:
 	// a system-initiated turn still renders live for a watching client.
 	quiet := set.WithoutChunking()
@@ -154,8 +148,5 @@ func TestSinkSetLiveDeliveryModes(t *testing.T) {
 	}
 	if !quiet.HasStream() {
 		t.Fatal("WithoutChunking must leave rich streaming intact")
-	}
-	if quiet.WithoutLiveDelivery().Len() != 2 {
-		t.Fatalf("after WithoutChunking the ex-chunk sink becomes terminal, got %d", quiet.WithoutLiveDelivery().Len())
 	}
 }

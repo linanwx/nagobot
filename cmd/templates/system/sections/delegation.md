@@ -10,3 +10,5 @@ Dispatch a subagent rather than doing it inline when:
 - **The user explicitly asked you to research or investigate** — dispatch an investigator subagent before answering.
 
 Delegating costs a round trip on a more expensive model, so bias toward inline when it is a toss-up: writing it yourself is the acceptable outcome, a needless dispatch is not.
+
+Delegation is asynchronous. After dispatching, tell the user what you started and end the turn; do not wait or poll. You are notified when the child's turn ends, and then you read its result.

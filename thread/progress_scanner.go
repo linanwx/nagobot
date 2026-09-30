@@ -38,6 +38,23 @@ const (
 	// progressSummaryAgent is the tools-disabled stateless sibling agent
 	// (specialty: [lowcost]) that turns a tool trace into a progress note.
 	progressSummaryAgent = "progress-summary"
+	// turnEndReplyCap bounds the child's final reply fed to the summarizer for
+	// a turn-end report. The parent reads the full reply from the session
+	// file; the summarizer only needs enough to say what came out of it.
+	turnEndReplyCap = 2000
+)
+
+// progressTurnEndedTag marks a WakeProgress body as a child's end-of-turn
+// notice rather than a running snapshot. Compression keys on it: a running
+// snapshot ignored via dispatch({}) is noise, while an end-of-turn notice is
+// the only record that the work finished and where its result lives.
+const progressTurnEndedTag = "event: turn_ended"
+
+// Summary request modes, stated on the first line of the summarizer's wake
+// body so the progress-summary agent knows which note to write.
+const (
+	summaryModeProgress = "Mode: progress"
+	summaryModeTurnEnd  = "Mode: turn-ended"
 )
 
 // ProgressScanner periodically reports long-running turns to the person waiting
@@ -52,9 +69,17 @@ const (
 //     WakeProgress wake to that ancestor, whose LLM decides whether to surface
 //     it (plain reply text) or drop it (dispatch({})).
 //
-// The monitored thread is never touched — no interruption, no injected
+// The monitored thread is never touched: no interruption, no injected
 // messages. If the observed turn ends before the summary arrives, the note is
 // dropped.
+//
+// It also reports the END of a child's turn (ReportTurnEnd, driven by the
+// manager's turn-end hook rather than the sweep). That is how a dispatched
+// subagent's work comes back: nothing forwards the child's reply, so the
+// session that dispatched it is told the turn ended and reads the result from
+// the child's session file itself. The notice is an event, not a verdict: the
+// child may have finished, failed, or be waiting on children of its own, and
+// the parent checks which.
 type ProgressScanner struct {
 	mgr *Manager
 
@@ -209,7 +234,7 @@ func progressEligible(info msg.ThreadInfo) (target string, ok bool) {
 // delivers the note. Blocking (called in its own goroutine).
 func (p *ProgressScanner) report(ctx context.Context, info msg.ThreadInfo, target string) {
 	key := info.SessionKey
-	summary := p.summarize(ctx, info)
+	summary := p.summarize(ctx, key, buildSummaryRequest(info))
 	if summary == "" {
 		return
 	}
@@ -232,19 +257,18 @@ func (p *ProgressScanner) report(ctx context.Context, info msg.ThreadInfo, targe
 		"elapsedSec", info.ElapsedSec, "steps", info.TotalToolCalls)
 }
 
-// summarize runs one progress-summary sibling turn and returns the note ("" on
-// timeout/failure/empty).
-func (p *ProgressScanner) summarize(ctx context.Context, info msg.ThreadInfo) string {
+// summarize runs one progress-summary sibling turn for the session key and
+// returns the note ("" on timeout/failure/empty).
+func (p *ProgressScanner) summarize(ctx context.Context, sessionKey, request string) string {
 	ch := make(chan string, 1)
-	key := info.SessionKey + session.ProgressSummarySessionSuffix
+	key := sessionKey + session.ProgressSummarySessionSuffix
 	p.mgr.Wake(key, &WakeMessage{
 		Source:    WakeProgressSum,
-		Message:   buildSummaryRequest(info),
+		Message:   request,
 		AgentName: progressSummaryAgent,
 		Sinks: NewSinks(SessionSink{
-			Label:    "progress-summary session — result returns via callback, never delivered to a channel",
-			Discards: true,
-			Send:     func(context.Context, string) error { return nil },
+			Label: "progress-summary session: result returns via callback, never delivered to a channel",
+			Send:  func(context.Context, string) error { return nil },
 		}),
 		OnComplete: func(response string) { ch <- response },
 	})
@@ -253,17 +277,37 @@ func (p *ProgressScanner) summarize(ctx context.Context, info msg.ThreadInfo) st
 	case result := <-ch:
 		return strings.TrimSpace(result)
 	case <-time.After(progressSummaryTimeout):
-		logger.Warn("progress summary timeout", "session", info.SessionKey)
+		logger.Warn("progress summary timeout", "session", sessionKey)
 		return ""
 	case <-ctx.Done():
 		return ""
 	}
 }
 
-// buildSummaryRequest renders the summarizer's wake body: the origin request
-// plus the trimmed tool trace. Field-level trimming already happened at record
-// time (toolTraceFieldRunes); this only windows the call count.
+// buildSummaryRequest renders the summarizer's wake body for a RUNNING turn:
+// the origin request plus the trimmed tool trace.
 func buildSummaryRequest(info msg.ThreadInfo) string {
+	return summaryModeProgress + "\n\n" + summaryTraceSection(info)
+}
+
+// buildTurnEndSummaryRequest renders the summarizer's wake body for a turn
+// that has ENDED: the same trace, plus the final reply the turn produced.
+func buildTurnEndSummaryRequest(te TurnEnd) string {
+	var sb strings.Builder
+	sb.WriteString(summaryModeTurnEnd + "\n\n")
+	sb.WriteString(summaryTraceSection(te.Info))
+	reply := strings.TrimSpace(te.FinalReply)
+	if reply == "" {
+		reply = "(the turn ended without any reply text)"
+	}
+	fmt.Fprintf(&sb, "\nThe turn has ENDED. Its final reply (truncated):\n%s\n", truncateStr(reply, turnEndReplyCap))
+	return sb.String()
+}
+
+// summaryTraceSection is the part both request modes share. Field-level
+// trimming already happened at record time (toolTraceFieldRunes); this only
+// windows the call count.
+func summaryTraceSection(info msg.ThreadInfo) string {
 	var sb strings.Builder
 	fmt.Fprintf(&sb, "Original request (the turn below is working on this):\n%s\n\n", info.OriginRequest)
 
@@ -293,6 +337,103 @@ func buildSummaryRequest(info msg.ThreadInfo) string {
 		fmt.Fprintf(&sb, "\nCurrently executing: %s\n", info.CurrentTool)
 	}
 	fmt.Fprintf(&sb, "\nElapsed: %s\n", humanizeDuration(info.ElapsedSec))
+	return sb.String()
+}
+
+// turnEndTarget reports whether a finished turn is a dispatched child's turn
+// whose end must be reported, and to whom: the session that dispatched it.
+//
+// Every such turn is reported, including one that dispatched children of its
+// own and is now waiting on them. Deciding "is the child really done" would
+// mean reading thread state across a race (a grandchild's notice can be in
+// flight while every thread looks idle), and the parent can answer it far
+// better by reading the child's reply. So the notice says only that the turn
+// ended.
+//
+// Sources: a session wake (dispatched work, or a peer/parent message), a
+// resume of one, and a progress wake (a grandchild's end-of-turn notice, which
+// is how a child that was waiting gets to finish).
+func turnEndTarget(te TurnEnd) (string, bool) {
+	if session.IsInternalSiblingSession(te.SessionKey) {
+		return "", false
+	}
+	parent, ok := session.ImmediateParentKey(te.SessionKey)
+	if !ok {
+		return "", false
+	}
+	switch te.Source {
+	case WakeSession, WakeResume, WakeProgress:
+		return parent, true
+	}
+	return "", false
+}
+
+// ReportTurnEnd is the manager's turn-end hook. For a dispatched child it
+// summarizes the finished turn and wakes the session that dispatched it with an
+// end-of-turn notice. Non-blocking: the summarizer is an LLM call, and the
+// child's thread must not wait on it.
+func (p *ProgressScanner) ReportTurnEnd(te TurnEnd) {
+	parent, ok := turnEndTarget(te)
+	if !ok {
+		return
+	}
+	go p.reportTurnEnd(context.Background(), parent, te)
+}
+
+func (p *ProgressScanner) reportTurnEnd(ctx context.Context, parent string, te TurnEnd) {
+	report := p.turnEndReport(ctx, te)
+	sessionFile := ""
+	if cfg := p.mgr.cfg; cfg != nil && cfg.Sessions != nil {
+		sessionFile = cfg.Sessions.PathForKey(te.SessionKey)
+	}
+	p.mgr.Wake(parent, &WakeMessage{
+		Source:  WakeProgress,
+		Message: buildTurnEndBody(te, sessionFile, report),
+		Sender:  "system",
+		CallerSink: SessionSink{
+			Label: "Caller is progress monitor: reply to caller is dropped",
+			Send:  func(context.Context, string) error { return nil },
+		},
+		Traceparent: te.Traceparent,
+	})
+	logger.Info("turn-end notice sent", "session", te.SessionKey, "target", parent, "failed", te.Err != nil)
+}
+
+// turnEndReport is the human-readable part of the notice. It is never empty:
+// the notice is the only way the parent learns the turn ended, so a missing
+// summarizer or a failed summary still produces a notice that says so,
+// rather than no notice at all.
+func (p *ProgressScanner) turnEndReport(ctx context.Context, te TurnEnd) string {
+	if te.Err != nil {
+		return "The turn ended with an ERROR: " + te.Err.Error()
+	}
+	if !p.summarizerConfigured() {
+		return "(No summary: the progress-summary agent is not configured on this deployment.)"
+	}
+	if s := p.summarize(ctx, te.SessionKey, buildTurnEndSummaryRequest(te)); s != "" {
+		return s
+	}
+	return "(No summary: the summarizer timed out or returned nothing.)"
+}
+
+// buildTurnEndBody renders the end-of-turn notice the dispatching session
+// receives.
+func buildTurnEndBody(te TurnEnd, sessionFile, report string) string {
+	icon, what := "🏁", "ended its turn"
+	if te.Err != nil {
+		icon, what = "⚠️", "ended its turn with an error"
+	}
+	var sb strings.Builder
+	fmt.Fprintf(&sb, "%s subagent %s %s · %s · %d steps\n", icon, te.SessionKey, what,
+		humanizeDuration(te.Info.ElapsedSec), te.Info.TotalToolCalls)
+	sb.WriteString(progressTurnEndedTag + "\n")
+	fmt.Fprintf(&sb, "child_session: %s\n", te.SessionKey)
+	if sessionFile != "" {
+		fmt.Fprintf(&sb, "session_file: %s\n", sessionFile)
+	}
+	sb.WriteString("\n" + report + "\n\n")
+	sb.WriteString("This notice only says the turn ENDED, not that the task is done or done right. " +
+		"The child's actual output is the last role=assistant entry in session_file: read it before acting.")
 	return sb.String()
 }
 
@@ -331,7 +472,7 @@ func (p *ProgressScanner) deliverToAncestor(childKey, ancestor string, info msg.
 		Message: body,
 		Sender:  "system",
 		CallerSink: SessionSink{
-			Label: "Caller is progress monitor — reply to caller is dropped",
+			Label: "Caller is progress monitor: reply to caller is dropped",
 			Send: func(_ context.Context, response string) error {
 				if strings.TrimSpace(response) != "" {
 					logger.Debug("progress: caller output dropped", "session", ancestor, "bytes", len(response))

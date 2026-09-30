@@ -905,3 +905,40 @@ func TestApplySlideWindow_SkipsInjectedUserMessages(t *testing.T) {
 		t.Errorf("expected first kept message to be turn 3, got: %q", got[0].Content)
 	}
 }
+
+// dispatch no longer ends the turn, so a heartbeat turn can deliver with one
+// dispatch and then end silently with another. It did something and must be
+// kept.
+func TestIsHeartbeatSkipTurn_DeliveredThenSilent(t *testing.T) {
+	msgs := []provider.Message{
+		{Role: "user", Content: "heartbeat wake", Source: "heartbeat"},
+		{Role: "assistant", ToolCalls: []provider.ToolCall{{ID: "c1", Type: "function", Function: provider.FunctionCall{Name: "dispatch", Arguments: `{"sends":[{"to":"session","body":"x","params":{"session_key":"cli"}}]}`}}}},
+		{Role: "tool", Name: "dispatch", ToolCallID: "c1", Content: "---\ntool: dispatch\noutcome: delivered\n---\nExecuted 1 send."},
+		{Role: "assistant", ToolCalls: []provider.ToolCall{{ID: "c2", Type: "function", Function: provider.FunctionCall{Name: "dispatch", Arguments: `{"sends":[]}`}}}},
+		{Role: "tool", Name: "dispatch", ToolCallID: "c2", Content: "---\ntool: dispatch\noutcome: turn-terminated-silent\n---\nTurn terminated silently."},
+	}
+	if isHeartbeatSkipTurn(msgs) {
+		t.Error("a turn that delivered before ending silently must NOT be trimmed")
+	}
+}
+
+// A child's end-of-turn notice rides the progress source like a running
+// snapshot, but it is the only record that the work finished and where its
+// result lives, so it survives even when the parent answered it silently.
+func TestMarkHeartbeatTurns_KeepsTurnEndNotice(t *testing.T) {
+	silent := []provider.Message{
+		{Role: "assistant", ToolCalls: []provider.ToolCall{{ID: "c1", Type: "function", Function: provider.FunctionCall{Name: "dispatch", Arguments: `{"sends":[]}`}}}},
+		{Role: "tool", Name: "dispatch", ToolCallID: "c1", Content: "---\noutcome: turn-terminated-silent\n---"},
+	}
+	msgs := append([]provider.Message{{Role: "user", Source: "progress", Content: "🏁 subagent cli:threads:x ended its turn\n" + progressTurnEndedTag}}, silent...)
+	msgs = append(msgs, provider.Message{Role: "user", Source: "progress", Content: "⏳ still searching"})
+	msgs = append(msgs, silent...)
+
+	markHeartbeatTurns(msgs)
+	if msgs[0].Compressed != "" || msgs[1].HeartbeatTrim {
+		t.Error("the end-of-turn notice turn must not be trimmed")
+	}
+	if msgs[3].Compressed == "" || !msgs[4].HeartbeatTrim {
+		t.Error("a silently ignored running snapshot should still be trimmed")
+	}
+}

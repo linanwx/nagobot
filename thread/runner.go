@@ -342,7 +342,7 @@ func (r *Runner) RunWithMessages(ctx context.Context, messages []provider.Messag
 			}
 		}
 
-		// A tool (e.g. dispatch) requested an immediate halt — stop the
+		// A tool (dispatch({}), the silent end) requested a halt: stop the
 		// loop without calling the LLM again.
 		if r.shouldHalt != nil && r.shouldHalt() {
 			iterSpan.Set(obs.Str("outcome", "halt"), obs.Int("tool_calls", len(resp.ToolCalls)))

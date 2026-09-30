@@ -24,6 +24,37 @@ type Manager struct {
 	threads        map[string]*Thread
 	maxConcurrency int
 	signal         chan struct{} // aggregated notification from all threads
+	turnEndHook    func(TurnEnd) // optional observer of finished turns; see SetTurnEndHook
+}
+
+// TurnEnd describes a turn that has just finished, as handed to the turn-end
+// hook. Info carries the turn's metrics snapshot in the same shape the progress
+// scanner reads for running turns.
+type TurnEnd struct {
+	SessionKey  string
+	Source      WakeSource
+	Info        msg.ThreadInfo
+	FinalReply  string
+	Err         error
+	Traceparent string // the finished turn's trace, so whatever it triggers joins it
+}
+
+// SetTurnEndHook registers fn to be called after every turn a thread runs.
+// fn runs on the thread's own goroutine and must not block; the progress
+// scanner hands its work to a goroutine of its own.
+func (m *Manager) SetTurnEndHook(fn func(TurnEnd)) {
+	m.mu.Lock()
+	m.turnEndHook = fn
+	m.mu.Unlock()
+}
+
+func (m *Manager) notifyTurnEnd(te TurnEnd) {
+	m.mu.Lock()
+	fn := m.turnEndHook
+	m.mu.Unlock()
+	if fn != nil {
+		fn(te)
+	}
 }
 
 // NewManager creates a thread manager.

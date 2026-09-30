@@ -7,32 +7,34 @@ description: Use when about to call the `dispatch` tool and unsure which `to` fo
 
 **Speaking to your own human is NOT a dispatch.** There is no `to=user` target.
 To say something to the human on your session's channel, write it as your
-ordinary reply text and end the turn. `dispatch` exists to reach OTHER agents
-and sessions, and to end a turn silently.
+ordinary reply text. `dispatch` exists to reach OTHER agents and sessions, and
+to end a turn silently.
+
+**dispatch is asynchronous.** Every send goes out and your turn continues: the
+tool returns immediately, never waits for the target, and never ends your turn.
+After handing work off, tell your human what you did in plain reply text and
+finish the turn normally. `dispatch({})` with no sends is the one exception: it
+ends the turn silently.
 
 Whether your reply text actually reaches the human is decided by the server from
-the wake source — you cannot change it by phrasing. This skill is the decision
+the wake source; you cannot change it by phrasing. This skill is the decision
 tree for that, and for picking the right `to` value when you do dispatch.
-
-**Reply-less turn rule**: when the wake came from your human (`sender: user`) and your dispatch is the sole tool call — so the turn ends there — the message MUST also carry your reply text. Routing the work away and ending in silence leaves the person who asked with nothing. The tool rejects such a call: no send executes, the turn continues, and you re-issue the same dispatch with your text added. `dispatch({})` with no sends is exempt — that is the deliberate way to say nothing.
-
-**Solo rule**: dispatch terminates the turn ONLY when it is the sole tool call in your message. Batched alongside other tool calls, every send still delivers but the turn continues — you see the other tools' results and keep working. This is the progress-note pattern: write "Searching, back in a minute..." as your text + `web_search(...)` + a `dispatch(to=subagent, ...)` in one message: the note goes to your human, the search runs, and you get the results to keep reasoning. Deliveries in a batched dispatch are real — never resend them in the final dispatch.
 
 ## The 30-second decision
 
 Look at the wake YAML frontmatter of the current turn. Three fields determine the answer:
 
-1. **`caller_session_key`** — present? caller is another session.
-2. **`source`** — decides whether your plain text reaches your human (see table).
-3. **session key prefix** — `telegram:` / `discord:` / `cli` / `web` / `feishu:` / `wecom:`? this session is user-facing. If not (a subagent / internal session), plain text reaches NOBODY and the runner will make you re-do the turn until you dispatch.
+1. **`caller_session_key`**: present? caller is another session.
+2. **`source`**: decides whether your plain text reaches your human (see table).
+3. **session key**: `telegram:` / `discord:` / `cli` / `web` / `feishu:` / `wecom:` with no `:threads:` / `:fork:` in it? this session is user-facing. A key containing `:threads:` / `:fork:` is a dispatched child: your final reply text is your result, and the session that dispatched you reads it (see "When you are the dispatched thread").
 
 Possible `source` values you may see in the wake YAML:
 
 | source | meaning | caller kind |
 |---|---|---|
 | `telegram` / `discord` / `cli` / `web` / `feishu` / `wecom` | channel user message | user |
-| `WakeSession` | another session woke you (cross-session) | session |
-| `child_completed` | a subagent finished and is reporting back | session |
+| `session` | another session woke you (a peer, or the session that dispatched you) | session |
+| `progress` | a thread you dispatched reports in: a running-progress note, or `event: turn_ended` when its turn ended | system |
 | `cron` | scheduled cron job fired (may be `--direct-wake` self-wake) | system (no caller) |
 | `heartbeat` (also `heartbeat_wake` / `heartbeat_reflect` in older sessions) | heartbeat scheduler pulse | system (no caller) |
 | `compression` | context compression wake | system (no caller) |
@@ -42,77 +44,75 @@ Possible `source` values you may see in the wake YAML:
 
 | source | plain text reaches your human? |
 |---|---|
-| channel user message | yes — this is a normal reply |
-| `WakeSession` / `child_completed` | yes — it goes to your human, NOT to the caller |
+| channel user message | yes, this is a normal reply |
+| `session` | yes, it goes to your human, NOT to the caller |
 | `cron` | yes |
 | `progress` | yes |
-| `heartbeat*` / `compression` | **no — nothing you write reaches anyone** |
+| `heartbeat*` / `compression` | **no, nothing you write reaches anyone** |
 
 Then:
 
-| caller kind | this session is user-facing | reply to caller | reach your own human |
+| caller kind | this session | reply to caller | reach your own human |
 |---|---|---|---|
-| user (channel wake) | yes | plain text | plain text |
-| session (cross-session) | yes | `caller:session` | plain text |
-| session (cross-session) | no | `caller:session` (required) | — no human |
-| system (cron) | yes | — (no caller) | plain text |
-| system (heartbeat/compression) | yes | — | — impossible, end with `dispatch({})` |
-| system | no | — | `dispatch({})` |
+| user (channel wake) | user-facing | plain text | plain text |
+| session (cross-session) | user-facing | `caller:session` | plain text |
+| session (cross-session) | dispatched child | plain text result, or `caller:session` | no human |
+| session (cross-session) | no human, not a child (e.g. `cron:`) | `caller:session` (required) | no human |
+| system (cron) | user-facing | no caller | plain text |
+| system (heartbeat/compression) | any | no caller | impossible, end with `dispatch({})` |
 
 ## The five `to` forms
 
-### `caller:session` — reply to caller, asserting caller is another session
+### `caller:session`: reply to caller, asserting caller is another session
 - **Use when**: `caller_session_key` is present in the wake YAML.
 - **Don't silently drop cross-session wakes**: if you think a peer session sent something to the wrong recipient, reply with an explanation via `caller:session`, never `dispatch({})`. The peer needs to learn about the misroute.
 - **Fields**: `body`.
 
-### `session` — wake any existing session by key
+### `session`: wake any existing session by key
 - **Use when**: cross-session notification ("ping telegram:12345 that the report is ready").
 - **Self-reference is rejected**: `session_key` cannot equal current session.
-- **Recursion**: target's `dispatch(to=caller:session)` routes back to YOU, not to its channel user. Two sessions can ping-pong until one halts.
+- **Recursion**: target's `dispatch(to=caller:session)` routes back to YOU, not to its channel user. Two sessions can ping-pong until one stops replying.
 - **Fields**: `body` + `params`: either `{session_key}` (existing session) or `{channel, user_id}` (channel endpoint, created if missing).
 
-### `subagent` — spawn (or wake existing) child thread
+### `subagent`: spawn (or wake existing) child thread
 - **Use when**: parallel subtasks, delegation to specialty agents (`imagereader` / `audioreader` / `researcher`).
 - **Key shape**: `{current}:threads:{task_id}`. Reusing `task_id` wakes the existing child (result note: `resumed`).
-- **Async**: child runs independently; on completion it wakes you with `source: child_completed`.
-- **Fields**: `body` + `params`: `task_id` (required, `[a-z0-9_-]+`), `agent` (optional — falls back to session default), `provider`+`model` (optional model override).
+- **Async**: the child runs independently. When its turn ends you get a `progress` wake marked `event: turn_ended` (see "Receiving child results").
+- **Fields**: `body` + `params`: `task_id` (required, `[a-z0-9_-]+`), `agent` (optional, falls back to session default), `provider`+`model` (optional model override).
 
-### `subagent_fork` — branch current session as new agent thread
+### `subagent_fork`: branch current session as new agent thread
 - **Use when**: child must reason over the current conversation (reflection, summarization, scheduling against context).
-- **Difference from `subagent`**: `subagent_fork` inherits stripped history; `subagent` starts fresh. Everything else — params, key handling, async completion — is identical.
-- **Key shape**: `{current}:fork:{task_id}` — the key infix is `:fork:`, NOT `:subagent_fork:`. The target was renamed; the session key was not.
+- **Difference from `subagent`**: `subagent_fork` inherits stripped history; `subagent` starts fresh. Everything else (params, key handling, the end-of-turn notice) is identical.
+- **Key shape**: `{current}:fork:{task_id}`. The key infix is `:fork:`, NOT `:subagent_fork:`. The target was renamed; the session key was not.
 - **Fields**: same as subagent.
 
-### `dispatch({})` — silent turn termination
-- **Use when**: heartbeat/cron pulse where no action is warranted; truly nothing to say AND caller doesn't need to know you finished.
-- **Don't use when**: you received a cross-session wake you suspect was misrouted (use `caller:session` to inform the peer). Or when caller is the user and you have nothing to add — let default sink delivery handle the empty case, or send a brief acknowledgement.
-- **Solo rule applies**: batched with other tool calls, `dispatch({})` is a no-op (nothing sent, turn continues). To actually end the turn silently it must be the only tool call in the message.
+### `dispatch({})`: silent turn termination
+- **Use when**: a heartbeat/cron/progress turn where no action is warranted; truly nothing to say AND caller doesn't need to know you finished.
+- **Don't use when**: you received a cross-session wake you suspect was misrouted (use `caller:session` to inform the peer). Or when your human is waiting: give them at least a brief reply.
+- **Must be alone**: batched with other tool calls, `dispatch({})` is a no-op (nothing sent, turn continues). To actually end the turn silently it must be the only tool call in the message.
 
 ## Asking another lifeform (cross-session Q&A)
 
-`to=session` isn't only for one-way notifications. It's the mechanism for **asking another session a question and getting an answer back** — useful when another lifeform holds context, expertise, or material you need.
+`to=session` isn't only for one-way notifications. It's the mechanism for **asking another session a question and getting an answer back**, useful when another lifeform holds context, expertise, or material you need.
 
 The full round-trip:
 
-1. **You ask** → `dispatch(to=session, params={session_key: "<peer>"}, body="<your question>")`. Your turn ends.
-2. **Peer wakes** with `source: WakeSession` and `caller_session_key: <you>` in the YAML. From their side you are "another session" — they reply with `dispatch(to=caller:session, body="<answer>")`.
-3. **You wake** with `source: WakeSession` and `caller_session_key: <peer>`. The peer's answer is the wake body. Now you handle it like any other turn — read body, decide, dispatch.
+1. **You ask**: `dispatch(to=session, params={session_key: "<peer>"}, body="<your question>")`. Your turn continues; tell your human you asked, then finish.
+2. **Peer wakes** with `source: session` and `caller_session_key: <you>` in the YAML. From their side you are "another session"; they reply with `dispatch(to=caller:session, body="<answer>")`.
+3. **You wake** with `source: session` and `caller_session_key: <peer>`. The peer's answer is the wake body. Now you handle it like any other turn.
 
 Key points:
 
-- The exchange is **asynchronous**: you do not block. Step 1 ends your turn; step 3 fires later as a fresh wake.
-- The peer's `caller:session` reply does NOT go to the peer's channel user — it routes back to **you**. The recursion is paired sink, not a broadcast.
-- If the peer answers with another question (sends `caller:session` with a question body), you'll wake again with their question as caller_session_key. The chain recurses until one side halts via `dispatch({})` or stops replying to the peer and just answers its own human in plain text.
-- To **avoid runaway ping-pong**, when you have nothing more to ask, end with `dispatch({})` (silent) or simply write your conclusion as plain text (which goes to your channel user, not back to the peer). Don't reflexively reply with `caller:session` if there's nothing substantive to say.
+- The exchange is **asynchronous**: you do not block and must not poll. Step 3 fires later as a fresh wake.
+- The peer's `caller:session` reply does NOT go to the peer's channel user; it routes back to **you**. The recursion is a paired sink, not a broadcast.
+- If the peer answers with another question, you'll wake again with it. The chain recurses until one side stops replying to the peer and just answers its own human in plain text, or ends with `dispatch({})`.
+- To **avoid runaway ping-pong**, when you have nothing more to ask, simply write your conclusion as plain text (which goes to your channel user, not back to the peer). Don't reflexively reply with `caller:session` if there's nothing substantive to say.
 - **Tracking what you asked**: there's no automatic correlation id between the question wake and the answer wake. If you might have multiple Q&A threads in flight, mention the topic in your question body so the answer body can be matched by content (or store correlation in heartbeat.md).
 
 ### Quoting what you are answering (`> Re:`)
 
-When you reply back to a cross-session caller — either explicitly via
-`dispatch(to=caller:session)` OR by emitting a naive final text response (both
-route through the same wake sink) — **prefix the body with a standalone line
-`> Re: "<excerpt>"` before the reply**.
+When you reply back to a cross-session caller via `dispatch(to=caller:session)`,
+**prefix the body with a standalone line `> Re: "<excerpt>"` before the reply**.
 
 `<excerpt>` is up to **200 characters** taken from the incoming request body,
 with all newlines collapsed to single spaces. Do NOT just quote the first line:
@@ -126,43 +126,87 @@ reply back to its original request.
 
 ```
 dispatch(sends=[{to: "caller:session",
-                  body: "> Re: \"Do you have notes on the Q3 launch timeline?\"\nYes — the timeline moved to Nov 14, checklist attached below."}])
+                  body: "> Re: \"Do you have notes on the Q3 launch timeline?\"\nYes, the timeline moved to Nov 14, checklist attached below."}])
 ```
 
 Patterns:
 
 ```
-# Ask peer for material on a topic
+# Ask peer for material on a topic, then tell your human
 dispatch(sends=[{to: "session", params: {session_key: "telegram:42"},
                   body: "Do you have notes on the Q3 launch timeline? Share what you know."}])
+I've asked the telegram:42 session for the Q3 timeline; I'll pass it on when it answers.
 
 # (later, you wake with caller_session_key=telegram:42 and the peer's answer)
-# To forward it to your own user, just write it as plain text — no dispatch:
+# To forward it to your own user, just write it as plain text, no dispatch:
 Got the timeline from peer: ...
-
-# Follow-up question to the same peer
-dispatch(sends=[{to: "session", params: {session_key: "telegram:42"},
-                  body: "Thanks. One more — do you have the launch checklist too?"}])
 ```
 
-**`to=session` vs `to=subagent`**: subagent spawns a *new fresh* worker thread you control (you pick agent, child has no prior context). `to=session` reaches an *existing* lifeform with its own history and identity — use this when the value is in *who they already are* (their session memory, their relationship with their own user, their accumulated context), not in spawning a fresh worker.
+**`to=session` vs `to=subagent`**: subagent spawns a *new fresh* worker thread you control (you pick agent, child has no prior context). `to=session` reaches an *existing* lifeform with its own history and identity; use this when the value is in *who they already are* (their session memory, their relationship with their own user, their accumulated context), not in spawning a fresh worker.
 
-## Receiving child replies (`child_completed`)
+## Receiving child results (`progress`, `event: turn_ended`)
 
-When a subagent finishes its work, it wakes you back with `source: child_completed`. The wake YAML carries the child's session_key (e.g. `cli:threads:find-x`) and the child's final output as the body.
+A subagent/fork you dispatched does not send its result to you. Its final reply
+text stays in its own session. What you get is an **event**: every time the
+child's turn ends, you are woken with `source: progress` and a body like:
 
-This is a normal wake — your turn runs as usual, and you must end with dispatch like any other turn. The caller kind for these wakes is `session` (the child is another session), so the reply form is `caller:session` if you want to reply to the child. But typically you don't reply to the child; you forward / summarize / act on its result for the *original* user. Pattern:
+```
+🏁 subagent cli:threads:find-x ended its turn · 2m · 14 steps
+event: turn_ended
+child_session: cli:threads:find-x
+session_file: /.../sessions/cli/threads/find-x/session.jsonl
 
-1. Read the child's body from the wake.
-2. Decide what to do with it:
-   - **Forward to the user who triggered the original task** → just write it as your plain reply text. The channel user wasn't the caller of *this* turn (the child was), but plain text always goes to your own human.
-   - **Use the result internally and continue working** → call other tools, then dispatch as appropriate at end of turn.
-   - **Spawn a follow-up** → `dispatch(to=subagent, params={task_id: "..."}, body="...")`.
-   - **Result was useless / nothing to forward** → `dispatch({})` to end silently.
-3. **Plain text goes to your human, not the child** — to send something back to the child you must dispatch `caller:session`. Usually you don't: you forward the child's result to your human, which is exactly what plain text does.
-4. **Don't accidentally `dispatch(to=caller:session)` back to the child** unless you genuinely want to send it more work — that re-wakes the child and may cause a ping-pong.
+<short report of how the turn ended>
 
-If you spawned multiple subagents in parallel (`task_id: news-a`, `news-b`), each completes independently and wakes you separately. You'll see one `child_completed` wake per child. If you want to wait for all of them before responding to the user, accumulate state in scratch (heartbeat.md or session memory) and stay silent with `dispatch({})` until the last one arrives, then answer in plain text.
+This notice only says the turn ENDED, not that the task is done or done right. ...
+```
+
+A `⚠️ ... ended its turn with an error` header means the turn failed.
+
+The notice says the turn ended, nothing more. The short report is a hint, not
+the result. Check the actual state yourself:
+
+1. **Read the child's output**: `read_file` the `session_file` and find the last
+   `role=assistant` entry. Look at earlier entries or `check_session` only when
+   that is not enough.
+2. **Decide, one of three**:
+   - **The child is still waiting** on threads it dispatched itself (its last
+     output says so): keep waiting. End with `dispatch({})`, or give your human a
+     one-line status. Another notice arrives when the child's next turn ends.
+   - **The child did not do it well** (error, off-topic, incomplete, wrong):
+     send it back with `dispatch(to=subagent|subagent_fork)` and the **same
+     `task_id`**, saying exactly what to fix. Its next turn end notifies you again.
+   - **The result is complete and usable**: deliver it to your human in plain
+     text, or continue your own work with it.
+
+Plain text in this turn goes to your human, not the child. Don't
+`dispatch(to=caller:session)` here: the caller of a progress wake is the
+system, not the child.
+
+**Running-progress notes** (`source: progress`, body starting with `⏳`, no
+`event: turn_ended`) are different: the child is still mid-turn and this is not
+a result. Relay a one-line update to your human if it is worth it, otherwise
+`dispatch({})`.
+
+**Parallel children**: each child sends its own notice when its turn ends. You
+can answer as each one lands, or wait for the last; notices already handled are
+in your history, so there is no need to keep scratch state.
+
+## When you are the dispatched thread
+
+If your session key contains `:threads:` or `:fork:`, a session dispatched you.
+
+- **Your final reply text is your result.** Write it and let the turn end. The
+  dispatching session is notified when your turn ends and reads your last reply
+  from your session file. You do not need to dispatch it back.
+- `dispatch(to=caller:session)` is optional: use it to push something to the
+  dispatching session mid-way (it wakes it immediately), not to deliver the
+  final result.
+- If you dispatched threads of your own and cannot finish until they report,
+  **end the turn with a reply that says plainly the task is not finished yet and
+  what you are waiting on**. The dispatching session reads that sentence and
+  keeps waiting. When your own child's notice arrives, finish the work; your next
+  turn end notifies the dispatching session again.
 
 ## Execution semantics & batch rules
 
@@ -170,32 +214,32 @@ If you spawned multiple subagents in parallel (`task_id: news-a`, `news-b`), eac
 
 `dispatch` runs the batch in two phases:
 
-1. **Validation** (whole batch, atomic): static checks, caller-kind assertions, target existence, dedup. If any send fails validation, **NO sends are executed** — the turn continues, you can fix and re-call.
-2. **Execution** (sequential, per-send): each validated send is dispatched in declaration order. If a send fails at execution (e.g. sink broken, peer session disappeared mid-call), already-executed sends in this batch **cannot be rolled back** — the result carries `partial-failure` outcome with both delivered and failed lists (the turn ends only if dispatch was the sole tool call; see the solo rule).
+1. **Validation** (whole batch, atomic): static checks, caller-kind assertions, target existence, dedup. If any send fails validation, **NO sends are executed**; fix and re-call.
+2. **Execution** (sequential, per-send): each validated send is dispatched in declaration order. If a send fails at execution (e.g. sink broken, peer session disappeared mid-call), already-executed sends in this batch **cannot be rolled back**; the result carries a `partial-failure` outcome with both delivered and failed lists.
 
-Implication: validation errors are cheap retries; execution errors after partial delivery are observable side-effects you can't undo. Order your batch so the riskiest send is last, if order matters.
+Either way the turn continues. Validation errors are cheap retries; execution errors after partial delivery are observable side-effects you can't undo. Order your batch so the riskiest send is last, if order matters.
 
-### Skip-dispatch path: plain text is the normal way to answer
+### Plain text is the normal way to answer
 
-You don't HAVE to call dispatch. On a user-facing session, ending the turn with
-plain assistant content and no `dispatch` tool_call delivers that content to your
-human. This is **the normal path** when:
+You don't HAVE to call dispatch. On a user-facing session, plain assistant
+content delivers to your human. This is **the normal path** when:
 
 - The channel user woke you and you're just replying.
-- A peer session or child woke you and you want to tell your *human* the outcome (it does NOT go back to the caller).
+- A peer session woke you and you want to tell your *human* the outcome (it does NOT go back to the caller).
 - A `cron` or `progress` wake fired and you have something worth saying.
+- You just dispatched work and are telling your human what you started.
 
 You MUST dispatch when:
 
-- Wake source is `heartbeat*` / `compression`. Nothing you write reaches anyone; end with `dispatch({})` so the turn terminates cleanly.
-- This session is **not user-facing** (subagent / internal). Plain text has no destination, so the runner rejects a text-only reply and re-iterates until you dispatch — usually `caller:session` to report back.
-- You need to spawn / wake / fan-out — there's no plain-text equivalent.
-- You want the caller-kind assertion safety net — only `caller:session` validates.
+- Wake source is `heartbeat*` / `compression` and you want to end cleanly: `dispatch({})`.
+- This session has **no human and no dispatcher** (e.g. a `cron:` session woken by a peer). Plain text has no destination there, so the runner rejects a text-only reply until you answer the peer with `caller:session`.
+- You need to spawn / wake / fan-out; there's no plain-text equivalent.
+- You want the caller-kind assertion safety net; only `caller:session` validates.
 
 ### Reaching your human is single-channel, not multi-channel
 
 Your reply text goes to the channel that owns this session key. A `telegram:42`
-session reaches telegram only — it cannot redirect to discord. To reach a
+session reaches telegram only; it cannot redirect to discord. To reach a
 different channel, that user must have a separate session there; use `to=session`
 with that session's key.
 
@@ -212,20 +256,21 @@ Merge the bodies if you need to say multiple things to one target. Use distinct 
 
 Re-using a `task_id` from a previous turn **wakes the existing child** instead of spawning a new one. The result note will say `resumed`. Practical consequence:
 
-- Want to follow up on a running child / hand it more context → reuse the same `task_id`.
+- Want to follow up on a child / send it back to fix something → reuse the same `task_id`.
 - Want a fresh independent child → use a new `task_id`.
 
-If you forget which task_ids are in flight, `check_session(session_key="<current>:threads:<task_id>")` (from `thread-ops`) tells you whether one exists.
+If you forget which task_ids exist, `check_session(session_key="<current>:threads:<task_id>")` (from `thread-ops`) tells you whether one exists.
 
 ## Common confusions
 
 ### Narrating in assistant content alongside dispatch
-**Do.** Writing your report as assistant content while routing work with dispatch is the normal shape — when you hand work off, tell your own human what you just did.
+**Do.** Writing a note to your human as assistant content while routing work with dispatch is the normal shape: when you hand work off, tell your own human what you just did. The two are independent: dispatch delivers each send's `body`, and your content reaches your human if this turn's wake source allows it.
 
-The two are independent: dispatch delivers each send's `body`, and your content is delivered separately if this turn's wake source allows it. On a turn with no destination for plain content (heartbeat, or a session with no human of its own) the content is not delivered — the tool result says exactly what became of it (`reached nobody` / `DISCARDED` / `not delivered as the reply`), so nothing disappears silently. Anything that must reach someone belongs in a send `body`.
+### Waiting for a child
+**Don't.** There is nothing to wait on inside a turn: dispatch has already returned and the child runs on its own. Do not poll with `check_session` or `sleep`. Finish the turn; the `turn_ended` notice wakes you.
 
 ### Caller is per-wake, not per-session
-Same session can be woken by user, then cron, then a subagent — caller identity changes each turn. Re-read the wake YAML; don't carry assumptions across turns.
+Same session can be woken by user, then cron, then a progress notice; caller identity changes each turn. Re-read the wake YAML; don't carry assumptions across turns.
 
 ## Validation cheatsheet
 
@@ -233,36 +278,37 @@ dispatch validates the entire batch before executing anything. On validation err
 
 | Symptom | Likely cause |
 |---|---|
-| `to=caller:session but actual caller is the channel user` | no `caller_session_key` in the wake; the user woke you — drop the dispatch and just reply in plain text |
-| `to=caller:session but actual caller is system` | cron/heartbeat/compression wake; use `dispatch({})`, or (cron only) plain reply text |
+| `to=caller:session but actual caller is the channel user` | no `caller_session_key` in the wake; the user woke you. Drop the dispatch and just reply in plain text |
+| `to=caller:session but actual caller is system` | cron/heartbeat/compression/progress wake; use `dispatch({})`, or plain reply text |
 | `params.task_id is required` / `params.task_id must match [a-z0-9_-]+` | subagent / subagent_fork needs a kebab/snake-case id in `params` |
 | `session_key is the current session (self-reference not allowed)` | `to=session` doesn't self-loop; write plain text to reach this session's own human, `caller:session` to reply to a peer, or `subagent_fork` for a branch |
-| `unknown params key(s)` / `does not accept params` | a params key landed on the wrong target — the error names where it belongs and, for caller:session, the exact JSON to resend |
+| `unknown params key(s)` / `does not accept params` | a params key landed on the wrong target; the error names where it belongs and, for caller:session, the exact JSON to resend |
 | `duplicate target in batch` | two sends resolve to the same target; merge bodies or pick distinct task_ids |
-| Result outcome `partial-failure` | some sends delivered, others failed at execution time. Already-delivered messages cannot be unsent — read the executed/failed lists, then on next turn act on what's still pending. |
-| Result outcome `delivered-turn-continues` | sends delivered but the turn did NOT end — dispatch was batched with other tool calls (solo rule). Keep working; do not resend the delivered bodies. |
-| Result outcome `no-op` | `dispatch({})` was batched with other tool calls, so nothing terminated. Call it alone to end the turn silently. |
+| Result outcome `delivered` | every send went out and the turn continues. Do not resend; finish the turn |
+| Result outcome `partial-failure` | some sends delivered, others failed at execution time. Already-delivered messages cannot be unsent; read the executed/failed lists and act on what's still pending |
+| Result outcome `no-op` | `dispatch({})` was batched with other tool calls, so nothing terminated. Call it alone to end the turn silently |
 
 ## Examples
 
 ```
-# Replying to user message in telegram:123 — no dispatch at all
-Done — here's the summary...
+# Replying to user message in telegram:123: no dispatch at all
+Done, here's the summary...
 
 # Cron pulse, nothing to do
 dispatch({})
 
-# Cron pulse, want to nudge user — again just plain text
+# Cron pulse, want to nudge user: again just plain text
 Reminder: meeting in 30 min
 
-# Heartbeat pulse — nothing you write can reach the user; end explicitly
+# Heartbeat pulse: nothing you write can reach the user; end explicitly
 dispatch({})
 
 # Peer session asked a question
-dispatch(sends=[{to: "caller:session", body: "Yes — see attached..."}])
+dispatch(sends=[{to: "caller:session", body: "> Re: \"...\"\nYes, see attached..."}])
 
-# Delegate research, follow up later
+# Delegate research, tell your human, finish the turn
 dispatch(sends=[{to: "subagent", params: {agent: "researcher", task_id: "find-x"}, body: "Find X"}])
+I've started a researcher on X; I'll report back when it finishes.
 
 # Reflect on current conversation
 dispatch(sends=[{to: "subagent_fork", params: {agent: "reflector", task_id: "reflect-1"}, body: "Summarize what we decided"}])
@@ -270,31 +316,27 @@ dispatch(sends=[{to: "subagent_fork", params: {agent: "reflector", task_id: "ref
 # Notify another channel
 dispatch(sends=[{to: "session", params: {session_key: "telegram:99"}, body: "Build finished"}])
 
-# Parent receiving child_completed — forward result to user (plain text)
-Research done — summary: ...
+# progress turn_ended for find-x: read the result first
+read_file(path: "<session_file from the notice>")
+# ...its last assistant entry is a complete answer: deliver it
+Research done. Summary: ...
 
-# Parent receiving child_completed — follow up on the same child (reuse task_id)
-dispatch(sends=[{to: "subagent", params: {task_id: "find-x"}, body: "Good start — also check Y angle"}])
+# ...its last assistant entry missed the Y angle: send it back, same task_id
+dispatch(sends=[{to: "subagent", params: {task_id: "find-x"}, body: "Good start, but you skipped Y. Cover Y too."}])
+The first pass missed Y; I've asked for that part too.
 
-# Child reporting result back to parent (parent is caller:session from child's POV)
-dispatch(sends=[{to: "caller:session", body: "Done. Findings: ..."}])
+# ...its last assistant entry says it is still waiting on its own subagent
+dispatch({})
 
-# Reply + spawn in one message: text goes to your human, dispatch spawns the child
-On it — checking now.
-dispatch(sends=[
-  {to: "subagent", params: {agent: "search", task_id: "news-a"}, body: "Search topic A"}
-])
+# You ARE the child: just write the result as your reply
+Findings: 1) ... 2) ...
 
-# Parallel fan-out — batch investigation across multiple subagents
-# Each task_id must be distinct (duplicates fail validation).
-# Each child runs independently and wakes you separately with child_completed.
-# To respond to the user only after all return, accumulate state in heartbeat.md
-# and answer in plain text when the last child arrives.
-Investigating across 4 angles — will report when complete.
+# Parallel fan-out: distinct task_ids; each child notifies you separately
 dispatch(sends=[
   {to: "subagent", params: {agent: "researcher", task_id: "angle-pricing"},  body: "Investigate pricing landscape for X"},
   {to: "subagent", params: {agent: "researcher", task_id: "angle-competitors"}, body: "List top 5 competitors and their positioning"},
   {to: "subagent", params: {agent: "researcher", task_id: "angle-regulation"},  body: "Summarize regulatory constraints in EU/US"},
   {to: "subagent", params: {agent: "researcher", task_id: "angle-tech"},        body: "Compare available tech stacks"}
 ])
+Investigating across 4 angles; I'll report as they come in.
 ```

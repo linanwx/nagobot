@@ -145,23 +145,25 @@ type Thread struct {
 	injectInbox chan string       // Dedicated control/injection lane (bypasses tryMerge/canMerge).
 	signal      chan struct{}     // Shared with Manager for notification.
 
-	mu                     sync.Mutex
-	hooks                  []turnHook
-	postHooks              []postTurnHook // Hooks run after each turn; returned messages are appended to session.jsonl.
-	pending                []*WakeMessage // Non-mergeable messages deferred by tryMerge (avoids channel requeue deadlock).
-	defaultSink            SinkSet        // Fallback sinks when the wake carries none.
-	lastActiveAt           time.Time      // Last time this thread completed work (used by GC).
-	lastUserActiveAt       time.Time      // Last time a real user interacted (used by compression).
-	lastWakeSource         msg.WakeSource // Source of the most recent wake (set at RunOnce start).
-	modelOverrideProvider  string         // Per-wake model override provider (from dispatch subagent/fork); set at RunOnce start, empty when none. Highest routing precedence.
-	modelOverrideModel     string         // Per-wake model override model type; paired with modelOverrideProvider.
-	suppressSink           bool           // When true, RunOnce skips sink delivery (reset after each turn).
-	haltLoop               bool           // When true, Runner stops after current tool calls complete.
-	currentSink            SinkSet        // Current turn's session destinations (set by run(), cleared on turn end).
-	currentCallerSink      SessionSink    // Current turn's reply-to-caller destination (set by run(), cleared on turn end). One place, never broadcast. Used by dispatch(to=caller:*).
-	currentCallerKey       string         // Caller session key for the current wake; empty for user/system wakes.
+	mu                    sync.Mutex
+	hooks                 []turnHook
+	postHooks             []postTurnHook // Hooks run after each turn; returned messages are appended to session.jsonl.
+	pending               []*WakeMessage // Non-mergeable messages deferred by tryMerge (avoids channel requeue deadlock).
+	defaultSink           SinkSet        // Fallback sinks when the wake carries none.
+	lastActiveAt          time.Time      // Last time this thread completed work (used by GC).
+	lastUserActiveAt      time.Time      // Last time a real user interacted (used by compression).
+	lastWakeSource        msg.WakeSource // Source of the most recent wake (set at RunOnce start).
+	modelOverrideProvider string         // Per-wake model override provider (from dispatch subagent/fork); set at RunOnce start, empty when none. Highest routing precedence.
+	modelOverrideModel    string         // Per-wake model override model type; paired with modelOverrideProvider.
+	suppressSink          bool           // When true, RunOnce skips sink delivery (reset after each turn).
+	haltLoop              bool           // When true, Runner stops after current tool calls complete.
+	dispatchedThisTurn    bool           // Set when a dispatch send executed this turn; reset at turn start.
+	currentSink           SinkSet        // Current turn's session destinations (set by run(), cleared on turn end).
+	currentCallerSink     SessionSink    // Current turn's reply-to-caller destination (set by run(), cleared on turn end). One place, never broadcast. Used by dispatch(to=caller:*).
+	currentCallerKey      string         // Caller session key for the current wake; empty for user/system wakes.
 
 	execMetrics           *ExecMetrics // Non-nil only while a turn is executing.
+	lastTurnMetrics       *ExecMetrics // Metrics of the turn that just ended; read by RunOnce for the turn-end hook.
 	lastCompressAttemptAt time.Time    // Last time tier 2 compression was enqueued (prevents duplicate enqueue).
 	lastCompressedAt      time.Time    // Last time tier 2 compression completed successfully.
 
@@ -174,17 +176,6 @@ type Thread struct {
 
 // ToolCallRecord is an alias for msg.ToolCallRecord.
 type ToolCallRecord = msg.ToolCallRecord
-
-// SettleOutcome names what happened to content emitted alongside a dispatch.
-type SettleOutcome = msg.SettleOutcome
-
-const (
-	SettleNoReader            = msg.SettleNoReader
-	SettleTurnContinues       = msg.SettleTurnContinues
-	SettleAlreadySentToCaller = msg.SettleAlreadySentToCaller
-	SettleDeliveryFailed      = msg.SettleDeliveryFailed
-	SettleDiscarded           = msg.SettleDiscarded
-)
 
 // ExecMetrics tracks real-time execution metrics for a running turn.
 type ExecMetrics struct {

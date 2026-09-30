@@ -112,7 +112,7 @@ const (
 	WakeResume       WakeSource = "resume"
 	WakeAudioPreview WakeSource = "audiopreview"
 	WakeImagePreview WakeSource = "imagepreview"
-	WakeProgress     WakeSource = "progress"        // progress scanner delivering a running child's AI-generated progress summary to its user-facing ancestor
+	WakeProgress     WakeSource = "progress"        // progress scanner: a running child's AI-generated progress summary (to its user-facing ancestor), or a child's end-of-turn notice (to the session that dispatched it)
 	WakeProgressSum  WakeSource = "progresssummary" // progress scanner asking the progress-summary sibling agent to summarize a running turn's tool activity
 	WakeQuote        WakeSource = "quote"           // a client asking the quote sibling agent to condense a message into a one-line markdown quote
 	WakePin          WakeSource = "pin"             // a client asking the pin sibling agent to file a message into the parent session's pins/ directory
@@ -128,19 +128,19 @@ func IsUserVisibleSource(source WakeSource) bool {
 	return false
 }
 
-// RequiresExplicitDispatch reports whether a turn woken by this source must
-// terminate via the dispatch tool — naive text (no tool calls) is rejected
-// and the runner forces another iteration with a system reminder injected.
+// RequiresExplicitDispatch reports whether a turn woken by this source may
+// have to answer via the dispatch tool. The runner applies it only to sessions
+// that are neither user-facing nor a dispatched child (their plain text reaches
+// nobody); on those, a text-only reply is rejected until the model dispatches.
 //
 // Why: for these wake sources the destination of a naive reply is ambiguous
-// (e.g. WakeSession could mean reply-to-peer, alert-user, or both) and the
-// implicit auto-route is too easy to misuse. Forcing dispatch makes the
-// model's routing intent explicit and auditable.
+// (WakeSession could mean reply-to-peer, alert-user, or both) and the implicit
+// auto-route is too easy to misuse.
 func (s WakeSource) RequiresExplicitDispatch() bool {
 	switch s {
 	case WakeSession:
-		// Includes both "peer session asked me a question" and
-		// "child subagent/fork reported back" — both arrive as WakeSession.
+		// Any session waking us: a peer asking, a parent dispatching work, or
+		// a child replying via dispatch(to=caller:session).
 		return true
 	}
 	return false
@@ -211,45 +211,3 @@ type WakeMessage struct {
 	// the causality of the rest.
 	MergedTraceparents []string
 }
-
-// SettleOutcome names what happened to assistant content emitted alongside a
-// dispatch call. It is an enum rather than a prose string because the dispatch
-// tool renders a DIFFERENT note to the model for each value — a single
-// "this reached nobody" message was wrong on three of the four.
-type SettleOutcome string
-
-const (
-	// SettleNoReader — this turn has no destination for plain content at all
-	// (heartbeat / compression, or a session whose sinks are empty). The text
-	// genuinely went nowhere and only a send body can carry it.
-	SettleNoReader SettleOutcome = "no-reader"
-
-	// SettleTurnContinues — a batched dispatch, or dispatch({}). The turn is
-	// still running, so the model's eventual final message is what speaks; this
-	// intermediate text was simply not the delivery. Nothing is lost by leaving
-	// it, and repeating it in a send body would say everything twice.
-	SettleTurnContinues SettleOutcome = "turn-continues"
-
-	// SettleAlreadySentToCaller — an executed to=caller:session already wrote to
-	// the very destination this content would take. Only sessions with no human
-	// of their own reach this: there, contentSink and the caller sink are the
-	// same reader, and that reader did get the news — in the send's body.
-	SettleAlreadySentToCaller SettleOutcome = "already-sent-to-caller"
-
-	// SettleDeliveryFailed — a destination existed and the send returned an
-	// error. Distinct from the three above: nothing about the turn's shape is
-	// wrong, the transport failed.
-	SettleDeliveryFailed SettleOutcome = "delivery-failed"
-
-	// SettleDiscarded — every destination left for this content is a drop sink
-	// (SessionSink.Discards): a cron or internal session with no channel of its
-	// own. The text was accepted and thrown away.
-	//
-	// Distinct from SettleNoReader, which means there was no destination at all.
-	// Both end with nobody reading the text, but this one used to be reported as
-	// a SUCCESS — a drop sink's Send returns nil, so the settle path took it for
-	// a real delivery and told the model "Your message text was delivered — cron
-	// session — caller output is dropped." That sentence is live today on every
-	// cron turn that writes prose alongside a dispatch.
-	SettleDiscarded SettleOutcome = "discarded"
-)

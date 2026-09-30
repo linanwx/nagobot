@@ -148,17 +148,18 @@ func (t *Thread) persistPostInjections(payloads []string, source WakeSource, sin
 
 // buildCrossThreadDispatchRequiredPayload renders the system reminder injected
 // mid-turn (via the runner's OnNoToolCalls hook) when a cross-thread
-// (WakeSession) wake produced a reply with no tool calls. The reply has been
-// suppressed (NOT forwarded to the peer); the model must redo the turn with
-// an explicit dispatch.
+// (WakeSession) wake on a session that is neither user-facing nor a dispatched
+// child produced a reply with no tool calls, before any dispatch this turn. The
+// reply has been suppressed (NOT forwarded to the peer); the model must answer
+// with an explicit dispatch.
 func buildCrossThreadDispatchRequiredPayload(peerKey string, now time.Time) string {
 	body := fmt.Sprintf(
-		"Cross-thread wake (caller is session %s) requires an explicit dispatch — your prior reply was rejected and dropped, NOT forwarded to the peer. Nothing was delivered.\n\n"+
-			"You must copy your last message and re-issue the turn with one of:\n"+
-			"  - dispatch(sends=[{to: \"caller:session\", body: \"...\"}]) — reply to %s, the session that woke you. This is almost always the one you want.\n"+
-			"  - dispatch(sends=[{to: \"session\", body: \"...\", params: {session_key: \"...\"}}]) — wake a DIFFERENT session (not your caller).\n"+
-			"  - dispatch({}) — silently end the turn.\n\n"+
-			"This session has no human of its own, so plain text has nowhere to go: it does not reach your caller, and there is no channel user to read it. Name a target explicitly.",
+		"Cross-thread wake (caller is session %s) requires an explicit dispatch: your prior reply was NOT forwarded to the peer. Nothing was delivered.\n\n"+
+			"Answer with one of:\n"+
+			"  - dispatch(sends=[{to: \"caller:session\", body: \"...\"}]): reply to %s, the session that woke you. This is almost always the one you want.\n"+
+			"  - dispatch(sends=[{to: \"session\", body: \"...\", params: {session_key: \"...\"}}]): wake a DIFFERENT session (not your caller).\n"+
+			"  - dispatch({}): silently end the turn.\n\n"+
+			"This session has no human of its own and no dispatching session reading its output, so plain text has nowhere to go. Name a target explicitly.",
 		peerKey, peerKey,
 	)
 

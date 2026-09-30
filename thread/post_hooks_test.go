@@ -48,7 +48,7 @@ func TestBuildCrossThreadDispatchRequiredPayload_Structure(t *testing.T) {
 	body := strings.Join(lines[headerEnd+2:], "\n")
 	mustBodyContain := []string{
 		"caller is session telegram:42",
-		"rejected and dropped, NOT forwarded",
+		"your prior reply was NOT forwarded to the peer",
 		// The answer this card exists to produce. It used to be BANNED here,
 		// on the reasoning that "a model that already failed to dispatch cannot
 		// be relied on to recall who woke it". That is backwards:
@@ -59,7 +59,7 @@ func TestBuildCrossThreadDispatchRequiredPayload_Structure(t *testing.T) {
 		// to=session for its caller.
 		"dispatch(sends=[{to: \"caller:session\", body: \"...\"}])",
 		"dispatch(sends=[{to: \"session\", body: \"...\", params: {session_key: \"...\"}}])",
-		"dispatch({}) — silently end the turn",
+		"dispatch({}): silently end the turn",
 	}
 	for _, needle := range mustBodyContain {
 		if !strings.Contains(body, needle) {

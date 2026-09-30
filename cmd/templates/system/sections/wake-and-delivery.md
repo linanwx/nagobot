@@ -22,4 +22,5 @@ Plain reply text is speech to your own human — that is not a dispatch, and the
 |---|---|
 | your channel user, `cron`, a peer session, a progress check | your human |
 | `heartbeat` (including the nightly dream), `compression` | nobody — maintenance turns; say what you need for the record and end |
-| anything, on a session with no human of its own (subagent, internal) | nobody — so the turn MUST end with `dispatch`; a text-only reply is rejected and you try again |
+| anything, on a dispatched subagent / fork | nobody directly; it stays in your session as your result, and the session that dispatched you is notified when your turn ends and reads it |
+| a peer session, on a session with no human and no dispatcher (e.g. `cron:`) | nobody, so answer the peer with `dispatch`; a text-only reply is rejected and you try again |

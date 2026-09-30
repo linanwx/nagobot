@@ -14,16 +14,6 @@ func (t *Thread) SetSuppressSink() {
 	t.mu.Unlock()
 }
 
-// ClearSuppressSink re-enables sink delivery for the rest of the turn.
-// Used by a batched (non-terminating) dispatch: SendToCaller suppresses the
-// sink to avoid double delivery at end-of-turn, but when the turn continues
-// the model's eventual final text must still reach the sink.
-func (t *Thread) ClearSuppressSink() {
-	t.mu.Lock()
-	t.suppressSink = false
-	t.mu.Unlock()
-}
-
 // isSinkSuppressed returns whether sink delivery is currently suppressed.
 func (t *Thread) isSinkSuppressed() bool {
 	t.mu.Lock()
@@ -54,10 +44,25 @@ func (t *Thread) isHaltLoop() bool {
 	return t.haltLoop
 }
 
-// resetHaltLoop clears the halt flag at the start of each turn.
+// resetHaltLoop clears the per-turn halt and dispatched flags at the start of
+// each turn.
 func (t *Thread) resetHaltLoop() {
 	t.mu.Lock()
 	t.haltLoop = false
+	t.dispatchedThisTurn = false
 	t.mu.Unlock()
 }
 
+// markDispatched records that a dispatch send executed this turn.
+func (t *Thread) markDispatched() {
+	t.mu.Lock()
+	t.dispatchedThisTurn = true
+	t.mu.Unlock()
+}
+
+// hasDispatched reports whether a dispatch send executed this turn.
+func (t *Thread) hasDispatched() bool {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	return t.dispatchedThisTurn
+}

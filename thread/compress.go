@@ -3,6 +3,7 @@ package thread
 import (
 	"context"
 	"fmt"
+	"regexp"
 	"strconv"
 	"strings"
 	"time"
@@ -324,6 +325,13 @@ func markHeartbeatTurns(messages []provider.Message) bool {
 		case strings.HasPrefix(source, "heartbeat"):
 			trimType = "heartbeat"
 		case strings.HasPrefix(source, "progress"):
+			// A child's end-of-turn notice is not noise: it is the only record
+			// that the work finished and where its result lives. Only running
+			// progress snapshots are trimmable.
+			if strings.Contains(messages[i].Content, progressTurnEndedTag) {
+				i++
+				continue
+			}
 			trimType = "progress"
 		default:
 			i++
@@ -364,18 +372,33 @@ func markHeartbeatTurns(messages []provider.Message) bool {
 	return modified
 }
 
+// dispatchDeliveredRe matches a dispatch tool result whose sends went out. It
+// accepts both the YAML frontmatter the tool emits and the JSON shape older
+// session entries carry.
+var dispatchDeliveredRe = regexp.MustCompile(`"?outcome"?\s*:\s*"?(delivered|partial-failure)\b`)
+
 // isHeartbeatSkipTurn returns true if a heartbeat turn should be trimmed.
 // A turn is trimmed when it ended silently via dispatch({}) (outcome:
-// "turn-terminated-silent"). Such turns are noise — any valuable findings
-// should already be persisted to heartbeat.md by the reflect/act skills.
+// "turn-terminated-silent") and delivered nothing on the way. dispatch no
+// longer ends the turn, so a turn can route work with a delivering dispatch
+// and then end with dispatch({}); that turn did something and is kept. Silent
+// turns are noise: any valuable findings should already be persisted to
+// heartbeat.md by the reflect/act skills.
 func isHeartbeatSkipTurn(turnMessages []provider.Message) bool {
+	silent := false
 	for i := range turnMessages {
 		m := &turnMessages[i]
-		if m.Role == "tool" && m.Name == "dispatch" && strings.Contains(m.Content, "turn-terminated-silent") {
-			return true
+		if m.Role != "tool" || m.Name != "dispatch" {
+			continue
+		}
+		switch {
+		case strings.Contains(m.Content, "turn-terminated-silent"):
+			silent = true
+		case dispatchDeliveredRe.MatchString(m.Content):
+			return false
 		}
 	}
-	return false
+	return silent
 }
 
 // computeToolCompressed returns the Compressed value for a tool message.

@@ -30,69 +30,34 @@ func newCallerTestThread(sessionKey string) (*Thread, *[]string, *[]string) {
 	return t, &toChannel, &toCaller
 }
 
-// TestSendToCallerKeepsUserFacingContent is the production regression.
+// TestSendToCallerNeverSuppresses pins that replying to a caller leaves the
+// turn's own destinations open, on every kind of session.
 //
-// A cron dispatcher woke a Discord session; the wake's own `delivery` field
-// promised "your response will be sent to discord channel …". The turn wrote the
-// noon briefing as content and acknowledged back with dispatch(to=caller:session).
-// SendToCaller suppressed the whole SinkSet, so SettleTurnContent dropped the
-// briefing with reason "sink already used by an executed send" — a sink that send
-// never touched, since the caller lives on CallerSink and left the set when the
-// two were separated.
-func TestSendToCallerKeepsUserFacingContent(t *testing.T) {
-	th, toChannel, toCaller := newCallerTestThread("discord:1474429571540582463")
-
-	if err := th.SendToCaller(context.Background(), "已精简转发 ✅"); err != nil {
-		t.Fatalf("SendToCaller: %v", err)
-	}
-	if len(*toCaller) != 1 {
-		t.Fatalf("caller got %d messages, want 1", len(*toCaller))
-	}
-	if th.isSinkSuppressed() {
-		t.Fatal("a user-facing session's channel must stay open: content and the caller reply are two audiences")
-	}
-
-	dest, outcome := th.SettleTurnContent(context.Background(), "📰 周一午间简报｜7月27日 …", true)
-	if outcome != "" {
-		t.Fatal("content promised to the discord channel was dropped")
-	}
-	if dest == "" || len(*toChannel) != 1 {
-		t.Fatalf("content not delivered to the channel: dest=%q sent=%v", dest, *toChannel)
-	}
-}
-
-// TestSendToCallerSuppressesForSubagent keeps the case suppression exists for.
-// A subagent has no human: contentSink routes plain content to its default sink,
-// which forwards to the parent — the same reader the caller sink points at. Both
-// speaking wakes the parent twice.
-func TestSendToCallerSuppressesForSubagent(t *testing.T) {
-	th, _, toCaller := newCallerTestThread("discord:1474429571540582463:threads:research")
-
-	if err := th.SendToCaller(context.Background(), "done"); err != nil {
-		t.Fatalf("SendToCaller: %v", err)
-	}
-	if len(*toCaller) != 1 {
-		t.Fatalf("caller got %d messages, want 1", len(*toCaller))
-	}
-	if !th.isSinkSuppressed() {
-		t.Fatal("a subagent's content sink forwards to the same parent — it must be suppressed")
-	}
-
-	if _, outcome := th.SettleTurnContent(context.Background(), "some prose about the work", true); outcome != SettleAlreadySentToCaller {
-		t.Fatalf("subagent content outcome = %q, want %q", outcome, SettleAlreadySentToCaller)
-	}
-}
-
-// TestSendToCallerSuppressesForCronSession covers the other non-user-facing
-// shape: a cron session's own output is dropped by design, so suppression there
-// changes nothing and must not regress into "user-facing".
-func TestSendToCallerSuppressesForCronSession(t *testing.T) {
-	th, _, _ := newCallerTestThread("cron:weekday-noon-news-briefing")
-
-	if err := th.SendToCaller(context.Background(), "ack"); err != nil {
-		t.Fatalf("SendToCaller: %v", err)
-	}
-	if !th.isSinkSuppressed() {
-		t.Fatal("a cron session is not user-facing; suppression should still apply")
+// The production regression it grew from: a cron dispatcher woke a Discord
+// session, the turn wrote the noon briefing as content and acknowledged back
+// with dispatch(to=caller:session), and the briefing was dropped because
+// SendToCaller suppressed a sink that send never touched. Suppression later
+// survived only for sessions with no human, because a subagent's default sink
+// forwarded its content to the same parent the caller sink points at. That
+// forwarding is gone, so there is no overlap left to guard on any session.
+func TestSendToCallerNeverSuppresses(t *testing.T) {
+	for _, key := range []string{
+		"discord:1474429571540582463",
+		"discord:1474429571540582463:threads:research",
+		"cron:weekday-noon-news-briefing",
+	} {
+		th, _, toCaller := newCallerTestThread(key)
+		if err := th.SendToCaller(context.Background(), "ack"); err != nil {
+			t.Fatalf("%s: SendToCaller: %v", key, err)
+		}
+		if len(*toCaller) != 1 {
+			t.Fatalf("%s: caller got %d messages, want 1", key, len(*toCaller))
+		}
+		if th.isSinkSuppressed() {
+			t.Fatalf("%s: SendToCaller must not suppress the turn's own sinks", key)
+		}
+		if !th.hasDispatched() {
+			t.Fatalf("%s: an executed caller reply must mark the turn as dispatched", key)
+		}
 	}
 }

@@ -55,6 +55,20 @@ const ForkSessionInfix = ":fork:"
 // {parent}:threads:{taskID}.
 const ThreadsSessionInfix = ":threads:"
 
+// ImmediateParentKey returns the session that dispatched a child session, i.e.
+// the key with its LAST child infix (:threads: or :fork:) and task ID removed,
+// plus whether key is a child at all. A task ID cannot contain ':' (dispatch
+// validates it against [a-z0-9_-]+), so the last infix is always the one that
+// introduced this child: cli:threads:a:fork:b resolves to cli:threads:a, the
+// session that forked it, not to the root.
+func ImmediateParentKey(key string) (string, bool) {
+	idx := max(strings.LastIndex(key, ThreadsSessionInfix), strings.LastIndex(key, ForkSessionInfix))
+	if idx <= 0 {
+		return "", false
+	}
+	return key[:idx], true
+}
+
 // Meta holds per-session metadata persisted to {sessionDir}/meta.json.
 type Meta struct {
 	Agent     string         `json:"agent,omitempty"`      // Explicitly assigned agent name.

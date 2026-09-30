@@ -13,24 +13,19 @@ import (
 )
 
 type mockDispatchHost struct {
-	currentKey      string
-	callerKind      msg.CallerKind // "user" / "session" / "system" / "" (none)
-	callerKey       string         // non-empty only when callerKind == "session"
-	sinkLabel       string
-	contentReaches  bool   // assistant content written alongside dispatch gets delivered
-	callerIsChild   bool   // caller session is a subagent/fork spawned by this session
-	settleDest      string // destination SettleTurnContent reports on a successful delivery
-	settled         []settleCall
-	agents          map[string]bool
-	sessions        map[string]bool
-	halted          bool
-	suppressCleared bool
-	sentToCaller    string
-	subagentCalls   []subagentCall
-	forkCalls       []subagentCall
-	wokeSessions    []wakeCall
-	failAgent       string          // when non-empty, create/wake of this agent returns error
-	validModels     map[string]bool // "provider:model" pairs accepted by ValidateModelOverride; nil → all accepted
+	currentKey    string
+	callerKind    msg.CallerKind // "user" / "session" / "system" / "" (none)
+	callerKey     string         // non-empty only when callerKind == "session"
+	sinkLabel     string
+	agents        map[string]bool
+	sessions      map[string]bool
+	halted        bool
+	sentToCaller  string
+	subagentCalls []subagentCall
+	forkCalls     []subagentCall
+	wokeSessions  []wakeCall
+	failAgent     string          // when non-empty, create/wake of this agent returns error
+	validModels   map[string]bool // "provider:model" pairs accepted by ValidateModelOverride; nil → all accepted
 }
 
 type subagentCall struct {
@@ -42,34 +37,9 @@ type wakeCall struct {
 	SessionKey, Body string
 }
 
-type settleCall struct {
-	Content string
-	Deliver bool
-}
-
 func (m *mockDispatchHost) CurrentSessionKey() string { return m.currentKey }
 func (m *mockDispatchHost) CallerInfo() (msg.CallerKind, string, string) {
 	return m.callerKind, m.callerKey, m.sinkLabel
-}
-func (m *mockDispatchHost) ContentReachesSomeone() bool { return m.contentReaches }
-func (m *mockDispatchHost) CallerIsOwnChild() bool      { return m.callerIsChild }
-
-// SettleTurnContent mirrors the real host's decision table: nothing to do when
-// there is no content or the runner already delivered it live (modelled here by
-// contentReaches on a chunkable-style session, i.e. settleDest left empty);
-// delivered when asked to deliver and a destination exists; dropped otherwise.
-func (m *mockDispatchHost) SettleTurnContent(_ context.Context, content string, deliver bool) (string, msg.SettleOutcome) {
-	if strings.TrimSpace(content) == "" {
-		return "", ""
-	}
-	m.settled = append(m.settled, settleCall{Content: content, Deliver: deliver})
-	if deliver && m.settleDest != "" {
-		return m.settleDest, ""
-	}
-	if !deliver {
-		return "", msg.SettleTurnContinues
-	}
-	return "", msg.SettleNoReader
 }
 func (m *mockDispatchHost) AgentExists(name string) bool {
 	return m.agents[name]
@@ -119,9 +89,6 @@ func (m *mockDispatchHost) WakeSession(_ context.Context, sessionKey, body strin
 	return nil
 }
 func (m *mockDispatchHost) SignalHalt() { m.halted = true }
-func (m *mockDispatchHost) ClearSuppressSink() {
-	m.suppressCleared = true
-}
 
 // runDispatch is a test helper that invokes the tool and returns the parsed
 // outcome field plus the full result string for assertions.
@@ -179,7 +146,7 @@ func TestDispatch_CallerSession_OK(t *testing.T) {
 		callerKey:  "cli",
 	}
 	outcome, _ := runDispatch(t, host, `{"sends": [{"to": "caller:session", "body": "hi"}]}`)
-	if outcome != "turn-terminated" {
+	if outcome != "delivered" {
 		t.Fatalf("outcome=%q", outcome)
 	}
 	if host.sentToCaller != "hi" {
@@ -192,9 +159,8 @@ func TestDispatch_CallerSession_OK(t *testing.T) {
 // target must be told so, not silently ignored.
 func TestDispatch_ToUserRejectedAsUnknownTarget(t *testing.T) {
 	host := &mockDispatchHost{
-		currentKey:     "telegram:42",
-		callerKind:     "user",
-		contentReaches: true,
+		currentKey: "telegram:42",
+		callerKind: "user",
 	}
 	outcome, res := runDispatch(t, host, `{"sends": [{"to": "user", "body": "hi"}]}`)
 	if outcome != "validation-error" {
@@ -214,9 +180,8 @@ func TestDispatch_ToUserRejectedAsUnknownTarget(t *testing.T) {
 // caller:session rejected when actual caller is the channel user.
 func TestDispatch_CallerSession_MismatchUser(t *testing.T) {
 	host := &mockDispatchHost{
-		currentKey:     "telegram:1",
-		callerKind:     "user",
-		contentReaches: true,
+		currentKey: "telegram:1",
+		callerKind: "user",
 	}
 	_, res := runDispatch(t, host, `{"sends": [{"to": "caller:session", "body": "hi"}]}`)
 	if !strings.Contains(res, "validation-error") {
@@ -259,13 +224,12 @@ func TestDispatch_BareCallerRejected(t *testing.T) {
 // Nothing forces a second send: there is no to=user target to demand.
 func TestDispatch_UserFacingSessionCallerNeedsNoUserTarget(t *testing.T) {
 	host := &mockDispatchHost{
-		currentKey:     "telegram:42",
-		callerKind:     "session",
-		callerKey:      "cli",
-		contentReaches: true,
+		currentKey: "telegram:42",
+		callerKind: "session",
+		callerKey:  "cli",
 	}
 	outcome, res := runDispatch(t, host, `{"sends": [{"to": "caller:session", "body": "hi"}]}`)
-	if outcome != "turn-terminated" {
+	if outcome != "delivered" {
 		t.Fatalf("outcome=%q, want turn-terminated; full result:\n%s", outcome, res)
 	}
 	if host.sentToCaller != "hi" {
@@ -300,7 +264,7 @@ func TestDispatch_Subagent(t *testing.T) {
 	}
 	outcome, res := runDispatch(t, host,
 		`{"sends": [{"to": "subagent", "params": {"agent": "search", "task_id": "bg-check"}, "body": "查 X"}]}`)
-	if outcome != "turn-terminated" {
+	if outcome != "delivered" {
 		t.Fatalf("outcome=%q, result=%s", outcome, res)
 	}
 	if len(host.subagentCalls) != 1 {
@@ -330,7 +294,7 @@ func TestDispatch_SubagentAgentOptional(t *testing.T) {
 	host := &mockDispatchHost{currentKey: "cli", callerKind: "user"}
 	outcome, res := runDispatch(t, host,
 		`{"sends": [{"to": "subagent", "params": {"task_id": "bg-check"}, "body": "go"}]}`)
-	if outcome != "turn-terminated" {
+	if outcome != "delivered" {
 		t.Fatalf("expected success with empty agent (session default), got %q; %s", outcome, res)
 	}
 	if len(host.subagentCalls) != 1 {
@@ -358,7 +322,7 @@ func TestDispatch_Fork(t *testing.T) {
 	}
 	outcome, res := runDispatch(t, host,
 		`{"sends": [{"to": "subagent_fork", "params": {"agent": "analyst", "task_id": "hypo-a"}, "body": "explore"}]}`)
-	if outcome != "turn-terminated" {
+	if outcome != "delivered" {
 		t.Fatalf("outcome=%q; %s", outcome, res)
 	}
 	if len(host.forkCalls) != 1 {
@@ -380,7 +344,7 @@ func TestDispatch_SubagentModelOverride_OK(t *testing.T) {
 	}
 	outcome, res := runDispatch(t, host,
 		`{"sends": [{"to": "subagent", "params": {"agent": "s", "task_id": "hard-q", "provider": "openrouter", "model": "moonshotai/kimi-k2.6"}, "body": "go"}]}`)
-	if outcome != "turn-terminated" {
+	if outcome != "delivered" {
 		t.Fatalf("outcome=%q; %s", outcome, res)
 	}
 	if len(host.subagentCalls) != 1 {
@@ -451,7 +415,7 @@ func TestDispatch_WakeSession(t *testing.T) {
 	}
 	outcome, _ := runDispatch(t, host,
 		`{"sends": [{"to": "session", "params": {"session_key": "telegram:2"}, "body": "ping"}]}`)
-	if outcome != "turn-terminated" {
+	if outcome != "delivered" {
 		t.Fatalf("outcome=%q", outcome)
 	}
 	if len(host.wokeSessions) != 1 || host.wokeSessions[0].SessionKey != "telegram:2" {
@@ -496,7 +460,7 @@ func TestDispatch_MultipleTargets(t *testing.T) {
 			{"to": "subagent_fork", "params": {"agent": "analyst", "task_id": "hypo"}, "body": "branch"},
 			{"to": "session", "params": {"session_key": "telegram:2"}, "body": "sync"}
 		]}`)
-	if outcome != "turn-terminated" {
+	if outcome != "delivered" {
 		t.Fatalf("outcome=%q; %s", outcome, res)
 	}
 	if host.sentToCaller != "working on it" {
@@ -506,8 +470,8 @@ func TestDispatch_MultipleTargets(t *testing.T) {
 		t.Errorf("unexpected call counts: sub=%d fork=%d wake=%d",
 			len(host.subagentCalls), len(host.forkCalls), len(host.wokeSessions))
 	}
-	if !host.halted {
-		t.Error("expected halt after success")
+	if host.halted {
+		t.Error("a routing dispatch must not halt the turn")
 	}
 }
 
@@ -606,7 +570,7 @@ func TestDispatch_BodyPreviewCollapsesNewlines(t *testing.T) {
 	}
 }
 
-func TestDispatch_ExecFailureHaltsButReportsErrors(t *testing.T) {
+func TestDispatch_ExecFailureReportsErrorsWithoutHalting(t *testing.T) {
 	host := &mockDispatchHost{
 		currentKey: "cli",
 		callerKind: "user",
@@ -621,141 +585,8 @@ func TestDispatch_ExecFailureHaltsButReportsErrors(t *testing.T) {
 	if !strings.Contains(res, "partial-failure") {
 		t.Errorf("expected partial-failure, got: %s", res)
 	}
-	if !host.halted {
-		t.Error("expected halt after execution attempted (successes unrecoverable)")
-	}
-}
-
-// Content written alongside a turn-ending dispatch is DELIVERED, not rejected.
-// This is the whole point of settling: the runner only auto-delivers a
-// tool_call-bearing message on chunkable sinks, and a solo dispatch means no
-// final message follows — so dispatch sends it once the ending is known.
-//
-// The predecessor of this test asserted the opposite (>= 50 runes was a hard
-// validation error). That rule belonged to the dispatch(to=user) era, when a
-// send body could carry text to one's own human; without that target its
-// instruction "move it into a send body" is unsatisfiable.
-func TestDispatch_ContentAlongsideSoloDispatch_IsDelivered(t *testing.T) {
-	host := &mockDispatchHost{
-		currentKey: "cli:threads:bg",
-		callerKind: "session",
-		callerKey:  "cli",
-		settleDest: "sent to your caller",
-	}
-	outcome, res := runDispatchWithContent(t, host,
-		`{"sends": [{"to": "caller:session", "body": "hi"}]}`,
-		"I will go check on that for you right now and report back with the full details shortly.")
-	if outcome != "turn-terminated" {
-		t.Fatalf("expected turn-terminated, got %q; %s", outcome, res)
-	}
-	if host.sentToCaller != "hi" {
-		t.Errorf("send should still execute, got sentToCaller=%q", host.sentToCaller)
-	}
-	if len(host.settled) != 1 || !host.settled[0].Deliver {
-		t.Fatalf("expected one settle with deliver=true, got %+v", host.settled)
-	}
-	if host.settled[0].Content != "I will go check on that for you right now and report back with the full details shortly." {
-		t.Errorf("settled the wrong content: %q", host.settled[0].Content)
-	}
-	if !strings.Contains(res, "delivered — sent to your caller") {
-		t.Errorf("expected delivery note naming the destination, got: %s", res)
-	}
-	// The old escape hatches must stay gone.
-	for _, gone := range []string{"move ALL of that text into the appropriate send body", "validation-error"} {
-		if strings.Contains(res, gone) {
-			t.Errorf("result should no longer contain %q, got: %s", gone, res)
-		}
-	}
-}
-
-// Settling happens AFTER the sends execute, so an executed to=caller:session
-// (which suppresses the sink) can win the race for that one destination. Here
-// the host reports the drop; dispatch must surface it, never swallow it.
-func TestDispatch_ContentAlongsideDispatch_DropWarns(t *testing.T) {
-	host := &mockDispatchHost{
-		currentKey: "cli:threads:bg",
-		callerKind: "session",
-		callerKey:  "cli",
-		// settleDest empty → the host had nowhere to put it.
-	}
-	outcome, res := runDispatchWithContent(t, host,
-		`{"sends": [{"to": "caller:session", "body": "hi"}]}`,
-		"stray thought")
-	if outcome != "turn-terminated" {
-		t.Fatalf("expected turn-terminated, got %q; %s", outcome, res)
-	}
-	if !strings.Contains(res, "reached nobody") {
-		t.Errorf("expected the no-reader note, got: %s", res)
-	}
-}
-
-// Whitespace-only assistant content is treated as empty — never settled at all.
-func TestDispatch_AllowsWhitespaceAssistantContent(t *testing.T) {
-	host := &mockDispatchHost{
-		currentKey: "cli:threads:bg",
-		callerKind: "session",
-		callerKey:  "cli",
-	}
-	outcome, res := runDispatchWithContent(t, host,
-		`{"sends": [{"to": "caller:session", "body": "hi"}]}`,
-		"  \n\t\n  ")
-	if outcome != "turn-terminated" {
-		t.Fatalf("expected turn-terminated, got %q; %s", outcome, res)
-	}
-	if host.sentToCaller != "hi" {
-		t.Errorf("expected send to execute, got sentToCaller=%q", host.sentToCaller)
-	}
-	if len(host.settled) != 0 {
-		t.Errorf("whitespace content should not be settled, got %+v", host.settled)
-	}
-}
-
-// dispatch({}) is a deliberate choice to say nothing, so its content is settled
-// with deliver=false — accounted for and logged, never sent.
-func TestDispatch_EmptySends_ContentSettledButNotDelivered(t *testing.T) {
-	host := &mockDispatchHost{
-		currentKey: "cli:threads:bg",
-		callerKind: "session",
-		callerKey:  "cli",
-		settleDest: "sent to your caller",
-	}
-	outcome, res := runDispatchWithContent(t, host, `{}`,
-		"thinking out loud about the whole architecture and what the right next step is")
-	if outcome != "turn-terminated-silent" {
-		t.Fatalf("expected silent termination, got %q; %s", outcome, res)
-	}
-	if !host.halted {
-		t.Error("expected halt on empty sends")
-	}
-	if len(host.settled) != 1 || host.settled[0].Deliver {
-		t.Fatalf("expected one settle with deliver=false, got %+v", host.settled)
-	}
-	// deliver=false, so the note names the ending rather than claiming the
-	// text reached nobody — nothing about this turn had a broken destination.
-	if !strings.Contains(res, "No need to repeat it") {
-		t.Errorf("expected the turn-continues note, got: %s", res)
-	}
-}
-
-// A batched dispatch leaves the turn running, so the eventual final assistant
-// message is what speaks — content must NOT be delivered early here.
-func TestDispatch_BatchedDispatch_ContentNotDelivered(t *testing.T) {
-	host := &mockDispatchHost{
-		currentKey: "cli:threads:bg",
-		callerKind: "session",
-		callerKey:  "cli",
-		settleDest: "sent to your caller",
-	}
-	tool := NewDispatchTool(host)
-	ctx := provider.WithAssistantContent(context.Background(), "partial thought")
-	ctx = provider.WithToolBatchSize(ctx, 2)
-	tool.Run(ctx, json.RawMessage(`{"sends": [{"to": "caller:session", "body": "hi"}]}`))
-
-	if len(host.settled) != 1 || host.settled[0].Deliver {
-		t.Fatalf("expected one settle with deliver=false on a batched call, got %+v", host.settled)
-	}
 	if host.halted {
-		t.Error("batched dispatch must not halt the turn")
+		t.Error("a routing dispatch must not halt the turn, even on partial failure")
 	}
 }
 
@@ -767,7 +598,7 @@ func TestDispatch_WakeSessionEndpoint_Existing(t *testing.T) {
 	}
 	outcome, res := runDispatch(t, host,
 		`{"sends": [{"to": "session", "params": {"channel": "wecom", "user_id": "LiNan"}, "body": "summarize uploads"}]}`)
-	if outcome != "turn-terminated" {
+	if outcome != "delivered" {
 		t.Fatalf("outcome=%q result=%s", outcome, res)
 	}
 	if len(host.wokeSessions) != 1 || host.wokeSessions[0].SessionKey != "wecom:LiNan" {
@@ -782,7 +613,7 @@ func TestDispatch_WakeSessionEndpoint_CreatesMissing(t *testing.T) {
 	host := &mockDispatchHost{currentKey: "cron:weekly-thanks", callerKind: "system"}
 	outcome, res := runDispatch(t, host,
 		`{"sends": [{"to": "session", "params": {"channel": "wecom", "user_id": "ZhaoJing"}, "body": "thank for uploads"}]}`)
-	if outcome != "turn-terminated" {
+	if outcome != "delivered" {
 		t.Fatalf("outcome=%q result=%s", outcome, res)
 	}
 	if len(host.wokeSessions) != 1 || host.wokeSessions[0].SessionKey != "wecom:ZhaoJing" {
@@ -868,7 +699,7 @@ func TestDispatch_WakeSessionEndpoint_GroupConvention(t *testing.T) {
 	host := &mockDispatchHost{currentKey: "cron:weekly-thanks", callerKind: "system"}
 	outcome, _ := runDispatch(t, host,
 		`{"sends": [{"to": "session", "params": {"channel": "wecom", "user_id": "group:wrNbLgXQAA"}, "body": "weekly digest"}]}`)
-	if outcome != "turn-terminated" {
+	if outcome != "delivered" {
 		t.Fatalf("outcome=%q", outcome)
 	}
 	if len(host.wokeSessions) != 1 || host.wokeSessions[0].SessionKey != "wecom:group:wrNbLgXQAA" {
@@ -939,7 +770,7 @@ func TestDispatch_SessionKeyTrimmedBeforeLookup(t *testing.T) {
 	}
 	outcome, result := runDispatch(t, host,
 		`{"sends": [{"to": "session", "params": {"session_key": "telegram:42 "}, "body": "ping"}]}`)
-	if outcome != "turn-terminated" {
+	if outcome != "delivered" {
 		t.Fatalf("a trailing space must not fail an existing session: outcome=%q, result=%s", outcome, result)
 	}
 	if len(host.wokeSessions) != 1 || host.wokeSessions[0].SessionKey != "telegram:42" {
@@ -975,7 +806,7 @@ func TestDispatch_WhitespaceAgentTreatedAsAbsent(t *testing.T) {
 	host := &mockDispatchHost{currentKey: "telegram:1", callerKind: "session", callerKey: "cli"}
 	outcome, result := runDispatch(t, host,
 		`{"sends": [{"to": "caller:session", "params": {"agent": " ", "task_id": ""}, "body": "hi"}]}`)
-	if outcome != "turn-terminated" {
+	if outcome != "delivered" {
 		t.Fatalf("whitespace agent must read as absent: outcome=%q, result=%s", outcome, result)
 	}
 	if host.sentToCaller != "hi" {
@@ -987,7 +818,7 @@ func TestDispatch_WhitespaceAgentOnSubagentUsesSessionDefault(t *testing.T) {
 	host := &mockDispatchHost{currentKey: "cli", callerKind: "system"}
 	outcome, result := runDispatch(t, host,
 		`{"sends": [{"to": "subagent", "params": {"task_id": "t1", "agent": "  "}, "body": "go"}]}`)
-	if outcome != "turn-terminated" {
+	if outcome != "delivered" {
 		t.Fatalf("outcome=%q, result=%s", outcome, result)
 	}
 	if len(host.subagentCalls) != 1 || host.subagentCalls[0].Agent != "" {
@@ -1020,7 +851,7 @@ func TestDispatch_AllEmptyParamsTreatedAsAbsent(t *testing.T) {
 	host := &mockDispatchHost{currentKey: "discord:123", callerKind: "session", callerKey: "cli"}
 	outcome, res := runDispatch(t, host,
 		`{"sends": [{"to": "caller:session", "params": {"agent": "", "task_id": "", "provider": "", "model": "", "session_key": "", "channel": "", "user_id": ""}, "body": "💊 今晚已吃药 ✅"}]}`)
-	if outcome != "turn-terminated" {
+	if outcome != "delivered" {
 		t.Fatalf("all-empty params must be ignored: outcome=%q, result=%s", outcome, res)
 	}
 	if host.sentToCaller != "💊 今晚已吃药 ✅" {
@@ -1070,54 +901,54 @@ func TestDispatch_SelfReferenceGuidesToContent(t *testing.T) {
 	}
 }
 
-// --- Solo rule: dispatch only terminates when it is the sole tool call ---
-
-// runDispatchBatched invokes the tool with a ctx that declares the assistant
-// message carried batchSize tool calls in total.
-func runDispatchBatched(t *testing.T, host *mockDispatchHost, argsJSON string, batchSize int) (outcome, result string) {
-	t.Helper()
-	tool := NewDispatchTool(host)
-	ctx := provider.WithToolBatchSize(context.Background(), batchSize)
-	result = tool.Run(ctx, json.RawMessage(argsJSON))
-	for _, line := range strings.Split(result, "\n") {
-		if rest, ok := strings.CutPrefix(line, "outcome:"); ok {
-			outcome = strings.TrimSpace(rest)
-			break
+// Every routing dispatch is asynchronous: solo or batched, with or without
+// content, on a user wake or a peer wake, the sends go out and the turn keeps
+// running. The model then ends the turn with its own reply (or dispatch({})).
+func TestDispatch_RoutingNeverHalts(t *testing.T) {
+	for _, tc := range []struct {
+		name      string
+		host      *mockDispatchHost
+		content   string
+		batchSize int
+	}{
+		{"solo on user wake without content", &mockDispatchHost{currentKey: "telegram:42", callerKind: "user", agents: map[string]bool{"search": true}}, "", 1},
+		{"solo on user wake with content", &mockDispatchHost{currentKey: "telegram:42", callerKind: "user", agents: map[string]bool{"search": true}}, "On it.", 1},
+		{"batched", &mockDispatchHost{currentKey: "telegram:42", callerKind: "user", agents: map[string]bool{"search": true}}, "", 3},
+		{"solo on a child's end-of-turn wake", &mockDispatchHost{currentKey: "telegram:42", callerKind: "system", agents: map[string]bool{"search": true}}, "", 1},
+	} {
+		outcome, res := runDispatchFull(t, tc.host,
+			`{"sends": [{"to": "subagent", "params": {"agent": "search", "task_id": "bg"}, "body": "look it up"}]}`, tc.content, tc.batchSize)
+		if outcome != "delivered" {
+			t.Fatalf("%s: outcome=%q; %s", tc.name, outcome, res)
+		}
+		if tc.host.halted {
+			t.Fatalf("%s: a routing dispatch must not halt the turn", tc.name)
+		}
+		if len(tc.host.subagentCalls) != 1 {
+			t.Fatalf("%s: send not executed: %+v", tc.name, tc.host.subagentCalls)
+		}
+		if !strings.Contains(res, "The turn continues") || !strings.Contains(res, "do not wait or poll") {
+			t.Errorf("%s: result must say the turn continues and not to poll:\n%s", tc.name, res)
 		}
 	}
-	return outcome, result
 }
 
-func TestDispatch_BatchedSend_DeliversWithoutHalting(t *testing.T) {
-	// caller:session on a subagent thread: SendToCaller suppresses the sink,
-	// and a batched dispatch must clear that so the turn's final text still
-	// reaches the sink.
-	host := &mockDispatchHost{
-		currentKey: "cli:threads:x",
-		callerKind: "session",
-		callerKey:  "cli",
-	}
-	outcome, res := runDispatchBatched(t, host, `{"sends": [{"to": "caller:session", "body": "searching..."}]}`, 3)
-	if outcome != "delivered-turn-continues" {
+// A subagent may still message whoever woke it; it is simply no longer
+// required to, and doing so no longer ends its turn.
+func TestDispatch_CallerSessionFromChildDoesNotHalt(t *testing.T) {
+	host := &mockDispatchHost{currentKey: "cli:threads:x", callerKind: "session", callerKey: "cli"}
+	outcome, res := runDispatch(t, host, `{"sends": [{"to": "caller:session", "body": "halfway there"}]}`)
+	if outcome != "delivered" {
 		t.Fatalf("outcome=%q; %s", outcome, res)
 	}
-	if host.sentToCaller != "searching..." {
-		t.Errorf("expected delivery, got %q", host.sentToCaller)
-	}
-	if host.halted {
-		t.Fatal("batched dispatch must NOT halt the turn")
-	}
-	if !host.suppressCleared {
-		t.Fatal("batched dispatch must re-enable sink delivery (SendToCaller suppressed it)")
-	}
-	if !strings.Contains(res, "Turn continues") {
-		t.Errorf("result must say the turn continues: %s", res)
+	if host.sentToCaller != "halfway there" || host.halted {
+		t.Fatalf("sent=%q halted=%v", host.sentToCaller, host.halted)
 	}
 }
 
 func TestDispatch_BatchedEmpty_IsNoOp(t *testing.T) {
 	host := &mockDispatchHost{currentKey: "cli", callerKind: "user"}
-	outcome, res := runDispatchBatched(t, host, `{"sends": []}`, 2)
+	outcome, res := runDispatchFull(t, host, `{"sends": []}`, "", 2)
 	if outcome != "no-op" {
 		t.Fatalf("outcome=%q; %s", outcome, res)
 	}
@@ -1126,22 +957,16 @@ func TestDispatch_BatchedEmpty_IsNoOp(t *testing.T) {
 	}
 }
 
-func TestDispatch_ExplicitBatchSizeOne_StillTerminates(t *testing.T) {
-	host := &mockDispatchHost{
-		currentKey: "telegram:123",
-		callerKind: "session",
-		callerKey:  "cli",
-	}
-	outcome, _ := runDispatchBatched(t, host, `{"sends": [{"to": "caller:session", "body": "done"}]}`, 1)
-	if outcome != "turn-terminated" {
+func TestDispatch_SoloEmpty_Terminates(t *testing.T) {
+	host := &mockDispatchHost{currentKey: "cli", callerKind: "user"}
+	outcome, _ := runDispatchFull(t, host, `{"sends": []}`, "", 1)
+	if outcome != "turn-terminated-silent" {
 		t.Fatalf("outcome=%q", outcome)
 	}
 	if !host.halted {
-		t.Fatal("solo dispatch must halt")
+		t.Fatal("solo dispatch({}) must halt")
 	}
 }
-
-// --- Reply-less turn rule: a solo dispatch on a user wake must carry content ---
 
 // runDispatchFull seeds both the assistant content and the tool batch size, so a
 // test can express "the model wrote X alongside a dispatch that was one of N
@@ -1159,199 +984,6 @@ func runDispatchFull(t *testing.T, host *mockDispatchHost, argsJSON, content str
 		}
 	}
 	return outcome, result
-}
-
-// The human asked something; the model hands the work to a subagent and ends the
-// turn saying nothing. They would see silence, so the dispatch is refused and no
-// send executes — the turn continues so the model can add its report.
-func TestDispatch_UserWake_SoloDispatchWithoutContentRejected(t *testing.T) {
-	host := &mockDispatchHost{
-		currentKey:     "telegram:42",
-		callerKind:     "user",
-		contentReaches: true,
-		agents:         map[string]bool{"researcher": true},
-	}
-	outcome, res := runDispatchFull(t, host,
-		`{"sends": [{"to": "subagent", "params": {"agent": "researcher", "task_id": "t1"}, "body": "dig into X"}]}`,
-		"", 1)
-	if outcome != "validation-error" {
-		t.Fatalf("outcome=%q, want validation-error; full result:\n%s", outcome, res)
-	}
-	if len(host.subagentCalls) != 0 {
-		t.Errorf("no send may execute on rejection, got %+v", host.subagentCalls)
-	}
-	if host.halted {
-		t.Error("rejection must not halt — the model needs another iteration to speak")
-	}
-	if !strings.Contains(res, "dispatch({})") {
-		t.Errorf("error must point at dispatch({}) as the deliberate-silence path:\n%s", res)
-	}
-}
-
-// Same turn, but the model reported to the human in content: normal shape.
-func TestDispatch_UserWake_SoloDispatchWithContentAccepted(t *testing.T) {
-	host := &mockDispatchHost{
-		currentKey:     "telegram:42",
-		callerKind:     "user",
-		contentReaches: true,
-		agents:         map[string]bool{"researcher": true},
-	}
-	outcome, res := runDispatchFull(t, host,
-		`{"sends": [{"to": "subagent", "params": {"agent": "researcher", "task_id": "t1"}, "body": "dig into X"}]}`,
-		"On it — handing this to the research subagent.", 1)
-	if outcome != "turn-terminated" {
-		t.Fatalf("outcome=%q, want turn-terminated; full result:\n%s", outcome, res)
-	}
-	if len(host.subagentCalls) != 1 {
-		t.Fatalf("expected the send to execute, got %+v", host.subagentCalls)
-	}
-	if !host.halted {
-		t.Error("solo dispatch must halt")
-	}
-}
-
-// dispatch({}) stays the always-valid silent termination, even on a user wake.
-// It is the model explicitly choosing to say nothing, not forgetting to.
-func TestDispatch_UserWake_EmptyDispatchStillSilentlyTerminates(t *testing.T) {
-	host := &mockDispatchHost{
-		currentKey:     "telegram:42",
-		callerKind:     "user",
-		contentReaches: true,
-	}
-	outcome, _ := runDispatchFull(t, host, `{"sends": []}`, "", 1)
-	if outcome != "turn-terminated-silent" {
-		t.Fatalf("outcome=%q, want turn-terminated-silent", outcome)
-	}
-	if !host.halted {
-		t.Error("empty dispatch must halt")
-	}
-}
-
-// Batched with other tool calls the turn does NOT end, so the model still gets
-// to speak later — nothing to enforce here.
-func TestDispatch_UserWake_BatchedDispatchWithoutContentAllowed(t *testing.T) {
-	host := &mockDispatchHost{
-		currentKey:     "telegram:42",
-		callerKind:     "user",
-		contentReaches: true,
-		agents:         map[string]bool{"researcher": true},
-	}
-	outcome, res := runDispatchFull(t, host,
-		`{"sends": [{"to": "subagent", "params": {"agent": "researcher", "task_id": "t1"}, "body": "dig into X"}]}`,
-		"", 3)
-	if outcome != "delivered-turn-continues" {
-		t.Fatalf("outcome=%q, want delivered-turn-continues; full result:\n%s", outcome, res)
-	}
-	if len(host.subagentCalls) != 1 {
-		t.Errorf("expected the send to execute, got %+v", host.subagentCalls)
-	}
-}
-
-// A peer-session wake: nobody is waiting on a reply from this session's human,
-// so replying to the peer and saying nothing to the human is legitimate.
-func TestDispatch_PeerWake_SoloDispatchWithoutContentAllowed(t *testing.T) {
-	host := &mockDispatchHost{
-		currentKey:     "telegram:42",
-		callerKind:     "session",
-		callerKey:      "cli",
-		contentReaches: true,
-		callerIsChild:  false, // a peer, not our own subagent
-	}
-	outcome, res := runDispatchFull(t, host,
-		`{"sends": [{"to": "caller:session", "body": "done"}]}`, "", 1)
-	if outcome != "turn-terminated" {
-		t.Fatalf("outcome=%q, want turn-terminated; full result:\n%s", outcome, res)
-	}
-	if host.sentToCaller != "done" {
-		t.Errorf("expected caller delivery, got %q", host.sentToCaller)
-	}
-}
-
-// The return leg: our OWN subagent just reported back. That wake looks exactly
-// like a peer wake (WakeSession / CallerKindSession), but somewhere up the chain
-// a human asked the question that spawned the child and is still waiting. Ending
-// silently on the answer's arrival strands them, so the guard fires here too.
-func TestDispatch_ChildWake_SoloDispatchWithoutContentRejected(t *testing.T) {
-	host := &mockDispatchHost{
-		currentKey:     "telegram:42",
-		callerKind:     "session",
-		callerKey:      "telegram:42:threads:t1",
-		contentReaches: true,
-		callerIsChild:  true,
-		agents:         map[string]bool{"researcher": true},
-	}
-	outcome, res := runDispatchFull(t, host,
-		`{"sends": [{"to": "subagent", "params": {"agent": "researcher", "task_id": "t2"}, "body": "next step"}]}`,
-		"", 1)
-	if outcome != "validation-error" {
-		t.Fatalf("outcome=%q, want validation-error; full result:\n%s", outcome, res)
-	}
-	if len(host.subagentCalls) != 0 {
-		t.Errorf("no send may execute on rejection, got %+v", host.subagentCalls)
-	}
-	if host.halted {
-		t.Error("rejection must not halt — the model needs another iteration to speak")
-	}
-}
-
-// Same child wake, with a report written in content: the normal shape.
-func TestDispatch_ChildWake_SoloDispatchWithContentAccepted(t *testing.T) {
-	host := &mockDispatchHost{
-		currentKey:     "telegram:42",
-		callerKind:     "session",
-		callerKey:      "telegram:42:threads:t1",
-		contentReaches: true,
-		callerIsChild:  true,
-		settleDest:     "sent to the user",
-		agents:         map[string]bool{"researcher": true},
-	}
-	outcome, res := runDispatchFull(t, host,
-		`{"sends": [{"to": "subagent", "params": {"agent": "researcher", "task_id": "t2"}, "body": "next step"}]}`,
-		"The research came back: X is the cause. Following up on the fix.", 1)
-	if outcome != "turn-terminated" {
-		t.Fatalf("outcome=%q, want turn-terminated; full result:\n%s", outcome, res)
-	}
-	if len(host.settled) != 1 || !host.settled[0].Deliver {
-		t.Fatalf("expected the report to be settled for delivery, got %+v", host.settled)
-	}
-}
-
-// dispatch({}) stays exempt on a child wake too — it returns before the guard,
-// and it is the model explicitly choosing silence.
-func TestDispatch_ChildWake_EmptyDispatchStillSilentlyTerminates(t *testing.T) {
-	host := &mockDispatchHost{
-		currentKey:     "telegram:42",
-		callerKind:     "session",
-		callerKey:      "telegram:42:threads:t1",
-		contentReaches: true,
-		callerIsChild:  true,
-	}
-	outcome, _ := runDispatchFull(t, host, `{"sends": []}`, "", 1)
-	if outcome != "turn-terminated-silent" {
-		t.Fatalf("outcome=%q, want turn-terminated-silent", outcome)
-	}
-	if !host.halted {
-		t.Error("empty dispatch must halt")
-	}
-}
-
-// Where content cannot be delivered at all (heartbeat/compression turns),
-// demanding it would be an unsatisfiable loop — the rule must not fire.
-func TestDispatch_UserWake_NoContentSinkStillAllowsSoloDispatch(t *testing.T) {
-	host := &mockDispatchHost{
-		currentKey:     "telegram:42",
-		callerKind:     "user",
-		contentReaches: false,
-		sessions:       map[string]bool{"cli": true},
-	}
-	outcome, res := runDispatchFull(t, host,
-		`{"sends": [{"to": "session", "params": {"session_key": "cli"}, "body": "fyi"}]}`, "", 1)
-	if outcome != "turn-terminated" {
-		t.Fatalf("outcome=%q, want turn-terminated; full result:\n%s", outcome, res)
-	}
-	if len(host.wokeSessions) != 1 {
-		t.Errorf("expected the send to execute, got %+v", host.wokeSessions)
-	}
 }
 
 // TestToolSchemaAgreesWithTheValidator walks the enum the model is actually

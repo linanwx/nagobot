@@ -78,25 +78,13 @@ func (t *Thread) SessionExists(key string) bool {
 // the caller".
 //
 // It deliberately reads the CALLER sink, not the session set: replying to a peer
-// is one message to one place. Before the two were separated this went through
-// the turn's sink and, once a session's destinations became a broadcast set, a
-// subagent's report back would also have been shouted into the parent's channel.
+// is one message to one place, and a session's destinations are a broadcast set.
 //
-// Suppression is scoped to sessions with NO human of their own, and the scope is
-// load-bearing. Suppressing exists to stop ONE reader being written to twice: on
-// a subagent or fork, contentSink routes plain content to the default sink,
-// which forwards to the parent — the same place the caller sink points, so
-// speaking on both wakes the parent twice.
-//
-// A user-facing session has no such overlap. Its content goes to its channel and
-// the caller is a peer session; those are two audiences, and the wake's own
-// `delivery` field promises the first one. Blanket-suppressing there discarded
-// exactly what the model was told would be delivered. Observed in production: a
-// cron dispatcher woke a Discord session, the turn wrote the noon briefing as
-// content and acknowledged back with dispatch(to=caller:session), and the whole
-// briefing was dropped with "sink already used by an executed send" — the sink
-// in question being one this send never touched. The guard mirrors
-// OnNoToolCalls's, which already draws the same line for the same reason.
+// It does not suppress the turn's own sinks. Suppression used to exist because a
+// subagent's default sink forwarded its content to the parent, the same place
+// the caller sink points, so speaking on both woke the parent twice. That
+// forwarding is gone (a child's end of turn is now reported by the progress
+// scanner as an event), so the two destinations never overlap.
 func (t *Thread) SendToCaller(ctx context.Context, body string) error {
 	t.mu.Lock()
 	sink := t.currentCallerSink
@@ -104,10 +92,11 @@ func (t *Thread) SendToCaller(ctx context.Context, body string) error {
 	if sink.Send == nil {
 		return fmt.Errorf("current wake has no caller sink (cron/heartbeat/child source)")
 	}
-	if !t.IsUserFacing() {
-		t.SetSuppressSink()
+	if err := sink.Send(ctx, body); err != nil {
+		return err
 	}
-	return sink.Send(ctx, body)
+	t.markDispatched()
+	return nil
 }
 
 // CreateOrWakeSubagent creates (or wakes existing) a subagent thread at
@@ -163,10 +152,11 @@ func (t *Thread) CreateOrWakeFork(ctx context.Context, agentName, taskID, body, 
 }
 
 // WakeSession wakes an existing session with body as an external message.
-// The wake carries a recursive paired sink: the target's reply wakes THIS
-// thread's session back, and the reverse-direction wake carries another
-// paired sink — so the exchange recurses until one party explicitly halts
-// via dispatch({}) or answers its own human in plain text instead.
+// The wake carries a recursive paired sink: the target's dispatch(to=caller:session)
+// wakes THIS thread's session back, and the reverse-direction wake carries
+// another paired sink, so the exchange continues until one party stops
+// replying to the other (answering its own human in plain text, or ending with
+// dispatch({})).
 func (t *Thread) WakeSession(ctx context.Context, sessionKey, body string) error {
 	if t.mgr == nil {
 		return fmt.Errorf("manager not configured")
@@ -182,6 +172,7 @@ func (t *Thread) WakeSession(ctx context.Context, sessionKey, body string) error
 		// show.
 		Traceparent: obs.Traceparent(ctx),
 	})
+	t.markDispatched()
 	return nil
 }
 
@@ -193,17 +184,15 @@ func (t *Thread) buildSinkToCaller(targetSession string) SessionSink {
 
 // BuildPairedSessionSink constructs a recursive session-to-session paired sink.
 //
-// The returned sink is attached to a wake message delivered to `selfKey`. When
-// selfKey's turn emits a naive final response (no explicit dispatch), the sink
-// wakes `peerKey` with that response — and that wake carries the reverse paired
-// sink (selfKey ↔ peerKey swapped) so the next reply comes back to selfKey.
+// The returned sink is attached as the CallerSink of a wake delivered to
+// `selfKey`. When selfKey's turn calls dispatch(to=caller:session), the sink
+// wakes `peerKey` with that body, and that wake carries the reverse paired sink
+// (selfKey and peerKey swapped) so the next reply comes back to selfKey.
 //
-// Exchanges recurse indefinitely until one side halts explicitly:
-//   - dispatch({}) — silent termination
-//   - plain reply text on a user-facing session — content goes to that human
-//     via contentSink instead of continuing the exchange
-//   - dispatch(to=<any>) with SignalHalt — any explicit dispatch suppresses
-//     the per-wake sink via SetSuppressSink
+// Exchanges continue until one side stops replying to the other: it answers
+// its own human in plain text, ends with dispatch({}), or, as a dispatched
+// child, simply ends its turn (its dispatching session is then notified by the
+// progress scanner's end-of-turn event, not through this sink).
 func BuildPairedSessionSink(mgr *Manager, selfKey, peerKey string) SessionSink {
 	return SessionSink{
 		Label: "reply to caller session " + peerKey + " via dispatch(to=caller:session)",
@@ -265,146 +254,6 @@ func (t *Thread) contentSink(turnSinks SinkSet) (SinkSet, bool) {
 // "heartbeat_reflect" / "heartbeat_wake" sources alongside "heartbeat".
 func isSilentSource(src WakeSource) bool {
 	return strings.HasPrefix(string(src), string(WakeHeartbeat)) || src == WakeCompression
-}
-
-// previewLogRunes caps the assistant content echoed into a Warn line. Undelivered
-// text must be recoverable from the log, but a full turn's prose does not belong
-// in one log record.
-const previewLogRunes = 300
-
-// ContentReachesSomeone reports whether text written as assistant content in
-// THIS turn's messages actually gets delivered — a destination exists and the
-// sink is not suppressed.
-//
-// Chunkability is deliberately NOT part of the test. run.go's OnMessage only
-// delivers a tool_call-bearing assistant message on chunkable sinks (it assumes
-// a plain final message will follow), but a turn-ending dispatch means no such
-// message is coming — SettleTurnContent covers that gap. So a non-chunkable
-// destination still reaches its reader; only a zero sink (heartbeat /
-// compression) reaches nobody.
-//
-// dispatch uses it for one thing: never demand text that this turn could not
-// deliver anyway.
-func (t *Thread) ContentReachesSomeone() bool {
-	t.mu.Lock()
-	wakeSink := t.currentSink
-	t.mu.Unlock()
-	out, _ := t.contentSink(wakeSink)
-	return !out.IsZero() && !t.isSinkSuppressed()
-}
-
-// CallerIsOwnChild reports whether the session that woke this turn is a subagent
-// or fork spawned BY this session — i.e. this is the return leg of work we
-// handed off, not a peer asking us something.
-//
-// Both arrive as WakeSession / CallerKindSession and are indistinguishable by
-// wake source, but child session keys are built as {parent}{infix}{taskID}
-// (CreateOrWakeSubagent / CreateOrWakeFork), so the key prefix decides it.
-func (t *Thread) CallerIsOwnChild() bool {
-	t.mu.Lock()
-	callerKey := t.currentCallerKey
-	t.mu.Unlock()
-	callerKey = strings.TrimSpace(callerKey)
-	self := strings.TrimSpace(t.sessionKey)
-	if callerKey == "" || self == "" {
-		return false
-	}
-	return strings.HasPrefix(callerKey, self+session.ThreadsSessionInfix) ||
-		strings.HasPrefix(callerKey, self+session.ForkSessionInfix)
-}
-
-// SettleTurnContent decides what happens to assistant content the model wrote
-// alongside a dispatch call, once dispatch knows how the turn ends.
-//
-// The runner delivers such content from OnMessage, but only on chunkable sinks:
-// a message carrying tool_calls is normally an intermediate one, and a plain
-// final message is expected to follow. A turn-ending dispatch breaks that
-// assumption — no final message follows, so on a non-chunkable destination the
-// text falls in the gap between "not delivered now" and "no later chance".
-// This closes that gap.
-//
-//	deliver=true  — a routing dispatch: the content is this session's report to
-//	                its own reader, so send it if the runner did not.
-//	deliver=false — dispatch({}), or a batched call where the turn continues:
-//	                never send, only account for text that went nowhere.
-//
-// Returns (destination, outcome): destination is the sink label when this call
-// delivered the text; outcome names why it did not, and is empty when the text
-// was delivered or when there was nothing to do (no content, or the runner
-// already delivered it live).
-//
-// The outcome is an ENUM, not prose, because the caller renders a different note
-// to the model for each one. A single "this reached nobody" message covering all
-// of them was wrong on three of the four: on SettleTurnContinues the turn is
-// still running and the model's final message will speak, and on
-// SettleAlreadySentToCaller the reader did get the news — through the send's own
-// body. Telling the model to "put it in a send body" in those cases invites it
-// to say everything twice.
-func (t *Thread) SettleTurnContent(ctx context.Context, content string, deliver bool) (string, SettleOutcome) {
-	content = strings.TrimSpace(content)
-	if !isUserFacingContent(content) {
-		return "", ""
-	}
-	t.mu.Lock()
-	wakeSink := t.currentSink
-	t.mu.Unlock()
-	out, proactive := t.contentSink(wakeSink)
-
-	// Destinations that take live delivery belong to the runner: OnMessage (or
-	// the streamer above it) already pushed this text out when the assistant
-	// message arrived, before any tool ran. Touching them here would
-	// double-deliver, so only the destinations with neither registration are
-	// still settleable.
-	settle := out.WithoutLiveDelivery()
-	if !out.IsZero() && settle.IsZero() {
-		return "", ""
-	}
-
-	// Drop sinks are not deliveries. Their Send returns nil like any other, so
-	// sending to them and reporting settle.Label() announced a delivery that
-	// consisted of one Debug log line — see SettleDiscarded.
-	reachable := settle.WithoutDiscarding()
-
-	if outcome := settleDropOutcome(deliver, out, reachable, t.isSinkSuppressed()); outcome != "" {
-		if outcome == SettleNoReader && !settle.IsZero() {
-			outcome = SettleDiscarded
-		}
-		logger.Warn("assistant content not delivered",
-			"key", t.sessionKey, "reason", string(outcome),
-			"content", truncateStr(content, previewLogRunes))
-		return "", outcome
-	}
-	if err := reachable.WithRetry(3).Send(ctx, content); err != nil {
-		logger.Warn("assistant content delivery failed",
-			"key", t.sessionKey, "sink", reachable.Label(), "err", err,
-			"content", truncateStr(content, previewLogRunes))
-		return "", SettleDeliveryFailed
-	}
-	if proactive {
-		t.recordProactiveChat(content)
-	}
-	return reachable.Label(), ""
-}
-
-// settleDropOutcome names why SettleTurnContent will not deliver, or "" when it
-// will. Order matters: a suppressed sink is checked before the empty-set case
-// because it is the more specific fact about the same turn.
-//
-// reachable is the settleable set with the drop sinks already removed, so an empty
-// reachable means "nobody will read this" whether the turn had no destination at all
-// or only destinations that throw text away. The caller separates those two into
-// SettleNoReader and SettleDiscarded — it is the one that still holds the
-// unfiltered set and can tell them apart.
-func settleDropOutcome(deliver bool, out, reachable SinkSet, suppressed bool) SettleOutcome {
-	switch {
-	case suppressed:
-		return SettleAlreadySentToCaller
-	case !deliver:
-		return SettleTurnContinues
-	case out.IsZero() || reachable.IsZero():
-		return SettleNoReader
-	}
-	return ""
 }
 
 // recordProactiveChat appends a bot-initiated message to the clean chat log.
@@ -503,7 +352,8 @@ func userFacingAncestor(key string) (string, bool) {
 	return ancestor, isUserFacingKey(ancestor)
 }
 
-// SignalHalt marks the current turn for termination after the tool returns.
+// SignalHalt marks the current turn for termination after the tool batch
+// returns. Only dispatch({}) calls it; routing dispatches leave the turn running.
 func (t *Thread) SignalHalt() {
 	t.SetHaltLoop()
 }
@@ -553,8 +403,10 @@ func (t *Thread) createOrWake(ctx context.Context, key, agentName, body string, 
 
 	// Wake the target. NewThread (inside Wake) creates the thread if needed,
 	// using agentName (or falling back to meta / default). Attach a recursive
-	// paired sink so the target's naive reply comes back to us and recurses
-	// until one side explicitly halts.
+	// paired sink so the child can still message us mid-work with
+	// dispatch(to=caller:session). Its result does not travel through it: when
+	// the child's turn ends, the progress scanner notifies us and we read the
+	// result from the child's session.
 	t.mgr.Wake(key, &WakeMessage{
 		Source:           WakeSession,
 		Message:          body,
@@ -567,6 +419,7 @@ func (t *Thread) createOrWake(ctx context.Context, key, agentName, body string, 
 		// spawned them, so one trace covers the whole delegation chain.
 		Traceparent: obs.Traceparent(ctx),
 	})
+	t.markDispatched()
 	return note, nil
 }
 
