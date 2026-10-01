@@ -17,12 +17,15 @@ This is a BACKGROUND task. You will NOT message the user.
    - **Unfinished work**: threads left open, things you promised, things to follow up on.
    - **Conversation insights**: what the user actually wanted underneath the literal request; recurring patterns; corrections; how to serve them better next time.
    - **Connections**: links between today and what you already know about this user — ongoing projects, preferences, prior decisions.
+   - **What you did not understand**: be honest about the gaps. Where did you guess instead of knowing: a term, a name, a reference to something you had no context for, an ambiguous request you resolved one way without asking, a preference you assumed, an answer the user seemed unhappy with but never said why? For each one, write the question you should ask the user to clear it up. Step 3 files these.
    - **Tracked files the day made stale**: `file-track.md` is in your system prompt and catalogs this session's work files, saying what each one holds. Did anything said today change what one of them should *contain*? Name any such file here. Step 7 acts on it, and naming it in the dream is the record of an edit made while nobody was watching.
 
 3. **Overwrite `dream.md`.** Use `write_file` to write `{{SESSIONDIR}}/dream.md`.
    - **You MUST overwrite the entire file.** Replace the previous `dream.md` completely — do NOT append to or merge with the old dream. Each night's dream fully replaces the last one.
    - Write in the language the user predominantly uses in conversation.
    - Keep it focused — one coherent reflection, not a transcript. Aim for something that will genuinely help future-you understand and serve this user.
+   - **End it with a `## To clarify` section**: the questions from step 2's "What you did not understand", each written as the actual question to put to the user plus one line on why it matters. `dream.md` is injected into every turn of this session, so this list is how a daytime turn knows what to ask. Carry forward any question in the previous dream's `## To clarify` that the conversation since has not answered, and drop the ones it has. At most 5, most consequential first. No gaps → leave the section out rather than inventing questions.
+   - The section is for asking **when the moment fits**: next time the user raises that topic, or while they are around and the question is quick. It is not a reason to message them, so never schedule a wake in step 5 just to ask one of these.
 
 4. **Refresh this session's one-line summary — only if the current one has gone stale.**
 
