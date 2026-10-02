@@ -653,7 +653,7 @@ func (t *Thread) buildHeartbeatSection() string {
 		body = strings.TrimSpace(string(data))
 	}
 
-	header := fmt.Sprintf("---\ntype: heartbeat_information\nfile_path: %s\nprompt: Heartbeat automatically wakes the thread to reflect on follow-up items and proactively help users with tasks. Use `use_skill(heartbeat-wake)` to handle heartbeat pulses — it covers both reflection and action.\n---", absPath)
+	header := fmt.Sprintf("---\ntype: heartbeat_information\nfile_path: %s\nprompt: Heartbeat automatically wakes the thread to reflect on follow-up items and proactively help users with tasks. The scheduler selects the task and names the skill to call in each heartbeat wake; follow that instruction directly.\n---", absPath)
 	if body == "" {
 		return header
 	}

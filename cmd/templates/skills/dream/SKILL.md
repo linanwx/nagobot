@@ -68,7 +68,7 @@ This is a BACKGROUND task. You will NOT message the user.
 
    This feeds the cross-session awareness section injected into every agent's system prompt — it is how other sessions know what this one is about.
 
-5. **Plan what future-you should do.** Two things live here, split by WHEN they want to happen, and they carry opposite bars. Do both.
+5. **Plan what future-you should do — only when the past 24 hours left something worth following up.** First judge from the conversation already in context. If there is clearly nothing that particularly needs follow-up, skip this entire step: do not invent candidates, add a Follow-up section, or query cron just to look for work. If unsure whether something needs follow-up, continue with the checks below. When this step applies, two things live here, split by WHEN they want to happen, and they carry opposite bars. Do both.
 
    **5a — a follow-up for the day ahead.** Put yourself in the shoes of a friend who cares about this user. Based on the past 24 hours: is there a greeting or follow-up worth sending them tomorrow, and when? ("Tomorrow" as the user will experience it — dreams run in the small hours, so it is usually later this same calendar day.)
    - Think of up to 3 candidates. For each: what to send, when to send it, and a suitability score — low / medium / high. Include them in the dream you write in step 3, under a `## Follow-up` heading.
@@ -153,7 +153,9 @@ This is a BACKGROUND task. You will NOT message the user.
 
    Why this exists: the catalog descriptions carry live state (`当前待买：维生素`), and step 8 can rebuild that description from memory without ever opening the file. So a fact corrected in conversation could survive in both the file AND the catalog — and the catalog is injected into every single turn, which makes a stale line there wrong in every prompt until the next dream.
 
-8. **Tidy the workspace.** Run the file-track skill — `use_skill("file-track")` — and follow it to archive stale files and refresh `file-track.md`. Same nightly-maintenance spirit as the dream: keep this session's work files organized and catalogued. Do this even on a quiet night (it's about files on disk, not the conversation). It comes after step 7 so the catalog is rebuilt from corrected files rather than from stale ones.
+8. **Tidy the workspace when independent file work warrants it.** Judge from the past 24 hours of tool activity already in context: was there independent work on this session's work files, such as creating a report in `{{SESSIONDIR}}`, updating an existing work file, or moving/archiving one? Changes made in step 7 also count. Writing runtime files as part of routine maintenance (`dream.md`, `USER.md`, `file-track.md`, session metadata, or memory summaries) does not by itself count as independent file work.
+
+   If you are confident no independent file work occurred in the past 24 hours and there is no known catalog or organization issue, you may skip this step to avoid unnecessary overhead. Do not list the directory or read files just to prove the absence of changes. **If unsure, continue with the check**: run `use_skill("file-track")` and follow it to archive stale files and refresh `file-track.md`. It comes after step 7 so any catalog refresh uses the corrected files.
 
 9. **End silently.** Call `dispatch({})` with empty sends. Produce NO user-facing output.
 
@@ -161,7 +163,7 @@ This is a BACKGROUND task. You will NOT message the user.
 
 - BACKGROUND task — NEVER send messages to the user.
 - ALWAYS overwrite `dream.md` completely; never append to the previous dream.
-- If the past 24 hours hold nothing meaningful (e.g. no real conversation), skip the dream write — and the summary in step 4 is almost certainly still accurate, so skip that too — but STILL do the memory files (step 6) and the file-track skill (step 8), then `dispatch({})`. Those two are about files on disk, not about the conversation, so a quiet night does not excuse them. Step 7 is the opposite: it is derived entirely from what was said, so a night with nothing said has nothing for it to do.
+- If the past 24 hours hold nothing meaningful (e.g. no real conversation), skip the dream write — and the summary in step 4 is almost certainly still accurate, so skip that too. Still do the memory files (step 6). Apply the gates in steps 5 and 8: no particular follow-up → skip step 5; confidently no independent file work and no known organization issue → step 8 may be skipped; uncertainty → continue the relevant checks. Step 7 is derived entirely from what was said, so a night with nothing said has nothing for it to do. Then `dispatch({})`.
 - When step 5b is unsure, it SCHEDULES. A wake that decides not to speak ends in `dispatch({})` and costs nothing anyone sees; a follow-up never scheduled is gone, because tomorrow night this conversation is already outside the window step 1 reviews.
 - Step 7 is the only place a dream writes to the user's own work files. Everything else it touches (`dream.md`, the session summary, memory frontmatter, `file-track.md`) belongs to the runtime. Keep that edit narrow and stated-in-conversation, or leave the file alone.
 - MUST terminate with `dispatch({})` — silent termination.

@@ -3,7 +3,7 @@ package cmd
 import "time"
 
 // Task names. These are the values the wake payload carries and the
-// heartbeat-wake skill routes on, so they are the contract with the skill.
+// wake payload builder maps to the skill the model must call.
 const (
 	hbTaskDream   = "dream"
 	hbTaskReflect = "reflect"
@@ -88,9 +88,8 @@ type heartbeatTask struct {
 // reflect that loses its pulse to a dream comes back on the next one instead of
 // being lost for the whole quiet period.
 //
-// Adding a condition means adding an entry here. Nothing else — not the scan
-// loop, not the wake payload builder — needs to learn its name; only the
-// heartbeat-wake skill's routing table, which reads the task name verbatim.
+// Adding a condition means adding an entry here and its task-to-skill mapping
+// in the wake payload builder. The scan loop needs no task-specific changes.
 var heartbeatTasks = []heartbeatTask{
 	{
 		// Dream is scheduled by the CLOCK, not by the pulse count. It rewrites

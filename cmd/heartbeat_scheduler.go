@@ -600,11 +600,8 @@ const noSessionSummary = "(none on record — this session has never had a summa
 // that section lists every session, so the dream had to find its own row among
 // them and judge staleness from a line it might not locate. Here the summary
 // under judgement is the wake's own field.
-// task is the name the scheduler already selected, and it is what the
-// heartbeat-wake skill routes on. The routing decision is made HERE, in Go,
-// rather than restated as index arithmetic in markdown — the pulse number used
-// to live in both places, and changing one without the other silently disabled
-// the task.
+// task is already selected by the Go scheduler. Name its skill directly so
+// the model does not spend another iteration loading a routing-only skill.
 func buildHeartbeatMessage(mdModified, nextPulse string, pulseIndex int, elapsed time.Duration, lastPulse time.Time, task string, sessionSummary string) string {
 	fields := map[string]string{}
 	if nextPulse != "" {
@@ -630,6 +627,13 @@ func buildHeartbeatMessage(mdModified, nextPulse string, pulseIndex int, elapsed
 	}
 
 	message := sysmsg.BuildSystemMessage("heartbeat", fields, "")
-	message += "\n\nYou must call use_skill(\"heartbeat-wake\") and follow its instructions. use_skill function can not skip."
+	switch task {
+	case hbTaskDream:
+		message += "\n\nYou must call use_skill(\"dream\") and follow its instructions."
+	case hbTaskReflect:
+		message += "\n\nYou must call use_skill(\"session-reflect\") and follow its instructions."
+	default:
+		message += "\n\nNo heartbeat task was selected. Call dispatch({}) to end silently."
+	}
 	return message
 }

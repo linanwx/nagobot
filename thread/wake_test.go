@@ -69,6 +69,9 @@ func TestBuildWakePayload_SystemSource_WithCapabilities(t *testing.T) {
 	if !strings.Contains(payload, "supports_vision: true") {
 		t.Errorf("heartbeat with capable model should include supports_vision: true:\n%s", payload)
 	}
+	if strings.Contains(payload, "heartbeat-wake") {
+		t.Errorf("heartbeat action hint must not reintroduce the routing skill:\n%s", payload)
+	}
 }
 
 func TestBuildWakePayload_NoModel_NoMultimodalInfo(t *testing.T) {

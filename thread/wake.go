@@ -685,7 +685,7 @@ func wakeActionHint(source WakeSource) string {
 		return "Automated background maintenance. Execute the compression skill immediately. Do not produce user-facing content. " +
 			"Non-interactive: there is no user to answer questions this turn."
 	case WakeHeartbeat:
-		return "Heartbeat pulse. Load the heartbeat-wake skill and follow its instructions. " +
+		return "Heartbeat pulse. Call the skill named in the wake body and follow its instructions. " +
 			"Non-interactive: there is no user to answer questions this turn. " +
 			"This wake is internal plumbing — nothing you write on a heartbeat turn reaches the user, by design; never mention the pulse/heartbeat anywhere, and end silently via dispatch({})."
 	case WakeResume:

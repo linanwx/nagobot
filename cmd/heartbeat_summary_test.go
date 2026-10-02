@@ -44,12 +44,36 @@ func TestHeartbeatWakeCarriesSessionSummaryOnlyWhenDreaming(t *testing.T) {
 	}
 }
 
-// The router reads `task` and nothing else, so a wake that carries no task must
-// not leave a stale one behind for it to act on.
+// A wake with no selected task must not leave a stale task behind.
 func TestHeartbeatWakeOmitsTaskWhenNoneWasSelected(t *testing.T) {
 	msg := buildHeartbeatMessage("", "", 2, time.Hour, time.Now(), "", "")
 	if strings.Contains(msg, "task:") {
 		t.Errorf("a taskless pulse still carries a task field:\n%s", msg)
+	}
+}
+
+func TestHeartbeatWakeCallsSelectedSkillDirectly(t *testing.T) {
+	for _, tc := range []struct {
+		task string
+		want string
+	}{
+		{hbTaskDream, `use_skill("dream")`},
+		{hbTaskReflect, `use_skill("session-reflect")`},
+		{"", "Call dispatch({})"},
+		{"unknown", "Call dispatch({})"},
+	} {
+		t.Run(tc.task, func(t *testing.T) {
+			msg := buildHeartbeatMessage("", "", 3, time.Hour, time.Now(), tc.task, "")
+			if !strings.Contains(msg, tc.want) {
+				t.Errorf("wake must instruct %s:\n%s", tc.want, msg)
+			}
+			if strings.Contains(msg, "heartbeat-wake") {
+				t.Errorf("wake still loads the routing skill:\n%s", msg)
+			}
+			if (tc.task == "" || tc.task == "unknown") && strings.Contains(msg, "use_skill(") {
+				t.Errorf("unrecognized task must not load a skill:\n%s", msg)
+			}
+		})
 	}
 }
 
