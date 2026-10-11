@@ -32,6 +32,14 @@ func openCodeGoTestServer(t *testing.T, cacheField string) (*httptest.Server, <-
 			return
 		}
 		requests <- openCodeGoWireRequest{header: r.Header.Clone(), body: body, path: r.URL.Path}
+		// Model the strict Go upstream that rejected real production requests.
+		// Native-provider extensions must not leak into this gateway request.
+		if _, exists := body["thinking"]; exists {
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusBadRequest)
+			fmt.Fprint(w, `{"param":"thinking","type":"invalid_request_error","message":"Upstream request failed: [unknown_parameter] invalid request body: json: unknown field \"thinking\""}`)
+			return
+		}
 		w.Header().Set("Content-Type", "text/event-stream")
 		writeChunk := func(choices string) {
 			fmt.Fprintf(w, "data: {\"id\":\"test\",\"object\":\"chat.completion.chunk\",\"model\":\"test\",\"choices\":%s}\n\n", choices)
@@ -120,17 +128,17 @@ func TestOpenCodeGoToolLoop(t *testing.T) {
 			if wire.body["model"] != model || wire.body["reasoning_effort"] != "max" || wire.body["stream"] != true || wire.body["max_tokens"] != float64(1234) {
 				t.Fatalf("incorrect model or generation parameters: %+v", wire.body)
 			}
-			if wire.body["stream_options"].(map[string]any)["include_usage"] != true || wire.body["thinking"].(map[string]any)["type"] != "enabled" {
-				t.Fatalf("missing thinking/usage request: %+v", wire.body)
+			if wire.body["stream_options"].(map[string]any)["include_usage"] != true {
+				t.Fatalf("missing usage request: %+v", wire.body)
 			}
 			if strings.HasPrefix(model, "glm-") {
-				if wire.body["temperature"] != float64(1) || wire.body["thinking"].(map[string]any)["clear_thinking"] != false {
-					t.Fatalf("incorrect GLM thinking parameters: %+v", wire.body)
+				if wire.body["temperature"] != float64(1) {
+					t.Fatalf("incorrect GLM temperature: %+v", wire.body)
 				}
 			} else if _, ok := wire.body["temperature"]; ok {
 				t.Fatal("DeepSeek thinking must omit temperature")
 			}
-			for _, field := range []string{"provider", "extra_body", "store"} {
+			for _, field := range []string{"provider", "extra_body", "store", "thinking"} {
 				if _, ok := wire.body[field]; ok {
 					t.Errorf("unexpected other-provider parameter %q", field)
 				}

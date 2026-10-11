@@ -38,8 +38,10 @@ Supported models: `glm-5.3-flash`, `glm-5.3`, `deepseek-v4.1-flash`, and
 `deepseek-v4-pro`. GLM and DeepSeek Flash support `[low]`, `[high]`, and `[max]`
 reasoning effort suffixes, for example `deepseek-v4.1-flash[max]`; DeepSeek Pro
 supports `[high]` and `[max]`. A bare model id leaves effort at the server
-default. Thinking remains enabled; GLM uses temperature 1 and
-DeepSeek omits temperature while thinking. All four register a 1,000,000-token
+default. Requests use the gateway's standard `reasoning_effort` parameter;
+native `thinking` / `clear_thinking` fields are omitted because some Go
+upstreams reject them. GLM uses temperature 1 and DeepSeek omits temperature.
+All four register a 1,000,000-token
 context window, still capped by `thread.contextWindowTokens`. Image input is
 enabled for `glm-5.3-flash` and `deepseek-v4.1-flash` only.
 

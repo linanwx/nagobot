@@ -112,13 +112,12 @@ func (p *OpenCodeGoProvider) Chat(ctx context.Context, req *Request) (ChatResult
 	}
 	opts := []oaioption.RequestOption{
 		oaioption.WithHeader("x-opencode-session", sessionID),
-		oaioption.WithJSONSet("thinking.type", "enabled"),
 	}
 	if strings.HasPrefix(p.modelName, "glm-") {
-		// GLM thinking fixes temperature at 1; preserve historical thinking
-		// together with the reasoning_content replay in the shared converter.
+		// Go routes through multiple upstreams. Use its OpenAI-compatible
+		// parameters, not native GLM's thinking/clear_thinking extensions:
+		// strict upstreams reject the whole request when thinking is present.
 		params.Temperature = openai.Float(1)
-		opts = append(opts, oaioption.WithJSONSet("thinking.clear_thinking", false))
 	}
 	if p.effort != "" {
 		opts = append(opts, oaioption.WithJSONSet("reasoning_effort", p.effort))
