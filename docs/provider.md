@@ -21,6 +21,47 @@ providers:
 
 When using `moonshotai/kimi-k2.6`, provider routing to Moonshot is applied automatically.
 
+OpenCode Go (GLM / DeepSeek):
+
+```yaml
+thread:
+  provider: opencode-go
+  modelType: glm-5.3-flash
+
+providers:
+  opencodeGo:
+    apiKey: YOUR_OPENCODE_GO_KEY
+    # apiBase: https://opencode.ai/zen/go/v1 # optional
+```
+
+Supported models: `glm-5.3-flash`, `glm-5.3`, `deepseek-v4.1-flash`, and
+`deepseek-v4-pro`. GLM and DeepSeek Flash support `[low]`, `[high]`, and `[max]`
+reasoning effort suffixes, for example `deepseek-v4.1-flash[max]`; DeepSeek Pro
+supports `[high]` and `[max]`. A bare model id leaves effort at the server
+default. Thinking remains enabled; GLM uses temperature 1 and
+DeepSeek omits temperature while thinking. All four register a 1,000,000-token
+context window, still capped by `thread.contextWindowTokens`. Image input is
+enabled for `glm-5.3-flash` and `deepseek-v4.1-flash` only.
+
+Configure with `nagobot set-provider-key --provider opencode-go --api-key YOUR_KEY`,
+then `nagobot set-model --default --provider opencode-go --model glm-5.3-flash`.
+`OPENCODE_GO_API_KEY` and `OPENCODE_GO_API_BASE` override the saved credentials
+and endpoint. Requests use the Chat Completions protocol with nagobot's own
+User-Agent and a stable, hashed `x-opencode-session` per conversation, including
+tool iterations and subsequent turns. Token/cache usage is recorded under
+`opencode-go`; subscription balance is unavailable through a public API.
+
+In the [OpenCode console](https://opencode.ai/auth), open **Settings → Service
+accounts**, create an account, then open it and choose **Add API Key** with
+**Inference only** permissions. Copy the key when it is shown; it is displayed
+only once. See the [service account documentation](https://opencode.ai/v2/docs/console/api#service-accounts).
+Check subscription usage on the console's **Go** page. DeepSeek Go requests
+require **Global** regions in the workspace's **Settings → Privacy**; with a
+different region selection, the service rejects them even when the key is valid.
+See [OpenCode Go's client requirements](https://opencode.ai/docs/go/#where-can-i-use-it)
+for its intended coding-agent traffic. Other Go models and API protocols are
+not supported by this adapter yet.
+
 Moonshot CN (official) config example:
 
 ```yaml

@@ -304,6 +304,7 @@ func buildBalanceCheckers(cfg *config.Config, metricsDir string) []monitor.Balan
 		&monitor.ZhipuBalance{Name: "zhipu-cn", KeyFn: keyFn("zhipu-cn")},
 		&monitor.ZhipuBalance{Name: "zhipu-global", KeyFn: keyFn("zhipu-global")},
 		&monitor.UnsupportedBalance{Name: "openai", Reason: "no balance API (requires Admin Key for billing queries)", KeyFn: keyFn("openai")},
+		&monitor.UnsupportedBalance{Name: "opencode-go", Reason: "no public balance API; check usage at https://opencode.ai/auth", KeyFn: keyFn("opencode-go")},
 	}
 }
 

@@ -257,6 +257,8 @@ func (c *Config) EnsureProviderConfigFor(providerName string) *ProviderConfig {
 		c.Providers.OpenAI = pc
 	case "openrouter":
 		c.Providers.OpenRouter = pc
+	case "opencode-go":
+		c.Providers.OpenCodeGo = pc
 	case "deepseek":
 		c.Providers.DeepSeek = pc
 	case "moonshot-cn":
@@ -399,6 +401,8 @@ func (c *Config) providerConfigEnv() (*ProviderConfig, string, string, error) {
 		return c.Providers.OpenAI, "", "", nil
 	case "openrouter":
 		return c.Providers.OpenRouter, "OPENROUTER_API_KEY", "OPENROUTER_API_BASE", nil
+	case "opencode-go":
+		return c.Providers.OpenCodeGo, "OPENCODE_GO_API_KEY", "OPENCODE_GO_API_BASE", nil
 	case "deepseek":
 		return c.Providers.DeepSeek, "DEEPSEEK_API_KEY", "DEEPSEEK_API_BASE", nil
 	case "moonshot-cn":

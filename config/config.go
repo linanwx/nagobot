@@ -173,6 +173,7 @@ const (
 // ProvidersConfig contains provider API configurations.
 type ProvidersConfig struct {
 	OpenRouter     *ProviderConfig   `json:"openrouter,omitempty" yaml:"openrouter,omitempty"`
+	OpenCodeGo     *ProviderConfig   `json:"opencodeGo,omitempty" yaml:"opencodeGo,omitempty"`
 	DeepSeek       *ProviderConfig   `json:"deepseek,omitempty" yaml:"deepseek,omitempty"`
 	MoonshotCN     *ProviderConfig   `json:"moonshotCN,omitempty" yaml:"moonshotCN,omitempty"`
 	MoonshotGlobal *ProviderConfig   `json:"moonshotGlobal,omitempty" yaml:"moonshotGlobal,omitempty"`
@@ -215,6 +216,8 @@ func (p *ProvidersConfig) GetProviderConfig(name string) *ProviderConfig {
 		return p.OpenAI
 	case "openrouter":
 		return p.OpenRouter
+	case "opencode-go":
+		return p.OpenCodeGo
 	case "deepseek":
 		return p.DeepSeek
 	case "moonshot-cn":
