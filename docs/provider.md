@@ -21,7 +21,7 @@ providers:
 
 When using `moonshotai/kimi-k2.6`, provider routing to Moonshot is applied automatically.
 
-OpenCode Go (GLM / DeepSeek):
+OpenCode Go (Haiku / GLM / DeepSeek):
 
 ```yaml
 thread:
@@ -34,24 +34,42 @@ providers:
     # apiBase: https://opencode.ai/zen/go/v1 # optional
 ```
 
-Supported models: `glm-5.3-flash`, `glm-5.3`, `deepseek-v4.1-flash`, and
-`deepseek-v4-pro`. GLM and DeepSeek Flash support `[low]`, `[high]`, and `[max]`
+Supported models: `claude-haiku-5-5`, `glm-5.3-flash`, `glm-5.3`,
+`deepseek-v4.1-flash`, and `deepseek-v4-pro`.
+Haiku supports `[low]`, `[medium]`, `[high]`, `[xhigh]`, and `[max]`, for example
+`claude-haiku-5-5[low]`. Its effort uses `output_config.effort` on the Go
+Messages endpoint, with its own `x-api-key` authentication. It uses adaptive
+thinking and preserves signed thinking blocks, including blocks with empty
+thinking text. Binding mismatch controls let the service drop a stale block
+after prompt changes or compression. No sampling parameters are sent.
+
+GLM and DeepSeek Flash support `[low]`, `[high]`, and `[max]`
 reasoning effort suffixes, for example `deepseek-v4.1-flash[max]`; DeepSeek Pro
 supports `[high]` and `[max]`. A bare model id leaves effort at the server
 default. Requests use the gateway's standard `reasoning_effort` parameter;
 native `thinking` / `clear_thinking` fields are omitted because some Go
 upstreams reject them. GLM uses temperature 1 and DeepSeek omits temperature.
-All four register a 1,000,000-token
+All five register a 1,000,000-token
 context window, still capped by `thread.contextWindowTokens`. Image input is
-enabled for `glm-5.3-flash` and `deepseek-v4.1-flash` only.
+enabled for `claude-haiku-5-5`, `glm-5.3-flash`, and `deepseek-v4.1-flash`.
 
 Configure with `nagobot set-provider-key --provider opencode-go --api-key YOUR_KEY`,
 then `nagobot set-model --default --provider opencode-go --model glm-5.3-flash`.
 `OPENCODE_GO_API_KEY` and `OPENCODE_GO_API_BASE` override the saved credentials
-and endpoint. Requests use the Chat Completions protocol with nagobot's own
+and endpoint. The dedicated `internal/opencodego` inference SDK owns the model
+catalog, request serialization, authentication, HTTP transport, SSE parser,
+tool continuation, reasoning replay and usage accounting. It has no dependency
+on other Provider implementations or on OpenAI/Anthropic SDKs. Haiku uses
+`/messages`; GLM and DeepSeek use `/chat/completions`. Both use nagobot's own
 User-Agent and a stable, hashed `x-opencode-session` per conversation, including
 tool iterations and subsequent turns. Token/cache usage is recorded under
 `opencode-go`; subscription balance is unavailable through a public API.
+Comment-only SSE keep-alives are ignored; malformed JSON and truncated streams
+remain errors. Stream failures are not retried after generation begins.
+
+This repository-owned inference SDK is separate from the official
+[`opencode-sdk-go`](https://github.com/anomalyco/opencode-sdk-go), which controls
+OpenCode's local agent server and does not expose Go subscription inference.
 
 In the [OpenCode console](https://opencode.ai/auth), open **Settings → Service
 accounts**, create an account, then open it and choose **Add API Key** with
@@ -61,8 +79,9 @@ Check subscription usage on the console's **Go** page. DeepSeek Go requests
 require **Global** regions in the workspace's **Settings → Privacy**; with a
 different region selection, the service rejects them even when the key is valid.
 See [OpenCode Go's client requirements](https://opencode.ai/docs/go/#where-can-i-use-it)
-for its intended coding-agent traffic. Other Go models and API protocols are
-not supported by this adapter yet.
+for its intended coding-agent traffic and
+[model endpoints](https://opencode.ai/docs/go/#endpoints).
+Other Go models are not registered by this adapter.
 
 Moonshot CN (official) config example:
 

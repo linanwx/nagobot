@@ -1,8 +1,9 @@
 package provider
 
 import (
-	"bufio"
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -126,7 +127,7 @@ func TestOpenCodeGoToolLoop(t *testing.T) {
 			if wire.path != "/v1/chat/completions" || wire.header.Get("Authorization") != "Bearer test-key" || wire.header.Get("User-Agent") != "nagobot/1.0" {
 				t.Fatalf("incorrect endpoint or identity: %+v", wire)
 			}
-			if wire.header.Get("x-opencode-session") != sessionCacheKey(ctx) {
+			if wire.header.Get("x-opencode-session") != openCodeGoTestSessionID("telegram:123") {
 				t.Fatal("missing stable hashed session header")
 			}
 			if wire.body["model"] != model || wire.body["reasoning_effort"] != "max" || wire.body["stream"] != true || wire.body["max_tokens"] != float64(1234) {
@@ -207,7 +208,7 @@ func TestOpenCodeGoSessionIsolation(t *testing.T) {
 	}
 	for _, wire := range []openCodeGoWireRequest{first, second} {
 		key := wire.body["messages"].([]any)[0].(map[string]any)["content"].(string)
-		if wire.header.Get("x-opencode-session") != sessionCacheKey(WithSessionKey(context.Background(), key)) {
+		if wire.header.Get("x-opencode-session") != openCodeGoTestSessionID(key) {
 			t.Fatal("concurrent request used another conversation's header")
 		}
 		if _, ok := wire.body["reasoning_effort"]; ok {
@@ -229,7 +230,7 @@ func TestOpenCodeGoSessionIsolation(t *testing.T) {
 }
 
 func TestOpenCodeGoModelCapabilities(t *testing.T) {
-	for _, model := range []string{"glm-5.3-flash", "glm-5.3", "deepseek-v4.1-flash", "deepseek-v4-pro"} {
+	for _, model := range []string{"glm-5.3-flash", "glm-5.3", "deepseek-v4.1-flash", "deepseek-v4-pro", "claude-haiku-5-5"} {
 		if err := ValidateProviderModelType("opencode-go", model); err != nil {
 			t.Error(err)
 		}
@@ -241,8 +242,8 @@ func TestOpenCodeGoModelCapabilities(t *testing.T) {
 		if ContextWindowForModel("opencode-go", model) != 1000000 {
 			t.Errorf("incorrect context window for %s", model)
 		}
-		base, _ := parseModelEffort(model)
-		wantVision := base == "glm-5.3-flash" || base == "deepseek-v4.1-flash"
+		base, _ := openCodeGoModelEffort(model)
+		wantVision := base == "glm-5.3-flash" || base == "deepseek-v4.1-flash" || base == "claude-haiku-5-5"
 		if SupportsVision("opencode-go", model) != wantVision || SupportsAudio("opencode-go", model) || SupportsPDF("opencode-go", model) {
 			t.Errorf("incorrect media capabilities for %s", model)
 		}
@@ -268,28 +269,6 @@ func TestOpenCodeGoRequestError(t *testing.T) {
 	}
 	if _, err := result.Wait(); err == nil || !strings.Contains(err.Error(), "MissingSessionID") {
 		t.Fatalf("gateway error was lost: %v", err)
-	}
-}
-
-func TestOpenCodeGoSSEPreservesPayloads(t *testing.T) {
-	want := "event: message\r\ndata: {\r\ndata: \"value\":1}\r\n\r\ndata: [DONE]\n\n"
-	input := ": keep-alive\n\n\nevent: ping\n\ndata:  \n\n" + want
-	body := io.NopCloser(strings.NewReader(input))
-	filtered := &openCodeGoSSEBody{body: body, reader: bufio.NewReader(body)}
-	var output strings.Builder
-	buf := make([]byte, 3)
-	for {
-		n, err := filtered.Read(buf)
-		output.Write(buf[:n])
-		if err == io.EOF {
-			break
-		}
-		if err != nil {
-			t.Fatal(err)
-		}
-	}
-	if output.String() != want {
-		t.Fatalf("SSE payload changed: %q", output.String())
 	}
 }
 
@@ -380,4 +359,9 @@ func TestOpenCodeGoCancelStopsRequest(t *testing.T) {
 	case <-ctx.Done():
 		t.Fatal("Cancel did not stop the HTTP request")
 	}
+}
+
+func openCodeGoTestSessionID(key string) string {
+	sum := sha256.Sum256([]byte(key))
+	return hex.EncodeToString(sum[:16])
 }
