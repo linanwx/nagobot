@@ -1,6 +1,7 @@
 package provider
 
 import (
+	"bufio"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -41,8 +42,11 @@ func openCodeGoTestServer(t *testing.T, cacheField string) (*httptest.Server, <-
 			return
 		}
 		w.Header().Set("Content-Type", "text/event-stream")
+		// Go can send keep-alives while the upstream is preparing a response.
+		fmt.Fprint(w, ": keep-alive\n\n\nevent: ping\n\ndata:\n\n")
 		writeChunk := func(choices string) {
 			fmt.Fprintf(w, "data: {\"id\":\"test\",\"object\":\"chat.completion.chunk\",\"model\":\"test\",\"choices\":%s}\n\n", choices)
+			fmt.Fprint(w, ": keep-alive\r\n\r\n")
 		}
 		if len(body["messages"].([]any)) == 1 {
 			writeChunk(`[{"index":0,"delta":{"role":"assistant","reasoning_content":"check first"}}]`)
@@ -264,6 +268,85 @@ func TestOpenCodeGoRequestError(t *testing.T) {
 	}
 	if _, err := result.Wait(); err == nil || !strings.Contains(err.Error(), "MissingSessionID") {
 		t.Fatalf("gateway error was lost: %v", err)
+	}
+}
+
+func TestOpenCodeGoSSEPreservesPayloads(t *testing.T) {
+	want := "event: message\r\ndata: {\r\ndata: \"value\":1}\r\n\r\ndata: [DONE]\n\n"
+	input := ": keep-alive\n\n\nevent: ping\n\ndata:  \n\n" + want
+	body := io.NopCloser(strings.NewReader(input))
+	filtered := &openCodeGoSSEBody{body: body, reader: bufio.NewReader(body)}
+	var output strings.Builder
+	buf := make([]byte, 3)
+	for {
+		n, err := filtered.Read(buf)
+		output.Write(buf[:n])
+		if err == io.EOF {
+			break
+		}
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+	if output.String() != want {
+		t.Fatalf("SSE payload changed: %q", output.String())
+	}
+}
+
+func TestOpenCodeGoSSERejectsInvalidPayload(t *testing.T) {
+	for _, test := range []struct{ name, payload, want string }{
+		{"truncated-json", `{"choices":`, "unexpected end of JSON input"},
+		{"upstream-error", `{"error":{"message":"upstream failed"}}`, "upstream failed"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				w.Header().Set("Content-Type", "text/event-stream; charset=utf-8")
+				fmt.Fprintf(w, ": keep-alive\n\ndata: %s\n\n", test.payload)
+			}))
+			defer server.Close()
+			p := newOpenCodeGoProvider("key", server.URL, "glm-5.3-flash", "", 100)
+			result, err := p.Chat(context.Background(), &Request{Messages: []Message{{Role: "user", Content: "test"}}})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if _, err := result.Wait(); err == nil || !strings.Contains(err.Error(), test.want) {
+				t.Fatalf("invalid payload was not reported: %v", err)
+			}
+		})
+	}
+}
+
+func TestOpenCodeGoCancelDuringKeepAlive(t *testing.T) {
+	started, stopped := make(chan struct{}), make(chan struct{})
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/event-stream")
+		fmt.Fprint(w, ": keep-alive\n\n")
+		w.(http.Flusher).Flush()
+		close(started)
+		<-r.Context().Done()
+		close(stopped)
+	}))
+	defer server.Close()
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	p := newOpenCodeGoProvider("key", server.URL, "glm-5.3-flash", "", 100)
+	result, err := p.Chat(ctx, &Request{Messages: []Message{{Role: "user", Content: "test"}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case <-started:
+	case <-ctx.Done():
+		t.Fatal("request did not start")
+	}
+	result.(StreamChatResult).Cancel()
+	if _, err := result.Wait(); err == nil {
+		t.Fatal("cancelled keep-alive stream completed without an error")
+	}
+	select {
+	case <-stopped:
+	case <-ctx.Done():
+		t.Fatal("Cancel did not stop the keep-alive request")
 	}
 }
 

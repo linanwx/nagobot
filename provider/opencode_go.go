@@ -1,9 +1,14 @@
 package provider
 
 import (
+	"bufio"
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
+	"mime"
+	"net/http"
 	"strings"
 	"time"
 
@@ -70,6 +75,7 @@ func newOpenCodeGoProvider(apiKey, apiBase, modelType, modelName string, maxToke
 			oaioption.WithBaseURL(normalizeSDKBaseURL(apiBase, openCodeGoAPIBase, "/chat/completions")),
 			oaioption.WithHeader("User-Agent", "nagobot/1.0"),
 			oaioption.WithMaxRetries(sdkMaxRetries),
+			oaioption.WithMiddleware(openCodeGoStreamMiddleware),
 		),
 		modelType: modelType, modelName: modelName, effort: effort, maxTokens: maxTokens,
 		// Standalone calls have no session context. Still identify the logical
@@ -114,17 +120,19 @@ func (p *OpenCodeGoProvider) Chat(ctx context.Context, req *Request) (ChatResult
 		oaioption.WithHeader("x-opencode-session", sessionID),
 	}
 	if strings.HasPrefix(p.modelName, "glm-") {
-		// Go routes through multiple upstreams. Use its OpenAI-compatible
-		// parameters, not native GLM's thinking/clear_thinking extensions:
-		// strict upstreams reject the whole request when thinking is present.
+		// Use Go's OpenAI-compatible parameters. Native GLM's thinking
+		// extensions cause some requests to be rejected by this endpoint.
 		params.Temperature = openai.Float(1)
 	}
 	if p.effort != "" {
 		opts = append(opts, oaioption.WithJSONSet("reasoning_effort", p.effort))
 	}
 	start := time.Now()
+	requestID := randomHex(8)
+	sessionKey := SessionKeyFromContext(ctx)
 	logger.Info("opencode-go request", "provider", "opencode-go", "modelType", p.modelType,
-		"modelName", p.modelName, "reasoningEffort", p.effort, "toolCount", len(req.Tools))
+		"modelName", p.modelName, "reasoningEffort", p.effort, "toolCount", len(req.Tools),
+		"requestID", requestID, "sessionKey", sessionKey)
 	resp := &Response{ProviderLabel: "opencode-go", ModelLabel: p.modelName}
 	adapter := newStreamAdapter(ctx, resp)
 	go func() {
@@ -133,6 +141,8 @@ func (p *OpenCodeGoProvider) Chat(ctx context.Context, req *Request) (ChatResult
 		// Use the adapter's cancellable context so Cancel stops the HTTP stream.
 		completion, reasoning, _, _, err := openAIStreamChat(adapter.ctx, p.client, params, adapter, opts...)
 		if err != nil {
+			logger.Warn("opencode-go stream failed", "requestID", requestID, "sessionKey", sessionKey,
+				"modelName", p.modelName, "latencyMs", time.Since(start).Milliseconds(), "err", err)
 			adapter.SetError(fmt.Errorf("opencode-go request failed: %w", err))
 			return
 		}
@@ -149,6 +159,7 @@ func (p *OpenCodeGoProvider) Chat(ctx context.Context, req *Request) (ChatResult
 		resp.Content = resolveContentWithReasoningFallback(choice.Message.Content, resp.ReasoningContent, "opencode-go", resp.ToolCalls)
 		resp.Usage = openCodeGoUsage(completion.Usage)
 		logger.Info("opencode-go response", "provider", "opencode-go", "modelName", p.modelName,
+			"requestID", requestID, "sessionKey", sessionKey,
 			"finishReason", choice.FinishReason, "toolCallCount", len(resp.ToolCalls),
 			"promptTokens", resp.Usage.PromptTokens, "completionTokens", resp.Usage.CompletionTokens,
 			"cachedTokens", resp.Usage.CachedTokens, "reasoningTokens", resp.Usage.ReasoningTokens,
@@ -156,6 +167,63 @@ func (p *OpenCodeGoProvider) Chat(ctx context.Context, req *Request) (ChatResult
 	}()
 	return adapter.Result(), nil
 }
+
+// The SDK decodes every SSE event as JSON, including comment-only keep-alives.
+// Filter only events without non-empty data; preserve all payloads verbatim so
+// malformed JSON and upstream error events still fail rather than being hidden.
+func openCodeGoStreamMiddleware(req *http.Request, next oaioption.MiddlewareNext) (*http.Response, error) {
+	resp, err := next(req)
+	if err != nil || resp == nil || resp.Body == nil {
+		return resp, err
+	}
+	mediaType, _, _ := mime.ParseMediaType(resp.Header.Get("Content-Type"))
+	if resp.StatusCode >= 200 && resp.StatusCode < 300 && mediaType == "text/event-stream" {
+		resp.Body = &openCodeGoSSEBody{body: resp.Body, reader: bufio.NewReader(resp.Body)}
+	}
+	return resp, nil
+}
+
+type openCodeGoSSEBody struct {
+	body    io.ReadCloser
+	reader  *bufio.Reader
+	pending []byte
+	err     error
+}
+
+func (r *openCodeGoSSEBody) Read(p []byte) (int, error) {
+	if len(p) == 0 {
+		return 0, nil
+	}
+	for len(r.pending) == 0 {
+		if r.err != nil {
+			return 0, r.err
+		}
+		var event bytes.Buffer
+		hasData := false
+		for {
+			line, err := r.reader.ReadBytes('\n')
+			event.Write(line)
+			if bytes.HasPrefix(line, []byte("data:")) && len(bytes.TrimSpace(line[5:])) > 0 {
+				hasData = true
+			}
+			if err != nil {
+				r.err = err
+				break
+			}
+			if bytes.Equal(line, []byte("\n")) || bytes.Equal(line, []byte("\r\n")) {
+				break
+			}
+		}
+		if hasData {
+			r.pending = event.Bytes()
+		}
+	}
+	n := copy(p, r.pending)
+	r.pending = r.pending[n:]
+	return n, nil
+}
+
+func (r *openCodeGoSSEBody) Close() error { return r.body.Close() }
 
 func openCodeGoUsage(usage openai.CompletionUsage) Usage {
 	cached := usage.PromptTokensDetails.CachedTokens
