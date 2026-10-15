@@ -21,7 +21,7 @@ providers:
 
 When using `moonshotai/kimi-k2.6`, provider routing to Moonshot is applied automatically.
 
-OpenCode Go (Haiku / GLM / DeepSeek):
+OpenCode Go (Haiku / Qwen / GLM / DeepSeek / Step):
 
 ```yaml
 thread:
@@ -35,7 +35,7 @@ providers:
 ```
 
 Supported models: `claude-haiku-5-5`, `glm-5.3-flash`, `glm-5.3`,
-`deepseek-v4.1-flash`, and `deepseek-v4-pro`.
+`deepseek-v4.1-flash`, `deepseek-v4-pro`, `qwen3.8-flash`, and `step-5-preview-free`.
 Haiku supports `[low]`, `[medium]`, `[high]`, `[xhigh]`, and `[max]`, for example
 `claude-haiku-5-5[low]`. Its effort uses `output_config.effort` on the Go
 Messages endpoint, with its own `x-api-key` authentication. It uses adaptive
@@ -43,15 +43,33 @@ thinking and preserves signed thinking blocks, including blocks with empty
 thinking text. Binding mismatch controls let the service drop a stale block
 after prompt changes or compression. No sampling parameters are sent.
 
+Qwen3.8 Flash uses the Go `/messages` endpoint with `x-api-key`, independently
+of Haiku's adaptive-thinking policy. It supports `[none]`, `[low]`, `[medium]`,
+and `[xhigh]`. The bare model enables thinking and omits effort to preserve the
+server default; `[none]` disables thinking. Other suffixes use
+`output_config.effort`. No fixed thinking budget, adaptive thinking, binding
+controls or Haiku beta header is sent. Unsigned Qwen thinking is streamed and
+replayed on tool continuation. See the [Go model catalog](https://github.com/anomalyco/models.dev/blob/dev/providers/opencode-go/models/qwen3.8-flash.toml)
+and [Messages protocol](https://help.aliyun.com/en/model-studio/anthropic-api-messages).
+
 GLM and DeepSeek Flash support `[low]`, `[high]`, and `[max]`
 reasoning effort suffixes, for example `deepseek-v4.1-flash[max]`; DeepSeek Pro
 supports `[high]` and `[max]`. A bare model id leaves effort at the server
 default. Requests use the gateway's standard `reasoning_effort` parameter;
 native `thinking` / `clear_thinking` fields are omitted because some Go
 upstreams reject them. GLM uses temperature 1 and DeepSeek omits temperature.
-All five register a 1,000,000-token
+Step 5 Preview Free uses `/chat/completions` with Bearer authentication and
+supports `[low]`, `[medium]`, and `[high]` through `reasoning_effort`. A bare
+model omits effort. The exact `step-5-preview-free` id is sent to Go; it is not
+rewritten to the native StepFun model id. Reasoning is replayed through
+`reasoning_content`, and no native thinking extension or temperature is sent.
+The Go route's output limit is 65,536 tokens; larger configured limits are
+capped at that value. See the [Go model catalog](https://github.com/anomalyco/models.dev/blob/dev/providers/opencode-go/models/step-5-preview-free.toml).
+
+All seven register a 1,000,000-token
 context window, still capped by `thread.contextWindowTokens`. Image input is
-enabled for `claude-haiku-5-5`, `glm-5.3-flash`, and `deepseek-v4.1-flash`.
+enabled for `claude-haiku-5-5`, `qwen3.8-flash`, `glm-5.3-flash`,
+`deepseek-v4.1-flash`, and `step-5-preview-free`.
 
 Configure with `nagobot set-provider-key --provider opencode-go --api-key YOUR_KEY`,
 then `nagobot set-model --default --provider opencode-go --model glm-5.3-flash`.
@@ -59,8 +77,8 @@ then `nagobot set-model --default --provider opencode-go --model glm-5.3-flash`.
 and endpoint. The dedicated `internal/opencodego` inference SDK owns the model
 catalog, request serialization, authentication, HTTP transport, SSE parser,
 tool continuation, reasoning replay and usage accounting. It has no dependency
-on other Provider implementations or on OpenAI/Anthropic SDKs. Haiku uses
-`/messages`; GLM and DeepSeek use `/chat/completions`. Both use nagobot's own
+on other Provider implementations or on OpenAI/Anthropic SDKs. Haiku and Qwen use
+`/messages`; GLM, DeepSeek and Step use `/chat/completions`. Both use nagobot's own
 User-Agent and a stable, hashed `x-opencode-session` per conversation, including
 tool iterations and subsequent turns. Token/cache usage is recorded under
 `opencode-go`; subscription balance is unavailable through a public API.

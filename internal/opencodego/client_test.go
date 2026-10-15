@@ -18,10 +18,11 @@ const chatEnd = "data: {\"choices\":[{\"index\":0,\"delta\":{\"content\":\"done\
 
 func TestChatToolLoop(t *testing.T) {
 	for _, model := range Models() {
-		if model.ID == "claude-haiku-5-5" {
+		if model.ID == "claude-haiku-5-5" || model.ID == "qwen3.8-flash" {
 			continue
 		}
 		t.Run(model.ID, func(t *testing.T) {
+			effort := model.Efforts[len(model.Efforts)-1]
 			var turn int
 			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 				turn++
@@ -32,7 +33,7 @@ func TestChatToolLoop(t *testing.T) {
 				if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 					t.Error(err)
 				}
-				if body["model"] != model.ID || body["reasoning_effort"] != "max" || body["max_tokens"] != float64(200) {
+				if body["model"] != model.ID || body["reasoning_effort"] != effort || body["max_tokens"] != float64(200) {
 					t.Errorf("bad parameters: %+v", body)
 				}
 				if _, ok := body["thinking"]; ok {
@@ -43,7 +44,7 @@ func TestChatToolLoop(t *testing.T) {
 						t.Error("missing GLM temperature")
 					}
 				} else if _, ok := body["temperature"]; ok {
-					t.Error("DeepSeek temperature present")
+					t.Error("unexpected temperature")
 				}
 				w.Header().Set("Content-Type", "text/event-stream")
 				fmt.Fprint(w, ": keep-alive\n\n\nevent: ping\n\ndata:\n\n: keep-alive\r\n\r\n")
@@ -65,7 +66,7 @@ func TestChatToolLoop(t *testing.T) {
 			}))
 			defer server.Close()
 			client := NewClient("key", server.URL+"/v1/chat/completions/")
-			req := Request{Model: model.ID, Effort: "max", MaxTokens: 200, Messages: []Message{{Role: "user", Content: "check"}}, Tools: []Tool{{Name: "lookup", Parameters: map[string]any{"type": "object"}}}}
+			req := Request{Model: model.ID, Effort: effort, MaxTokens: 200, Messages: []Message{{Role: "user", Content: "check"}}, Tools: []Tool{{Name: "lookup", Parameters: map[string]any{"type": "object"}}}}
 			var reasoning, tool bool
 			response, err := client.Chat(context.Background(), "session", req, func(d Delta) { reasoning = reasoning || d.Type == "reasoning"; tool = tool || d.Type == "tool_call" })
 			if err != nil {
@@ -197,6 +198,20 @@ func TestStreamsRejectInvalidAndTruncatedData(t *testing.T) {
 		{"messages_no_stop_reason", "claude-haiku-5-5", "data: {\"type\":\"message_stop\"}\n\n"},
 		{"messages_incomplete_block", "claude-haiku-5-5", "data: {\"type\":\"content_block_start\",\"index\":0,\"content_block\":{\"type\":\"text\",\"text\":\"partial\"}}\n\ndata: {\"type\":\"message_delta\",\"delta\":{\"stop_reason\":\"end_turn\"}}\n\ndata: {\"type\":\"message_stop\"}\n\n"},
 		{"messages_tool_max_tokens", "claude-haiku-5-5", "data: {\"type\":\"content_block_start\",\"index\":0,\"content_block\":{\"type\":\"tool_use\",\"id\":\"a\",\"name\":\"bad\",\"input\":{}}}\n\ndata: {\"type\":\"content_block_stop\",\"index\":0}\n\ndata: {\"type\":\"message_delta\",\"delta\":{\"stop_reason\":\"max_tokens\"}}\n\ndata: {\"type\":\"message_stop\"}\n\n"},
+	}
+	// Qwen uses the same Messages framing but a different reasoning policy;
+	// incomplete/length-stopped tool calls must remain errors on both paths.
+	for _, test := range cases {
+		if test.model == "claude-haiku-5-5" {
+			test.name = "qwen_" + test.name
+			test.model = "qwen3.8-flash"
+			cases = append(cases, test)
+		}
+		if test.model == "glm-5.3" {
+			test.name = "step_" + test.name
+			test.model = "step-5-preview-free"
+			cases = append(cases, test)
+		}
 	}
 	for _, test := range cases {
 		t.Run(test.name, func(t *testing.T) {

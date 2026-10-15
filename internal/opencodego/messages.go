@@ -22,8 +22,8 @@ type messagesOutputConfig struct {
 	Effort string `json:"effort"`
 }
 type messagesThinking struct {
-	Type         string               `json:"type"`
-	BlockBinding messagesBlockBinding `json:"block_binding"`
+	Type         string                `json:"type"`
+	BlockBinding *messagesBlockBinding `json:"block_binding,omitempty"`
 }
 type messagesBlockBinding struct {
 	PrefixMismatchBehavior string `json:"prefix_mismatch_behavior"`
@@ -42,12 +42,25 @@ func block(value any) json.RawMessage { encoded, _ := json.Marshal(value); retur
 
 func messagesRequest(req Request) (messagesWireRequest, error) {
 	result := messagesWireRequest{Model: req.Model, MaxTokens: req.MaxTokens, Stream: true,
-		Thinking: messagesThinking{Type: "adaptive", BlockBinding: messagesBlockBinding{PrefixMismatchBehavior: "drop_block"}}}
+		Thinking: messagesThinking{Type: "adaptive", BlockBinding: &messagesBlockBinding{PrefixMismatchBehavior: "drop_block"}}}
 	if result.MaxTokens <= 0 {
 		result.MaxTokens = 128000
 	}
 	if req.Effort != "" {
 		result.OutputConfig = &messagesOutputConfig{Effort: req.Effort}
+	}
+	if req.Model == "qwen3.8-flash" {
+		// Qwen's Messages protocol uses enabled/disabled, not Haiku's adaptive
+		// thinking or signed block binding. Effort avoids a fixed thinking budget
+		// consuming nearly all of max_tokens and truncating the actual answer.
+		result.Thinking = messagesThinking{Type: "enabled"}
+		if req.MaxTokens <= 0 {
+			result.MaxTokens = 131072
+		}
+		if req.Effort == "none" {
+			result.Thinking.Type = "disabled"
+			result.OutputConfig = nil
+		}
 	}
 	var systems []string
 	for _, message := range req.Messages {
@@ -78,7 +91,10 @@ func messagesRequest(req Request) (messagesWireRequest, error) {
 			if role != "user" && role != "assistant" {
 				return result, fmt.Errorf("unsupported OpenCode Go Messages role %q", role)
 			}
-			if role == "assistant" && len(message.ReasoningDetails) > 0 {
+			if role == "assistant" && req.Model == "qwen3.8-flash" && message.ReasoningContent != "" {
+				content = append(content, block(map[string]string{"type": "thinking", "thinking": message.ReasoningContent, "signature": ""}))
+			}
+			if role == "assistant" && req.Model != "qwen3.8-flash" && len(message.ReasoningDetails) > 0 {
 				var blocks []json.RawMessage
 				if err := json.Unmarshal(message.ReasoningDetails, &blocks); err != nil {
 					return result, fmt.Errorf("decode OpenCode Go signed reasoning: %w", err)
@@ -177,7 +193,7 @@ type messagesAccumulatedBlock struct {
 	stopped   bool
 }
 
-func readMessages(r io.Reader, emit func(Delta)) (*Response, error) {
+func readMessages(r io.Reader, emit func(Delta), model string) (*Response, error) {
 	response := &Response{}
 	var content, reasoningText strings.Builder
 	blocks := map[int]*messagesAccumulatedBlock{}
@@ -298,6 +314,11 @@ func readMessages(r io.Reader, emit func(Delta)) (*Response, error) {
 		case "thinking", "redacted_thinking":
 			if current.fields["type"] == "thinking" {
 				current.fields["thinking"], current.fields["signature"] = current.thinking.String(), current.signature.String()
+			}
+			if model == "qwen3.8-flash" {
+				// Qwen emits unsigned thinking. ReasoningContent already holds it;
+				// do not treat it as Haiku's opaque signed history.
+				continue
 			}
 			raw := block(current.fields)
 			if !validThinkingBlock(raw) {

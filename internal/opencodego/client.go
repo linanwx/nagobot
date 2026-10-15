@@ -68,7 +68,7 @@ func (c *Client) Chat(ctx context.Context, sessionID string, req Request, emit f
 	if emit == nil {
 		emit = func(Delta) {}
 	}
-	if req.Model == "claude-haiku-5-5" {
+	if req.Model == "claude-haiku-5-5" || req.Model == "qwen3.8-flash" {
 		body, err := messagesRequest(req)
 		if err != nil {
 			return nil, err
@@ -78,7 +78,7 @@ func (c *Client) Chat(ctx context.Context, sessionID string, req Request, emit f
 			return nil, err
 		}
 		defer resp.Body.Close()
-		return readMessages(resp.Body, emit)
+		return readMessages(resp.Body, emit, req.Model)
 	}
 	body, err := chatRequest(req)
 	if err != nil {
@@ -109,7 +109,9 @@ func (c *Client) post(ctx context.Context, sessionID, endpoint string, body any)
 		if endpoint == "/messages" {
 			req.Header.Set("x-api-key", c.apiKey)
 			req.Header.Set("anthropic-version", "2023-06-01")
-			req.Header.Set("anthropic-beta", "thinking-binding-controls-2026-08-01")
+			if wire, ok := body.(messagesWireRequest); ok && wire.Model == "claude-haiku-5-5" {
+				req.Header.Set("anthropic-beta", "thinking-binding-controls-2026-08-01")
+			}
 		} else {
 			req.Header.Set("Authorization", "Bearer "+c.apiKey)
 		}

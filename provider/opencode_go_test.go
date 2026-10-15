@@ -64,8 +64,18 @@ func openCodeGoTestServer(t *testing.T, cacheField string) (*httptest.Server, <-
 }
 
 func TestOpenCodeGoToolLoop(t *testing.T) {
-	for _, model := range []string{"glm-5.3-flash", "glm-5.3", "deepseek-v4.1-flash", "deepseek-v4-pro"} {
-		t.Run(model, func(t *testing.T) {
+	for _, test := range []struct{ model, effort string }{
+		{"glm-5.3-flash", "max"}, {"glm-5.3", "max"},
+		{"deepseek-v4.1-flash", "max"}, {"deepseek-v4-pro", "max"},
+		{"step-5-preview-free", ""}, {"step-5-preview-free", "low"},
+		{"step-5-preview-free", "medium"}, {"step-5-preview-free", "high"},
+	} {
+		model, effort := test.model, test.effort
+		modelType := model
+		if effort != "" {
+			modelType += "[" + effort + "]"
+		}
+		t.Run(modelType, func(t *testing.T) {
 			cache := `"prompt_tokens_details":{"cached_tokens":80}`
 			if strings.HasPrefix(model, "deepseek-") {
 				cache = `"prompt_cache_hit_tokens":80`
@@ -75,7 +85,7 @@ func TestOpenCodeGoToolLoop(t *testing.T) {
 			// Also exercise normalization of a pasted full endpoint URL.
 			t.Setenv("OPENCODE_GO_API_BASE", server.URL+"/v1/chat/completions/")
 			cfg := &config.Config{Thread: config.ThreadConfig{
-				Provider: "opencode-go", ModelType: model + "[max]", MaxTokens: 1234, Temperature: 0.3,
+				Provider: "opencode-go", ModelType: modelType, MaxTokens: 1234, Temperature: 0.3,
 			}}
 			factory, err := NewFactory(func() *config.Config { return cfg })
 			if err != nil {
@@ -130,8 +140,15 @@ func TestOpenCodeGoToolLoop(t *testing.T) {
 			if wire.header.Get("x-opencode-session") != openCodeGoTestSessionID("telegram:123") {
 				t.Fatal("missing stable hashed session header")
 			}
-			if wire.body["model"] != model || wire.body["reasoning_effort"] != "max" || wire.body["stream"] != true || wire.body["max_tokens"] != float64(1234) {
+			if wire.body["model"] != model || wire.body["stream"] != true || wire.body["max_tokens"] != float64(1234) {
 				t.Fatalf("incorrect model or generation parameters: %+v", wire.body)
+			}
+			if effort == "" {
+				if _, exists := wire.body["reasoning_effort"]; exists {
+					t.Fatal("bare model must preserve server effort default")
+				}
+			} else if wire.body["reasoning_effort"] != effort {
+				t.Fatalf("wrong reasoning effort: %+v", wire.body)
 			}
 			if wire.body["stream_options"].(map[string]any)["include_usage"] != true {
 				t.Fatalf("missing usage request: %+v", wire.body)
@@ -141,7 +158,7 @@ func TestOpenCodeGoToolLoop(t *testing.T) {
 					t.Fatalf("incorrect GLM temperature: %+v", wire.body)
 				}
 			} else if _, ok := wire.body["temperature"]; ok {
-				t.Fatal("DeepSeek thinking must omit temperature")
+				t.Fatal("unexpected temperature")
 			}
 			for _, field := range []string{"provider", "extra_body", "store", "thinking"} {
 				if _, ok := wire.body[field]; ok {
@@ -230,7 +247,7 @@ func TestOpenCodeGoSessionIsolation(t *testing.T) {
 }
 
 func TestOpenCodeGoModelCapabilities(t *testing.T) {
-	for _, model := range []string{"glm-5.3-flash", "glm-5.3", "deepseek-v4.1-flash", "deepseek-v4-pro", "claude-haiku-5-5"} {
+	for _, model := range []string{"glm-5.3-flash", "glm-5.3", "deepseek-v4.1-flash", "deepseek-v4-pro", "claude-haiku-5-5", "qwen3.8-flash", "step-5-preview-free"} {
 		if err := ValidateProviderModelType("opencode-go", model); err != nil {
 			t.Error(err)
 		}
@@ -243,12 +260,12 @@ func TestOpenCodeGoModelCapabilities(t *testing.T) {
 			t.Errorf("incorrect context window for %s", model)
 		}
 		base, _ := openCodeGoModelEffort(model)
-		wantVision := base == "glm-5.3-flash" || base == "deepseek-v4.1-flash" || base == "claude-haiku-5-5"
+		wantVision := base == "glm-5.3-flash" || base == "deepseek-v4.1-flash" || base == "claude-haiku-5-5" || base == "qwen3.8-flash" || base == "step-5-preview-free"
 		if SupportsVision("opencode-go", model) != wantVision || SupportsAudio("opencode-go", model) || SupportsPDF("opencode-go", model) {
 			t.Errorf("incorrect media capabilities for %s", model)
 		}
 	}
-	for _, model := range []string{"minimax-m3", "gpt-6-luna", "deepseek-v4.1-flash[none]", "deepseek-v4-pro[low]"} {
+	for _, model := range []string{"minimax-m3", "gpt-6-luna", "deepseek-v4.1-flash[none]", "deepseek-v4-pro[low]", "qwen3.8-flash[high]", "qwen3.8-flash[max]", "step-5-preview-free[none]", "step-5-preview-free[max]", "step-5-preview"} {
 		if ValidateProviderModelType("opencode-go", model) == nil {
 			t.Errorf("unsupported model %s was accepted", model)
 		}

@@ -50,6 +50,8 @@ var catalog = []Model{
 	{"deepseek-v4.1-flash", 1000000, true, []string{"low", "high", "max"}},
 	{"deepseek-v4-pro", 1000000, false, []string{"high", "max"}},
 	{"claude-haiku-5-5", 1000000, true, []string{"low", "medium", "high", "xhigh", "max"}},
+	{"qwen3.8-flash", 1000000, true, []string{"none", "low", "medium", "xhigh"}},
+	{"step-5-preview-free", 1000000, true, []string{"low", "medium", "high"}},
 }
 
 func Models() []Model {
