@@ -2,7 +2,9 @@ package cmd
 
 import (
 	"fmt"
+	"os"
 	"path/filepath"
+	"strings"
 
 	"github.com/linanwx/nagobot/agent"
 	"github.com/linanwx/nagobot/config"
@@ -68,8 +70,11 @@ func buildThreadManager(cfg *config.Config, enableSessions bool) (*thread.Manage
 	toolLogsDir := filepath.Join(workspace, "logs", "tool_calls")
 	toolRegistry.SetLogsDir(toolLogsDir)
 	tools.CleanupLogsDir(toolLogsDir)
+	// Load the official key each time; chat routing and chat API base are unrelated.
+	deepSeekKeyFn := deepSeekToolsKeyFn(config.Load)
 	// Build search providers (all registered; availability checked at call time via Available())
 	searchProviders := map[string]tools.SearchProvider{
+		"deepseek":   &tools.DeepSeekSearchProvider{KeyFn: deepSeekKeyFn},
 		"duckduckgo": &tools.DuckDuckGoProvider{},
 		"bing":       tools.NewBingProvider(),
 		"bing-cn":    tools.NewBingCNProvider(),
@@ -133,6 +138,7 @@ func buildThreadManager(cfg *config.Config, enableSessions bool) (*thread.Manage
 	}
 
 	fetchProviders := map[string]tools.FetchProvider{
+		"deepseek":       &tools.DeepSeekFetchProvider{KeyFn: deepSeekKeyFn},
 		"raw":            &tools.DirectFetchProvider{},
 		"go-readability": &tools.ReadabilityFetchProvider{},
 		"jina": &tools.JinaFetchProvider{
@@ -299,4 +305,28 @@ func initSectionRegistry(workspace string) *agent.SectionRegistry {
 	reg := agent.NewSectionRegistry(dir)
 	reg.Load() // initial load; subsequent reloads happen per-turn via dirSnapshot
 	return reg
+}
+
+// officialDeepSeekToolsKey intentionally ignores the selected chat provider and API base.
+func officialDeepSeekToolsKey(c *config.Config) string {
+	if key := strings.TrimSpace(os.Getenv("DEEPSEEK_API_KEY")); key != "" {
+		return key
+	}
+	if c != nil {
+		if pc := c.Providers.GetProviderConfig("deepseek"); pc != nil {
+			return strings.TrimSpace(pc.APIKey)
+		}
+	}
+	return ""
+}
+
+func deepSeekToolsKeyFn(load func() (*config.Config, error)) func() string {
+	return func() string {
+		// Load first so config.env is applied before resolving environment overrides.
+		c, err := load()
+		if err != nil {
+			c = nil
+		}
+		return officialDeepSeekToolsKey(c)
+	}
 }

@@ -7,6 +7,45 @@ From my real-world testing, although OpenRouter is convenient for accessing mode
 
 # Provider Config Examples
 
+DeepSeek Search + Fetch (official API):
+
+```yaml
+providers:
+  deepseek:
+    apiKey: YOUR_DEEPSEEK_API_KEY
+```
+
+Configure with `nagobot set-provider-key --provider deepseek --api-key YOUR_KEY`.
+Both `web_search` and `web_fetch` expose `source: "deepseek"` when an official
+DeepSeek key is configured. `DEEPSEEK_API_KEY` takes precedence over
+`providers.deepseek.apiKey`; credentials are re-read at call time. The chat
+provider and model routing do not affect this source, and no dedicated search
+or fetch key is needed. OpenCode Go credentials cannot authenticate these APIs.
+
+Requests use Bearer authentication at fixed official endpoints:
+`POST https://api.deepseek.com/v1/tools/search` and
+`POST https://api.deepseek.com/v1/tools/fetch`. Custom LLM `apiBase` settings do
+not redirect these tools. Search and Fetch use dedicated HTTP requests, not
+chat completions or another provider's SDK.
+
+Search accepts 1–128 Unicode characters and `max_results` from 1 to 50, retaining
+the service's ranking and using summaries (or snippets when no summary is
+available). Fetch accepts an HTTP(S) webpage URL with a host, no embedded
+credentials, and at most 8,192 characters, returning Markdown through the
+existing fetch cache and pagination. It is a remote page extractor, not an
+arbitrary file downloader; use `raw` or `go-readability` for file downloads.
+Omitting `source` on either tool returns a source guide without an API request.
+
+As of 2026-10-17, each API costs ¥5 per 1,000 successful, non-empty requests and
+has a separate account-level limit of 5 QPS. Fetch also has per-domain limits.
+Search's result count does not change its per-request price. Failed, empty and
+timed-out requests are not billed. Temporary free offers for server-side tools
+do not make these standalone APIs free. A configured key indicates availability,
+not verified balance or a successful live request. See the official
+[Search + Fetch guide](https://api-docs.deepseek.com/zh-cn/guides/search/),
+[Search API](https://api-docs.deepseek.com/api/search/) and
+[Fetch API](https://api-docs.deepseek.com/api/fetch/).
+
 OpenRouter (Kimi K2.6):
 
 ```yaml

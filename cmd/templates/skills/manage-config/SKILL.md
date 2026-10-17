@@ -134,10 +134,20 @@ exec: {{WORKSPACE}}/bin/nagobot set-search-key --provider zhipu --key <api_key>
 - Sign up at: https://open.bigmodel.cn/usercenter/apikeys
 - If `zhipu-cn` LLM provider is already configured, its key is automatically reused (no extra setup needed)
 
+**DeepSeek Search + Fetch**:
+```
+exec: {{WORKSPACE}}/bin/nagobot set-provider-key --provider deepseek --api-key <api_key>
+```
+- Reuses the official DeepSeek key: `DEEPSEEK_API_KEY` takes precedence over `providers.deepseek.apiKey`.
+- Both tools use `source: "deepseek"`, independently of the chat model/provider. No `set-search-key` or separate fetch key is required; an OpenCode Go key does not work.
+- Requests go to the official `https://api.deepseek.com/v1/tools/search` and `/v1/tools/fetch` endpoints. A custom LLM `apiBase` does not change these endpoints.
+- Each API costs ¥5/1,000 successful, non-empty requests and has its own 5 QPS account limit.
+- `set-search-key --list` lists dedicated search keys, not reused LLM keys. Use the tools' source guides to inspect availability; a configured key does not prove the account has balance.
+
 ---
 
 ## General Notes
 
 - All changes take effect immediately (no server restart required).
 - All changes persist across restarts (saved to config.yaml).
-- Use `source` parameter in `web_search` to select a search provider. Default: `duckduckgo` (no key needed).
+- Use `source` in `web_search` and `web_fetch` to select a provider. Omitting it returns an available-source guide without issuing a search or fetch request.
