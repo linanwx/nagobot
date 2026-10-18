@@ -1,6 +1,6 @@
 ---
 name: web-search-guide
-description: Use when choosing or switching web_search sources, or when web_search returns no/poor results — lists available sources, their cost and strengths, and source-selection rules.
+description: Use when choosing or switching web_search sources, or when web_search returns no/poor results — prefer deepseek, then zhipu-cn-std, then brave, and avoid expensive sources.
 ---
 # web_search source guide
 
@@ -8,25 +8,18 @@ description: Use when choosing or switching web_search sources, or when web_sear
 
 | source | engine | cost | best for |
 |--------|--------|------|----------|
-| zhipu-cn-std | Zhipu basic | ¥0.01/query | Chinese general queries, best cost-efficiency |
-| zhipu-cn-pro | Zhipu advanced | ¥0.03/query | Chinese queries needing higher recall, multi-engine collaboration |
-| zhipu-cn-sogou | Zhipu + Sogou | ¥0.05/query | Tencent ecosystem (WeChat/Zhihu), government procurement/bidding, real-time info with dates |
-| zhipu-cn-quark | Zhipu + Quark | ¥0.05/query | Time-sensitive vertical content (procurement, news, medical) |
-
-## Zhipu engine selection tips
-
-- **Default choice**: `zhipu-cn-std` — cheapest
-- **Procurement/bidding** (招标/采购): prefer `zhipu-cn-sogou` — returns latest dated announcements from bidding platforms
-- **Real-time info** (weather, breaking news): `zhipu-cn-sogou` — fastest, strong Tencent news coverage
-- **Deep content** (medical guidelines, financial policy, tech reports): `zhipu-cn-std` — richer snippets from authoritative sources
+| deepseek | DeepSeek Search API | ¥5/1k successful, non-empty queries | First choice; ranked results with summaries, reuses the official DeepSeek API key |
+| zhipu-cn-std | Zhipu basic | ¥0.01/query | Second choice; Chinese general queries and authoritative-source snippets |
+| brave | Brave Search API | $5/1k queries, $5/mo free credit | Third choice; structured JSON and good English coverage |
 
 ## Other sources
 
 | source | engine | cost | notes |
 |--------|--------|------|-------|
-| deepseek | DeepSeek Search API | ¥5/1k successful, non-empty queries | Reuses the official DeepSeek API key; ranked results with summaries |
-| brave | Brave Search API | $5/1k queries, $5/mo free credit | Structured JSON, stable quality, good for English queries |
-| opensearch | Alibaba Cloud OpenSearch | ¥0.0048/query | Chinese web search API, reliable |
+| zhipu-cn-pro | Zhipu advanced | ¥0.03/query | Paid alternative; not part of the preferred fallback chain |
+| zhipu-cn-sogou | Zhipu + Sogou | ¥0.05/query | Avoid for cost control; do not automatically select for bidding, Tencent content or fresh news |
+| zhipu-cn-quark | Zhipu + Quark | ¥0.05/query | Avoid for cost control; do not automatically select for vertical or time-sensitive queries |
+| opensearch | Alibaba Cloud OpenSearch | Paid; depends on plan/quota | Avoid per the user's cost-control preference |
 | duckduckgo | DuckDuckGo HTML scraping | free | Good quality, but blocked in China. Heavy use may trigger anti-bot |
 | bing | www.bing.com HTML scraping | free | Low quality on datacenter IPs — returns entity-level matches instead of content matches for complex queries |
 | bing-cn | cn.bing.com HTML scraping | free | Same as bing, low quality, worse for Chinese vertical queries (e.g. "深圳 招投标" returns only gov.cn homepage) |
@@ -47,6 +40,7 @@ Fetch a result URL with `web_fetch` when the summary is insufficient.
 Omitting `source` returns the available-source guide without running a search.
 Choose a source explicitly; recommendations below are not automatic defaults.
 
-1. No strict rules — try multiple sources when results are unsatisfying
-2. Simple queries: lean toward free sources. Hard queries: lean toward paid sources
-3. Chinese context: lean toward Chinese sources. Otherwise: lean toward English sources
+1. **Preferred order: `deepseek` → `zhipu-cn-std` → `brave`.** This is the user's cost/free-credit preference and applies to both Chinese and English queries. Skip a source if it is unavailable.
+2. Start with the first available preferred source. If it fails, is rate-limited, or produces empty/poor results, refine the query as useful and try the next source. Stop when there is enough reliable evidence; do not call all three routinely.
+3. **Avoid `zhipu-cn-sogou`, `zhipu-cn-quark` and `opensearch`.** Do not automatically escalate to them because a query concerns procurement, breaking news, medicine or other specialized content. Use them only when the user specifically requests that source.
+4. If all preferred sources are unavailable or inadequate, free HTML sources may be used as a fallback, subject to their quality and anti-bot limitations. Query difficulty alone is not a reason to switch to a more expensive source.
