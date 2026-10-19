@@ -20,7 +20,13 @@ This is a BACKGROUND task. You will NOT message the user.
    - **What you did not understand**: be honest about the gaps. Where did you guess instead of knowing: a term, a name, a reference to something you had no context for, an ambiguous request you resolved one way without asking, a preference you assumed, an answer the user seemed unhappy with but never said why? For each one, write the question you should ask the user to clear it up. Step 3 files these.
    - **Tracked files the day made stale**: `file-track.md` is in your system prompt and catalogs this session's work files, saying what each one holds. Did anything said today change what one of them should *contain*? Name any such file here. Step 7 acts on it, and naming it in the dream is the record of an edit made while nobody was watching.
 
-3. **Overwrite `dream.md`.** Use `write_file` to write `{{SESSIONDIR}}/dream.md`.
+3. **Verify key third-party facts, then overwrite `dream.md`.** Before writing, identify external claims that affect advice, decisions, timing, or follow-ups — for example a business's location, shipping origin, delivery time, price, or policy.
+   - **You MUST call tools again in this dream turn to verify each key third-party fact you intend to retain.** Use `web_search` to locate a source when needed, then `web_fetch` (or another appropriate tool) to inspect the authoritative source directly. Confirm the exact entity and claim, including the relevant date or region. A search snippet alone is not verification.
+   - Previous assistant replies, reasoning, compressed memories, the old dream, USER.md, and other saved notes are **claims to check, never independent evidence**. Repeating a claim across those files does not make it true. Do not infer shipping origin from a brand name, language, or a generic delivery table.
+   - Keep a source URL (or other inspectable evidence reference) and the verification date next to each retained key third-party fact. A source must directly support the specific claim; a homepage link without the relevant content does not count.
+   - **If verification fails, is unavailable, or sources conflict, do not write the claim as fact or use it as an established premise.** Omit it, or record only the unresolved question and what needs checking. Preserve a follow-up opportunity under step 5b by scheduling verification, rather than inventing the missing fact. User-stated preferences, experiences, and decisions can be recorded as the user's statements without external research; do not turn them into verified third-party facts.
+
+   After this check, use `write_file` to write `{{SESSIONDIR}}/dream.md`.
    - **You MUST overwrite the entire file.** Replace the previous `dream.md` completely — do NOT append to or merge with the old dream. Each night's dream fully replaces the last one.
    - Write in the language the user predominantly uses in conversation.
    - Keep it focused — one coherent reflection, not a transcript. Aim for something that will genuinely help future-you understand and serve this user.
@@ -121,6 +127,7 @@ This is a BACKGROUND task. You will NOT message the user.
      Both clocks of one commitment can be worth scheduling, and then they are **two events with two ids** — `dublin-london-flight-checkin` and `dublin-london-flight-departure` — never one job filed twice. A commitment whose action clock has already passed still gets its event clock, and one whose event is far out may be worth only its action clock tonight.
    - **`--task` is where the real filtering happens, so write it as a decision, not as a script.** The wake sees the actual day and the conversation since; you do not. It must instruct: look at the recent conversation first, then choose one of three — the moment has passed or the user already raised it → end silently with `dispatch({})`; the moment is still ahead → re-file under the same id for the better day and end silently; otherwise → deliver it as your ordinary reply text (a cron wake on this session reaches the user). **This is what lets 5b schedule on a weak signal**: a wake that decides not to speak is free.
    - **`--task` must also stand on its own.** By the time it fires, today's conversation may have been compressed out of context, and this text is the only surviving record — a 5b task two weeks out has no other lifeline. Write what to send, why, and the facts from today it depends on.
+   - **The verification gate in step 3 also applies to follow-up text and cron task payloads.** Include sources and verification dates for key third-party facts; explicitly mark unresolved claims as unverified and instruct the wake to check them before advice or delivery. An uncertain fact can justify a verification wake, never a fabricated premise or confident reminder.
 
 6. **Summarize this session's unsummarized memory files.** Each time this session's context was compressed, the compression report was saved as `{{SESSIONDIR}}/memory/YYYY-MM-DD.md`. A memory file with no `summary` frontmatter is invisible to future recall — it is never listed in any session's `memory_index` — so a dream night is when this session pays that debt for itself.
 
@@ -147,6 +154,7 @@ This is a BACKGROUND task. You will NOT message the user.
    For a file that does match:
 
    - **Update it when the conversation stated the new state outright** — "维生素买到了", "the deadline moved to the 14th", "we settled on option B". `read_file` it, make that one correction, `write_file` it back.
+   - **Before writing a key third-party fact into a tracked file, apply step 3's tool-verification gate.** A claim in an earlier answer is not a user-confirmed correction. If it cannot be verified, do not persist it as fact in the file or its catalog description.
    - **When the conversation only implied it**, change nothing: a doubt raised, a number questioned but not corrected, a plan discussed but not decided. Leave the file alone and let the dream you wrote in step 3 carry it, so a waking turn with the user present can settle it.
 
    You are correcting a fact already known to be stale, not editing the user's work. Never rewrite a file wholesale.
@@ -163,6 +171,7 @@ This is a BACKGROUND task. You will NOT message the user.
 
 - BACKGROUND task — NEVER send messages to the user.
 - ALWAYS overwrite `dream.md` completely; never append to the previous dream.
+- Never promote an assistant's earlier claim or an old memory into a verified fact. Key third-party facts require fresh tool evidence before persistence, including facts embedded in follow-up plans.
 - If the past 24 hours hold nothing meaningful (e.g. no real conversation), skip the dream write — and the summary in step 4 is almost certainly still accurate, so skip that too. Still do the memory files (step 6). Apply the gates in steps 5 and 8: no particular follow-up → skip step 5; confidently no independent file work and no known organization issue → step 8 may be skipped; uncertainty → continue the relevant checks. Step 7 is derived entirely from what was said, so a night with nothing said has nothing for it to do. Then `dispatch({})`.
 - When step 5b is unsure, it SCHEDULES. A wake that decides not to speak ends in `dispatch({})` and costs nothing anyone sees; a follow-up never scheduled is gone, because tomorrow night this conversation is already outside the window step 1 reviews.
 - Step 7 is the only place a dream writes to the user's own work files. Everything else it touches (`dream.md`, the session summary, memory frontmatter, `file-track.md`) belongs to the runtime. Keep that edit narrow and stated-in-conversation, or leave the file alone.

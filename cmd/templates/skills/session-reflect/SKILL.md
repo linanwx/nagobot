@@ -48,7 +48,16 @@ Learnings have two destinations, and picking the right one is part of the job: *
    ### Material (does not go into USER.md)
    - Anything from the last scan bullet: the detail itself, not a rule about it. Carry it to step 5 rather than compressing it into a USER.md line — compressing it is what loses it.
 
-5. **Route bulky material out of USER.md.**
+5. **Verify key third-party facts before persisting findings, then route bulky material out of USER.md.**
+
+   Before writing USER.md or a topic file, identify external claims that affect a standing rule, advice, decisions, or timing — for example a business's location, shipping origin, delivery time, price, or policy.
+
+   - **You MUST call tools again in this reflection turn to verify each key third-party fact you intend to add or change.** Use `web_search` to locate a source when needed, then `web_fetch` (or another appropriate tool) to inspect the authoritative source directly. Confirm the exact entity and claim, including the relevant date or region. A search snippet alone is not verification.
+   - Previous assistant replies, reasoning, compressed memories, dream.md, USER.md, and other saved notes are **claims to check, never independent evidence**. Repetition is not corroboration. Your own answer does not become a user preference or a correction merely because the user did not object.
+   - Keep a source URL (or other inspectable evidence reference) and the verification date next to each retained key third-party fact in its topic file. The evidence must directly support that specific claim; do not infer shipping origin from a brand name, language, or a generic delivery table.
+   - **If verification fails, is unavailable, or sources conflict, do not persist the claim as fact or as the premise of a USER.md rule.** Omit it, or record only an explicitly unverified question in the relevant topic file. User-stated preferences, experiences, and decisions can be recorded as the user's statements without external research; do not turn them into verified third-party facts. An explicit user correction about a third party still needs the tool check before being stored as an external fact.
+
+   Apply this gate before either destination below; moving material out of USER.md does not exempt it from verification.
 
    USER.md is injected into your system prompt IN FULL on every turn of this session, so it can only carry **standing rules about how to serve this person** — one line each. The moment a finding is **material** rather than a rule, it does not belong there: reference tables, inventories, checklists, account/config mappings, protocols, procedures, research conclusions — anything the user will want *looked up* rather than *obeyed*.
 
@@ -64,6 +73,7 @@ Learnings have two destinations, and picking the right one is part of the job: *
    Writing the file is the whole job here — nothing else to update, nothing else to register.
 
 6. **Update USER.md**:
+   - Apply step 5's verification gate to any key third-party fact a new or changed rule depends on. Keep the verified factual detail and evidence in the topic file; USER.md keeps only the standing rule, optionally pointing to that file.
    - Merge new findings with existing content. Do NOT duplicate entries that already exist.
    - If an existing entry conflicts with a newer observation, update it to reflect the latest preference.
    - Maintain a `## Reflection Log` section at the bottom with a timestamp for each reflection pass (e.g., `- 2025-01-15: extracted language preference, recorded correction about X`).
@@ -84,3 +94,4 @@ Learnings have two destinations, and picking the right one is part of the job: *
 - Never overwrite USER.md from scratch. Always read first, then merge. Same for a topic file that already exists.
 - Each reflection should be incremental — add what is new, update what changed, leave the rest untouched.
 - USER.md holds rules, not material. It is injected in full on every turn of this session, so anything that belongs in a lookup rather than in your behavior belongs in its own file (step 5).
+- Never promote an assistant's earlier claim or an old memory into a verified fact or a user preference. Key third-party facts require fresh tool evidence before writing to either USER.md or a topic file.
