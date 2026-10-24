@@ -433,7 +433,8 @@ func buildTurnEndBody(te TurnEnd, sessionFile, report string) string {
 	}
 	sb.WriteString("\n" + report + "\n\n")
 	sb.WriteString("This notice only says the turn ENDED, not that the task is done or done right. " +
-		"The child's actual output is the last role=assistant entry in session_file: read it before acting.")
+		"The child's actual output is the last role=assistant entry in session_file: read it before acting. " +
+		"For follow-up tasks, dispatch to the same target (subagent or subagent_fork) with the same task_id to continue the conversation.")
 	return sb.String()
 }
 
