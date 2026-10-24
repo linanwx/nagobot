@@ -37,6 +37,8 @@ type Person struct {
 	// PasswordHash is the bcrypt hash of the person's password, empty when
 	// no password is set (passkey-only account).
 	PasswordHash string `json:"password_hash,omitempty"`
+	// SendKeys are bearer keys for POST /api/send, each bound to one session.
+	SendKeys []SendKey `json:"send_keys,omitempty"`
 }
 
 // waUser adapts Person to the webauthn.User interface. The WebAuthn user

@@ -237,7 +237,7 @@ func extensionFromContentType(ct string) string {
 		return ".ogg"
 	case strings.HasPrefix(ct, "audio/mpeg"):
 		return ".mp3"
-	case strings.HasPrefix(ct, "audio/mp4"), strings.HasPrefix(ct, "audio/m4a"):
+	case strings.HasPrefix(ct, "audio/mp4"), strings.HasPrefix(ct, "audio/m4a"), strings.HasPrefix(ct, "audio/x-m4a"):
 		return ".m4a"
 	case strings.HasPrefix(ct, "audio/wav"), strings.HasPrefix(ct, "audio/x-wav"):
 		return ".wav"

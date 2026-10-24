@@ -299,6 +299,38 @@ func (d *Dispatcher) buildSinks(ch channel.Channel, msg *channel.Message, sessio
 	var bufMu sync.Mutex
 	var buf strings.Builder
 
+	flush := func(ctx context.Context) error {
+		bufMu.Lock()
+		content := buf.String()
+		buf.Reset()
+		bufMu.Unlock()
+		if strings.TrimSpace(content) == "" {
+			return nil
+		}
+		if err := session.AppendChat(sessionDir, session.ChatRoleAssistant, "", content, time.Now()); err != nil {
+			logger.Warn("chat.jsonl assistant-write failed", "sessionKey", sessionKey, "err", err)
+		}
+		return nil
+	}
+
+	// POST /api/send: the inbound transport is not a destination. The turn's
+	// output goes to the session's standing sinks alone (a discord: session
+	// answers on Discord), so this member only records the reply to chat.jsonl.
+	// No Channel, so Union never lets it displace a real web sink; no Label,
+	// so the wake's delivery field names only where the reply actually goes.
+	if msg.Metadata[channel.MetaStandingDelivery] != "" {
+		recorder := thread.SessionSink{
+			Send: func(_ context.Context, response string) error {
+				bufMu.Lock()
+				buf.WriteString(response)
+				bufMu.Unlock()
+				return nil
+			},
+			Flush: flush,
+		}
+		return thread.NewSinks(recorder), thread.SessionSink{}, thread.MessageSink{}
+	}
+
 	sink := thread.SessionSink{
 		Channel: channelName,
 		Label:   "your response will be sent to the user via " + channelName,
@@ -311,19 +343,7 @@ func (d *Dispatcher) buildSinks(ch channel.Channel, msg *channel.Message, sessio
 			bufMu.Unlock()
 			return manager.SendTo(ctx, channelName, response, replyTo)
 		},
-		Flush: func(ctx context.Context) error {
-			bufMu.Lock()
-			content := buf.String()
-			buf.Reset()
-			bufMu.Unlock()
-			if strings.TrimSpace(content) == "" {
-				return nil
-			}
-			if err := session.AppendChat(sessionDir, session.ChatRoleAssistant, "", content, time.Now()); err != nil {
-				logger.Warn("chat.jsonl assistant-write failed", "sessionKey", sessionKey, "err", err)
-			}
-			return nil
-		},
+		Flush: flush,
 	}
 
 	// Rich streaming: channels implementing Streamer (web) get live thinking/

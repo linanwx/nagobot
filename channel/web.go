@@ -277,6 +277,7 @@ func (w *WebChannel) Start(ctx context.Context) error {
 	mux.Handle("/api/auth/password/set", http.HandlerFunc(w.handlePasswordSet))
 	mux.Handle("/api/auth/password/login", http.HandlerFunc(w.handlePasswordLogin))
 	mux.Handle("/api/auth/logout", http.HandlerFunc(w.handleLogout))
+	mux.Handle("/api/send", http.HandlerFunc(w.handleSend))
 	mux.Handle("/api/history", w.protected(w.handleHistory))
 	mux.Handle("/api/sessions/", w.protected(w.handleSessionMessages))
 	mux.Handle("/api/sessions", w.protected(w.handleSessions))

@@ -176,6 +176,32 @@ func runServe(cmd *cobra.Command, args []string) error {
 		case "auth.loginlink":
 			link, expires := authMgr.MintLoginLink()
 			return loginLinkResponse{Link: link, Expires: expires}, nil
+		case "auth.sendkey.create":
+			var p sendKeyParams
+			if err := json.Unmarshal(params, &p); err != nil {
+				return nil, fmt.Errorf("parse params: %w", err)
+			}
+			key := strings.TrimSpace(p.Session)
+			// Typo protection: a key bound to a misspelled session would post
+			// into a brand-new empty session that nothing delivers from.
+			if _, err := os.Stat(filepath.Join(threadMgr.SessionDir(key), "session.jsonl")); err != nil {
+				return nil, fmt.Errorf("session %q does not exist", key)
+			}
+			raw, err := authMgr.MintSendKey(p.User, key)
+			if err != nil {
+				return nil, err
+			}
+			return sendKeyCreateResponse{Key: raw, User: p.User, Session: key}, nil
+		case "auth.sendkey.revoke":
+			var p sendKeyParams
+			if err := json.Unmarshal(params, &p); err != nil {
+				return nil, fmt.Errorf("parse params: %w", err)
+			}
+			n, err := authMgr.RevokeSendKeys(p.User, p.Session)
+			if err != nil {
+				return nil, err
+			}
+			return sendKeyRevokeResponse{Removed: n}, nil
 		case "session.stop":
 			var p sessionStopParams
 			if err := json.Unmarshal(params, &p); err != nil {
