@@ -251,3 +251,29 @@ func TestMarkInjected_NoFrontmatter(t *testing.T) {
 		t.Errorf("expected pass-through, got %q", got)
 	}
 }
+
+// TestUserVisibleWakeCarriesTalkAction pins the channel-user action: every
+// user-visible source carries userTalkAction, it parses back intact, and it
+// stays one line so it renders as a plain scalar rather than a `|-` block.
+func TestUserVisibleWakeCarriesTalkAction(t *testing.T) {
+	if strings.Contains(userTalkAction, "\n") {
+		t.Fatal("userTalkAction must be a single line")
+	}
+	for _, src := range []WakeSource{WakeTelegram, WakeDiscord, WakeWeb, WakeFeishu, WakeWeCom, sysmsg.WakeSocket} {
+		payload := buildWakePayload(
+			src, "hello", "t-1", "discord:1", "/sessions/discord/1",
+			"your response will be sent to the user via discord", "", "soul",
+			time.UTC, "user", "Nansen", "1", "", "", "", time.Time{}, "",
+		)
+		mapping, _, ok := sysmsg.ParseFrontmatter(payload)
+		if !ok {
+			t.Fatalf("%s: payload not parseable:\n%s", src, payload)
+		}
+		if got := sysmsg.LookupScalar(mapping, "action"); got != userTalkAction {
+			t.Fatalf("%s: action not carried intact:\ngot: %q", src, got)
+		}
+		if strings.Contains(payload, "action: |") {
+			t.Fatalf("%s: action rendered as a block scalar", src)
+		}
+	}
+}

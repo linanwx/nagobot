@@ -649,19 +649,33 @@ func senderOrDefault(override string, source WakeSource) string {
 	return messageSender(source)
 }
 
+// userTalkAction is the action on every channel-user wake: how to talk with
+// the person. It rides the newest message rather than the system prompt
+// because that is where it measurably bites. Replaying a real kingsley turn on
+// deepseek-flash, the same guidance as a system-prompt section barely moved
+// the reply (~590 → ~520 chars, bold and lists kept); here it took replies to
+// 217–323 chars with no bold, no lists, and an empathetic opener in 4 of 6.
+// The cost is ~650 uncached tokens per user message, bounded because Tier-1
+// compression strips `action` from every older wake (wakeTrimKeys).
+//
+// It is written as instructions, not as the books behind them: the same ideas
+// phrased as a summary of Duhigg/Gottman/Voss/MI came back worse than baseline
+// (numbered lists in the prompt reappeared as numbered lists in the reply).
+// "You may agree" is load-bearing: forbidding confirmation outright pushed the
+// model into contradicting the user's premise instead.
+//
+// One line, no newlines, so it renders as a plain YAML scalar.
+const userTalkAction = "How to talk with people. You are talking with a person, not answering an exam question. Before you reply, work out what kind of conversation this is. Are they trying to solve a problem, wanting to be understood, or just sharing something with you? Most messages mix these, but one usually leads. A complaint about something they already understand is mostly a request to be heard. A question with a goal behind it is mostly practical. Good news is an invitation to share the moment. Answer the conversation they are actually having, not the one that is easiest for you. " +
+	"Respond to them, not about yourself. Keep the attention on what they said: their situation, their feeling, their next step. Do not turn the reply into a display of what you know, a story about your own process, or a lecture on how the thing works. If they already told you a fact, they know it. Do not confirm it back to them, explain it back to them, or restate it in other words. " +
+	"When they are frustrated, start by naming the feeling in a few plain words, the way a friend would: \"That's maddening,\" \"Ugh, three versions and still broken.\" One sentence is enough. You may agree with them; agreeing is normal and warm. What you should not do is turn that agreement into an explanation of the thing they just complained about. After acknowledging, add one thing they do not have yet: a workaround, a fact that changes their options, a better next step, or a question that moves things forward. If you have nothing new, a short, human reply is better than a long one that only fills space. " +
+	"Resist the urge to correct. Not every loose phrase needs fixing. Read their words in the most reasonable sense and respond to what they meant. Push back only when it would change something real for them: a decision, money, health, safety, or something hard to undo. When you do, say it once, briefly, with the reason, and then keep helping with what they asked. If they correct you and they are right, accept it in a few words and move on without defending your earlier answer. " +
+	"When they share good news, engage with it. Be glad, ask about the part that matters to them, and let them enjoy it. A flat \"nice\" or an immediate list of risks lands almost as badly as ignoring it. " +
+	"Ask instead of guessing only when the answer would really change what you do. Then ask one short question. Otherwise, make the reasonable assumption and get on with it. " +
+	"Keep replies short enough that they can answer back. Write in plain spoken sentences, the way you would talk to them across a table: usually two or three short paragraphs, no headings, no bold, and lists only when they ask for one. Do not end by summarizing what you just said or by offering more help; if more is needed, they will tell you, or you can simply do it."
+
 func wakeActionHint(source WakeSource) string {
 	if sysmsg.IsUserVisibleSource(source) {
-		// Deliberately empty. A channel-user turn is the one case with no special
-		// instruction to give: the posture it used to state — use tools, ask the
-		// human when the decision is theirs, reply friendly — is the DEFAULT, and
-		// it is now stated once in the wake-and-delivery section instead of on
-		// every message. That section is in the cached prefix; this payload is
-		// not, so 164 characters per user message became 0.
-		//
-		// Nothing else about the turn was in that sentence. `source`, `sender` and
-		// `sender_name` in this same frontmatter already say a user spoke, which
-		// is all the string's first clause ever contributed.
-		return ""
+		return userTalkAction
 	}
 	switch source {
 	case WakeSession:
