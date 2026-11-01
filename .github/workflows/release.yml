@@ -3,14 +3,43 @@ name: Release
 on:
   push:
     tags: ['v*']
+  # Manual release from main. The tag is created by `gh release create
+  # --target` below, inside Actions, rather than pushed from a client — which
+  # is what lets a release be cut from an environment that may push branches
+  # but not tags (cloud agent sessions). A tag created with GITHUB_TOKEN does
+  # NOT trigger this workflow's push leg, so this one run does the whole
+  # release itself; there is no double build.
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Tag to create on the current main commit, e.g. v1.7.85'
+        required: true
+        type: string
 
 permissions:
   contents: write
+
+# One name for the release whichever leg started the run: the pushed tag, or
+# the dispatch input. Every step below reads this, never github.ref_name,
+# which is "main" on a dispatch.
+env:
+  RELEASE_TAG: ${{ inputs.version || github.ref_name }}
 
 jobs:
   release:
     runs-on: ubuntu-latest
     steps:
+      - name: Validate dispatch
+        if: github.event_name == 'workflow_dispatch'
+        run: |
+          [ "$GITHUB_REF" = "refs/heads/main" ] || { echo "dispatch only from main (got $GITHUB_REF)"; exit 1; }
+          echo "$RELEASE_TAG" | grep -Eq '^v[0-9]+\.[0-9]+\.[0-9]+$' || { echo "bad version: $RELEASE_TAG"; exit 1; }
+          if gh api "repos/${{ github.repository }}/git/ref/tags/$RELEASE_TAG" >/dev/null 2>&1; then
+            echo "tag $RELEASE_TAG already exists"; exit 1
+          fi
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
       - uses: actions/checkout@v4
 
       - uses: actions/setup-go@v5
@@ -20,7 +49,7 @@ jobs:
 
       - name: Build binaries (parallel)
         run: |
-          VERSION="${GITHUB_REF_NAME}"
+          VERSION="${RELEASE_TAG}"
           LDFLAGS="-s -w -X github.com/linanwx/nagobot/cmd.Version=${VERSION}"
           pids=""
           for pair in linux/amd64 linux/arm64 darwin/amd64 darwin/arm64 windows/amd64; do
@@ -36,7 +65,7 @@ jobs:
           sha256sum nagobot-* > checksums.txt
 
       - name: Create Release
-        run: gh release create "${{ github.ref_name }}" nagobot-* checksums.txt --generate-notes --prerelease
+        run: gh release create "$RELEASE_TAG" nagobot-* checksums.txt --target "${{ github.sha }}" --generate-notes --prerelease
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
@@ -55,6 +84,9 @@ jobs:
   # --platform=$BUILDPLATFORM and cross-compiles. On a native arm64 runner that
   # pin simply becomes a no-op.
   docker:
+    # After `release`, so a dispatch rejected by its validation step (or a
+    # failed binary build) never publishes an image under that tag.
+    needs: release
     strategy:
       fail-fast: false
       matrix:
@@ -90,7 +122,7 @@ jobs:
           context: .
           platforms: ${{ matrix.platform }}
           build-args: |
-            VERSION=${{ github.ref_name }}
+            VERSION=${{ env.RELEASE_TAG }}
           outputs: type=image,name=ghcr.io/${{ github.repository_owner }}/nagobot,push-by-digest=true,name-canonical=true,push=true
           cache-from: type=gha,scope=${{ env.PLATFORM_SLUG }}
           cache-to: type=gha,mode=max,scope=${{ env.PLATFORM_SLUG }}
@@ -138,7 +170,7 @@ jobs:
           set -eux
           repo="ghcr.io/${{ github.repository_owner }}/nagobot"
           docker buildx imagetools create \
-            -t "${repo}:${{ github.ref_name }}" \
+            -t "${repo}:${{ env.RELEASE_TAG }}" \
             -t "${repo}:latest" \
             $(printf "${repo}@sha256:%s " *)
-          docker buildx imagetools inspect "${repo}:${{ github.ref_name }}"
+          docker buildx imagetools inspect "${repo}:${{ env.RELEASE_TAG }}"
