@@ -691,10 +691,18 @@ func wakeActionHint(source WakeSource) string {
 			"`<subject>` = ≤200 chars from the incoming request, newlines collapsed to spaces. Pick the most informative span. " +
 			"Never dispatch to the sending session a reply whose sole purpose is to acknowledge receipt (whether a bare `收到`/`ok` or a longer, well-formed message that still conveys nothing beyond 'received/noted'); meaningless inter-session communication is not allowed: report the information briefly to the human as this turn's reply content."
 	case WakeCron:
+		// A cron wake into a user-facing session is proactive speech: the task
+		// text is often the model's own follow-up note (dream step 5), which the
+		// human never saw. The guidance says what the opening must DO (give the
+		// context the reader lacks) rather than forbidding mentions of the
+		// schedule — the old "do not mention the schedule" line pushed replies
+		// toward bare answers ("有的，有打折") to a question nobody asked.
 		return "A scheduled cron task has started. Execute it based on the provided job context. " +
 			"Non-interactive: there is no user to answer questions this turn — do not ask for clarification; act on the job context or end silently. " +
 			"If this session has a channel user, plain reply text IS delivered to them, so write only what is worth sending and use dispatch({}) otherwise. " +
-			"Do not mention that you were triggered by a schedule unless it is relevant to the task output."
+			"When you do write to them, remember they did not just ask you anything: the job context below may have been written by you, earlier, and they may not remember it at all, so your message arrives out of the blue. " +
+			"Open by saying what this is about and why you are bringing it up now, then give the result, e.g. \"You mentioned wanting X, and today is the sale day, so I checked: it is 20% off.\" " +
+			"Saying plainly that this is a check you had scheduled is fine; a bare answer like \"Yes, it is on sale\" is not, because they have no question it answers."
 	case WakeCompression:
 		return "Automated background maintenance. Execute the compression skill immediately. Do not produce user-facing content. " +
 			"Non-interactive: there is no user to answer questions this turn."
