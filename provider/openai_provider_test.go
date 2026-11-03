@@ -164,6 +164,25 @@ func TestSubscriptionSendsSessionAffinityHeaders(t *testing.T) {
 	}
 }
 
+// TestChildSessionsShareTheRootCacheKey: subagents of one session send the same
+// tools + system prefix, so they must land on the root session's cache shard,
+// or a sibling's first call misses a prefix cached minutes earlier.
+func TestChildSessionsShareTheRootCacheKey(t *testing.T) {
+	key := func(s string) string { return sessionCacheKey(WithSessionKey(context.Background(), s)) }
+	root := key("discord:1")
+	for _, child := range []string{"discord:1:threads:a", "discord:1:threads:b", "discord:1:fork:c", "discord:1:threads:a:fork:d"} {
+		if got := key(child); got != root {
+			t.Errorf("cache key for %s = %s, want the root's %s", child, got, root)
+		}
+	}
+	if key("discord:2:threads:a") == root {
+		t.Error("children of different sessions must not share a cache key")
+	}
+	if key("discord:1:progresssummary") == root {
+		t.Error("sibling sessions run a different agent and keep their own key")
+	}
+}
+
 // TestSubscriptionErrorsAreLegible covers both places a subscription error can
 // arrive: as the HTTP error body before streaming, and as response.failed
 // after it has started. Either way the person must be told what happened to

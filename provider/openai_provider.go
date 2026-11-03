@@ -782,11 +782,32 @@ func responsesErrorCode(body []byte) (code, message string) {
 // call can hit the previous turn's cached prefix. Hashing rather than sending
 // the raw key keeps channel/user ids out of requests. Returns "" when ctx
 // carries no session key (e.g. standalone scripts).
+//
+// A dispatched child keys on its root session (cacheRootSessionKey), not on
+// itself. Subagents of one session share the same tools + system prefix, but
+// each child key used to hash to its own shard, so a sibling's first call
+// missed a prefix cached minutes earlier (measured on kingsley: one hit, one
+// miss across the two in-TTL pairs).
 func sessionCacheKey(ctx context.Context) string {
-	key := SessionKeyFromContext(ctx)
+	key := cacheRootSessionKey(SessionKeyFromContext(ctx))
 	if key == "" {
 		return ""
 	}
 	sum := sha256.Sum256([]byte(key))
 	return hex.EncodeToString(sum[:16])
+}
+
+// cacheRootSessionKey strips every child segment from a session key, so
+// "discord:1:threads:a:fork:b" becomes "discord:1". The infixes mirror
+// session.ThreadsSessionInfix and session.ForkSessionInfix (session imports
+// provider, so they cannot be referenced here). Sibling suffixes such as
+// ":progresssummary" are left alone: those run a different agent, so they
+// share no prefix with the parent worth routing together.
+func cacheRootSessionKey(key string) string {
+	for _, infix := range []string{":threads:", ":fork:"} {
+		if i := strings.Index(key, infix); i > 0 {
+			key = key[:i]
+		}
+	}
+	return key
 }
