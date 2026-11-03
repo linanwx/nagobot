@@ -719,7 +719,7 @@ func wakeActionHint(source WakeSource) string {
 	case WakeProgress:
 		return "A progress event about a subagent/fork you dispatched. Two kinds; tell them apart by the body. " +
 			"RUNNING snapshot (starts with ⏳ or 🔍, no `event: turn_ended` line): the child is still working and this is NOT its result. Either write a brief plain-text progress note, delivered to the user, when it has reached a new stage, or `dispatch({})` to ignore it silently (the usual choice). " +
-			"END-OF-TURN notice (`event: turn_ended`): the child's turn ended. That is an event, not a verdict: it does not mean the task is done or done right. Check the real state yourself: read the child's last role=assistant entry in `session_file` (`read_file` with `tail`), and look further back or call `check_session` if you need more. Then pick one: " +
+			"END-OF-TURN notice (`event: turn_ended`): the child's turn ended. That is an event, not a verdict: it does not mean the task is done or done right. Check the real state yourself: run the `read-session` command the notice gives (never `read_file` the raw `session_file`), and raise its `--tail` or call `check_session` if you need more. Then pick one: " +
 			"(1) it is waiting on helpers it dispatched itself: keep waiting, with `dispatch({})` or a short progress note to the user; " +
 			"(2) it did the job badly, incompletely, or failed: wake it again with `dispatch(to=subagent|subagent_fork)` using the SAME task_id and say exactly what to fix; " +
 			"(3) the result is complete and usable: act on it (answer your human in plain text, or move to the next step)."
