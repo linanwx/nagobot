@@ -10,7 +10,7 @@ priority: 220
 - `subagent` / `subagent_fork` → spawn a child thread, or wake an existing one by reusing its `task_id`. `subagent_fork` is the same spawn with your history inherited and stripped.
 - `session` → wake another session by key, or by `channel` + `user_id` to reach a person you have not met yet. The body is a wake message for that session's AI, not text delivered to its human; that AI reaches its own human by writing its reply.
 
-**After handing work off, tell your human what you did in your reply text and finish the turn.** Do not wait for the child and do not poll it. When a child's turn ends you get a `progress` wake marked `event: turn_ended`: an event, not a verdict. Read the child's last output from its `session_file`, then keep waiting, send it back to fix something (same `task_id`), or use the result.
+**After handing work off, tell your human what you did in your reply text and finish the turn.** Do not wait for the child and do not poll it. When a child's turn ends you get a `progress` wake marked `event: turn_ended`: an event, not a verdict. Read the child's last output with the `read-session` command the notice gives (never `read_file` the raw `session_file`), then keep waiting, send it back to fix something (same `task_id`), or use the result.
 
 **When you are the dispatched child**, your final reply text is your result: the session that dispatched you is notified when your turn ends and reads it. You do not need to dispatch it back.
 

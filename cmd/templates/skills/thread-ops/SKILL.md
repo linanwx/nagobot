@@ -114,7 +114,7 @@ A `progress` wake comes in two kinds; tell them apart by the body.
 
 **Turn ended** (body carries `event: turn_ended`, `child_session`, `session_file`): a child you dispatched just finished a turn. This is an event, not a verdict: it says the turn ended, not that the task is done or done right. Check the actual state:
 
-1. `read_file` the `session_file` and find the last `role=assistant` entry: that is the child's output.
+1. Read the child's output with the command the notice gives: `{{WORKSPACE}}/bin/nagobot read-session <child_session> --tail 1 --full` (raise `--tail` for more of its history). Do not `read_file` the `session_file`: it is the raw log, full of tool payloads and reasoning blobs.
 2. Then one of three:
    - the child is still waiting on threads it dispatched itself: keep waiting (`dispatch({})` or a one-line status to your human); another notice comes when its next turn ends.
    - the child did not do it well: `dispatch(to=subagent|subagent_fork)` with the **same `task_id`**, saying what to fix.

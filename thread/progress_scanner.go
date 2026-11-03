@@ -3,6 +3,7 @@ package thread
 import (
 	"context"
 	"fmt"
+	"path/filepath"
 	"strings"
 	"sync"
 	"time"
@@ -388,7 +389,7 @@ func (p *ProgressScanner) reportTurnEnd(ctx context.Context, parent string, te T
 	}
 	p.mgr.Wake(parent, &WakeMessage{
 		Source:  WakeProgress,
-		Message: buildTurnEndBody(te, sessionFile, report),
+		Message: buildTurnEndBody(te, sessionFile, p.nagobotBin(), report),
 		Sender:  "system",
 		CallerSink: SessionSink{
 			Label: "Caller is progress monitor: reply to caller is dropped",
@@ -416,9 +417,22 @@ func (p *ProgressScanner) turnEndReport(ctx context.Context, te TurnEnd) string 
 	return "(No summary: the summarizer timed out or returned nothing.)"
 }
 
+// nagobotBin is the CLI path the turn-end notice tells the parent to run:
+// the workspace copy skills also use, or the bare name (on PATH in every
+// deployment) when the workspace is unknown.
+func (p *ProgressScanner) nagobotBin() string {
+	if cfg := p.mgr.cfg; cfg != nil && cfg.Workspace != "" {
+		return filepath.Join(cfg.Workspace, "bin", "nagobot")
+	}
+	return "nagobot"
+}
+
 // buildTurnEndBody renders the end-of-turn notice the dispatching session
-// receives.
-func buildTurnEndBody(te TurnEnd, sessionFile, report string) string {
+// receives. It points the parent at `read-session`, never at the raw
+// session.jsonl: read_file on that file pulls in every tool payload and the
+// provider's opaque reasoning blobs, which a model cannot use and pays for on
+// every later call of the turn.
+func buildTurnEndBody(te TurnEnd, sessionFile, nagobotBin, report string) string {
 	icon, what := "🏁", "ended its turn"
 	if te.Err != nil {
 		icon, what = "⚠️", "ended its turn with an error"
@@ -433,7 +447,8 @@ func buildTurnEndBody(te TurnEnd, sessionFile, report string) string {
 	}
 	sb.WriteString("\n" + report + "\n\n")
 	sb.WriteString("This notice only says the turn ENDED, not that the task is done or done right. " +
-		"The child's actual output is the last role=assistant entry in session_file: read it before acting. " +
+		fmt.Sprintf("Read the child's actual output before acting: `%s read-session %s --tail 1 --full` (raise --tail for more of its history). "+
+			"Do not read_file session_file: it is the raw log, full of tool payloads and reasoning blobs. ", nagobotBin, te.SessionKey) +
 		"For follow-up tasks, dispatch to the same target (subagent or subagent_fork) with the same task_id to continue the conversation.")
 	return sb.String()
 }

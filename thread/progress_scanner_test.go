@@ -309,10 +309,13 @@ func TestReportTurnEnd_NotifiesParentWithoutSummarizer(t *testing.T) {
 	if wake.Source != WakeProgress {
 		t.Errorf("source = %q, want progress", wake.Source)
 	}
-	for _, want := range []string{progressTurnEndedTag, "child_session: telegram:99:threads:find-x", "6m12s", "14 steps", "No summary", "last role=assistant entry"} {
+	for _, want := range []string{progressTurnEndedTag, "child_session: telegram:99:threads:find-x", "6m12s", "14 steps", "No summary", "nagobot read-session telegram:99:threads:find-x --tail 1 --full"} {
 		if !strings.Contains(wake.Message, want) {
 			t.Errorf("notice missing %q:\n%s", want, wake.Message)
 		}
+	}
+	if strings.Contains(wake.Message, "last role=assistant entry") {
+		t.Error("the notice must point at read-session, not at hand-parsing the raw session.jsonl")
 	}
 	if strings.Contains(wake.Message, "the answer is 42") {
 		t.Error("the notice must not carry the child's reply: the parent reads it from the session file")
