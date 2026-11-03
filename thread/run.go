@@ -29,6 +29,10 @@ func (t *Thread) run(ctx context.Context, userMessage, userMessageID string, med
 
 	cfg := t.cfg()
 	systemPrompt := t.buildSystemPrompt()
+	systemPromptTokens := EstimateMessageTokens(provider.SystemMessage(systemPrompt))
+	t.mu.Lock()
+	t.lastSystemPromptTokens = systemPromptTokens
+	t.mu.Unlock()
 
 	// Stateless agents (tier_lossy_mode: stateless) begin every turn with a
 	// blank session: clear it before loading so the turn sees no prior history

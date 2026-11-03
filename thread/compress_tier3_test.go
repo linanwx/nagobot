@@ -78,3 +78,27 @@ func TestTryTier3Compress_SkipsWhenUnderThreshold(t *testing.T) {
 		t.Error("an under-threshold session must not enqueue a compression wake")
 	}
 }
+
+// The trim sizes the whole request, system prompt included, so Tier 3 must too.
+// A session whose messages alone sit under the threshold but whose system
+// prompt pushes the request over it has to compress; otherwise it parks at the
+// trim line and the trim flips the request head on and off, missing the cache.
+func TestTryTier3Compress_CountsTheSystemPrompt(t *testing.T) {
+	key := "test:tier3-system-prompt"
+	// window 2000 → Tier 3 threshold = 1700 tokens.
+	mgr, th, store := newTier3TestManager(t, key, 2000)
+	if err := store.Append(key, provider.UserMessage(strings.Repeat("alpha beta ", 100))); err != nil {
+		t.Fatalf("append: %v", err)
+	}
+
+	mgr.tryTier3Compress(key)
+	if th.hasMessages() {
+		t.Fatal("messages alone are under the threshold; nothing should be enqueued yet")
+	}
+
+	th.lastSystemPromptTokens = 1700
+	mgr.tryTier3Compress(key)
+	if !th.hasMessages() {
+		t.Fatal("system prompt + messages exceed the threshold; a compression wake must be enqueued")
+	}
+}

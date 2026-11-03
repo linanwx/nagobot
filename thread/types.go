@@ -162,10 +162,11 @@ type Thread struct {
 	currentCallerSink     SessionSink    // Current turn's reply-to-caller destination (set by run(), cleared on turn end). One place, never broadcast. Used by dispatch(to=caller:*).
 	currentCallerKey      string         // Caller session key for the current wake; empty for user/system wakes.
 
-	execMetrics           *ExecMetrics // Non-nil only while a turn is executing.
-	lastTurnMetrics       *ExecMetrics // Metrics of the turn that just ended; read by RunOnce for the turn-end hook.
-	lastCompressAttemptAt time.Time    // Last time tier 2 compression was enqueued (prevents duplicate enqueue).
-	lastCompressedAt      time.Time    // Last time tier 2 compression completed successfully.
+	execMetrics            *ExecMetrics // Non-nil only while a turn is executing.
+	lastTurnMetrics        *ExecMetrics // Metrics of the turn that just ended; read by RunOnce for the turn-end hook.
+	lastCompressAttemptAt  time.Time    // Last time tier 2 compression was enqueued (prevents duplicate enqueue).
+	lastCompressedAt       time.Time    // Last time tier 2 compression completed successfully.
+	lastSystemPromptTokens int          // Estimated tokens of the last turn's system prompt; counted by Tier 2/3 so they size the request the trim sees.
 
 	lastTurnMsgCount   int // Number of wake messages merged into the just-run turn (set by tryMerge).
 	userMsgsSinceTier1 int // Count of user messages since the last Tier 1 run; forces Tier 1 at turn-end once it reaches forcedTier1UserMsgs.

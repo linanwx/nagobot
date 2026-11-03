@@ -171,8 +171,16 @@ func (m *Manager) tryAICompress(sessionKey string, tier3 bool) {
 	}
 	toolDefs := t.tools.Defs()
 	m.mu.Unlock()
+	t.mu.Lock()
+	systemPromptTokens := t.lastSystemPromptTokens
+	t.mu.Unlock()
 
-	tokens := EstimateMessagesTokens(ApplyCompressed(sess.Messages)) + EstimateToolDefsTokens(toolDefs)
+	// Size the request the context trim will see: the system prompt counts.
+	// Without it a session with a large prompt (file-track, memory index,
+	// USER.md) can sit past the trim line while looking under both Tier 2 and
+	// Tier 3, and the trim then flips the request head on and off, missing the
+	// prefix cache each time. Zero before the thread has run a turn.
+	tokens := systemPromptTokens + EstimateMessagesTokens(ApplyCompressed(sess.Messages)) + EstimateToolDefsTokens(toolDefs)
 	ct := t.contextBudget()
 	effectiveWindow := ct.ContextWindow
 	reserve := ct.Tier2Token

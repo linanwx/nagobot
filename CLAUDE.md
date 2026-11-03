@@ -689,6 +689,8 @@ Both live paths end silently — heartbeat never produces user-facing output. Th
 
 Wakes thread with `WakeCompression` source, loads `context-ops` skill to summarize.
 
+**Tier 2 and Tier 3 (turn-end, 85%) both size the request the trim sees, system prompt included** (`tryAICompress` adds `Thread.lastSystemPromptTokens`, recorded at each turn's prompt build). They used to count messages + tool defs only. On kingsley a session with a ~60K system prompt (a long file-track catalog, memory index, USER.md) measured 64.5% to the tiers while its real request sat at 245K, right on the 245.6K trim line on terra: neither tier ever fired, and each Tier-1 shrink or new message flipped the trim between a full 236K request and a halved 120K one, rewriting the request head and missing the prefix cache on each flip (~160K uncached terra tokens per flip). `TestTryTier3Compress_CountsTheSystemPrompt` pins it. A thread that has not run a turn since creation still counts 0 for the prompt.
+
 ### Source Matching
 
 Heartbeat source matching uses `strings.HasPrefix(source, "heartbeat")` to cover both new (`"heartbeat"`) and old (`"heartbeat_reflect"`, `"heartbeat_wake"`) source strings in existing sessions.
