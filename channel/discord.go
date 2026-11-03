@@ -168,7 +168,7 @@ func (d *DiscordChannel) Start(ctx context.Context) error {
 			continue
 		}
 		d.setSession(dg)
-		logger.Info("discord bot connected", "username", dg.State.User.Username)
+		logger.Info("discord bot connected", "username", discordBotUsername(dg))
 
 		go d.supervise(ctx)
 		go func() {
@@ -232,7 +232,18 @@ func (d *DiscordChannel) rebuild() {
 		return
 	}
 	d.setSession(dg)
-	logger.Info("discord bot reconnected", "username", dg.State.User.Username)
+	logger.Info("discord bot reconnected", "username", discordBotUsername(dg))
+}
+
+// discordBotUsername reads the bot's own name for logging. discordgo applies
+// READY to State on a handler goroutine (SyncEvents is off), so Open() can
+// return before State.User is set; dereferencing it then crashed the daemon
+// at startup.
+func discordBotUsername(dg *discordgo.Session) string {
+	if dg.State == nil || dg.State.User == nil {
+		return "(pending READY)"
+	}
+	return dg.State.User.Username
 }
 
 func (d *DiscordChannel) Stop() error {
@@ -508,12 +519,12 @@ func (d *DiscordChannel) ReactTo(_ context.Context, chatID, msgID, emoji string)
 }
 
 func (d *DiscordChannel) handleMessageCreate(s *discordgo.Session, m *discordgo.MessageCreate) {
-	// Ignore self.
-	if m.Author.ID == s.State.User.ID {
+	// Ignore bots, ourselves included: our own messages are bot messages, so
+	// this check does not depend on State.User having been filled in yet.
+	if m.Author.Bot {
 		return
 	}
-	// Ignore other bots.
-	if m.Author.Bot {
+	if self := s.State.User; self != nil && m.Author.ID == self.ID {
 		return
 	}
 

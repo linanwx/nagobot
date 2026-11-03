@@ -142,3 +142,32 @@ func TestDiscordHandler_DropsEventsFromStaleSession(t *testing.T) {
 		t.Fatal("message from current session was not delivered")
 	}
 }
+
+// Open() can return before discordgo's async READY handler fills State.User;
+// nothing on the connect or message path may dereference it unguarded.
+func TestDiscordToleratesStateUserNotYetSet(t *testing.T) {
+	dg, err := discordgo.New("Bot x")
+	if err != nil {
+		t.Fatalf("discordgo.New: %v", err)
+	}
+	if dg.State.User != nil {
+		t.Fatal("fixture expects a fresh session with no State.User")
+	}
+	if got := discordBotUsername(dg); got == "" {
+		t.Error("discordBotUsername returned empty for a session without READY")
+	}
+
+	d := &DiscordChannel{
+		messages: make(chan *Message, discordMessageBufferSize),
+		done:     make(chan struct{}),
+	}
+	d.handleMessageCreate(dg, &discordgo.MessageCreate{Message: &discordgo.Message{
+		ID: "m1", ChannelID: "c1",
+		Author: &discordgo.User{ID: "bot-self", Bot: true},
+	}})
+	select {
+	case msg := <-d.messages:
+		t.Fatalf("bot message was processed: %+v", msg)
+	default:
+	}
+}
