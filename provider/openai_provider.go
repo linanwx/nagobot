@@ -4,86 +4,46 @@ import (
 	"bufio"
 	"bytes"
 	"context"
-	"crypto/rand"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"io"
-	"maps"
 	"net/http"
-	"reflect"
-	"strconv"
 	"strings"
-	"sync/atomic"
 	"time"
 
-	"github.com/gorilla/websocket"
 	"github.com/linanwx/nagobot/logger"
 )
 
-const (
-	openAIAPIBase      = "https://api.openai.com/v1"
-	openAIChatGPTBase  = "https://chatgpt.com/backend-api/codex"
-	openAIChatGPTWSURL = "wss://chatgpt.com/backend-api/codex/responses"
-	// openAIBetaWebSockets unlocks previous_response_id continuation on the
-	// ChatGPT/Codex backend. That backend rejects the parameter entirely over
-	// plain HTTP (400 "Unsupported parameter: previous_response_id" —
-	// confirmed empirically against the real API), and only honors it inside
-	// a WebSocket connection carrying this header — confirmed by reading
-	// OpenClaw's implementation, which sends previous_response_id exclusively
-	// on its WebSocket code path and never on its plain HTTP/SSE path.
-	openAIBetaWebSockets = "responses_websockets=2026-02-06"
+const openAIAPIBase = "https://api.openai.com/v1"
 
-	// wsWriteTimeout bounds a control frame (a ping — a few bytes);
-	// wsRequestWriteTimeout bounds the request body, which is routinely
-	// hundreds of kilobytes of context.
-	wsWriteTimeout        = 10 * time.Second
-	wsRequestWriteTimeout = time.Minute
-)
-
-// The WebSocket liveness clocks. Vars rather than consts so the stall test can
-// run in milliseconds instead of minutes; nothing outside tests writes them.
-var (
-	// wsStallTimeout is how long the Codex backend may go completely silent —
-	// not one frame of any kind — before the request is declared dead. It is a
-	// silence budget, not a latency budget: a response that streams for ten
-	// minutes never approaches it, while a healthy turn's time-to-first-event
-	// is seconds (the backend emits response.created on acceptance). Two
-	// minutes is generous against that and still bounded, and a false trip
-	// costs one HTTP retry rather than a failed turn.
-	wsStallTimeout = 2 * time.Minute
-	// wsPingInterval / wsPongTimeout catch the other death: a peer that is gone
-	// but never sent an RST. Two missed pongs is the signal — and only for a
-	// peer that has ponged at least once (see parseWSStream).
-	wsPingInterval = 20 * time.Second
-	wsPongTimeout  = 50 * time.Second
-)
-
-// gpt56ContextWindow caps the gpt-5.6 family at the price break instead of at
-// its real 372K capacity. OpenAI bills a gpt-5.6 request whose input exceeds
-// 272K at 2x input / 1.5x output — for the *whole* request, not just the excess.
-// The context window is what drives compression and the context budget trim
-// (Tier 2 at 70%, Tier 3 at 85%, trim at min(92%, window−maxTokens−10K)), so
-// registering the true 372000 would let requests grow to ~342K — every request
-// in the 272K–342K band silently double-billed. 272000 caps the trim line at
-// ~245K, making crossing the band structurally impossible. This is the same
-// defect Codex itself has: openai/codex#32486.
+// longContextPriceBreak caps the gpt-5.6 and gpt-6 families at the price break
+// instead of at their real capacity (372K for gpt-5.6, up to 500K for
+// gpt-6.1). OpenAI bills a request whose input exceeds 272K at long-context
+// rates (2x input / 1.5x output on gpt-5.6), for the *whole* request, not just
+// the excess. The context window is what drives compression and the context
+// budget trim (Tier 2 at 70%, Tier 3 at 85%, trim at min(92%,
+// window-maxTokens-10K)), so registering the true capacity would let requests
+// grow past 272K, with every request in that band silently billed at the
+// higher rate. 272000 caps the trim line at ~245K, making crossing the band
+// structurally impossible. This is the same defect Codex itself has:
+// openai/codex#32486.
 //
-// OpenClaw, the reference implementation for this backend, reaches the same
-// number by a cleaner route: it keeps the native capacity and the runtime cap
-// as two separate values (extensions/codex/provider-catalog.ts —
-// KNOWN_CONTEXT_WINDOW_BY_MODEL_ID puts gpt-5.6-* at 372_000, while
-// DEFAULT_CONTEXT_WINDOW is 272_000, the effective runtime cap it applies to
-// the whole Codex family including gpt-5.5). We collapse the two, which is
-// equivalent here because the registered window is only ever consumed as a
-// budget (compression thresholds and Runner.contextBudget) — we never surface
-// the model's native capacity anywhere.
-const gpt56ContextWindow = 272000
+// The registered window is only ever consumed as a budget (compression
+// thresholds and Runner.contextBudget); nagobot never surfaces a model's
+// native capacity, so collapsing capacity and cap into one value is safe.
+const longContextPriceBreak = 272000
 
-// reasoningEfforts are the official Responses API reasoning.effort levels,
-// selectable per model via a bracket suffix: "gpt-5.6-sol[low]".
-var reasoningEfforts = []string{"low", "medium", "high", "xhigh"}
+// Reasoning effort tiers, selectable per model via a bracket suffix:
+// "gpt-6-luna[low]". The two longer lists mirror supported_reasoning_levels
+// from GET /v1/models on the subscription route; a model is registered with
+// exactly the tiers OpenAI says it accepts.
+var (
+	effortsToXHigh = []string{"low", "medium", "high", "xhigh"}
+	effortsToMax   = []string{"low", "medium", "high", "xhigh", "max"}
+	effortsToUltra = []string{"low", "medium", "high", "xhigh", "max", "ultra"}
+)
 
 // parseModelEffort splits a bracketed model name ("gpt-5.6-sol[low]") into
 // the base API model ("gpt-5.6-sol") and the reasoning effort ("low"). Names
@@ -96,64 +56,82 @@ func parseModelEffort(name string) (base, effort string) {
 	return name[:open], name[open+1 : len(name)-1]
 }
 
-// withEffortVariants appends "model[effort]" entries for every base model,
-// so the whitelist / vision / context-window registries treat each effort
-// tier as a first-class model type.
-func withEffortVariants(models []string, base ...string) []string {
-	for _, m := range base {
-		for _, e := range reasoningEfforts {
-			models = append(models, m+"["+e+"]")
+// openAIModel is one registered base model: its effort tiers (nil = no
+// bracket variants) and its context window.
+type openAIModel struct {
+	name    string
+	efforts []string
+	window  int
+}
+
+// registerOpenAIModels expands each base model into itself plus one
+// "model[effort]" entry per tier, so the whitelist / vision / context-window
+// registries treat each effort tier as a first-class model type.
+func registerOpenAIModels(name string, models []openAIModel, reg ProviderRegistration) {
+	reg.ContextWindows = map[string]int{}
+	for _, m := range models {
+		reg.Models = append(reg.Models, m.name)
+		reg.ContextWindows[m.name] = m.window
+		for _, e := range m.efforts {
+			variant := m.name + "[" + e + "]"
+			reg.Models = append(reg.Models, variant)
+			reg.ContextWindows[variant] = m.window
 		}
 	}
-	return models
+	reg.VisionModels = reg.Models
+	RegisterProvider(name, reg)
+}
+
+// gpt6Models is the GPT-6 family as the subscription route's model catalog
+// lists it (visibility "list", supported_in_api). Every one takes text and
+// image input.
+var gpt6Models = []openAIModel{
+	{"gpt-6.1-sol", effortsToUltra, longContextPriceBreak},
+	{"gpt-6.1-terra", effortsToUltra, longContextPriceBreak},
+	{"gpt-6-sol", effortsToUltra, longContextPriceBreak},
+	{"gpt-6-astra", effortsToUltra, longContextPriceBreak},
+	{"gpt-6-luna", effortsToMax, longContextPriceBreak},
 }
 
 func init() {
-	base56 := []string{"gpt-5.6-sol", "gpt-5.6-terra", "gpt-5.6-luna"}
-	models := []string{"gpt-5.6-sol", "gpt-5.6-terra", "gpt-5.6-luna", "gpt-5.5", "gpt-5.4", "gpt-5.4-mini", "gpt-5.4-nano"}
-	models = withEffortVariants(models, base56...)
-	constructor := func(apiKey, apiBase, modelType, modelName string, maxTokens int, temperature float64) Provider {
-		return newOpenAIProvider(apiKey, apiBase, modelType, modelName, maxTokens, temperature)
-	}
-
-	// Every gpt-5.6 entry — base and effort variants — shares the same
-	// price-break window (see gpt56ContextWindow).
-	windowsFor := func(gpt55, gpt54, mini, nano int) map[string]int {
-		w := map[string]int{
-			"gpt-5.5":      gpt55,
-			"gpt-5.4":      gpt54,
-			"gpt-5.4-mini": mini,
-			"gpt-5.4-nano": nano,
-		}
-		for _, m := range base56 {
-			w[m] = gpt56ContextWindow
-			for _, e := range reasoningEfforts {
-				w[m+"["+e+"]"] = gpt56ContextWindow
-			}
-		}
-		return w
-	}
-
-	// "openai" — API key auth, hits api.openai.com directly. Context windows
-	// reflect the model's full API capacity, except for gpt-5.6: see
-	// gpt56ContextWindow below.
-	RegisterProvider("openai", ProviderRegistration{
-		Models:         models,
-		VisionModels:   models,
-		ContextWindows: windowsFor(1048576, 1048576, 400000, 200000),
-		EnvKey:         "OPENAI_API_KEY",
-		EnvBase:        "OPENAI_API_BASE",
-		Constructor:    constructor,
+	// "openai": API key auth against api.openai.com. Context windows reflect
+	// each model's full API capacity, except for the families with a
+	// long-context price break (see longContextPriceBreak).
+	openAIModels := append([]openAIModel{
+		{"gpt-5.6-sol", effortsToXHigh, longContextPriceBreak},
+		{"gpt-5.6-terra", effortsToXHigh, longContextPriceBreak},
+		{"gpt-5.6-luna", effortsToXHigh, longContextPriceBreak},
+		{"gpt-5.5", nil, 1048576},
+		{"gpt-5.4", nil, 1048576},
+		{"gpt-5.4-mini", nil, 400000},
+		{"gpt-5.4-nano", nil, 200000},
+	}, gpt6Models...)
+	registerOpenAIModels("openai", openAIModels, ProviderRegistration{
+		EnvKey:  "OPENAI_API_KEY",
+		EnvBase: "OPENAI_API_BASE",
+		Constructor: func(apiKey, apiBase, modelType, modelName string, maxTokens int, temperature float64) Provider {
+			return newOpenAIProvider(apiKey, apiBase, modelType, modelName, maxTokens, temperature)
+		},
 	})
 
-	// "openai-oauth" — OAuth token auth via the ChatGPT codex backend
-	// (chatgpt.com/backend-api/codex). Context limits are sourced from
-	// GET /backend-api/codex/models?client_version=1.0.0.
-	RegisterProvider("openai-oauth", ProviderRegistration{
-		Models:         models,
-		VisionModels:   models,
-		ContextWindows: windowsFor(272000, 272000, 272000, 272000),
-		Constructor:    constructor,
+	// "openai-oauth": a ChatGPT subscription shared through "Sign in with
+	// ChatGPT" (nagobot auth openai), calling the same api.openai.com
+	// Responses endpoint with the user's access token. The model list is the
+	// subscription catalog (GET /v1/models with that token): gpt-5.5 and
+	// gpt-5.4 are not offered on this route. The API base is fixed; an
+	// OPENAI_API_BASE or providers.openai.apiBase meant for the API-key
+	// provider must not redirect a subscription token elsewhere.
+	oauthModels := append(append([]openAIModel{}, gpt6Models...),
+		openAIModel{"gpt-5.6-sol", effortsToUltra, longContextPriceBreak},
+		openAIModel{"gpt-5.6-terra", effortsToUltra, longContextPriceBreak},
+		openAIModel{"gpt-5.6-luna", effortsToMax, longContextPriceBreak},
+	)
+	registerOpenAIModels("openai-oauth", oauthModels, ProviderRegistration{
+		Constructor: func(apiKey, _, modelType, modelName string, maxTokens int, temperature float64) Provider {
+			p := newOpenAIProvider(apiKey, openAIAPIBase, modelType, modelName, maxTokens, temperature)
+			p.subscription = true
+			return p
+		},
 	})
 }
 
@@ -166,141 +144,12 @@ type OpenAIProvider struct {
 	maxTokens   int
 	temperature float64
 	httpClient  *http.Client
-	accountID   string // ChatGPT account ID from OAuth id_token
 
-	// Continuation state for previous_response_id chaining. The provider
-	// instance is turn-scoped (ProviderFactory.Create() builds a fresh one per
-	// turn — see thread.resolveProvider), but this state is session-scoped: at
-	// the end of a healthy turn Close() parks it in the WSPool together with
-	// the connection it is valid on, and the next turn's ensureWSConn adopts
-	// both. Only reachable on the OAuth/ChatGPT-Codex backend (accountID !=
-	// "") and only actually usable over the WebSocket transport below — see
-	// wsFailed. lastInputItems is the full logical input array (in Responses
-	// API item form) as of the last successful call, plus a synthesized echo
-	// of that call's own assistant reply — i.e. everything the server already
-	// knows as of lastResponseID. lastInstructions/lastToolsFP snapshot the
-	// request attributes that must ALSO be unchanged for a delta to be valid
-	// (mirroring codex's responses_request_properties_match): sending
-	// previous_response_id with different instructions or tools is undefined
-	// server behavior, so any mismatch drops to full context.
-	lastResponseID   string
-	lastInputItems   []map[string]any
-	lastInstructions string
-	lastToolsFP      string
-
-	// Cross-turn connection pool, injected by the Factory (nil outside it,
-	// e.g. in tests). poolKey is derived on first use from the session key in
-	// ctx plus the model name; empty means this turn cannot pool (no session
-	// key — one-off calls). wsFromPool records whether the current wsConn was
-	// adopted from the pool: a pooled socket may have died while parked, so
-	// its first failure gets one redial instead of demoting the whole turn to
-	// HTTP full-context (which would be strictly worse than not pooling).
-	pool       *WSPool
-	poolKey    string
-	wsFromPool bool
-
-	// WebSocket transport state (OAuth/ChatGPT-Codex backend only). One
-	// connection is dialed lazily on first use and reused for every
-	// subsequent tool-call iteration within this provider instance's turn,
-	// matching the Codex backend's requirement that previous_response_id
-	// only works inside the WS session that produced it. wsFailed is sticky:
-	// once the WS transport fails for any reason (dial, write, or a stream
-	// error before anything was emitted), the rest of the turn falls back to
-	// plain HTTP (full context, no continuation) instead of repeatedly
-	// retrying a bad connection or network path.
-	// wsRequestID is sent as both session_id and x-client-request-id on the
-	// WS handshake. Derived from the session key (stable across turns) when
-	// ctx carries one, random otherwise — see ensureWSConn.
-	wsConn      *websocket.Conn
-	wsFailed    bool
-	wsRequestID string
-	wsQuota     *Quota
-}
-
-// invalidateContinuation drops any previous_response_id chain, forcing the
-// next call to send full context. Called after any failure so a bad or
-// expired response id can't be reused.
-func (p *OpenAIProvider) invalidateContinuation() {
-	p.lastResponseID = ""
-	p.lastInputItems = nil
-	p.lastInstructions = ""
-	p.lastToolsFP = ""
-}
-
-// updateContinuation records the continuation state after a successful
-// response, so the next call — the next tool-call iteration within this turn,
-// or the next turn's first call after the pool round trip — can send only the
-// delta.
-func (p *OpenAIProvider) updateContinuation(built *builtRequest, responseID string, resp *Response) {
-	if responseID == "" {
-		p.invalidateContinuation()
-		return
-	}
-	echo := assistantMessageToInputItems(Message{
-		Content:          resp.Content,
-		ReasoningDetails: resp.ReasoningDetails,
-		ToolCalls:        resp.ToolCalls,
-	})
-	baseline := make([]map[string]any, 0, len(built.fullItems)+len(echo))
-	baseline = append(baseline, built.fullItems...)
-	baseline = append(baseline, echo...)
-	p.lastResponseID = responseID
-	p.lastInputItems = baseline
-	p.lastInstructions = built.instructions
-	p.lastToolsFP = built.toolsFP
-}
-
-// SetAccountID sets the ChatGPT account ID for OAuth-based requests.
-func (p *OpenAIProvider) SetAccountID(id string) {
-	p.accountID = id
-}
-
-// setWSPool implements wsPoolSetter; the Factory injects its process-wide
-// pool here so connections can outlive this turn-scoped provider instance.
-func (p *OpenAIProvider) setWSPool(pool *WSPool) {
-	p.pool = pool
-}
-
-// Close implements the optional provider.Closer interface —
-// thread.executeRunner defer-calls this once the turn's Runner loop ends.
-// A healthy connection is parked in the session pool together with its
-// continuation state (they are only valid together); anything else is torn
-// down. Safe to call multiple times.
-//
-// Error paths inside a turn must NOT call this: they run before wsFailed is
-// set, so the health check here would happily park a broken connection. They
-// call closeHard instead.
-func (p *OpenAIProvider) Close() {
-	if p.wsConn == nil {
-		return
-	}
-	if p.wsFailed || p.pool == nil || p.poolKey == "" {
-		p.closeHard()
-		return
-	}
-	entry := &wsPoolEntry{
-		conn:             p.wsConn,
-		lastResponseID:   p.lastResponseID,
-		lastInputItems:   p.lastInputItems,
-		lastInstructions: p.lastInstructions,
-		lastToolsFP:      p.lastToolsFP,
-		wsQuota:          p.wsQuota,
-		baseURL:          p.baseURL,
-		accountID:        p.accountID,
-	}
-	p.wsConn = nil
-	p.wsFromPool = false
-	p.pool.Put(p.poolKey, entry)
-}
-
-// closeHard tears the WebSocket connection down immediately and never parks
-// it. The teardown path for every in-turn failure.
-func (p *OpenAIProvider) closeHard() {
-	if p.wsConn != nil {
-		p.wsConn.Close()
-		p.wsConn = nil
-	}
-	p.wsFromPool = false
+	// subscription marks the openai-oauth provider: the bearer is a ChatGPT
+	// subscription token, not an API key. The route rejects temperature
+	// (400 "Unsupported parameter") and only caches prompts for requests that
+	// carry the session affinity headers (see doRequest).
+	subscription bool
 }
 
 func newOpenAIProvider(apiKey, apiBase, modelType, modelName string, maxTokens int, temperature float64) *OpenAIProvider {
@@ -324,360 +173,22 @@ func newOpenAIProvider(apiKey, apiBase, modelType, modelName string, maxTokens i
 	}
 }
 
-// Chat sends a chat completion request. On the OAuth/ChatGPT-Codex backend it
-// prefers a persistent WebSocket connection — required for
-// previous_response_id delta continuation, see wsFailed's doc comment above.
-// Any other provider, or any WebSocket failure, uses plain HTTP with full
-// context.
+// Chat sends one full-context request over HTTP/SSE. There is no
+// previous_response_id chaining: the subscription route requires store=false,
+// so the server keeps nothing to chain from, and a stable prompt_cache_key plus
+// the session affinity headers already make the repeated prefix a cache hit.
 func (p *OpenAIProvider) Chat(ctx context.Context, req *Request) (ChatResult, error) {
-	if p.accountID != "" && !p.wsFailed {
-		return p.chatViaWS(ctx, req)
-	}
-	return p.chatViaHTTP(ctx, req)
-}
-
-// chatViaWS sends the request over the Codex backend's WebSocket transport,
-// reusing this provider instance's connection across calls so
-// previous_response_id chaining is valid. Any failure before the dial or the
-// initial send falls back to chatViaHTTP synchronously; a stream failure that
-// happens after the goroutine is already returning deltas to the caller
-// cannot be silently retried (some output may already be visible), so it is
-// only retried if nothing was emitted yet.
-//
-// Connections adopted from the WSPool get one extra chance on both the write
-// and the pre-emission stream path: a socket that died while parked must cost
-// at most a redial (what a pool miss would have cost), never the demotion of
-// the whole turn to HTTP full-context — that would also forfeit the in-turn
-// delta calls and make pooling strictly worse than not pooling.
-func (p *OpenAIProvider) chatViaWS(ctx context.Context, req *Request) (ChatResult, error) {
-	start := time.Now()
-	nInputChars := inputChars(req.Messages)
-
-	conn, built, err := p.writeWSRequest(ctx, req, nInputChars)
-	if err != nil {
-		logger.Warn("openai-oauth websocket unavailable, falling back to HTTP for the rest of this turn", "err", err)
-		p.closeHard()
-		p.wsFailed = true
-		p.invalidateContinuation()
-		return p.chatViaHTTP(ctx, req)
-	}
-	fromPool := p.wsFromPool
-
-	resp := &Response{ProviderLabel: "openai-oauth", ModelLabel: p.modelName}
-	adapter := newStreamAdapter(ctx, resp)
-
-	go func() {
-		defer adapter.Finish()
-
-		responseID, emitted, perr := p.parseWSStream(ctx, conn, adapter)
-		if perr != nil && !emitted && fromPool {
-			// The parked socket was stale (server dropped its state or the
-			// connection died without an RST). Nothing was emitted, so retry
-			// once on a fresh dial — full context, since the continuation
-			// died with the old connection.
-			logger.Warn("openai-oauth pooled websocket stream failed before any output, redialing once", "err", perr)
-			p.closeHard()
-			p.invalidateContinuation()
-			conn2, built2, werr := p.writeWSRequest(ctx, req, nInputChars)
-			if werr != nil {
-				perr = werr
-			} else {
-				built = built2
-				responseID, emitted, perr = p.parseWSStream(ctx, conn2, adapter)
-			}
-		}
-		if perr != nil {
-			p.closeHard()
-			p.wsFailed = true
-			p.invalidateContinuation()
-			if !emitted {
-				logger.Warn("openai-oauth websocket stream failed before any output, retrying with full context over HTTP",
-					"err", perr)
-				p.runHTTPStreamInto(ctx, req, adapter, resp, "openai-oauth", start)
-				return
-			}
-			logger.Error("openai-oauth websocket stream error", "err", perr)
-			adapter.SetError(perr)
-			return
-		}
-
-		p.updateContinuation(built, responseID, resp)
-		if p.wsQuota != nil {
-			resp.Quota = p.wsQuota
-		}
-
-		logger.Info(
-			"openai response",
-			"provider", resp.ProviderLabel,
-			"transport", "ws",
-			"modelType", p.modelType,
-			"modelName", p.modelName,
-			"hasToolCalls", len(resp.ToolCalls) > 0,
-			"toolCallCount", len(resp.ToolCalls),
-			"promptTokens", resp.Usage.PromptTokens,
-			"completionTokens", resp.Usage.CompletionTokens,
-			"reasoningTokens", resp.Usage.ReasoningTokens,
-			"cachedTokens", resp.Usage.CachedTokens,
-			"cacheWriteTokens", resp.Usage.CacheWriteTokens,
-			"totalTokens", resp.Usage.TotalTokens,
-			"outputChars", len(resp.Content),
-			"usedDelta", built.usedDelta,
-			"latencyMs", time.Since(start).Milliseconds(),
-		)
-	}()
-
-	return adapter.Result(), nil
-}
-
-// writeWSRequest obtains a connection (pooled or freshly dialed), builds the
-// request body against whatever continuation state is current, and writes it.
-// A write failure on a pooled connection gets exactly one retry: drop the
-// stale socket, invalidate the continuation, redial, REBUILD the body (the
-// delta body references a previous_response_id that died with the old
-// connection), and write again. A fresh connection's write failure is
-// returned to the caller, which falls back to HTTP — same as before pooling.
-func (p *OpenAIProvider) writeWSRequest(ctx context.Context, req *Request, nInputChars int) (*websocket.Conn, *builtRequest, error) {
-	for attempt := 0; ; attempt++ {
-		conn, err := p.ensureWSConn(ctx)
-		if err != nil {
-			return nil, nil, err
-		}
-
-		built, err := p.buildRequestBody(ctx, req, false)
-		if err != nil {
-			return nil, nil, fmt.Errorf("failed to build request: %w", err)
-		}
-
-		logger.Info(
-			"openai request",
-			"provider", "openai-oauth",
-			"transport", "ws",
-			"modelType", p.modelType,
-			"modelName", p.modelName,
-			"toolCount", len(req.Tools),
-			"inputChars", nInputChars,
-			"usedDelta", built.usedDelta,
-			"fromPool", p.wsFromPool,
-			"attempt", attempt,
-		)
-
-		wsMsg := make(map[string]any, len(built.bodyMap)+1)
-		maps.Copy(wsMsg, built.bodyMap)
-		wsMsg["type"] = "response.create"
-
-		// The write needs its own deadline, not the caller's context: gorilla's
-		// WriteJSON does not take one, so a peer that stops draining the socket
-		// mid-request would block here with no way for a cancelled ctx to reach it.
-		// Requests are large (hundreds of KB of context is normal) but they go to a
-		// socket that was healthy seconds ago, so a minute is silence, not slowness.
-		_ = conn.SetWriteDeadline(time.Now().Add(wsRequestWriteTimeout))
-		if werr := conn.WriteJSON(wsMsg); werr != nil {
-			wasPooled := p.wsFromPool
-			p.closeHard()
-			p.invalidateContinuation()
-			if wasPooled && attempt == 0 {
-				logger.Warn("openai-oauth pooled websocket write failed, redialing once", "err", werr)
-				continue
-			}
-			return nil, nil, werr
-		}
-		return conn, built, nil
-	}
-}
-
-// ensureWSConn returns a WebSocket connection to the Codex backend: the one
-// already in use this turn, a healthy one adopted from the session pool
-// (together with the continuation state that is only valid on it), or a
-// freshly dialed one. previous_response_id continuation is scoped to the WS
-// session that produced the referenced response, which is why the connection
-// and the continuation state always travel together.
-func (p *OpenAIProvider) ensureWSConn(ctx context.Context) (*websocket.Conn, error) {
-	if p.wsConn != nil {
-		return p.wsConn, nil
-	}
-
-	if p.poolKey == "" {
-		if sk := sessionCacheKey(ctx); sk != "" {
-			p.poolKey = sk + "|" + p.modelName
-		}
-	}
-	if p.pool != nil && p.poolKey != "" {
-		if e := p.pool.Take(p.poolKey, p.baseURL, p.accountID); e != nil {
-			p.wsConn = e.conn
-			p.lastResponseID = e.lastResponseID
-			p.lastInputItems = e.lastInputItems
-			p.lastInstructions = e.lastInstructions
-			p.lastToolsFP = e.lastToolsFP
-			p.wsQuota = e.wsQuota
-			p.wsFromPool = true
-			logger.Info("openai ws pool hit", "key", p.poolKey, "hasContinuation", e.lastResponseID != "")
-			return e.conn, nil
-		}
-		logger.Info("openai ws pool miss", "key", p.poolKey)
-	}
-
-	if p.wsRequestID == "" {
-		// Prefer a per-session stable id over a random one: the backend uses
-		// session_id for cache-affine routing, so a value that survives across
-		// turns lets each new turn's first full-context call land on the shard
-		// that still holds the previous turn's prompt cache.
-		p.wsRequestID = sessionCacheKey(ctx)
-		if p.wsRequestID == "" {
-			p.wsRequestID = randomHex(16)
-		}
-	}
-
-	header := http.Header{}
-	header.Set("Authorization", "Bearer "+p.apiKey)
-	header.Set("ChatGPT-Account-ID", p.accountID)
-	header.Set("originator", "nagobot")
-	header.Set("User-Agent", "nagobot/1.0")
-	header.Set("OpenAI-Beta", openAIBetaWebSockets)
-	header.Set("x-client-request-id", p.wsRequestID)
-	header.Set("session_id", p.wsRequestID)
-
-	conn, httpResp, err := websocket.DefaultDialer.DialContext(ctx, openAIChatGPTWSURL, header)
-	if err != nil {
-		return nil, err
-	}
-	if httpResp != nil {
-		p.wsQuota = extractQuota(httpResp.Header)
-	}
-	p.wsConn = conn
-	p.wsFromPool = false
-	return conn, nil
-}
-
-// parseWSStream reads WebSocket text frames from an already-open Codex
-// connection until one full response completes, assembling it the same way
-// parseSSEStream does over HTTP — same event vocabulary, different framing
-// (one JSON object per WS message instead of SSE "data:" lines). Unlike the
-// HTTP path, the connection is NOT closed after one response — it is reused
-// for the next call — so this loop must stop explicitly on a completion
-// event rather than relying on EOF. A watcher goroutine closes the
-// connection if ctx is cancelled, since gorilla/websocket reads don't
-// otherwise respect context cancellation.
-//
-// It also has to survive a server that says nothing at all. On 2026-07-11 the
-// Codex backend accepted a request on a freshly dialed socket, wrote no frame,
-// and did not close: the read below blocked, the turn never ended, and the
-// thread stayed wedged until the daemon was restarted — no error, no timeout,
-// no reply. The failure was invisible precisely because nothing failed. Two
-// independent clocks now bound that silence:
-//
-//   - wsStallTimeout, a read deadline refreshed on every frame. It measures
-//     silence in RESPONSE EVENTS, which is why the pong handler deliberately
-//     does NOT extend it. A socket that dutifully answers pings while its
-//     backend has forgotten the request is exactly the case that hung us, and
-//     a pong-extended deadline would have slept through it.
-//   - wsPingInterval, a keepalive ping whose missing pong reveals a peer that
-//     has gone away without an RST — the ordinary NAT/proxy death, which the
-//     stall deadline would otherwise take two minutes to notice.
-//
-// Either one trips a read error, which is a language the caller already speaks:
-// chatViaWS marks the transport failed and, since nothing was emitted, retries
-// the whole request over HTTP with full context. The recovery path was always
-// there. It just had no way to be reached.
-func (p *OpenAIProvider) parseWSStream(ctx context.Context, conn *websocket.Conn, adapter *streamAdapter) (responseID string, emitted bool, err error) {
-	watchDone := make(chan struct{})
-	defer close(watchDone)
-	go func() {
-		select {
-		case <-ctx.Done():
-			// Both channels can be ready at once: the caller cancels its
-			// per-call context right after the response completes, and this
-			// goroutine may not have been scheduled until then. Closing the
-			// connection there would destroy a healthy socket the next
-			// tool-call iteration is about to reuse for previous_response_id
-			// continuation, so a finished stream always wins the tie.
-			select {
-			case <-watchDone:
-			default:
-				conn.Close()
-			}
-		case <-watchDone:
-		}
-	}()
-
-	// A pong proves the peer is alive; its ABSENCE only proves something once we
-	// know this peer answers pings at all. RFC 6455 makes a pong mandatory, but
-	// betting the working transport on a remote server's RFC compliance is a bad
-	// trade — if chatgpt.com ever declined to pong, enforcing the timeout would
-	// tear down healthy connections mid-response to defend against a dead-peer
-	// case we have never actually seen. So enforcement arms itself on the first
-	// pong received. Until then the stall deadline above is the only guard, which
-	// is exactly the guard the observed failure needed.
-	var lastPong atomic.Int64
-	conn.SetPongHandler(func(string) error {
-		lastPong.Store(time.Now().UnixNano())
-		return nil
-	})
-	go func() {
-		t := time.NewTicker(wsPingInterval)
-		defer t.Stop()
-		for {
-			select {
-			case <-t.C:
-				// WriteControl is the one write method gorilla documents as safe
-				// to call concurrently with the request write on another goroutine.
-				if err := conn.WriteControl(websocket.PingMessage, nil, time.Now().Add(wsWriteTimeout)); err != nil {
-					return // the read side will see the same broken socket
-				}
-				seen := lastPong.Load()
-				if seen == 0 {
-					continue // this peer has never ponged; not our business to judge it
-				}
-				if since := time.Since(time.Unix(0, seen)); since > wsPongTimeout {
-					logger.Warn("openai-oauth websocket peer stopped answering pings, closing",
-						"sincePong", since.Round(time.Second))
-					conn.Close()
-					return
-				}
-			case <-watchDone:
-				return
-			}
-		}
-	}()
-
-	asm := newResponseAssembler(adapter)
-	for {
-		if err := conn.SetReadDeadline(time.Now().Add(wsStallTimeout)); err != nil {
-			return "", asm.emitted, fmt.Errorf("setting websocket read deadline: %w", err)
-		}
-		_, data, readErr := conn.ReadMessage()
-		if readErr != nil {
-			return "", asm.emitted, fmt.Errorf("reading websocket stream: %w", readErr)
-		}
-		done, evErr := asm.handleEvent(data)
-		if evErr != nil {
-			return "", asm.emitted, evErr
-		}
-		if done {
-			break
-		}
-	}
-	asm.finish()
-	return asm.responseID, asm.emitted, nil
-}
-
-// chatViaHTTP sends one full-context request over plain HTTP/SSE. Used for
-// the non-OAuth (api.openai.com, API-key) path always, and as the sticky
-// fallback for openai-oauth once the WebSocket transport has failed for this
-// turn — the Codex backend never accepts previous_response_id outside a WS
-// session, so this path always sends full context.
-func (p *OpenAIProvider) chatViaHTTP(ctx context.Context, req *Request) (ChatResult, error) {
 	start := time.Now()
 	inputChars := inputChars(req.Messages)
 
 	providerLabel := "openai"
-	if p.accountID != "" {
+	if p.subscription {
 		providerLabel = "openai-oauth"
 	}
 
 	logger.Info(
 		"openai request",
 		"provider", providerLabel,
-		"transport", "http",
 		"modelType", p.modelType,
 		"modelName", p.modelName,
 		"toolCount", len(req.Tools),
@@ -689,69 +200,55 @@ func (p *OpenAIProvider) chatViaHTTP(ctx context.Context, req *Request) (ChatRes
 
 	go func() {
 		defer adapter.Finish()
-		p.runHTTPStreamInto(ctx, req, adapter, resp, providerLabel, start)
+		p.runHTTPStream(ctx, req, adapter, resp, start)
 	}()
 
 	return adapter.Result(), nil
 }
 
-// runHTTPStreamInto performs one full-context HTTP request/SSE cycle,
-// feeding results into an already-returned adapter. Used both as
-// chatViaHTTP's own goroutine body, and inline (same goroutine, no nested
-// adapter/Finish) as the WS-failure fallback in chatViaWS — so a broken
-// WebSocket never fails a turn outright as long as nothing was streamed to
-// the caller yet.
-func (p *OpenAIProvider) runHTTPStreamInto(ctx context.Context, req *Request, adapter *streamAdapter, resp *Response, providerLabel string, start time.Time) {
-	built, err := p.buildRequestBody(ctx, req, true)
+// runHTTPStream performs one HTTP request/SSE cycle, feeding results into the
+// already-returned adapter.
+func (p *OpenAIProvider) runHTTPStream(ctx context.Context, req *Request, adapter *streamAdapter, resp *Response, start time.Time) {
+	body, err := p.buildRequestBody(ctx, req)
 	if err != nil {
 		adapter.SetError(fmt.Errorf("failed to build request: %w", err))
 		return
 	}
-	marshaled, err := json.Marshal(built.bodyMap)
+	marshaled, err := json.Marshal(body)
 	if err != nil {
 		adapter.SetError(fmt.Errorf("failed to encode request: %w", err))
 		return
 	}
 
-	base := p.baseURL
-	if p.accountID != "" {
-		base = openAIChatGPTBase
-	}
-	url := base + "/responses"
-
-	httpResp, err := p.doRequest(ctx, url, marshaled)
+	httpResp, err := p.doRequest(ctx, p.baseURL+"/responses", marshaled)
 	if err != nil {
-		logger.Error("openai request error", "provider", providerLabel, "err", err)
+		logger.Error("openai request error", "provider", resp.ProviderLabel, "err", err)
 		adapter.SetError(fmt.Errorf("request failed: %w", err))
 		return
 	}
 	if httpResp.StatusCode != http.StatusOK {
 		errBody, _ := io.ReadAll(httpResp.Body)
 		httpResp.Body.Close()
-		logger.Error("openai request error", "provider", providerLabel, "status", httpResp.StatusCode, "body", string(errBody))
+		logger.Error("openai request error", "provider", resp.ProviderLabel, "status", httpResp.StatusCode, "body", string(errBody))
+		if code, msg := responsesErrorCode(errBody); isSubscriptionErrorCode(code) {
+			adapter.SetError(subscriptionError(code, msg))
+			return
+		}
 		adapter.SetError(fmt.Errorf("request failed: %d %s", httpResp.StatusCode, string(errBody)))
 		return
 	}
 
-	_, _, perr := p.parseSSEStream(httpResp, adapter)
+	perr := parseSSEStream(httpResp, adapter)
 	httpResp.Body.Close()
 	if perr != nil {
-		logger.Error("openai SSE parse error", "provider", providerLabel, "err", perr)
+		logger.Error("openai SSE parse error", "provider", resp.ProviderLabel, "err", perr)
 		adapter.SetError(perr)
 		return
-	}
-
-	// HTTP never chains previous_response_id (the Codex backend rejects it
-	// outside a WebSocket session) — nothing to record for the next call.
-
-	if p.accountID != "" {
-		resp.Quota = extractQuota(httpResp.Header)
 	}
 
 	logger.Info(
 		"openai response",
 		"provider", resp.ProviderLabel,
-		"transport", "http",
 		"modelType", p.modelType,
 		"modelName", p.modelName,
 		"hasToolCalls", len(resp.ToolCalls) > 0,
@@ -768,6 +265,12 @@ func (p *OpenAIProvider) runHTTPStreamInto(ctx context.Context, req *Request, ad
 }
 
 // doRequest issues one POST to the Responses API with the given pre-built body.
+//
+// On the subscription route the three affinity headers are what make prompt
+// caching work at all: measured on gpt-6-luna, the same 14K-token prefix sent
+// twice cached 14208/14418 tokens with them and 0 without, prompt_cache_key
+// alone notwithstanding. They carry the same hashed session key as
+// prompt_cache_key, so one session lands on one cache shard across turns.
 func (p *OpenAIProvider) doRequest(ctx context.Context, url string, body []byte) (*http.Response, error) {
 	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(body))
 	if err != nil {
@@ -776,39 +279,14 @@ func (p *OpenAIProvider) doRequest(ctx context.Context, url string, body []byte)
 	httpReq.Header.Set("Content-Type", "application/json")
 	httpReq.Header.Set("Accept", "text/event-stream")
 	httpReq.Header.Set("Authorization", "Bearer "+p.apiKey)
-	if p.accountID != "" {
-		httpReq.Header.Set("ChatGPT-Account-ID", p.accountID)
+	if p.subscription {
+		if key := sessionCacheKey(ctx); key != "" {
+			httpReq.Header.Set("session-id", key)
+			httpReq.Header.Set("thread-id", key)
+			httpReq.Header.Set("x-client-request-id", key)
+		}
 	}
 	return p.httpClient.Do(httpReq)
-}
-
-// builtRequest is the result of buildRequestBody: the Responses API request
-// body (as a map, marshaled by whichever transport sends it) plus the
-// bookkeeping needed to maintain (or retry) previous_response_id chaining.
-type builtRequest struct {
-	bodyMap      map[string]any
-	usedDelta    bool             // true if body carries previous_response_id + partial input
-	fullItems    []map[string]any // full logical input array as of this call (pre-delta-slicing)
-	instructions string           // joined system messages as sent — snapshotted into continuation state
-	toolsFP      string           // fingerprint of the converted tools array — ditto
-}
-
-// toolsFingerprint hashes the converted tools array. json.Marshal sorts map
-// keys, so identical tool sets always fingerprint identically.
-func toolsFingerprint(tools []map[string]any) string {
-	if len(tools) == 0 {
-		return ""
-	}
-	b, err := json.Marshal(tools)
-	if err != nil {
-		// Unreachable for map/string-valued tool defs; the constant keeps the
-		// signature total. (Two unmarshalable arrays would falsely match, but
-		// an unmarshalable tools array would already have broken the request
-		// marshal itself long before caching mattered.)
-		return "unmarshalable"
-	}
-	sum := sha256.Sum256(b)
-	return hex.EncodeToString(sum[:])
 }
 
 // userMessageToInputItems converts a single user-role message to Responses API
@@ -842,10 +320,7 @@ func userMessageToInputItems(msg Message) []map[string]any {
 
 // assistantMessageToInputItems converts a single assistant-role message to
 // Responses API input items: an optional output_text message, reasoning items
-// (unless trimmed), then one function_call item per tool call. Used both for
-// full-history conversion and to synthesize the "echo" of a just-completed
-// response so continuation bookkeeping matches exactly what a later replay of
-// the same message would produce.
+// (unless trimmed), then one function_call item per tool call.
 func assistantMessageToInputItems(msg Message) []map[string]any {
 	var input []map[string]any
 	if msg.Content != "" {
@@ -962,34 +437,19 @@ func convertMessagesToInputItems(messages []Message) []map[string]any {
 
 // buildRequestBody converts internal Request to Responses API JSON.
 //
-// On the OAuth/ChatGPT-Codex backend (accountID != ""), if this provider
-// instance already completed an earlier call in the same turn (lastResponseID
-// set) and the freshly-reconstructed input array still starts with exactly
-// what was recorded as the server's known state (lastInputItems), only the
-// new tail is sent along with previous_response_id — the server reconstructs
-// the rest. Any mismatch (compression touched old history, first call, retry
-// after rejection, or forceFullContext) falls back to sending everything, so
-// correctness never depends on the delta path succeeding.
-//
 // ctx supplies the session key (via provider.WithSessionKey) used to derive
-// prompt_cache_key — stable per session so full-context calls across turns
-// route to the same server-side prompt cache shard.
-func (p *OpenAIProvider) buildRequestBody(ctx context.Context, req *Request, forceFullContext bool) (*builtRequest, error) {
-	// Extract system messages into instructions — recomputed fully every call
-	// regardless of delta/full mode.
+// prompt_cache_key, stable per session so calls across turns route to the
+// same server-side prompt cache shard.
+func (p *OpenAIProvider) buildRequestBody(ctx context.Context, req *Request) (map[string]any, error) {
 	var instructions []string
 	for _, msg := range req.Messages {
 		if msg.Role == "system" {
 			instructions = append(instructions, msg.Content)
 		}
 	}
-
 	joinedInstructions := strings.Join(instructions, "\n\n")
 
-	fullItems := convertMessagesToInputItems(req.Messages)
-
-	// Convert tools to Responses API format (flat structure). Done before the
-	// delta gate below because the gate needs the tools fingerprint.
+	// Convert tools to Responses API format (flat structure).
 	var tools []map[string]any
 	for _, t := range req.Tools {
 		tool := map[string]any{
@@ -1002,67 +462,21 @@ func (p *OpenAIProvider) buildRequestBody(ctx context.Context, req *Request, for
 		}
 		tools = append(tools, tool)
 	}
-	toolsFP := toolsFingerprint(tools)
-
-	input := fullItems
-	usedDelta := false
-	previousResponseID := ""
-	if !forceFullContext && p.accountID != "" && p.lastResponseID != "" {
-		// A delta is valid only when the request is an extension of what the
-		// server already holds: same instructions, same tools, and an input
-		// array whose head is byte-for-byte what was sent (plus the echoed
-		// reply). Within a turn the attributes are frozen so only the prefix
-		// check bites; across turns (pooled continuation) instructions change
-		// on {{DATE}} rollover, USER.md rewrites, or skill hot-reloads —
-		// sending previous_response_id with different attributes is undefined
-		// server behavior, so mirror codex's responses_request_properties_match
-		// and drop to full context instead.
-		attrsMatch := joinedInstructions == p.lastInstructions && toolsFP == p.lastToolsFP
-		if attrsMatch &&
-			len(fullItems) >= len(p.lastInputItems) &&
-			reflect.DeepEqual(fullItems[:len(p.lastInputItems)], p.lastInputItems) {
-			input = fullItems[len(p.lastInputItems):]
-			usedDelta = true
-			previousResponseID = p.lastResponseID
-		} else if !attrsMatch {
-			logger.Info("openai continuation dropped: request attributes changed",
-				"instructionsChanged", joinedInstructions != p.lastInstructions,
-				"toolsChanged", toolsFP != p.lastToolsFP)
-			p.invalidateContinuation()
-		} else {
-			// History prefix changed: compression rewrote it, or the context
-			// budget guard advanced its head trim. Never leave this silent —
-			// exactly this silence hid the budget-trim oscillation that broke
-			// cross-turn delta on every other turn (2026-07-12).
-			firstDiff := -1
-			n := min(len(fullItems), len(p.lastInputItems))
-			for i := 0; i < n; i++ {
-				if !reflect.DeepEqual(fullItems[i], p.lastInputItems[i]) {
-					firstDiff = i
-					break
-				}
-			}
-			logger.Info("openai continuation dropped: history prefix changed",
-				"baselineItems", len(p.lastInputItems),
-				"rebuiltItems", len(fullItems),
-				"firstDiff", firstDiff)
-		}
-	}
 
 	// A bracket suffix on the model name ("gpt-5.6-sol[low]") selects the
-	// reasoning effort explicitly. Without one, default to high — except
-	// gpt-5.6-sol, which burns tokens too fast at high effort for everyday use.
+	// reasoning effort explicitly. Without one, default to high, except the
+	// sol tier, which burns tokens too fast at high effort for everyday use.
 	apiModel, effort := parseModelEffort(p.modelName)
 	if effort == "" {
 		effort = "high"
-		if apiModel == "gpt-5.6-sol" {
+		if strings.HasSuffix(apiModel, "-sol") {
 			effort = "medium"
 		}
 	}
 
 	body := map[string]any{
 		"model":   apiModel,
-		"input":   input,
+		"input":   convertMessagesToInputItems(req.Messages),
 		"stream":  true,
 		"store":   false,
 		"include": []string{"reasoning.encrypted_content"},
@@ -1070,9 +484,6 @@ func (p *OpenAIProvider) buildRequestBody(ctx context.Context, req *Request, for
 			"effort":  effort,
 			"summary": "auto",
 		},
-	}
-	if previousResponseID != "" {
-		body["previous_response_id"] = previousResponseID
 	}
 	if cacheKey := sessionCacheKey(ctx); cacheKey != "" {
 		body["prompt_cache_key"] = cacheKey
@@ -1087,38 +498,22 @@ func (p *OpenAIProvider) buildRequestBody(ctx context.Context, req *Request, for
 		body["tools"] = tools
 		body["tool_choice"] = "auto"
 	}
-	// ChatGPT backend does not support max_output_tokens or temperature.
-	// Mini/nano models do not support temperature.
-	noTemp := p.accountID != "" || apiModel == "gpt-5.4-mini" || apiModel == "gpt-5.4-nano"
-	if p.accountID == "" {
-		if p.maxTokens > 0 {
-			body["max_output_tokens"] = p.maxTokens
-		}
-		if p.temperature != 0 && !noTemp {
-			body["temperature"] = p.temperature
-		}
+	if p.maxTokens > 0 {
+		body["max_output_tokens"] = p.maxTokens
 	}
-
-	return &builtRequest{
-		bodyMap:      body,
-		usedDelta:    usedDelta,
-		fullItems:    fullItems,
-		instructions: joinedInstructions,
-		toolsFP:      toolsFP,
-	}, nil
+	// The subscription route rejects temperature outright (400 "Unsupported
+	// parameter: temperature"), and so do the mini/nano models.
+	noTemp := p.subscription || apiModel == "gpt-5.4-mini" || apiModel == "gpt-5.4-nano"
+	if p.temperature != 0 && !noTemp {
+		body["temperature"] = p.temperature
+	}
+	return body, nil
 }
 
-// parseSSEStream reads an SSE event stream and assembles the complete response.
-// It populates the adapter's Response directly and emits deltas via the
-// adapter, using the same event-assembly logic as parseWSStream (see
-// responseAssembler).
-//
-// Returns the response's own id (for previous_response_id chaining — only
-// meaningful on the WS path, but harmless to compute here too) and whether
-// anything was ever emitted to the adapter — the caller uses "emitted" to
-// decide whether a failure is safe to silently retry (nothing has reached the
-// user/session yet) or must be surfaced.
-func (p *OpenAIProvider) parseSSEStream(httpResp *http.Response, adapter *streamAdapter) (responseID string, emitted bool, err error) {
+// parseSSEStream reads a Responses API SSE event stream and assembles the
+// complete response into the adapter's Response, emitting deltas as they
+// arrive.
+func parseSSEStream(httpResp *http.Response, adapter *streamAdapter) error {
 	asm := newResponseAssembler(adapter)
 
 	scanner := bufio.NewScanner(httpResp.Body)
@@ -1139,7 +534,7 @@ func (p *OpenAIProvider) parseSSEStream(httpResp *http.Response, adapter *stream
 
 		done, evErr := asm.handleEvent([]byte(data))
 		if evErr != nil {
-			return "", asm.emitted, evErr
+			return evErr
 		}
 		if done {
 			break
@@ -1147,19 +542,16 @@ func (p *OpenAIProvider) parseSSEStream(httpResp *http.Response, adapter *stream
 	}
 
 	if scanErr := scanner.Err(); scanErr != nil {
-		return "", asm.emitted, fmt.Errorf("reading SSE stream: %w", scanErr)
+		return fmt.Errorf("reading SSE stream: %w", scanErr)
 	}
 
 	asm.finish()
-	return asm.responseID, asm.emitted, nil
+	return nil
 }
 
 // responseAssembler processes the Responses API's streaming event vocabulary
 // (response.output_text.delta, response.output_item.done,
-// response.completed/done/incomplete, response.failed) — shared between the
-// SSE (HTTP) and WebSocket transports, since both carry identical JSON event
-// payloads and differ only in framing (SSE "data:" lines vs. one WS text
-// frame per event).
+// response.completed/done/incomplete, response.failed).
 type responseAssembler struct {
 	adapter *streamAdapter
 	resp    *Response
@@ -1169,8 +561,6 @@ type responseAssembler struct {
 	reasoningItems   []json.RawMessage
 	toolCalls        []ToolCall
 	toolCallSignaled bool
-	emitted          bool
-	responseID       string
 }
 
 func newResponseAssembler(adapter *streamAdapter) *responseAssembler {
@@ -1187,15 +577,12 @@ func (a *responseAssembler) handleEvent(data []byte) (done bool, err error) {
 		Delta    string         `json:"delta,omitempty"`
 		Item     map[string]any `json:"item,omitempty"`
 		Response struct {
-			ID    string `json:"id"`
 			Usage struct {
 				InputTokens  int `json:"input_tokens"`
 				OutputTokens int `json:"output_tokens"`
 				TotalTokens  int `json:"total_tokens"`
 				// Kept raw so the exact keys the server sent can be logged when
-				// they don't add up — see the cache-accounting check below. The
-				// ChatGPT/Codex backend and api.openai.com do not necessarily
-				// populate the same fields here.
+				// a details object fails to parse.
 				InputTokensDetails  json.RawMessage `json:"input_tokens_details"`
 				OutputTokensDetails struct {
 					ReasoningTokens int `json:"reasoning_tokens"`
@@ -1210,9 +597,6 @@ func (a *responseAssembler) handleEvent(data []byte) (done bool, err error) {
 
 	switch event.Type {
 	case "response.output_text.delta":
-		if event.Delta != "" {
-			a.emitted = true
-		}
 		a.adapter.EmitText(event.Delta)
 
 	case "response.reasoning_summary_text.delta", "response.reasoning_text.delta":
@@ -1225,7 +609,6 @@ func (a *responseAssembler) handleEvent(data []byte) (done bool, err error) {
 		if itemType, _ := event.Item["type"].(string); itemType == "function_call" {
 			if !a.toolCallSignaled {
 				a.toolCallSignaled = true
-				a.emitted = true
 				name, _ := event.Item["name"].(string)
 				a.adapter.EmitToolCall(name)
 			}
@@ -1233,7 +616,6 @@ func (a *responseAssembler) handleEvent(data []byte) (done bool, err error) {
 		a.extractOutputItem(event.Item)
 
 	case "response.completed", "response.done", "response.incomplete":
-		a.responseID = event.Response.ID
 		var inDetails struct {
 			CachedTokens     int `json:"cached_tokens"`
 			CacheWriteTokens int `json:"cache_write_tokens"`
@@ -1259,6 +641,9 @@ func (a *responseAssembler) handleEvent(data []byte) (done bool, err error) {
 	case "response.failed":
 		errInfo := event.Response.Error
 		if errInfo != nil {
+			if isSubscriptionErrorCode(errInfo.Code) {
+				return false, subscriptionError(errInfo.Code, errInfo.Message)
+			}
 			return false, fmt.Errorf("API error [%s]: %s", errInfo.Code, errInfo.Message)
 		}
 		return false, fmt.Errorf("API returned response.failed")
@@ -1345,48 +730,58 @@ type responsesAPIError struct {
 	Message string `json:"message"`
 }
 
-// extractQuota parses x-ratelimit-* headers into a Quota snapshot.
-// Returns nil if no rate-limit headers are present.
-func extractQuota(h http.Header) *Quota {
-	lr := headerInt(h, "X-Ratelimit-Limit-Requests")
-	lt := headerInt(h, "X-Ratelimit-Limit-Tokens")
-	rr := headerInt(h, "X-Ratelimit-Remaining-Requests")
-	rt := headerInt(h, "X-Ratelimit-Remaining-Tokens")
-	if lr == 0 && lt == 0 && rr == 0 && rt == 0 {
-		return nil
-	}
-	return &Quota{
-		LimitRequests:     lr,
-		LimitTokens:       lt,
-		RemainingRequests: rr,
-		RemainingTokens:   rt,
-		ResetRequests:     h.Get("X-Ratelimit-Reset-Requests"),
-		ResetTokens:       h.Get("X-Ratelimit-Reset-Tokens"),
-		UpdatedAt:         time.Now(),
-	}
+// Subscription error codes the subscription route returns, either as an HTTP
+// error body or as response.failed after the stream has started. Each is a
+// statement about the account, not the request, so retrying cannot help; the
+// message says what the person has to do instead.
+var subscriptionErrorHints = map[string]string{
+	"subscription_sharing_usage_limit_exceeded":   "the ChatGPT subscription's usage limit is reached; it resets on the plan's own schedule",
+	"subscription_sharing_user_not_eligible":      "this ChatGPT account's plan cannot share its subscription with third-party apps",
+	"subscription_sharing_usage_unavailable":      "OpenAI could not check the subscription's usage right now; try again later",
+	"subscription_sharing_unsupported_capability": "the request used a capability the subscription route does not support",
+	"subscription_sharing_route_not_supported":    "the subscription route does not support this endpoint or model",
+	"subscription_sharing_invalid_user":           "the signed-in ChatGPT user is not valid; run 'nagobot auth openai' to sign in again",
+	"subscription_sharing_user_unavailable":       "the signed-in ChatGPT user is unavailable; run 'nagobot auth openai' to sign in again",
+	"chatpass_v2_scope_not_authorized":            "the sign-in did not grant subscription access; run 'nagobot auth openai' to sign in again",
+	"chatpass_v2_invalid_authorization_context":   "the subscription authorization is no longer valid; run 'nagobot auth openai' to sign in again",
 }
 
-func headerInt(h http.Header, key string) int {
-	v := h.Get(key)
-	if v == "" {
-		return 0
+func isSubscriptionErrorCode(code string) bool {
+	_, ok := subscriptionErrorHints[code]
+	return ok
+}
+
+// subscriptionError turns a subscription error code into an error a person
+// can act on, keeping the server's own message for the details.
+func subscriptionError(code, message string) error {
+	hint := subscriptionErrorHints[code]
+	if message == "" {
+		return fmt.Errorf("openai-oauth: %s [%s]", hint, code)
 	}
-	n, _ := strconv.Atoi(v)
-	return n
+	return fmt.Errorf("openai-oauth: %s [%s: %s]", hint, code, message)
+}
+
+// responsesErrorCode extracts the error code and message from a Responses API
+// error body: {"error":{"code":"…","message":"…"}}. Returns empty strings when
+// the body has another shape.
+func responsesErrorCode(body []byte) (code, message string) {
+	var parsed struct {
+		Error *responsesAPIError `json:"error"`
+	}
+	if json.Unmarshal(body, &parsed) != nil || parsed.Error == nil {
+		return "", ""
+	}
+	return parsed.Error.Code, parsed.Error.Message
 }
 
 // sessionCacheKey derives a stable per-session identifier from the session
 // key carried in ctx (set by thread.executeRunner via WithSessionKey). Used
-// as the request's prompt_cache_key and the WS handshake's session_id /
-// x-client-request-id: a value that is stable across turns keeps the backend
-// routing this session's requests to the same prompt cache shard, so each new
-// turn's first full-context call can hit the previous turn's cached prefix.
-// (With the old per-turn random id and no prompt_cache_key, those calls
-// almost always missed — 0–2% observed cache hit vs 95%+ on delta calls.)
-// Hashing rather than sending the raw key keeps the value in the 32-char hex
-// shape already proven against the backend and avoids shipping raw
-// channel/user ids in headers. Returns "" when ctx carries no session key
-// (e.g. standalone scripts), letting callers fall back to old behavior.
+// as the request's prompt_cache_key and, on the subscription route, as the
+// session affinity headers: a value that is stable across turns keeps this
+// session's requests on the same prompt cache shard, so each new turn's first
+// call can hit the previous turn's cached prefix. Hashing rather than sending
+// the raw key keeps channel/user ids out of requests. Returns "" when ctx
+// carries no session key (e.g. standalone scripts).
 func sessionCacheKey(ctx context.Context) string {
 	key := SessionKeyFromContext(ctx)
 	if key == "" {
@@ -1394,14 +789,4 @@ func sessionCacheKey(ctx context.Context) string {
 	}
 	sum := sha256.Sum256([]byte(key))
 	return hex.EncodeToString(sum[:16])
-}
-
-// randomHex returns a random lowercase hex string of length n*2. Fallback
-// client-request-id/session_id source when ctx carries no session key.
-func randomHex(n int) string {
-	buf := make([]byte, n)
-	if _, err := rand.Read(buf); err != nil {
-		return fmt.Sprintf("%d", time.Now().UnixNano())
-	}
-	return hex.EncodeToString(buf)
 }

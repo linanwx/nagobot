@@ -1,24 +1,27 @@
 package cmd
 
 import (
+	"bufio"
 	"context"
 	"crypto/rand"
 	"crypto/sha256"
 	"encoding/base64"
-	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"io"
 	"net"
 	"net/http"
 	"net/url"
+	"os"
 	"os/exec"
 	"runtime"
+	"slices"
 	"sort"
 	"strings"
 	"sync"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/spf13/cobra"
 
 	"github.com/linanwx/nagobot/config"
@@ -27,33 +30,46 @@ import (
 )
 
 const (
-	oauthCallbackAddr = "localhost:1455"
+	oauthCallbackAddr = "127.0.0.1:1455"
 	oauthCallbackPath = "/auth/callback"
-	oauthTimeout      = 5 * time.Minute
+	oauthTimeout      = 10 * time.Minute
 	oauthHTTPTimeout  = 30 * time.Second
 	oauthMaxBodySize  = 1 << 20 // 1MB
 )
 
-// oauthConfig holds OAuth endpoints for PKCE flow.
+// oauthConfig describes one "Sign in with ChatGPT" (SIWC) token-sharing
+// integration. There is no fixed client id: the first sign-in presents
+// dynamic_agent_client plus an agent name and a stable host id, and OpenAI
+// issues this install its own client id (oaiapp_...) in the callback. That
+// issued id, not a hard-coded one, is what every token exchange and refresh
+// presents. See developers.openai.com/siwc/token-sharing-open-source/sign-in.
 type oauthConfig struct {
-	AuthURL  string
-	TokenURL string
-	ClientID string
-	Scopes   []string
+	AuthURL       string
+	TokenURL      string
+	Resource      string
+	Scopes        []string
+	RequiredScope string // must be granted, or the token cannot call the model API
+	AgentName     string
 }
 
-// openaiOAuthConfig is shared by both "openai" and "openai-oauth" providers.
 var openaiOAuthConfig = &oauthConfig{
-	AuthURL:  "https://auth.openai.com/oauth/authorize",
-	TokenURL: "https://auth.openai.com/oauth/token",
-	ClientID: "app_EMoamEEZ73f0CkXaXp7hrann",
-	Scopes:   []string{"openid", "profile", "email", "offline_access"},
+	AuthURL:       "https://auth.openai.com/api/accounts/authorize",
+	TokenURL:      "https://auth.openai.com/api/accounts/oauth/token",
+	Resource:      "https://api.openai.com/v1",
+	Scopes:        []string{"openid", "profile", "email", "offline_access", "resource.invoke", "chatgpt.tokens.use.direct"},
+	RequiredScope: "chatgpt.tokens.use.direct",
+	AgentName:     "nagobot",
 }
 
-// authProviders is the registry of providers that support PKCE OAuth login.
+// authProviders is the registry of providers that support OAuth login. Only
+// openai-oauth: the "openai" provider authenticates with an API key alone.
 var authProviders = map[string]*oauthConfig{
-	"openai":       openaiOAuthConfig,
 	"openai-oauth": openaiOAuthConfig,
+}
+
+// authProviderAliases lets `auth logout openai` keep working.
+var authProviderAliases = map[string]string{
+	"openai": "openai-oauth",
 }
 
 var authCmd = &cobra.Command{
@@ -63,7 +79,7 @@ var authCmd = &cobra.Command{
 	Long: `Authenticate with LLM providers via OAuth.
 
 Examples:
-  nagobot auth openai         # Login with OpenAI via OAuth
+  nagobot auth openai         # Sign in with ChatGPT (provider openai-oauth)
   nagobot auth status         # Show current token status
   nagobot auth logout openai  # Remove token for a provider`,
 }
@@ -83,9 +99,14 @@ var authLogoutCmd = &cobra.Command{
 
 var authOpenAICmd = &cobra.Command{
 	Use:   "openai",
-	Short: "Login with OpenAI account via OAuth",
+	Short: "Sign in with ChatGPT for the openai-oauth provider",
+	Long: `Sign in with ChatGPT for the openai-oauth provider.
+
+A browser opens on OpenAI's sign-in page. On a machine without a browser, open
+the printed URL anywhere; after approving, the browser lands on a 127.0.0.1
+page that fails to load. Copy that page's full address and paste it here.`,
 	RunE: func(cmd *cobra.Command, args []string) error {
-		return runOAuthLogin("openai")
+		return runOAuthLogin("openai-oauth")
 	},
 }
 
@@ -99,13 +120,17 @@ func init() {
 	provider.SetOAuthRefresher(RefreshOAuthToken)
 }
 
+// oauthCallback is what the authorize redirect carries back.
+type oauthCallback struct {
+	code     string
+	clientID string
+	scope    string
+}
+
 func runOAuthLogin(providerName string) error {
 	oa, ok := authProviders[providerName]
 	if !ok {
 		return fmt.Errorf("unsupported OAuth provider: %s", providerName)
-	}
-	if oa.ClientID == "" {
-		return fmt.Errorf("%s OAuth is not yet available (client_id not configured)", providerName)
 	}
 
 	cfg, err := config.Load()
@@ -113,121 +138,161 @@ func runOAuthLogin(providerName string) error {
 		return fmt.Errorf("failed to load config: %w", err)
 	}
 
-	// Generate PKCE verifier + challenge.
-	verifier, err := generateCodeVerifier()
+	// The device id must stay stable across re-logins so OpenAI sees the same
+	// agent host rather than registering a new one each time.
+	deviceID := ""
+	if prev := cfg.GetOAuthToken(providerName); prev != nil {
+		deviceID = prev.DeviceID
+	}
+	if deviceID == "" {
+		deviceID = uuid.NewString()
+	}
+
+	verifier, err := randomURLToken(32)
 	if err != nil {
 		return fmt.Errorf("failed to generate code verifier: %w", err)
 	}
-	challenge := computeCodeChallenge(verifier)
-
-	// Generate state for CSRF protection.
-	state, err := generateRandomHex(16)
+	state, err := randomURLToken(32)
 	if err != nil {
 		return fmt.Errorf("failed to generate state: %w", err)
 	}
-
-	redirectURI := "http://" + oauthCallbackAddr + oauthCallbackPath
-
-	// Build authorization URL.
-	authURL := buildAuthURL(oa, redirectURI, challenge, state)
-
-	// Start local callback server.
-	codeCh := make(chan string, 1)
-	errCh := make(chan error, 1)
-	var callbackOnce sync.Once
-
-	listener, err := net.Listen("tcp", oauthCallbackAddr)
+	nonce, err := randomURLToken(32)
 	if err != nil {
-		return fmt.Errorf("failed to start callback server on %s: %w", oauthCallbackAddr, err)
+		return fmt.Errorf("failed to generate nonce: %w", err)
 	}
 
-	mux := http.NewServeMux()
-	mux.HandleFunc(oauthCallbackPath, func(w http.ResponseWriter, r *http.Request) {
-		// Only handle the first valid callback.
-		callbackOnce.Do(func() {
-			if gotState := r.URL.Query().Get("state"); gotState != state {
-				http.Error(w, "state mismatch", http.StatusForbidden)
-				errCh <- fmt.Errorf("OAuth state mismatch")
+	redirectURI := "http://" + oauthCallbackAddr + oauthCallbackPath
+	authURL := buildAuthURL(oa, redirectURI, computeCodeChallenge(verifier), state, nonce, deviceID)
+
+	resultCh := make(chan oauthCallback, 1)
+	errCh := make(chan error, 1)
+	var once sync.Once
+	deliver := func(cb oauthCallback, err error) {
+		once.Do(func() {
+			if err != nil {
+				errCh <- err
 				return
 			}
-			if errMsg := r.URL.Query().Get("error"); errMsg != "" {
-				desc := r.URL.Query().Get("error_description")
-				http.Error(w, "OAuth error: "+errMsg, http.StatusBadRequest)
-				errCh <- fmt.Errorf("OAuth error: %s (%s)", errMsg, desc)
-				return
-			}
-			code := r.URL.Query().Get("code")
-			if code == "" {
-				http.Error(w, "missing code", http.StatusBadRequest)
-				errCh <- fmt.Errorf("no authorization code received")
+			resultCh <- cb
+		})
+	}
+
+	// Local callback server. A busy port is not fatal: the paste path below
+	// still completes the login.
+	listener, listenErr := net.Listen("tcp", oauthCallbackAddr)
+	if listenErr == nil {
+		mux := http.NewServeMux()
+		mux.HandleFunc(oauthCallbackPath, func(w http.ResponseWriter, r *http.Request) {
+			cb, err := parseOAuthCallback(r.URL.Query(), state)
+			if err != nil {
+				http.Error(w, err.Error(), http.StatusBadRequest)
+				deliver(oauthCallback{}, err)
 				return
 			}
 			w.Header().Set("Content-Type", "text/html")
 			fmt.Fprint(w, `<html><body><h2>Authorization successful!</h2><p>You can close this tab.</p></body></html>`)
-			codeCh <- code
+			deliver(cb, nil)
 		})
-	})
-
-	server := &http.Server{
-		Handler:           mux,
-		ReadHeaderTimeout: 10 * time.Second,
-		ReadTimeout:       30 * time.Second,
-		WriteTimeout:      30 * time.Second,
-		IdleTimeout:       60 * time.Second,
+		server := &http.Server{
+			Handler:           mux,
+			ReadHeaderTimeout: 10 * time.Second,
+			ReadTimeout:       30 * time.Second,
+			WriteTimeout:      30 * time.Second,
+			IdleTimeout:       60 * time.Second,
+		}
+		go server.Serve(listener)
+		defer func() {
+			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+			defer cancel()
+			server.Shutdown(ctx)
+		}()
+	} else {
+		fmt.Printf("Note: could not listen on %s (%v); use the paste option below.\n", oauthCallbackAddr, listenErr)
 	}
-	go server.Serve(listener)
-	defer func() {
-		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-		defer cancel()
-		server.Shutdown(ctx)
+
+	// Paste fallback for headless machines: the browser that approved the
+	// login ends on an unreachable 127.0.0.1 page whose address carries the
+	// code. Malformed lines are reported and the prompt waits for another.
+	go func() {
+		scanner := bufio.NewScanner(os.Stdin)
+		scanner.Buffer(make([]byte, 0, 64*1024), 64*1024)
+		for scanner.Scan() {
+			line := strings.TrimSpace(scanner.Text())
+			if line == "" {
+				continue
+			}
+			u, err := url.Parse(line)
+			if err != nil || (u.Query().Get("code") == "" && u.Query().Get("error") == "") {
+				fmt.Println("That does not look like the redirect address; paste the full URL from the browser's address bar.")
+				continue
+			}
+			cb, err := parseOAuthCallback(u.Query(), state)
+			deliver(cb, err)
+			return
+		}
 	}()
 
-	// Open browser.
-	fmt.Printf("Opening browser for %s OAuth...\n", providerName)
-	if err := openBrowser(authURL); err != nil {
-		fmt.Println("Could not open browser automatically.")
-		fmt.Println("Please open this URL in your browser:")
-		fmt.Println()
-		fmt.Println("  " + authURL)
-		fmt.Println()
-	}
+	fmt.Println("Sign in with ChatGPT: open this URL in a browser.")
+	fmt.Println()
+	fmt.Println("  " + authURL)
+	fmt.Println()
+	_ = openBrowser(authURL)
+	fmt.Println("Waiting for authorization... (on a machine without a browser, paste the final")
+	fmt.Println("127.0.0.1 address from the browser's address bar here and press Enter)")
 
-	fmt.Println("Waiting for authorization...")
-
-	// Wait for callback or timeout.
-	var code string
+	var cb oauthCallback
 	select {
-	case code = <-codeCh:
-		// success
+	case cb = <-resultCh:
 	case err := <-errCh:
 		return err
 	case <-time.After(oauthTimeout):
 		return fmt.Errorf("OAuth timeout: no callback received within %s", oauthTimeout)
 	}
 
-	// Exchange code for token.
 	fmt.Println("Exchanging authorization code for token...")
-	token, err := exchangeCodeForToken(oa, code, verifier, redirectURI)
+	token, err := exchangeCodeForToken(oa, cb, verifier, redirectURI)
 	if err != nil {
 		return fmt.Errorf("token exchange failed: %w", err)
 	}
+	token.DeviceID = deviceID
 
-	// Store token in config.
 	cfg.SetOAuthToken(providerName, token)
 	if err := cfg.Save(); err != nil {
 		return fmt.Errorf("failed to save config: %w", err)
 	}
 
 	fmt.Println()
-	fmt.Printf("Successfully authenticated with %s!\n", providerName)
-	if token.ExpiresAt > 0 {
-		fmt.Printf("Token expires: %s\n", time.Unix(token.ExpiresAt, 0).Local().Format(time.RFC3339))
-	}
+	fmt.Printf("Successfully signed in for %s.\n", providerName)
 	if token.RefreshToken != "" {
 		fmt.Println("Refresh token saved (auto-refresh enabled).")
 	}
-
 	return nil
+}
+
+// parseOAuthCallback validates the authorize redirect's query and extracts the
+// code and the client id OpenAI issued to this install.
+func parseOAuthCallback(q url.Values, wantState string) (oauthCallback, error) {
+	if q.Get("state") != wantState {
+		return oauthCallback{}, fmt.Errorf("OAuth state mismatch")
+	}
+	if errMsg := q.Get("error"); errMsg != "" {
+		return oauthCallback{}, fmt.Errorf("OAuth error: %s (%s)", errMsg, q.Get("error_description"))
+	}
+	cb := oauthCallback{code: q.Get("code"), clientID: q.Get("client_id"), scope: q.Get("scope")}
+	if cb.code == "" {
+		return oauthCallback{}, fmt.Errorf("no authorization code received")
+	}
+	if cb.clientID == "" {
+		return oauthCallback{}, fmt.Errorf("no client_id in the callback: OpenAI did not issue a client for this install")
+	}
+	return cb, nil
+}
+
+func resolveAuthProviderName(name string) string {
+	if canonical, ok := authProviderAliases[name]; ok {
+		return canonical
+	}
+	return name
 }
 
 // allAuthProviderNames returns a sorted list of all provider names that support OAuth login.
@@ -246,27 +311,26 @@ func runAuthStatus(_ *cobra.Command, _ []string) error {
 		return fmt.Errorf("failed to load config: %w", err)
 	}
 
-	names := allAuthProviderNames()
-
 	found := false
-	for _, name := range names {
+	for _, name := range allAuthProviderNames() {
 		token := cfg.GetOAuthToken(name)
 		if token == nil || token.AccessToken == "" {
 			continue
 		}
 		found = true
 		status := "active"
-		if token.ExpiresAt > 0 {
-			if time.Now().Unix() > token.ExpiresAt {
-				if token.RefreshToken != "" {
-					status = "expired (auto-refresh available)"
-				} else {
-					status = "expired"
-				}
+		switch {
+		case token.ClientID == "":
+			status = "legacy token, sign in again with 'nagobot auth openai'"
+		case token.ExpiresAt > 0 && time.Now().Unix() > token.ExpiresAt:
+			if token.RefreshToken != "" {
+				status = "expired (auto-refresh available)"
 			} else {
-				remaining := time.Until(time.Unix(token.ExpiresAt, 0))
-				status = fmt.Sprintf("active (expires in %s)", remaining.Round(time.Minute))
+				status = "expired"
 			}
+		case token.ExpiresAt > 0:
+			remaining := time.Until(time.Unix(token.ExpiresAt, 0))
+			status = fmt.Sprintf("active (expires in %s)", remaining.Round(time.Minute))
 		}
 		// Show only last 4 chars for safety.
 		tokenPreview := "****"
@@ -284,7 +348,7 @@ func runAuthStatus(_ *cobra.Command, _ []string) error {
 }
 
 func runAuthLogout(_ *cobra.Command, args []string) error {
-	providerName := strings.TrimSpace(args[0])
+	providerName := resolveAuthProviderName(strings.TrimSpace(args[0]))
 	if _, ok := authProviders[providerName]; !ok {
 		return fmt.Errorf("unsupported provider: %s (supported: %s)", providerName, strings.Join(allAuthProviderNames(), ", "))
 	}
@@ -309,8 +373,10 @@ func runAuthLogout(_ *cobra.Command, args []string) error {
 
 // --- PKCE helpers ---
 
-func generateCodeVerifier() (string, error) {
-	b := make([]byte, 32)
+// randomURLToken returns n random bytes, base64url-encoded without padding.
+// Used for the PKCE verifier, state and nonce.
+func randomURLToken(n int) (string, error) {
+	b := make([]byte, n)
 	if _, err := rand.Read(b); err != nil {
 		return "", err
 	}
@@ -322,25 +388,19 @@ func computeCodeChallenge(verifier string) string {
 	return base64.RawURLEncoding.EncodeToString(h[:])
 }
 
-func generateRandomHex(n int) (string, error) {
-	b := make([]byte, n)
-	if _, err := rand.Read(b); err != nil {
-		return "", err
-	}
-	return hex.EncodeToString(b), nil
-}
-
-func buildAuthURL(oa *oauthConfig, redirectURI, challenge, state string) string {
+func buildAuthURL(oa *oauthConfig, redirectURI, challenge, state, nonce, deviceID string) string {
 	params := url.Values{
 		"response_type":         {"code"},
-		"client_id":             {oa.ClientID},
+		"client_id":             {"dynamic_agent_client"},
+		"agent_name_hint":       {oa.AgentName},
+		"ext_agent_host_id":     {"urn:uuid:" + deviceID},
 		"redirect_uri":          {redirectURI},
+		"resource":              {oa.Resource},
+		"scope":                 {strings.Join(oa.Scopes, " ")},
 		"state":                 {state},
+		"nonce":                 {nonce},
 		"code_challenge":        {challenge},
 		"code_challenge_method": {"S256"},
-	}
-	if len(oa.Scopes) > 0 {
-		params.Set("scope", strings.Join(oa.Scopes, " "))
 	}
 	return oa.AuthURL + "?" + params.Encode()
 }
@@ -349,24 +409,18 @@ func buildAuthURL(oa *oauthConfig, redirectURI, challenge, state string) string 
 type oauthTokenResponse struct {
 	AccessToken  string `json:"access_token"`
 	RefreshToken string `json:"refresh_token"`
-	IDToken      string `json:"id_token"`
 	ExpiresIn    int64  `json:"expires_in"`
 	TokenType    string `json:"token_type"`
+	Scope        string `json:"scope"`
 	Error        string `json:"error"`
 	ErrorDesc    string `json:"error_description"`
 }
 
 var oauthHTTPClient = &http.Client{Timeout: oauthHTTPTimeout}
 
-func exchangeCodeForToken(oa *oauthConfig, code, verifier, redirectURI string) (*config.OAuthTokenConfig, error) {
-	data := url.Values{
-		"grant_type":    {"authorization_code"},
-		"code":          {code},
-		"redirect_uri":  {redirectURI},
-		"client_id":     {oa.ClientID},
-		"code_verifier": {verifier},
-	}
-
+// postTokenForm sends one form request to the token endpoint and decodes a
+// successful response.
+func postTokenForm(oa *oauthConfig, data url.Values) (*oauthTokenResponse, error) {
 	resp, err := oauthHTTPClient.PostForm(oa.TokenURL, data)
 	if err != nil {
 		return nil, fmt.Errorf("POST %s: %w", oa.TokenURL, err)
@@ -378,118 +432,86 @@ func exchangeCodeForToken(oa *oauthConfig, code, verifier, redirectURI string) (
 		return nil, fmt.Errorf("read response: %w", err)
 	}
 
+	var tokenResp oauthTokenResponse
+	parseErr := json.Unmarshal(body, &tokenResp)
 	if resp.StatusCode != http.StatusOK {
-		// Try to extract error details from response body.
-		var errResp oauthTokenResponse
-		if json.Unmarshal(body, &errResp) == nil && errResp.Error != "" {
-			return nil, fmt.Errorf("token endpoint HTTP %d: %s: %s", resp.StatusCode, errResp.Error, errResp.ErrorDesc)
+		if parseErr == nil && tokenResp.Error != "" {
+			return nil, fmt.Errorf("token endpoint HTTP %d: %s: %s", resp.StatusCode, tokenResp.Error, tokenResp.ErrorDesc)
 		}
 		return nil, fmt.Errorf("token endpoint returned HTTP %d", resp.StatusCode)
 	}
-
-	var tokenResp oauthTokenResponse
-	if err := json.Unmarshal(body, &tokenResp); err != nil {
-		return nil, fmt.Errorf("failed to parse token response: %w", err)
+	if parseErr != nil {
+		return nil, fmt.Errorf("failed to parse token response: %w", parseErr)
 	}
-
 	if tokenResp.Error != "" {
 		return nil, fmt.Errorf("%s: %s", tokenResp.Error, tokenResp.ErrorDesc)
 	}
 	if tokenResp.AccessToken == "" {
 		return nil, fmt.Errorf("no access_token in response")
 	}
+	return &tokenResp, nil
+}
+
+func exchangeCodeForToken(oa *oauthConfig, cb oauthCallback, verifier, redirectURI string) (*config.OAuthTokenConfig, error) {
+	tokenResp, err := postTokenForm(oa, url.Values{
+		"grant_type":    {"authorization_code"},
+		"client_id":     {cb.clientID},
+		"code":          {cb.code},
+		"code_verifier": {verifier},
+		"redirect_uri":  {redirectURI},
+		"resource":      {oa.Resource},
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	// A token without the direct-use scope authenticates fine and then fails
+	// every model call, so refuse it here where the cause is still legible.
+	granted := tokenResp.Scope
+	if granted == "" {
+		granted = cb.scope
+	}
+	if !slices.Contains(strings.Fields(granted), oa.RequiredScope) {
+		return nil, fmt.Errorf("sign-in did not grant the %q scope (granted: %q); this ChatGPT account cannot share its subscription with nagobot", oa.RequiredScope, granted)
+	}
 
 	token := &config.OAuthTokenConfig{
 		AccessToken:  tokenResp.AccessToken,
 		RefreshToken: tokenResp.RefreshToken,
 		TokenType:    tokenResp.TokenType,
+		ClientID:     cb.clientID,
 	}
 	if tokenResp.ExpiresIn > 0 {
 		token.ExpiresAt = time.Now().Unix() + tokenResp.ExpiresIn
 	}
-	// Extract account ID from id_token JWT claims.
-	if tokenResp.IDToken != "" {
-		if accountID := extractAccountIDFromIDToken(tokenResp.IDToken); accountID != "" {
-			token.AccountID = accountID
-		}
-	}
 	return token, nil
-}
-
-// extractAccountIDFromIDToken parses an unverified JWT id_token and extracts
-// the chatgpt_account_id from the https://api.openai.com/auth claim.
-func extractAccountIDFromIDToken(idToken string) string {
-	parts := strings.SplitN(idToken, ".", 3)
-	if len(parts) < 2 {
-		return ""
-	}
-	// Decode the payload (second segment).
-	payload, err := base64.RawURLEncoding.DecodeString(parts[1])
-	if err != nil {
-		return ""
-	}
-	var claims map[string]any
-	if err := json.Unmarshal(payload, &claims); err != nil {
-		return ""
-	}
-	// Look for chatgpt_account_id in the https://api.openai.com/auth claim.
-	if auth, ok := claims["https://api.openai.com/auth"].(map[string]any); ok {
-		if id, ok := auth["chatgpt_account_id"].(string); ok {
-			return id
-		}
-	}
-	return ""
 }
 
 // RefreshOAuthToken attempts to refresh an expired OAuth token.
 // Returns the new access token on success, empty string on failure.
+//
+// Refresh tokens rotate: the old one stops working once this call succeeds, so
+// a failure to persist the new one strands the login until the next sign-in.
+// That is why the save error is logged at Error, not Warn.
 func RefreshOAuthToken(cfg *config.Config, providerName string) string {
 	token := cfg.GetOAuthToken(providerName)
-	if token == nil || token.RefreshToken == "" {
+	if token == nil || token.RefreshToken == "" || token.ClientID == "" {
 		return ""
 	}
 
 	oa, ok := authProviders[providerName]
-	if !ok || oa.TokenURL == "" || oa.ClientID == "" {
+	if !ok {
 		return ""
 	}
 
-	data := url.Values{
+	tokenResp, err := postTokenForm(oa, url.Values{
 		"grant_type":    {"refresh_token"},
+		"client_id":     {token.ClientID},
 		"refresh_token": {token.RefreshToken},
-		"client_id":     {oa.ClientID},
-	}
-
-	resp, err := oauthHTTPClient.PostForm(oa.TokenURL, data)
+		"resource":      {oa.Resource},
+	})
 	if err != nil {
 		logger.Warn("oauth token refresh failed", "provider", providerName, "err", err)
-		return ""
-	}
-	defer resp.Body.Close()
-
-	body, err := io.ReadAll(io.LimitReader(resp.Body, oauthMaxBodySize))
-	if err != nil {
-		logger.Warn("oauth token refresh read error", "provider", providerName, "err", err)
-		return ""
-	}
-
-	if resp.StatusCode != http.StatusOK {
-		var errResp oauthTokenResponse
-		if json.Unmarshal(body, &errResp) == nil && errResp.Error != "" {
-			logger.Warn("oauth token refresh failed", "provider", providerName, "status", resp.StatusCode, "error", errResp.Error)
-		} else {
-			logger.Warn("oauth token refresh HTTP error", "provider", providerName, "status", resp.StatusCode)
-		}
-		return ""
-	}
-
-	var tokenResp oauthTokenResponse
-	if err := json.Unmarshal(body, &tokenResp); err != nil {
-		logger.Warn("oauth token refresh parse error", "provider", providerName, "err", err)
-		return ""
-	}
-	if tokenResp.AccessToken == "" {
-		logger.Warn("oauth token refresh returned no access_token", "provider", providerName)
 		return ""
 	}
 
@@ -497,7 +519,8 @@ func RefreshOAuthToken(cfg *config.Config, providerName string) string {
 		AccessToken:  tokenResp.AccessToken,
 		RefreshToken: tokenResp.RefreshToken,
 		TokenType:    tokenResp.TokenType,
-		AccountID:    token.AccountID, // preserve existing account ID
+		ClientID:     token.ClientID,
+		DeviceID:     token.DeviceID,
 	}
 	if newToken.RefreshToken == "" {
 		newToken.RefreshToken = token.RefreshToken // keep old refresh token
@@ -505,16 +528,10 @@ func RefreshOAuthToken(cfg *config.Config, providerName string) string {
 	if tokenResp.ExpiresIn > 0 {
 		newToken.ExpiresAt = time.Now().Unix() + tokenResp.ExpiresIn
 	}
-	// Update account ID if refresh response includes a new id_token.
-	if tokenResp.IDToken != "" {
-		if accountID := extractAccountIDFromIDToken(tokenResp.IDToken); accountID != "" {
-			newToken.AccountID = accountID
-		}
-	}
 
 	cfg.SetOAuthToken(providerName, newToken)
 	if err := cfg.Save(); err != nil {
-		logger.Warn("oauth token refresh save error", "provider", providerName, "err", err)
+		logger.Error("oauth token refresh save error: the rotated refresh token was not persisted", "provider", providerName, "err", err)
 	}
 	return newToken.AccessToken
 }

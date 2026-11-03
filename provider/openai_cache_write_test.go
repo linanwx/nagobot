@@ -12,8 +12,7 @@ import (
 // metrics store. (Codex itself has the same bug: openai/codex#32479.)
 //
 // The payload below is the real shape of a Responses API response.completed
-// event. handleEvent is shared by the SSE (HTTP) and WebSocket transports, so
-// covering it once covers both.
+// event.
 func TestCacheWriteTokensSurviveTheParse(t *testing.T) {
 	resp := &Response{}
 	adapter := newStreamAdapter(context.Background(), resp)
@@ -92,11 +91,10 @@ func TestCacheWriteTokensAbsentIsZero(t *testing.T) {
 	}
 }
 
-// TestUsageWithNoInputTokensDetails is the shape we actually observe from the
-// ChatGPT/Codex backend on a cold turn: a large prompt, and no cache accounting
-// at all (that backend never reports cache writes — see Usage.CacheWriteTokens).
-// The parse must yield zeros and leave the rest of the usage intact rather
-// than failing.
+// TestUsageWithNoInputTokensDetails covers a response with no cache
+// accounting at all, the shape the retired ChatGPT/Codex backend sent on cold
+// turns. The parse must yield zeros and leave the rest of the usage intact
+// rather than failing.
 func TestUsageWithNoInputTokensDetails(t *testing.T) {
 	resp := &Response{}
 	a := newResponseAssembler(newStreamAdapter(context.Background(), resp))

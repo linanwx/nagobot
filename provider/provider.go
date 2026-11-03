@@ -22,19 +22,6 @@ type Provider interface {
 	Chat(ctx context.Context, req *Request) (ChatResult, error)
 }
 
-// AccountIDSetter is optionally implemented by providers that need an account ID
-// (e.g. OpenAI OAuth with ChatGPT-Account-ID header).
-type AccountIDSetter interface {
-	SetAccountID(id string)
-}
-
-// Closer is optionally implemented by providers that hold a live resource
-// scoped to one turn (e.g. openai-oauth's persistent WebSocket connection to
-// the Codex backend) and must release it once the turn's Runner loop ends.
-type Closer interface {
-	Close()
-}
-
 // Request represents a chat completion request.
 type Request struct {
 	Messages []Message
@@ -122,19 +109,6 @@ type Usage struct {
 	// cold prefix. gpt-5.6 bills these at 1.25x the uncached input rate, so on a
 	// cache miss this is the most expensive line of the request.
 	//
-	// It is 0 on openai-oauth, and that is not a bug on our side: the
-	// ChatGPT/Codex backend does not report cache writes at all. Verified two
-	// ways — a 177K-token cold turn (cached_tokens=0, i.e. a guaranteed full
-	// cache write) came back with no cache-write field, and OpenClaw, the
-	// reference implementation for that backend, reads only inputTokens /
-	// cachedInputTokens / outputTokens / totalTokens from the Codex
-	// TokenUsageBreakdown; there is no write counter to read. Its docs say the
-	// same: "Expect cacheRead only; cacheWrite stays 0."
-	//
-	// The consequence is that the 1.25x charge on openai-oauth is NOT auditable
-	// from usage data. The parse is kept because api.openai.com's Responses API
-	// does populate input_tokens_details.cache_write_tokens.
-	//
 	// NOTE on arithmetic: OpenAI's input_tokens INCLUDES both the cached and the
 	// cache-write buckets. Truly uncached (1.0x) input is
 	// PromptTokens - CachedTokens - CacheWriteTokens, not PromptTokens -
@@ -186,10 +160,8 @@ var audioCapable = map[string]bool{}
 var pdfCapable = map[string]bool{}
 
 // providerModelContextWindows maps "provider:model" to context window size in tokens.
-// Keyed per provider so that a model accessed via different routes (e.g. openai vs
-// openai-oauth) can have different effective limits — OAuth via the ChatGPT codex
-// backend is account-plan-throttled (~272K for Plus) even when the underlying model
-// supports a 1M window via direct API key.
+// Keyed per provider so that a model accessed via different routes can have
+// different effective limits.
 var providerModelContextWindows = map[string]int{}
 
 var providerRegistry = map[string]ProviderRegistration{}

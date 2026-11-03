@@ -17,6 +17,7 @@ require (
 	github.com/go-co-op/gocron/v2 v2.19.1
 	github.com/go-telegram/bot v1.19.0
 	github.com/go-webauthn/webauthn v0.17.4
+	github.com/google/uuid v1.6.0
 	github.com/gorilla/websocket v1.5.0
 	github.com/klauspost/compress v1.19.1
 	github.com/larksuite/oapi-sdk-go/v3 v3.9.2
@@ -77,7 +78,6 @@ require (
 	github.com/gogs/chardet v0.0.0-20211120154057-b7413eaefb8f // indirect
 	github.com/golang-jwt/jwt/v5 v5.3.1 // indirect
 	github.com/google/go-tpm v0.9.8 // indirect
-	github.com/google/uuid v1.6.0 // indirect
 	github.com/inconshreveable/mousetrap v1.1.0 // indirect
 	github.com/jonboulle/clockwork v0.5.0 // indirect
 	github.com/lucasb-eyer/go-colorful v1.3.0 // indirect

@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/linanwx/nagobot/config"
+	"github.com/linanwx/nagobot/logger"
 )
 
 const (
@@ -21,14 +22,6 @@ type Factory struct {
 	fallbackCfg  *config.Config        // startup config used as fallback
 	defaultProv  string                // startup default (fallback only)
 	defaultModel string                // startup default (fallback only)
-	wsPool       *WSPool               // session-scoped WS connections shared across the turn-scoped providers
-}
-
-// wsPoolSetter is optionally implemented by providers that park WebSocket
-// connections across turns (currently only the OAuth/Codex OpenAI provider).
-// Mirrors the AccountIDSetter pattern for optional per-provider capabilities.
-type wsPoolSetter interface {
-	setWSPool(pool *WSPool)
 }
 
 // NewFactory builds a provider factory. cfgFn is called on each Create() to
@@ -59,16 +52,7 @@ func NewFactory(cfgFn func() *config.Config) (*Factory, error) {
 		fallbackCfg:  cfg,
 		defaultProv:  defaultProv,
 		defaultModel: defaultModel,
-		wsPool:       NewWSPool(),
 	}, nil
-}
-
-// Close releases pooled cross-turn resources (parked WebSocket connections).
-func (f *Factory) Close() {
-	if f == nil {
-		return
-	}
-	f.wsPool.CloseAll()
 }
 
 // Create builds a provider instance for provider/model. Empty values fall back
@@ -111,23 +95,6 @@ func (f *Factory) Create(providerName, modelType string) (Provider, error) {
 
 	apiBase := providerAPIBase(cfg, providerName)
 	p := reg.Constructor(apiKey, apiBase, modelType, modelName, cfg.GetMaxTokens(), cfg.GetTemperature())
-
-	// Set account ID only for OAuth-based provider.
-	if providerName == "openai-oauth" {
-		if setter, ok := p.(AccountIDSetter); ok {
-			if token := cfg.GetOAuthToken(providerName); token != nil && token.AccountID != "" {
-				setter.SetAccountID(token.AccountID)
-			}
-		}
-	}
-
-	// Hand the session-scoped WS pool to providers that can park connections
-	// across turns. The provider instance itself stays turn-scoped (config
-	// hot-reload depends on that); only the connection outlives the turn.
-	if setter, ok := p.(wsPoolSetter); ok {
-		setter.setWSPool(f.wsPool)
-	}
-
 	return p, nil
 }
 
@@ -208,6 +175,13 @@ func providerAPIKey(cfg *config.Config, providerName string) string {
 func oauthAccessToken(cfg *config.Config, providerName string) string {
 	token := cfg.GetOAuthToken(providerName)
 	if token == nil || token.AccessToken == "" {
+		return ""
+	}
+	// A token without an issued client id came from the retired Codex login.
+	// It cannot be refreshed and is not accepted by api.openai.com, so it
+	// counts as not logged in rather than failing every call with a 401.
+	if token.ClientID == "" {
+		logger.Warn("openai-oauth token predates Sign in with ChatGPT; run 'nagobot auth openai' to sign in again", "provider", providerName)
 		return ""
 	}
 	if token.ExpiresAt > 0 && time.Now().Unix()+oauthExpiryGraceSec > token.ExpiresAt {

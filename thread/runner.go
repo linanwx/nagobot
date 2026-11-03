@@ -396,10 +396,10 @@ type llmCall struct {
 // ReadMessage and the turn simply never ended — no reply, no error, and the
 // session's later messages queued behind a turn that was never coming back.
 //
-// The transport has since grown its own stall detection (provider.parseWSStream),
-// which is faster and can retry over HTTP. This deadline is the floor beneath
-// all of it: whatever a provider does, and whichever provider does it, it does
-// not get to hold a thread past this. Ten minutes is deliberately far above any
+// That WebSocket transport is gone, but the lesson is not specific to it. This
+// deadline is the floor beneath every provider: whatever a provider does, and
+// whichever provider does it, it does not get to hold a thread past this. Ten
+// minutes is deliberately far above any
 // legitimate call — it exists to convert a hang into an error, not to police
 // latency.
 //
@@ -517,8 +517,7 @@ func (r *Runner) callLLM(ctx context.Context, chatReq *provider.Request) (*llmCa
 // under budget. Quantization is what keeps the request head stable: a naive
 // "drop until remaining ≤ total/2" recomputes a moving target every call, so
 // tail growth advances the cut a little each turn, which rewrites the request
-// head and kills openai-oauth's cross-turn previous_response_id delta (and
-// every provider's prefix cache). Measured 2026-07-12 (coffee channel,
+// head and kills every provider's prefix cache. Measured 2026-07-12 (coffee channel,
 // gpt-5.6-terra): one Tier-2 turn made 4 calls of ~175K prompt tokens each at
 // ~0% cache hit (~44 credits) because the head moved before each call. With
 // quantized drops the head moves once per budget/2 (~93K on terra) of growth,

@@ -221,8 +221,7 @@ func (c *Config) GetOAuthToken(providerName string) *OAuthTokenConfig {
 	if c == nil {
 		return nil
 	}
-	switch providerName {
-	case "openai", "openai-oauth":
+	if providerName == "openai-oauth" {
 		return c.Providers.OpenAIOAuth
 	}
 	return nil
@@ -230,8 +229,7 @@ func (c *Config) GetOAuthToken(providerName string) *OAuthTokenConfig {
 
 // SetOAuthToken stores an OAuth token for the given provider name.
 func (c *Config) SetOAuthToken(providerName string, token *OAuthTokenConfig) {
-	switch providerName {
-	case "openai", "openai-oauth":
+	if providerName == "openai-oauth" {
 		c.Providers.OpenAIOAuth = token
 	}
 }

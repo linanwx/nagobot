@@ -91,7 +91,6 @@ func TestOpenCodeGoToolLoop(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			t.Cleanup(factory.Close)
 			p, err := factory.Create("", "")
 			if err != nil {
 				t.Fatal(err)

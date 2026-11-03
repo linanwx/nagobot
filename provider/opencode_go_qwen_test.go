@@ -103,7 +103,6 @@ func TestOpenCodeGoQwenToolLoop(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			defer factory.Close()
 			p, err := factory.Create("", "")
 			if err != nil {
 				t.Fatal(err)

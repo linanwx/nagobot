@@ -189,7 +189,14 @@ type OAuthTokenConfig struct {
 	RefreshToken string `json:"refreshToken,omitempty" yaml:"refreshToken,omitempty"`
 	ExpiresAt    int64  `json:"expiresAt,omitempty" yaml:"expiresAt,omitempty"` // unix timestamp, 0 = no expiry
 	TokenType    string `json:"tokenType,omitempty" yaml:"tokenType,omitempty"` // "bearer"
-	AccountID    string `json:"accountId,omitempty" yaml:"accountId,omitempty"` // e.g. ChatGPT account ID from id_token
+	// ClientID is the client id OpenAI issued to this install on its first
+	// "Sign in with ChatGPT" (an oaiapp_… value returned in the callback).
+	// Every refresh must present it; a token without one predates that flow
+	// and cannot be refreshed, so it counts as not logged in.
+	ClientID string `json:"clientId,omitempty" yaml:"clientId,omitempty"`
+	// DeviceID is the stable per-install UUID sent as ext_agent_host_id, so a
+	// re-login is recognised as the same agent host rather than a new one.
+	DeviceID string `json:"deviceId,omitempty" yaml:"deviceId,omitempty"`
 }
 
 // ProviderConfig contains API credentials for a provider.
