@@ -20,6 +20,7 @@ import {
 import { Reasoning } from "@/components/assistant-ui/reasoning";
 import { ToolFallback } from "@/components/assistant-ui/tool-fallback";
 import { TooltipIconButton } from "@/components/assistant-ui/tooltip-icon-button";
+import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
 import {
   Collapsible,
@@ -167,13 +168,15 @@ const ThreadRoot: FC<{
 
           {earlierCount > 0 && onLoadEarlier && (
             <div className="mb-4 flex justify-center">
-              <button
+              <Button
                 type="button"
+                variant="outline"
+                size="xs"
                 onClick={onLoadEarlier}
-                className="text-muted-foreground hover:bg-muted hover:text-foreground rounded-full border px-3 py-1 text-xs"
+                className="text-muted-foreground rounded-full px-3"
               >
                 {t("thread.loadEarlier", { count: earlierCount })}
-              </button>
+              </Button>
             </div>
           )}
 
@@ -531,16 +534,16 @@ const EventMessage: FC = () => {
           card format. Its palette stays fainter than human speech: the daemon
           is talking, but it should never compete with the conversation. */}
       <div className="flex items-start gap-3">
-        <div
-          data-slot="aui_event-message-avatar"
-          title={meta.source}
-          className={cn(
-            "flex size-8 shrink-0 items-center justify-center rounded-full text-[10px] font-medium select-none",
-            eventBadgeClass(meta.source),
-          )}
-        >
-          {eventInitial(meta.source)}
-        </div>
+        <Avatar data-slot="aui_event-message-avatar" title={meta.source}>
+          <AvatarFallback
+            className={cn(
+              "text-[10px] font-medium",
+              eventBadgeClass(meta.source),
+            )}
+          >
+            {eventInitial(meta.source)}
+          </AvatarFallback>
+        </Avatar>
         <div className="min-w-0 flex-1">
           <div
             data-slot="aui_event-message-header"
@@ -591,13 +594,15 @@ const EventMessage: FC = () => {
               )}
             </div>
             {collapsible && (
-              <button
+              <Button
                 type="button"
+                variant="link"
+                size="xs"
                 onClick={() => setExpanded((v) => !v)}
-                className="text-muted-foreground/60 hover:text-foreground mt-1 text-[10px] font-medium"
+                className="text-muted-foreground mt-1 h-auto px-0 py-0.5"
               >
                 {expanded ? t("common.showLess") : t("common.showMore")}
-              </button>
+              </Button>
             )}
           </div>
         </div>
@@ -747,13 +752,11 @@ const ComposerAction: FC = () => {
   const { connected } = useComposerDelivery();
   return (
     /*
-      Every button in this row is size-9 below the sm breakpoint and size-7 at
-      and above it. 28px is a comfortable mouse target and a poor finger one —
-      Apple's minimum is 44 and Material's is 48, so the phone rendering was
-      barely half the recommended AREA. The library's own tokens cannot express
-      this: the largest is icon-lg at 36px, and it is not responsive. Note the
-      size="icon" prop below is inert either way, since cn()'s twMerge drops the
-      variant's size-8 in favour of whatever the className sets.
+      Every button in this row is size-7 on desktop and 40px below md. The
+      phone size comes from TooltipIconButton / the Button size scale (see
+      button.tsx), not from here, so it matches every other touch target.
+      Note the size="icon" prop below is inert on desktop, since cn()'s
+      twMerge drops the variant's size-8 in favour of the className's size-7.
     */
     <div className="aui-composer-action-wrapper relative flex items-center justify-between">
       <ComposerAddAttachment />
@@ -767,7 +770,7 @@ const ComposerAction: FC = () => {
                 type="button"
                 variant="ghost"
                 size="icon"
-                className="aui-composer-dictate size-9 rounded-full sm:size-7"
+                className="aui-composer-dictate size-7 rounded-full"
                 aria-label={t("thread.startVoice")}
               >
                 <MicIcon className="aui-composer-dictate-icon size-4.5 sm:size-4" />
@@ -782,7 +785,7 @@ const ComposerAction: FC = () => {
                 type="button"
                 variant="ghost"
                 size="icon"
-                className="aui-composer-stop-dictation text-destructive size-9 rounded-full sm:size-7"
+                className="aui-composer-stop-dictation text-destructive size-7 rounded-full"
                 aria-label={t("thread.stopVoice")}
               >
                 <SquareIcon className="aui-composer-stop-dictation-icon size-4 animate-pulse fill-current sm:size-3.5" />
@@ -806,7 +809,7 @@ const ComposerAction: FC = () => {
             variant="default"
             size="icon"
             className={cn(
-              "aui-composer-send size-9 rounded-full sm:size-7",
+              "aui-composer-send size-7 rounded-full",
               // Solid red, at full strength. The `destructive` variant is the
               // subdued tinted style, and the base button fades anything
               // disabled to 50% — either would land on the same washed-out grey
@@ -1146,13 +1149,11 @@ const UserMessage: FC = () => {
             viewer's own turn needs no avatar (the right edge identifies it). */}
         <div className={cn(!isMe && "flex items-start gap-3")}>
           {!isMe && meta.senderName ? (
-            <div
-              data-slot="aui_user-message-avatar"
-              title={meta.senderName}
-              className="bg-primary/10 text-primary flex size-8 shrink-0 items-center justify-center rounded-full text-xs font-medium select-none"
-            >
-              {senderInitial(meta.senderName)}
-            </div>
+            <Avatar data-slot="aui_user-message-avatar" title={meta.senderName}>
+              <AvatarFallback className="bg-primary/10 text-primary text-xs font-medium">
+                {senderInitial(meta.senderName)}
+              </AvatarFallback>
+            </Avatar>
           ) : null}
           <div className="min-w-0 flex-1">
             {/* Header lives in the bubble column so the name shares the

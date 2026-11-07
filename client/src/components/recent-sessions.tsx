@@ -1,6 +1,7 @@
 import { MessageSquareText } from "lucide-react";
 import { useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
+import { Button } from "@/components/ui/button";
 import type { SessionEntry } from "@/lib/api";
 import { loadRecentSessions } from "@/lib/recent-sessions";
 import { relativeTime, sessionLabel } from "@/lib/sessions";
@@ -57,12 +58,13 @@ export function RecentSessions({
       </div>
       <div className="flex flex-col">
         {entries.map((e) => (
-          <button
+          <Button
             key={e.key}
             type="button"
+            variant="ghost"
             onClick={() => onOpen(e.key)}
             title={e.key}
-            className="hover:bg-muted focus-visible:bg-muted flex h-9 items-center gap-2 rounded-md px-2.5 text-start text-sm transition-colors focus-visible:outline-none"
+            className="h-9 justify-start gap-2 px-2.5 text-start font-normal"
           >
             <MessageSquareText className="text-muted-foreground size-3.5 shrink-0" />
             <span className="min-w-0 flex-1 truncate">{e.label}</span>
@@ -71,7 +73,7 @@ export function RecentSessions({
                 {relativeTime(e.at)}
               </span>
             )}
-          </button>
+          </Button>
         ))}
       </div>
     </div>

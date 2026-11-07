@@ -18,6 +18,7 @@ import { PinsDialog } from "@/components/pins-dialog";
 import { SessionRawDialog } from "@/components/session-raw-dialog";
 import { SystemPromptDialog } from "@/components/system-prompt-dialog";
 import { Button } from "@/components/ui/button";
+import { Spinner } from "@/components/ui/spinner";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -264,9 +265,8 @@ export function ChatPane({
           </div>
         ) : historyLoading ? (
           <div className="flex h-full items-center justify-center">
-            <div
-              className="border-muted-foreground/30 border-t-foreground size-6 animate-spin rounded-full border-2"
-              role="status"
+            <Spinner
+              className="text-muted-foreground size-6"
               aria-label={t("chat.loadingHistory")}
             />
           </div>

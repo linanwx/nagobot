@@ -156,9 +156,10 @@ function PinRow({
       <Collapsible open={open} onOpenChange={setOpen}>
         <div className="flex items-start gap-1 px-2 py-1.5">
           <CollapsibleTrigger asChild>
-            <button
+            <Button
               type="button"
-              className="hover:bg-muted/50 -my-0.5 flex min-w-0 flex-1 items-start gap-1.5 rounded px-1 py-0.5 text-start"
+              variant="ghost"
+              className="hover:bg-muted/50 dark:hover:bg-muted/50 -my-0.5 h-auto min-w-0 flex-1 items-start justify-start gap-1.5 px-1 py-0.5 text-start font-normal whitespace-normal max-md:h-auto max-md:min-h-10"
             >
               <ChevronDownIcon
                 className={cn(
@@ -176,7 +177,7 @@ function PinRow({
                   </span>
                 )}
               </span>
-            </button>
+            </Button>
           </CollapsibleTrigger>
           <span
             className="text-muted-foreground shrink-0 pt-1 text-[10px]"

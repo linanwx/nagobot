@@ -4,7 +4,6 @@ import { ComposerPrimitive, QueueItemPrimitive } from "@assistant-ui/react";
 import {
   AlertCircleIcon,
   ClockIcon,
-  Loader2Icon,
   RotateCwIcon,
   XIcon,
 } from "lucide-react";
@@ -19,6 +18,8 @@ import { useTranslation } from "react-i18next";
 
 import { failedChipPrefix } from "@/hooks/use-nagobot-chat";
 import { cn } from "@/lib/utils";
+import { TooltipIconButton } from "@/components/assistant-ui/tooltip-icon-button";
+import { Spinner } from "@/components/ui/spinner";
 
 // What the composer needs to know about whether words can leave this page:
 // whether the link is up (the send button reads it) and how to put a failed
@@ -114,33 +115,29 @@ export const ComposerQueueBar: FC = () => {
             {isError ? (
               <AlertCircleIcon className="mt-0.5 size-3.5 shrink-0" aria-hidden />
             ) : isUpload ? (
-              <Loader2Icon
-                className="mt-0.5 size-3.5 shrink-0 animate-spin"
-                aria-hidden
-              />
+              <Spinner className="mt-0.5 size-3.5 shrink-0" aria-hidden />
             ) : (
               <ClockIcon className="mt-0.5 size-3.5 shrink-0" aria-hidden />
             )}
             <QueueItemPrimitive.Text className="line-clamp-2 min-w-0 flex-1 whitespace-pre-wrap" />
             {isFailed && (
               <div className="flex shrink-0 items-center gap-0.5">
-                <button
-                  type="button"
+                <TooltipIconButton
+                  tooltip={t("thread.retrySend")}
                   onClick={() =>
                     retry(queueItem.id.slice(failedChipPrefix.length))
                   }
-                  className="hover:bg-destructive/10 rounded p-1"
-                  aria-label={t("thread.retrySend")}
-                  title={t("thread.retrySend")}
+                  className="hover:bg-destructive/10 hover:text-current"
                 >
                   <RotateCwIcon className="size-3.5" aria-hidden />
-                </button>
-                <QueueItemPrimitive.Remove
-                  className="hover:bg-destructive/10 rounded p-1"
-                  aria-label={t("thread.discardMessage")}
-                  title={t("thread.discardMessage")}
-                >
-                  <XIcon className="size-3.5" aria-hidden />
+                </TooltipIconButton>
+                <QueueItemPrimitive.Remove asChild>
+                  <TooltipIconButton
+                    tooltip={t("thread.discardMessage")}
+                    className="hover:bg-destructive/10 hover:text-current"
+                  >
+                    <XIcon className="size-3.5" aria-hidden />
+                  </TooltipIconButton>
                 </QueueItemPrimitive.Remove>
               </div>
             )}

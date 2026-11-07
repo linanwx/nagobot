@@ -1,4 +1,5 @@
 import { Component, type ErrorInfo, type ReactNode } from "react";
+import { Button } from "@/components/ui/button";
 
 // ErrorBoundary is the app's last resort. Without one, any throw during render
 // unmounts the entire React tree and leaves a blank white page — on a phone,
@@ -49,13 +50,9 @@ export class ErrorBoundary extends Component<Props, State> {
             {error.stack ? `\n\n${error.stack}` : ""}
             {stack ? `\n\nComponent stack:${stack}` : ""}
           </pre>
-          <button
-            type="button"
-            onClick={this.reload}
-            className="self-start rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground"
-          >
+          <Button type="button" onClick={this.reload} className="self-start">
             Reload
-          </button>
+          </Button>
         </div>
       </div>
     );

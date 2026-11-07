@@ -372,30 +372,32 @@ function SetupWizard({ onDone }: { onDone: () => void }) {
           </p>
           <div className="flex max-h-72 flex-col gap-1 overflow-y-auto">
             {persons.map((p) => (
-              <button
+              <Button
                 key={p.id}
                 type="button"
+                variant="outline"
                 onClick={() => startFrom({ kind: "person", person: p })}
-                className="border-border hover:bg-muted rounded-md border px-3 py-2 text-start text-sm"
+                className="h-auto flex-wrap justify-start gap-x-2 gap-y-0.5 px-3 py-2 text-start font-normal whitespace-normal max-md:h-auto"
               >
                 <span className="font-medium">{p.username}</span>
-                <span className="text-muted-foreground ms-2 text-xs">
+                <span className="text-muted-foreground text-xs">
                   {t("auth.webAccount")}
                   {(p.identities ?? []).length > 0 &&
                     ` · ${(p.identities ?? []).join(", ")}`}
                 </span>
-              </button>
+              </Button>
             ))}
             {unboundIdentities.map((id) => (
-              <button
+              <Button
                 key={id.key}
                 type="button"
+                variant="outline"
                 onClick={() => startFrom({ kind: "identity", identity: id })}
-                className="border-border hover:bg-muted rounded-md border px-3 py-2 text-start text-sm"
+                className="h-auto flex-wrap justify-start gap-x-2 gap-y-0.5 px-3 py-2 text-start font-normal whitespace-normal max-md:h-auto"
               >
                 <span className="font-medium">{id.name}</span>
-                <span className="text-muted-foreground ms-2 font-mono text-xs">{id.key}</span>
-              </button>
+                <span className="text-muted-foreground font-mono text-xs">{id.key}</span>
+              </Button>
             ))}
             {persons.length === 0 && unboundIdentities.length === 0 && (
               <p className="text-muted-foreground text-xs">

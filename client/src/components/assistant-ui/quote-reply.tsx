@@ -1,6 +1,7 @@
 "use client";
 
 import { TooltipIconButton } from "@/components/assistant-ui/tooltip-icon-button";
+import { Spinner } from "@/components/ui/spinner";
 import { ComposerPrimitive, useAui, useAuiState } from "@assistant-ui/react";
 import { AlertCircleIcon, QuoteIcon, XIcon } from "lucide-react";
 import {
@@ -100,10 +101,7 @@ export const ReplyQuoteButton: FC = () => {
       aria-busy={pending}
     >
       {pending ? (
-        <span
-          className="border-current/30 border-t-current size-3.5 animate-spin rounded-full border-2"
-          role="status"
-        />
+        <Spinner className="size-3.5" />
       ) : error ? (
         <AlertCircleIcon className="text-destructive" />
       ) : (

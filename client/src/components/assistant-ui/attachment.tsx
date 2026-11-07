@@ -6,7 +6,6 @@ import {
   XIcon,
   PlusIcon,
   FileText,
-  Loader2Icon,
   AlertCircleIcon,
 } from "lucide-react";
 import {
@@ -34,6 +33,7 @@ import {
   AvatarFallback,
 } from "@/components/ui/avatar";
 import { TooltipIconButton } from "@/components/assistant-ui/tooltip-icon-button";
+import { Spinner } from "@/components/ui/spinner";
 import { cn } from "@/lib/utils";
 
 const useFileSrc = (file: File | undefined) => {
@@ -206,7 +206,7 @@ const AttachmentUI: FC = () => {
                   aria-hidden="true"
                   className="aui-attachment-tile-uploading bg-background/60 absolute inset-0 flex items-center justify-center backdrop-blur-[1px]"
                 >
-                  <Loader2Icon className="text-muted-foreground size-5 animate-spin" />
+                  <Spinner className="text-muted-foreground size-5" />
                 </div>
               )}
               {isError && (
@@ -276,7 +276,7 @@ export const ComposerAddAttachment: FC = () => {
         side="bottom"
         variant="ghost"
         size="icon"
-        className="aui-composer-add-attachment hover:bg-muted-foreground/15 dark:border-muted-foreground/15 dark:hover:bg-muted-foreground/30 size-9 rounded-full p-1 text-xs font-semibold sm:size-7"
+        className="aui-composer-add-attachment hover:bg-muted-foreground/15 dark:border-muted-foreground/15 dark:hover:bg-muted-foreground/30 size-7 rounded-full p-1 text-xs font-semibold"
         aria-label={t("attachment.add")}
       >
         <PlusIcon className="aui-attachment-add-icon size-5 stroke-[1.5px] sm:size-4.5" />

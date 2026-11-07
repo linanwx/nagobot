@@ -137,18 +137,19 @@ function SessionRow({
       data-slot="aui_thread-list-item"
       data-active={active || undefined}
       className={cn(
-        "group relative flex h-8 w-full items-center rounded-md transition-colors",
+        "group relative flex h-8 w-full items-center rounded-md transition-colors max-md:h-10",
         active
           ? "bg-muted"
           : "hover:bg-muted has-focus-visible:bg-muted has-data-[state=open]:bg-muted",
       )}
     >
-      <button
+      <Button
         type="button"
+        variant="ghost"
         onClick={() => onSelect(session.key)}
         title={session.key}
         data-slot="aui_thread-list-item-trigger"
-        className="flex h-full min-w-0 flex-1 items-center gap-2 rounded-md px-2.5 text-start text-sm focus-visible:outline-none"
+        className="h-full min-w-0 flex-1 justify-start gap-2 px-2.5 text-start font-normal hover:bg-transparent focus-visible:border-transparent focus-visible:ring-0 active:not-aria-[haspopup]:translate-y-0 max-md:h-full dark:hover:bg-transparent"
       >
         <span
           data-slot="aui_thread-list-item-title"
@@ -159,7 +160,7 @@ function SessionRow({
         <span className="shrink-0 text-[10px] text-muted-foreground">
           {relativeTime(session.updated_at)}
         </span>
-      </button>
+      </Button>
       {/* Reveal is opacity, not `visible`/`hidden`, and that is deliberate: the
           menu is what surfaces it on focus, so hiding it in a way that also
           drops it from the tab order would leave a keyboard user with no way to

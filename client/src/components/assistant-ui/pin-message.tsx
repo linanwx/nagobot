@@ -1,6 +1,7 @@
 "use client";
 
 import { TooltipIconButton } from "@/components/assistant-ui/tooltip-icon-button";
+import { Spinner } from "@/components/ui/spinner";
 import { useAuiState } from "@assistant-ui/react";
 import { AlertCircleIcon, CheckIcon, PinIcon } from "lucide-react";
 import {
@@ -107,10 +108,7 @@ export const PinButton: FC = () => {
       aria-busy={state === "pending"}
     >
       {state === "pending" ? (
-        <span
-          className="border-current/30 border-t-current size-3.5 animate-spin rounded-full border-2"
-          role="status"
-        />
+        <Spinner className="size-3.5" />
       ) : state === "done" ? (
         <CheckIcon className="animate-in zoom-in-50 fade-in animate-pulse text-emerald-500 duration-200 ease-out" />
       ) : error ? (

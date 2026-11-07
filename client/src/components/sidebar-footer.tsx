@@ -173,19 +173,19 @@ function PromptsDialog() {
           <>
             <div className="flex shrink-0 flex-wrap gap-1.5">
               {files.map((f) => (
-                <button
+                <Button
                   key={f.name}
                   type="button"
+                  size="xs"
+                  variant={selected === f.name ? "default" : "outline"}
                   onClick={() => setSelected(f.name)}
                   className={cn(
-                    "rounded-full border px-2.5 py-0.5 text-xs",
-                    selected === f.name
-                      ? "border-transparent bg-primary text-primary-foreground"
-                      : "border-border text-muted-foreground hover:bg-muted",
+                    "rounded-full px-2.5 font-normal",
+                    selected !== f.name && "text-muted-foreground",
                   )}
                 >
                   {f.label}
-                </button>
+                </Button>
               ))}
             </div>
             {selectedEntry && (

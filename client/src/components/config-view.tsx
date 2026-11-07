@@ -1,6 +1,12 @@
 import { ChevronRight } from "lucide-react";
-import { useState, type ReactNode } from "react";
+import { type ReactNode } from "react";
+import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
+import {
+  Collapsible,
+  CollapsibleContent,
+  CollapsibleTrigger,
+} from "@/components/ui/collapsible";
 
 // Structured, read-only renderer for the daemon config (GET /api/config),
 // mirroring the layout of the legacy 8080 page: titled sections, key-value
@@ -31,39 +37,37 @@ function KVRow({ k, v }: { k: string; v: unknown }) {
 
 // Collapsible group for nested objects/arrays, collapsed by default.
 function NestedGroup({ label, value }: { label: string; value: unknown }) {
-  const [open, setOpen] = useState(false);
   const rows: [string, unknown][] = isDict(value)
     ? Object.entries(value)
     : Array.isArray(value)
       ? value.map((v, i) => [String(i), v] as [string, unknown])
       : [["value", value]];
   return (
-    <div className="py-0.5">
-      <button
-        type="button"
-        onClick={() => setOpen(!open)}
-        className="text-foreground/80 hover:text-foreground flex w-full items-center gap-1 py-0.5 text-xs font-medium"
-      >
-        <ChevronRight
-          className={cn("size-3 shrink-0 transition-transform", open && "rotate-90")}
-        />
-        {label}
-        <span className="text-muted-foreground ms-auto font-normal">
-          {rows.length}
-        </span>
-      </button>
-      {open && (
-        <div className="border-border/60 ms-1.5 border-s ps-3">
-          {rows.map(([k, v]) =>
-            isDict(v) || Array.isArray(v) ? (
-              <NestedGroup key={k} label={k} value={v} />
-            ) : (
-              <KVRow key={k} k={k} v={v} />
-            ),
-          )}
-        </div>
-      )}
-    </div>
+    <Collapsible className="py-0.5">
+      <CollapsibleTrigger asChild>
+        <Button
+          type="button"
+          variant="ghost"
+          size="xs"
+          className="text-foreground/80 hover:text-foreground w-full justify-start gap-1 px-0 hover:bg-transparent dark:hover:bg-transparent"
+        >
+          <ChevronRight className="size-3 transition-transform [[data-state=open]>&]:rotate-90" />
+          {label}
+          <span className="text-muted-foreground ms-auto font-normal">
+            {rows.length}
+          </span>
+        </Button>
+      </CollapsibleTrigger>
+      <CollapsibleContent className="border-border/60 ms-1.5 border-s ps-3">
+        {rows.map(([k, v]) =>
+          isDict(v) || Array.isArray(v) ? (
+            <NestedGroup key={k} label={k} value={v} />
+          ) : (
+            <KVRow key={k} k={k} v={v} />
+          ),
+        )}
+      </CollapsibleContent>
+    </Collapsible>
   );
 }
 

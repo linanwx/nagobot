@@ -1,6 +1,12 @@
 import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
+import { ChevronRight } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import {
+  Collapsible,
+  CollapsibleContent,
+  CollapsibleTrigger,
+} from "@/components/ui/collapsible";
 import {
   Dialog,
   DialogContent,
@@ -152,19 +158,22 @@ function RawText({ text, className }: { text: string; className?: string }) {
         {text}
       </pre>
       {long && (
-        <button
+        <Button
           type="button"
+          variant="link"
+          size="xs"
           onClick={() => setExpanded((v) => !v)}
-          className="text-muted-foreground hover:text-foreground mt-1 text-[10px] underline underline-offset-2"
+          className="text-muted-foreground mt-1 h-auto px-0 py-0.5"
         >
           {expanded ? "collapse" : `expand (${text.length} chars)`}
-        </button>
+        </Button>
       )}
     </div>
   );
 }
 
-function Collapsible({
+// A fold-away block inside one message card, closed by default.
+function RawSection({
   summary,
   children,
 }: {
@@ -172,12 +181,20 @@ function Collapsible({
   children: React.ReactNode;
 }) {
   return (
-    <details className="border-border/50 border-t">
-      <summary className="text-muted-foreground hover:text-foreground cursor-pointer px-3 py-1.5 text-[11px] select-none">
-        {summary}
-      </summary>
-      <div className="px-3 pb-2">{children}</div>
-    </details>
+    <Collapsible className="border-border/50 border-t">
+      <CollapsibleTrigger asChild>
+        <Button
+          type="button"
+          variant="ghost"
+          size="xs"
+          className="text-muted-foreground w-full justify-start gap-1 rounded-none px-3 text-[11px] font-normal hover:bg-transparent dark:hover:bg-transparent"
+        >
+          <ChevronRight className="size-3 transition-transform [[data-state=open]>&]:rotate-90" />
+          {summary}
+        </Button>
+      </CollapsibleTrigger>
+      <CollapsibleContent className="px-3 pb-2">{children}</CollapsibleContent>
+    </Collapsible>
   );
 }
 
@@ -317,7 +334,7 @@ function MessageCard({ msg, index }: { msg: ApiMessage; index: number }) {
       )}
 
       {msg.reasoning_content && (
-        <Collapsible
+        <RawSection
           summary={
             <>
               Reasoning
@@ -332,17 +349,17 @@ function MessageCard({ msg, index }: { msg: ApiMessage; index: number }) {
           }
         >
           <RawText text={msg.reasoning_content} />
-        </Collapsible>
+        </RawSection>
       )}
 
       {msg.reasoning_details != null && (
-        <Collapsible summary="Reasoning details">
+        <RawSection summary="Reasoning details">
           <RawText text={JSON.stringify(msg.reasoning_details, null, 2)} />
-        </Collapsible>
+        </RawSection>
       )}
 
       {msg.tool_calls && msg.tool_calls.length > 0 && (
-        <Collapsible
+        <RawSection
           summary={`Tool calls: ${msg.tool_calls
             .map((tc) => tc.function?.name || "unknown")
             .join(", ")}`}
@@ -364,7 +381,7 @@ function MessageCard({ msg, index }: { msg: ApiMessage; index: number }) {
               </div>
             ))}
           </div>
-        </Collapsible>
+        </RawSection>
       )}
 
       {role === "tool" && msg.tool_call_id && (
