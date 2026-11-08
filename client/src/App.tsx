@@ -220,10 +220,16 @@ export default function App() {
     // Height is dvh MINUS the keyboard: Android shrinks dvh by itself so
     // --keyboard-inset stays 0 there, while iOS never shrinks it and the
     // variable carries the whole keyboard height (see lib/keyboard-inset.ts).
+    // The safe-area bottom is subtracted back out of that inset: with the
+    // keyboard up, the root extends --safe-bottom BEHIND the keys, so the
+    // composer's constant safe-area padding lands there instead of as a gap
+    // above them. Keeping that padding constant is the point — changing it
+    // while the textarea is focused strands the iOS caret.
     <div
       className="flex bg-background text-foreground"
       style={{
-        height: "calc(100dvh - var(--keyboard-inset, 0px))",
+        height:
+          "calc(100dvh - max(0px, var(--keyboard-inset, 0px) - var(--safe-bottom)))",
         paddingTop: "env(safe-area-inset-top)",
         paddingLeft: "env(safe-area-inset-left)",
         paddingRight: "env(safe-area-inset-right)",

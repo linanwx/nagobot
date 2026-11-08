@@ -21,6 +21,13 @@
 // So: measure how much of the layout viewport the keyboard covers and publish
 // it as `--keyboard-inset`, which the root height subtracts.
 //
+// Nothing here may change the composer's PADDING. iOS WebKit draws the text
+// caret natively at focus time and does not move it when a padding change
+// shifts the focused textarea afterwards — so the caret floats above the text
+// by exactly the shift. This used to zero --safe-bottom while the keyboard was
+// open, which moved the composer 34px on home-indicator iPhones and left the
+// caret 34px high. The root height absorbs the safe area instead (App.tsx).
+//
 // The formula is self-cancelling by construction: it compares the LAYOUT
 // viewport (documentElement.clientHeight) against the VISUAL one. Where both
 // shrink together (Android) the difference stays ~0 and nothing is subtracted
@@ -43,10 +50,6 @@ export function trackKeyboardInset(): () => void {
     // are not a keyboard; ignore anything under a plausible keyboard height.
     const inset = covered > 40 ? Math.round(covered) : 0;
     root.style.setProperty("--keyboard-inset", `${inset}px`);
-    // Zeroes --safe-bottom while open: the keyboard already covers the home
-    // indicator, so the inset would only add a gap above the keys.
-    if (inset > 0) root.setAttribute("data-keyboard", "open");
-    else root.removeAttribute("data-keyboard");
   };
 
   const schedule = () => {
@@ -63,6 +66,5 @@ export function trackKeyboardInset(): () => void {
     vv.removeEventListener("resize", schedule);
     vv.removeEventListener("scroll", schedule);
     root.style.removeProperty("--keyboard-inset");
-    root.removeAttribute("data-keyboard");
   };
 }
