@@ -1,6 +1,6 @@
 ---
 name: dispatch-guide
-description: Use when about to call the `dispatch` tool and unsure which `to` form to pick, when unsure whether plain reply text will reach your human, when a dispatch validation error reports a mismatch between asserted caller kind and actual caller, or when handling a `child_completed` wake from a previously dispatched subagent/fork. Focused decision tree for speaking to your own human (plain text), routing to peers (caller:session / session), spawning (subagent / fork), receiving child results, and silent termination.
+description: Use when about to call the `dispatch` tool and unsure which `to` form to pick, when unsure whether plain reply text will reach your human, when a dispatch validation error reports a mismatch between asserted caller kind and actual caller, or when handling a `progress` `event: turn_ended` wake from a previously dispatched subagent/fork. Focused decision tree for speaking to your own human (plain text), routing to peers (caller:session / session), spawning (subagent / fork), receiving child results, and silent termination.
 ---
 
 # Dispatch Routing Guide
@@ -166,9 +166,10 @@ A `⚠️ ... ended its turn with an error` header means the turn failed.
 The notice says the turn ended, nothing more. The short report is a hint, not
 the result. Check the actual state yourself:
 
-1. **Read the child's output**: `read_file` the `session_file` and find the last
-   `role=assistant` entry. Look at earlier entries or `check_session` only when
-   that is not enough.
+1. **Read the child's output**: run the `read-session` command the notice gives
+   (`{{WORKSPACE}}/bin/nagobot read-session <child_session> --tail 1 --full`);
+   never `read_file` the raw `session_file`. Look further back or use
+   `check_session` only when that is not enough.
 2. **Decide, one of three**:
    - **The child is still waiting** on threads it dispatched itself (its last
      output says so): keep waiting. End with `dispatch({})`, or give your human a
@@ -317,7 +318,7 @@ dispatch(sends=[{to: "subagent_fork", params: {agent: "reflector", task_id: "ref
 dispatch(sends=[{to: "session", params: {session_key: "telegram:99"}, body: "Build finished"}])
 
 # progress turn_ended for find-x: read the result first
-read_file(path: "<session_file from the notice>")
+exec: {{WORKSPACE}}/bin/nagobot read-session cli:threads:find-x --tail 1 --full
 # ...its last assistant entry is a complete answer: deliver it
 Research done. Summary: ...
 

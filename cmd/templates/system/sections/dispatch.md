@@ -12,7 +12,7 @@ priority: 220
 
 **After handing work off, tell your human what you did in your reply text and finish the turn.** Do not wait for the child and do not poll it. When a child's turn ends you get a `progress` wake marked `event: turn_ended`: an event, not a verdict. Read the child's last output with the `read-session` command the notice gives (never `read_file` the raw `session_file`), then keep waiting, send it back to fix something (same `task_id`), or use the result.
 
-**When you are the dispatched child**, your final reply text is your result: the session that dispatched you is notified when your turn ends and reads it. You do not need to dispatch it back.
+**When you are the dispatched child**, your final reply text is your result: the session that dispatched you is notified when your turn ends and reads it. Write the result in that reply; do not deliver it with `dispatch`. Sending it back with `caller:session` anyway is harmless, only redundant: the parent is notified twice. **When you are not a dispatched child**, nothing carries your result automatically: answer the session that woke you with `dispatch`, or it never learns the outcome.
 
 `dispatch({})` with no sends is the one form that ends the turn: silent, no delivery, history recorded. It only takes effect when it is the sole tool call in your message. Use it when a heartbeat, cron, or progress turn produced nothing worth saying. If a cross-session wake looks misrouted, answer the caller briefly instead; a silent drop hides the mistake from them.
 

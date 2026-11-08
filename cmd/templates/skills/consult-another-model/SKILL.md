@@ -243,7 +243,7 @@ distinct `task_id`s.
 The consult is **asynchronous**. The dispatch returns at once and your turn
 continues; do not wait or poll. When the consultant's turn ends you wake with
 `source: progress` and `event: turn_ended`. The notice is not the answer: read
-the consultant's last `role=assistant` entry from the `session_file` it names.
+the consultant's last reply with the `read-session` command the notice gives.
 
 - **You remain responsible for the result.** The consultant saw none of the
   real context, so check its answer against reality before acting — read the

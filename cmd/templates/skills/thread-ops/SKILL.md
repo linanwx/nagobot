@@ -22,7 +22,7 @@ The single routing primitive for reaching other threads and sessions. It is asyn
 There is no `to=user` target. Speaking to your own human is not a dispatch at
 all — you just write your reply and end the turn. Read `caller_session_key` in
 the wake YAML:
-- **Present** → caller is another session → use `caller:session`.
+- **Present** → caller is another session → use `caller:session`. Exception: as a dispatched subagent/fork, your final reply text is already your result; no dispatch needed.
 - **Absent** AND this session is user-facing → caller is the channel user → just write your reply, no dispatch.
 - System sources (cron / heartbeat / compression) have no caller to reply to. On a user-facing session, cron turns still reach your human via plain text; heartbeat and compression turns reach nobody no matter what you write. Use `dispatch({})` to end silently.
 
@@ -138,7 +138,7 @@ tool_call: health()
 1. dispatch(sends=[{to: "subagent", params: {agent: "researcher", task_id: "find-x"}, body: "Find information about X"}])
 2. The turn continues: tell your human "I've started a researcher on X" and let the turn end. The child runs asynchronously.
 3. When the child's turn ends, you are woken with `source: progress`, `event: turn_ended`, and its `session_file`.
-4. read_file(session_file), take the last assistant entry, then wait / send it back with task_id "find-x" / deliver the result.
+4. read-session cli:threads:find-x --tail 1 --full, then wait / send it back with task_id "find-x" / deliver the result.
 ```
 
 ### Silent end
