@@ -426,17 +426,17 @@ export function SessionSidebar({
           width transition on ONE element with the body always mounted —
           swapping between two different subtrees leaves the browser nothing to
           interpolate, which is why this used to snap. The body keeps its full
-          w-72 so narrowing the aside CLIPS it instead of reflowing every row
+          width so narrowing the aside CLIPS it instead of reflowing every row
           mid-animation; it fades out and goes inert on the way. */}
       <aside
         className={cn(
           "relative hidden h-full shrink-0 overflow-hidden border-r bg-sidebar text-sidebar-foreground transition-[width] duration-200 md:block",
-          railCollapsed ? "md:w-12" : "md:w-72",
+          railCollapsed ? "md:w-12" : "md:w-80 lg:w-96",
         )}
       >
         <div
           className={cn(
-            "flex h-full w-72 flex-col transition-opacity duration-150",
+            "flex h-full w-80 flex-col lg:w-96 transition-opacity duration-150",
             railCollapsed && "pointer-events-none opacity-0",
           )}
           inert={railCollapsed}
@@ -464,11 +464,14 @@ export function SessionSidebar({
         </div>
       </aside>
 
-      {/* Mobile: the same body in a drawer over the chat. */}
+      {/* Mobile: the same body in a drawer over the chat. Wider than the
+          desktop column: session titles are summaries, and at the sheet's
+          default w-72 a phone showed barely half of one. 85vw still leaves a
+          strip of the chat visible to tap the drawer closed. */}
       <Sheet open={sheetOpen} onOpenChange={onSheetOpenChange}>
         <SheetContent
           aria-describedby={undefined}
-          className="bg-sidebar text-sidebar-foreground"
+          className="w-[85vw] max-w-sm bg-sidebar text-sidebar-foreground"
         >
           <SheetTitle className="sr-only">{t("sidebar.title")}</SheetTitle>
           {body}
