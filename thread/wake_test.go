@@ -277,3 +277,63 @@ func TestUserVisibleWakeCarriesTalkAction(t *testing.T) {
 		}
 	}
 }
+
+// TestCanInjectAgentlessFollowUp pins the dispatch follow-up case: a child
+// started with agent "search" is mid-turn, and the parent sends a follow-up
+// that omits `agent`. The follow-up runs under the session's own agent, which
+// is the one already running, so it must join the turn rather than wait for
+// the turn to end. tryMerge's strict canMerge must still keep them apart.
+func TestCanInjectAgentlessFollowUp(t *testing.T) {
+	running := &WakeMessage{Source: WakeSession, AgentName: "search", CallerSessionKey: "cli"}
+	followUp := &WakeMessage{Source: WakeSession, CallerSessionKey: "cli"}
+	metaSearch := func() string { return "search" }
+
+	if !canInject(running, followUp, "search", metaSearch) {
+		t.Fatal("agent-less follow-up was rejected, but it would run under the running agent")
+	}
+	if !canInject(running, followUp, "search", nil) {
+		t.Fatal("agent-less follow-up with no DefaultAgentFor keeps the current agent and must be injected")
+	}
+	if canMerge(running, followUp) {
+		t.Fatal("canMerge must stay strict about AgentName at turn start")
+	}
+}
+
+// TestCanInjectRejectsDifferentAgent keeps the agent gate meaningful: a wake
+// that would run under another agent — named explicitly, or resolved from
+// meta.json when the running turn is a one-turn override — is deferred.
+func TestCanInjectRejectsDifferentAgent(t *testing.T) {
+	running := &WakeMessage{Source: WakeSession, AgentName: "search", CallerSessionKey: "cli"}
+
+	explicit := &WakeMessage{Source: WakeSession, AgentName: "coder", CallerSessionKey: "cli"}
+	if canInject(running, explicit, "search", nil) {
+		t.Fatal("a wake naming a different agent must not join the running turn")
+	}
+
+	agentless := &WakeMessage{Source: WakeSession, CallerSessionKey: "cli"}
+	if canInject(running, agentless, "search", func() string { return "soul" }) {
+		t.Fatal("an agent-less wake resolving to a different session agent must not join the running turn")
+	}
+
+	sameAgent := &WakeMessage{Source: WakeSession, AgentName: "search", CallerSessionKey: "cli"}
+	if !canInject(running, sameAgent, "search", func() string { return "soul" }) {
+		t.Fatal("a wake naming the running agent must join the running turn")
+	}
+}
+
+// TestCanInjectKeepsTurnContextChecks makes sure relaxing the agent comparison
+// did not relax anything else canMerge guards.
+func TestCanInjectKeepsTurnContextChecks(t *testing.T) {
+	running := &WakeMessage{Source: WakeSession, AgentName: "search", CallerSessionKey: "cli"}
+	cases := map[string]*WakeMessage{
+		"source": {Source: WakeTelegram, CallerSessionKey: "cli"},
+		"caller": {Source: WakeSession, CallerSessionKey: "discord:1"},
+		"model":  {Source: WakeSession, CallerSessionKey: "cli", OverrideModel: "x"},
+		"vars":   {Source: WakeSession, CallerSessionKey: "cli", Vars: map[string]string{"k": "v"}},
+	}
+	for name, next := range cases {
+		if canInject(running, next, "search", nil) {
+			t.Errorf("%s mismatch was injected", name)
+		}
+	}
+}

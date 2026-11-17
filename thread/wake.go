@@ -132,7 +132,44 @@ func (t *Thread) tryMerge(first *WakeMessage) *WakeMessage {
 }
 
 func canMerge(a, b *WakeMessage) bool {
-	if a.Source != b.Source || a.AgentName != b.AgentName {
+	if a.AgentName != b.AgentName {
+		return false
+	}
+	return sameTurnContext(a, b)
+}
+
+// canInject decides whether a wake that arrives while a turn is running joins
+// that turn at the next iteration boundary. It is canMerge with one difference:
+// agents are compared by the agent each wake would actually RUN under, not by
+// the raw AgentName field.
+//
+// An empty AgentName means "keep this session's agent" — RunOnce resolves it
+// from meta.json via DefaultAgentFor, and keeps the current agent when that
+// yields nothing. So a follow-up dispatch that omits `agent` (the form
+// dispatch-guide teaches) targets the very agent the running turn is on. The
+// raw comparison rejected it ("search" != ""), deferring the follow-up until
+// the child's whole turn ended — the correction reached the child only after
+// it had already finished the work being corrected.
+//
+// tryMerge keeps the strict canMerge: at turn start nothing is running yet,
+// and an empty first wake followed by an explicit agent switch must stay two
+// turns.
+func canInject(running, next *WakeMessage, runningAgent string, defaultAgent func() string) bool {
+	nextAgent := strings.TrimSpace(next.AgentName)
+	if nextAgent == "" && defaultAgent != nil {
+		nextAgent = defaultAgent()
+	}
+	if nextAgent != "" && nextAgent != runningAgent {
+		return false
+	}
+	return sameTurnContext(running, next)
+}
+
+// sameTurnContext is everything canMerge and canInject agree on: two wakes can
+// share one turn only if they come from the same source, run on the same model,
+// deliver to the same place, answer the same caller and carry the same vars.
+func sameTurnContext(a, b *WakeMessage) bool {
+	if a.Source != b.Source {
 		return false
 	}
 	// Don't merge wakes with different model overrides — the merged body would
@@ -357,6 +394,10 @@ func (t *Thread) RunOnce(ctx context.Context) {
 	// mergeable user messages and inject them into the LLM conversation.
 	// Non-mergeable messages are stored in t.pending to avoid channel
 	// requeue deadlock.
+	var defaultAgent func() string
+	if fn := t.cfg().DefaultAgentFor; fn != nil {
+		defaultAgent = func() string { return fn(t.sessionKey) }
+	}
 	injectFn := func() []provider.Message {
 		var injected []provider.Message
 		// Control lane first: drain the dedicated inject queue unconditionally
@@ -379,7 +420,7 @@ func (t *Thread) RunOnce(ctx context.Context) {
 		for {
 			select {
 			case next := <-t.inbox:
-				if canMerge(msg, next) {
+				if canInject(msg, next, agentName, defaultAgent) {
 					payload := buildWakePayload(next.Source, next.Message, t.id, t.sessionKey, sessionDir, deliveryLabel, modelLabel, agentName, loc, senderOrDefault(next.Sender, next.Source), next.SenderName, next.SenderID, next.MediaInfo, next.MediaPreview, next.CallerSessionKey, next.EnqueuedAt, next.RecentChat)
 					if payload != "" {
 						payload = markInjected(payload)
