@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>nagobot — Your AI, Always On</title>
-<meta name="description" content="An autonomous AI bot framework for Telegram, Discord, Feishu, and more. Multi-agent, multi-provider, 38+ skills, cron scheduling, persistent memory — one install, all channels.">
+<meta name="description" content="An autonomous AI bot framework for Telegram, Discord, Feishu, WeCom, and the web. Multi-agent, multi-provider, 27 built-in skills, cron scheduling, memory that consolidates itself every night — one install, all channels.">
 <link rel="canonical" href="https://nagobot.com/">
 <meta property="og:title" content="nagobot — Your AI, Always On">
 <meta property="og:description" content="An autonomous AI bot framework. Multi-channel, multi-provider, multi-agent. One install, all channels.">
@@ -209,6 +209,9 @@ nav{
 .fc:nth-child(4)::after{background:linear-gradient(90deg,var(--violet),transparent)}
 .fc:nth-child(5)::after{background:linear-gradient(90deg,var(--rose),transparent)}
 .fc:nth-child(6)::after{background:linear-gradient(90deg,var(--gold),transparent)}
+.fc:nth-child(7)::after{background:linear-gradient(90deg,var(--cyan),transparent)}
+.fc:nth-child(8)::after{background:linear-gradient(90deg,var(--violet),transparent)}
+.fc:nth-child(9)::after{background:linear-gradient(90deg,var(--amber),transparent)}
 .fc:hover{
   border-color:var(--border-hi);transform:translateY(-2px);
   box-shadow:0 6px 20px rgba(0,0,0,0.35);
@@ -438,13 +441,13 @@ footer{
     <div class="sec-label sec-center">Architecture</div>
     <h2 class="sec-title sec-center">Four layers. Fully swappable.</h2>
     <div class="pipeline">
-      <div class="pn"><div class="pd"></div><div class="pn-name">Channel</div><div class="pn-type">Pure I/O</div><div class="pn-list">Telegram<br>Discord<br>Feishu<br>Web &middot; CLI &middot; Cron</div></div>
+      <div class="pn"><div class="pd"></div><div class="pn-name">Channel</div><div class="pn-type">Pure I/O</div><div class="pn-list">Telegram<br>Discord<br>Feishu &middot; WeCom<br>Web &middot; CLI &middot; Cron</div></div>
       <div class="pa">&rarr;</div>
       <div class="pn"><div class="pd"></div><div class="pn-name">Dispatcher</div><div class="pn-type">Routing</div><div class="pn-list">Session keys<br>Agent selection<br>Variable injection</div></div>
       <div class="pa">&rarr;</div>
-      <div class="pn"><div class="pd"></div><div class="pn-name">Thread</div><div class="pn-type">Execution</div><div class="pn-list">Agentic loop<br>Tool calling<br>Memory mgmt<br>Child spawning</div></div>
+      <div class="pn"><div class="pd"></div><div class="pn-name">Thread</div><div class="pn-type">Execution</div><div class="pn-list">Agentic loop<br>Tool calling<br>Memory mgmt<br>Async dispatch</div></div>
       <div class="pa">&rarr;</div>
-      <div class="pn"><div class="pd"></div><div class="pn-name">Provider</div><div class="pn-type">LLM API</div><div class="pn-list">DeepSeek<br>OpenRouter<br>Moonshot<br>Zhipu &middot; +5</div></div>
+      <div class="pn"><div class="pd"></div><div class="pn-name">Provider</div><div class="pn-type">LLM API</div><div class="pn-list">DeepSeek<br>OpenAI<br>OpenRouter<br>Moonshot &middot; Zhipu<br>OpenCode Go</div></div>
     </div>
   </div>
 </section>
@@ -467,26 +470,26 @@ footer{
     <div class="feat-grid">
       <div class="fc">
         <h3>Multi-Provider</h3>
-        <p>Each provider handles its own quirks &mdash; reasoning tokens, tool calls, signatures. No lossy translation.</p>
+        <p>Each provider handles its own quirks &mdash; reasoning effort, tool calls, prompt caching. Route each agent or task to its own model.</p>
         <div class="tags">
-          <span class="tag">DeepSeek</span><span class="tag">OpenRouter</span><span class="tag">Moonshot</span>
-          <span class="tag">OpenRouter</span><span class="tag">Moonshot</span><span class="tag">Zhipu</span>
+          <span class="tag">DeepSeek</span><span class="tag">OpenAI</span><span class="tag">OpenRouter</span>
+          <span class="tag">Moonshot</span><span class="tag">Zhipu</span><span class="tag">OpenCode Go</span>
         </div>
       </div>
       <div class="fc">
         <h3>Multi-Agent</h3>
-        <p>Specialized agents for different tasks. Spawn child threads for parallel work. Markdown templates, fully customizable.</p>
+        <p>Specialized agents for different tasks. Dispatch work to subagents that run in parallel and report back. Markdown templates, fully customizable.</p>
         <div class="tags">
-          <span class="tag">soul</span><span class="tag">heartbeat</span><span class="tag">search</span>
-          <span class="tag">imagereader</span><span class="tag">minibot</span>
+          <span class="tag">soul</span><span class="tag">search</span><span class="tag">coder</span>
+          <span class="tag">imagereader</span><span class="tag">audioreader</span><span class="tag">+9 more</span>
         </div>
       </div>
       <div class="fc">
-        <h3>38+ Skills</h3>
-        <p>Weather, calendar, Docker, network diagnostics, translation &mdash; dynamically loaded and always extensible.</p>
+        <h3>27 Built-in Skills</h3>
+        <p>Scheduling, web research, hosted HTML pages, images, Apple apps &mdash; loaded on demand, and you can add your own.</p>
         <div class="tags">
-          <span class="tag">Calendar</span><span class="tag">Weather</span><span class="tag">Docker</span>
-          <span class="tag">Git</span><span class="tag">Translate</span><span class="tag">+32 more</span>
+          <span class="tag">Cron</span><span class="tag">Web Search</span><span class="tag">HTML Pages</span>
+          <span class="tag">Images</span><span class="tag">Apple Apps</span><span class="tag">+22 more</span>
         </div>
       </div>
       <div class="fc">
@@ -499,18 +502,42 @@ footer{
       </div>
       <div class="fc">
         <h3>Smart Memory</h3>
-        <p>Three-tier compression keeps conversations alive indefinitely. Persistent sessions survive restarts.</p>
+        <p>Three-tier compression keeps conversations alive indefinitely. Past conversations are distilled into searchable memory files.</p>
         <div class="tags">
           <span class="tag">3-Tier Compress</span><span class="tag">Persistent</span>
-          <span class="tag">Context Pressure</span>
+          <span class="tag">Cross-Session Recall</span>
         </div>
       </div>
       <div class="fc">
         <h3>Multi-Channel</h3>
-        <p>One bot serves all platforms. Add a token, the channel starts. Hot-reloaded every 10 seconds.</p>
+        <p>One bot serves all platforms. Add a token, the channel starts. A session's replies reach every channel attached to it.</p>
         <div class="tags">
           <span class="tag">Telegram</span><span class="tag">Discord</span><span class="tag">Feishu</span>
-          <span class="tag">Web</span><span class="tag">CLI</span><span class="tag">Cron</span>
+          <span class="tag">WeCom</span><span class="tag">Web</span><span class="tag">CLI</span>
+        </div>
+      </div>
+      <div class="fc">
+        <h3>Web Console</h3>
+        <p>Watch any session live, from any channel. Passkey login, push notifications, quote-reply, and pinned notes.</p>
+        <div class="tags">
+          <span class="tag">Live Stream</span><span class="tag">Passkeys</span><span class="tag">Web Push</span>
+          <span class="tag">Pins</span>
+        </div>
+      </div>
+      <div class="fc">
+        <h3>Nightly Dream</h3>
+        <p>While you sleep, each session reviews its day: updates what it knows about you, tracks your open commitments, and checks them for conflicts.</p>
+        <div class="tags">
+          <span class="tag">Reflection</span><span class="tag">Commitments</span>
+          <span class="tag">Conflict Check</span>
+        </div>
+      </div>
+      <div class="fc">
+        <h3>Proactive Follow-ups</h3>
+        <p>It remembers what was left open and comes back at the right moment &mdash; tomorrow morning, or the week of your exam.</p>
+        <div class="tags">
+          <span class="tag">Follow-ups</span><span class="tag">Reminders</span>
+          <span class="tag">Progress Notes</span>
         </div>
       </div>
     </div>
@@ -529,24 +556,24 @@ footer{
           <div><div class="gc-title">Switch Models</div><div class="gc-desc">Change provider or model mid-conversation</div></div>
         </div>
         <div class="gc-body">
-          <div><span class="u">you:</span> switch to kimi k2.6</div>
-          <div><span class="b">bot:</span> &#10003; Default model set to moonshotai/kimi-k2.6</div>
+          <div><span class="u">you:</span> switch to kimi k3</div>
+          <div><span class="b">bot:</span> &#10003; Default model set to moonshot-cn / kimi-k3</div>
           <hr class="sep">
-          <div><span class="u">you:</span> use deepseek-reasoner for reasoning tasks</div>
-          <div><span class="b">bot:</span> &#10003; Routing &ldquo;chat&rdquo; to deepseek-reasoner</div>
+          <div><span class="u">you:</span> use deepseek-flash for scheduled jobs</div>
+          <div><span class="b">bot:</span> &#10003; Routing &ldquo;cron&rdquo; to deepseek / deepseek-flash</div>
         </div>
       </div>
       <div class="gc">
         <div class="gc-head">
           <div class="gc-icon" style="background:var(--cyan-glow);color:var(--cyan)">&#128269;</div>
-          <div><div class="gc-title">Search History</div><div class="gc-desc">Find anything across all conversations</div></div>
+          <div><div class="gc-title">Recall the Past</div><div class="gc-desc">Find anything across all conversations</div></div>
         </div>
         <div class="gc-body">
-          <div><span class="u">you:</span> search conversations about Docker setup</div>
-          <div><span class="b">bot:</span> Found 8 matches across 3 sessions&hellip;</div>
+          <div><span class="u">you:</span> when did I last renew my passport?</div>
+          <div><span class="b">bot:</span> You mentioned it on Mar 4, in our Telegram chat&hellip;</div>
           <hr class="sep">
-          <div><span class="u">you:</span> what did we discuss last Tuesday?</div>
-          <div><span class="b">bot:</span> On Mar 4 you discussed&hellip;</div>
+          <div><span class="u">you:</span> what did we decide about the Docker setup?</div>
+          <div><span class="b">bot:</span> From 3 sessions: you settled on&hellip;</div>
         </div>
       </div>
       <div class="gc">
@@ -565,7 +592,7 @@ footer{
       <div class="gc">
         <div class="gc-head">
           <div class="gc-icon" style="background:rgba(167,139,250,0.12);color:var(--violet)">&#128279;</div>
-          <div><div class="gc-title">Add Channels</div><div class="gc-desc">Connect Telegram, Discord, or Feishu live</div></div>
+          <div><div class="gc-title">Add Channels</div><div class="gc-desc">Connect Telegram, Discord, Feishu, or WeCom live</div></div>
         </div>
         <div class="gc-body">
           <div><span class="u">you:</span> connect my Telegram bot, token is 123:ABC</div>
@@ -578,12 +605,12 @@ footer{
       <div class="gc">
         <div class="gc-head">
           <div class="gc-icon" style="background:rgba(251,113,133,0.12);color:var(--rose)">&#128101;</div>
-          <div><div class="gc-title">Spawn Threads</div><div class="gc-desc">Delegate research to parallel child agents</div></div>
+          <div><div class="gc-title">Delegate Work</div><div class="gc-desc">Dispatch research to parallel subagents</div></div>
         </div>
         <div class="gc-body">
-          <div><span class="u">you:</span> create 3 threads to research AI chip stocks</div>
-          <div><span class="b">bot:</span> Spawning search:1, search:2, search:3&hellip;</div>
-          <div><span class="b">bot:</span> All 3 threads complete. Summary:&hellip;</div>
+          <div><span class="u">you:</span> research AI chip stocks, three angles in parallel</div>
+          <div><span class="b">bot:</span> Dispatched 3 search subagents. I&rsquo;ll report when they finish.</div>
+          <div><span class="b">bot:</span> All 3 reported back. Summary:&hellip;</div>
         </div>
       </div>
       <div class="gc">
@@ -614,12 +641,12 @@ footer{
         <span class="term-title">nagobot serve</span>
       </div>
       <div class="term-body" style="padding:14px 18px">
-        <div class="lr"><span class="lr-t">09:00</span><span class="lr-s">cron:heartbeat</span><span class="lr-a">web_search</span><span class="lr-d">12.3s</span></div>
-        <div class="lr"><span class="lr-t">09:01</span><span class="lr-s">deepseek-reasoner</span><span class="lr-a">report done</span><span class="lr-d">8.5s</span></div>
-        <div class="lr"><span class="lr-t">10:15</span><span class="lr-s">telegram</span><span class="lr-a">tool:weather</span><span class="lr-d">3.2s</span></div>
-        <div class="lr"><span class="lr-t">10:15</span><span class="lr-s">google/gemini-3.7-flash</span><span class="lr-a">response</span><span class="lr-d">2.1s</span></div>
-        <div class="lr"><span class="lr-t">14:30</span><span class="lr-s">discord</span><span class="lr-a">spawn_thread</span><span class="lr-d">6.8s</span></div>
-        <div class="lr"><span class="lr-t">18:00</span><span class="lr-s">cron:news</span><span class="lr-a">web_search x3</span><span class="lr-d">22.7s</span></div>
+        <div class="lr"><span class="lr-t">03:10</span><span class="lr-s">heartbeat</span><span class="lr-a">dream</span><span class="lr-d">41.2s</span></div>
+        <div class="lr"><span class="lr-t">09:00</span><span class="lr-s">cron:news</span><span class="lr-a">web_search x3</span><span class="lr-d">22.7s</span></div>
+        <div class="lr"><span class="lr-t">09:01</span><span class="lr-s">telegram</span><span class="lr-a">follow-up sent</span><span class="lr-d">4.8s</span></div>
+        <div class="lr"><span class="lr-t">10:15</span><span class="lr-s">wecom</span><span class="lr-a">image read</span><span class="lr-d">3.2s</span></div>
+        <div class="lr"><span class="lr-t">14:30</span><span class="lr-s">discord</span><span class="lr-a">dispatch</span><span class="lr-d">6.8s</span></div>
+        <div class="lr"><span class="lr-t">14:33</span><span class="lr-s">subagent</span><span class="lr-a">turn ended</span><span class="lr-d">2m51s</span></div>
         <div class="lr"><span class="lr-t">23:45</span><span class="lr-s">memory</span><span class="lr-a">tier2 compress</span><span class="lr-d">auto</span></div>
       </div>
     </div>
