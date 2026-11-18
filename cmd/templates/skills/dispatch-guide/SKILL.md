@@ -1,6 +1,6 @@
 ---
 name: dispatch-guide
-description: Use when about to call the `dispatch` tool and unsure which `to` form to pick, when unsure whether plain reply text will reach your human, when a dispatch validation error reports a mismatch between asserted caller kind and actual caller, or when handling a `progress` `event: turn_ended` wake from a previously dispatched subagent/fork. Focused decision tree for speaking to your own human (plain text), routing to peers (caller:session / session), spawning (subagent / fork), receiving child results, and silent termination.
+description: 'Use when about to call the `dispatch` tool and unsure which `to` form to pick, when unsure whether plain reply text will reach your human, when a dispatch validation error reports a mismatch between asserted caller kind and actual caller, or when handling a `progress` `event: turn_ended` wake from a previously dispatched subagent/fork. Focused decision tree for speaking to your own human (plain text), routing to peers (caller:session / session), spawning (subagent / fork), receiving child results, and silent termination.'
 ---
 
 # Dispatch Routing Guide
