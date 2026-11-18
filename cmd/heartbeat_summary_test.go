@@ -11,7 +11,7 @@ import (
 // The dream decides whether to rewrite the session summary, so the summary it
 // judges has to be in the wake. Three properties matter, and the third is the
 // one that fails silently: an ABSENT field reads as "not applicable" and the
-// dream skips step 4 — exactly backwards for a session that has never had a
+// dream skips step 6 — exactly backwards for a session that has never had a
 // summary written.
 func TestHeartbeatWakeCarriesSessionSummaryOnlyWhenDreaming(t *testing.T) {
 	const summary = "AI news and fact-checking with Nansen"

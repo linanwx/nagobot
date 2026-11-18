@@ -587,7 +587,7 @@ func (s *heartbeatScheduler) sessionSummary(key string) string {
 
 // noSessionSummary is what the wake carries when the session has no summary on
 // record. Stated rather than omitted: an absent field reads as "not applicable"
-// and the dream would skip step 4, which is exactly the case where it must NOT
+// and the dream would skip step 6, which is exactly the case where it must NOT
 // skip — a session with no summary has never had one written.
 const noSessionSummary = "(none on record — this session has never had a summary; write one)"
 

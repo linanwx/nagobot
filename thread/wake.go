@@ -733,7 +733,7 @@ func wakeActionHint(source WakeSource) string {
 			"Never dispatch to the sending session a reply whose sole purpose is to acknowledge receipt (whether a bare `收到`/`ok` or a longer, well-formed message that still conveys nothing beyond 'received/noted'); meaningless inter-session communication is not allowed: report the information briefly to the human as this turn's reply content."
 	case WakeCron:
 		// A cron wake into a user-facing session is proactive speech: the task
-		// text is often the model's own follow-up note (dream step 5), which the
+		// text is often the model's own follow-up note (dream step 7), which the
 		// human never saw. The guidance says what the opening must DO (give the
 		// context the reader lacks) rather than forbidding mentions of the
 		// schedule — the old "do not mention the schedule" line pushed replies

@@ -232,13 +232,16 @@ Rules that make the difference between one call and fifteen:
 ### Standing preferences: USER.md
 
 The memory files are what was *said*. `USER.md` is what was *settled* — one per
-session, at the session directory's root, written by `session-reflect`:
+session, at the session directory's root, written by `session-reflect` (its
+`## Open commitments` section by the nightly dream):
 
 ```
 {{WORKSPACE}}/sessions/<session key, ":" replaced by "/">/USER.md
 ```
 
-It holds preferences, corrections, workflow patterns and a reflection log. So
+It holds scoped preferences, durable facts, pitfalls the user corrected, open
+commitments (appointments, deadlines, things handed in or awaited) and a
+reflection log. So
 when the question is "what did they tell me to do / not do", this is the file,
 and the dated memory files are the fallback.
 
