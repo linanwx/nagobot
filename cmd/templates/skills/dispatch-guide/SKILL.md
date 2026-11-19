@@ -186,8 +186,11 @@ system, not the child.
 
 **Running-progress notes** (`source: progress`, body starting with `⏳`, no
 `event: turn_ended`) are different: the child is still mid-turn and this is not
-a result. Relay a one-line update to your human if it is worth it, otherwise
-`dispatch({})`.
+a result. If it surfaced useful information or a preliminary conclusion, relay
+it to your human in a short line. If it is heading the wrong way or has stalled,
+steer it in real time: `dispatch(to=subagent|subagent_fork)` with the same
+`task_id`, saying exactly what to change; the message reaches its running turn.
+Otherwise `dispatch({})`.
 
 **Parallel children**: each child sends its own notice when its turn ends. You
 can answer as each one lands, or wait for the last; notices already handled are
