@@ -3,6 +3,7 @@ package thread
 import (
 	"context"
 	"fmt"
+	"github.com/linanwx/nagobot/prompts"
 	"strings"
 	"time"
 
@@ -153,15 +154,7 @@ func (t *Thread) persistPostInjections(payloads []string, source WakeSource, sin
 // reply has been suppressed (NOT forwarded to the peer); the model must answer
 // with an explicit dispatch.
 func buildCrossThreadDispatchRequiredPayload(peerKey string, now time.Time) string {
-	body := fmt.Sprintf(
-		"Cross-thread wake (caller is session %s) requires an explicit dispatch: your prior reply was NOT forwarded to the peer. Nothing was delivered.\n\n"+
-			"Answer with one of:\n"+
-			"  - dispatch(sends=[{to: \"caller:session\", body: \"...\"}]): reply to %s, the session that woke you. This is almost always the one you want.\n"+
-			"  - dispatch(sends=[{to: \"session\", body: \"...\", params: {session_key: \"...\"}}]): wake a DIFFERENT session (not your caller).\n"+
-			"  - dispatch({}): silently end the turn.\n\n"+
-			"This session has no human of its own and no dispatching session reading its output, so plain text has nowhere to go. Name a target explicitly.",
-		peerKey, peerKey,
-	)
+	body := promptCrossThreadDispatchReq.Render(prompts.Vars{"PEER_SESSION": peerKey})
 
 	var sb strings.Builder
 	sb.WriteString("---\n")
@@ -172,4 +165,3 @@ func buildCrossThreadDispatchRequiredPayload(peerKey string, now time.Time) stri
 	sb.WriteString(body)
 	return markInjected(sb.String())
 }
-

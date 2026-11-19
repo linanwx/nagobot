@@ -3,7 +3,7 @@ package thread
 import (
 	"context"
 	"errors"
-	"fmt"
+	"github.com/linanwx/nagobot/prompts"
 	"os"
 	"path/filepath"
 	"strings"
@@ -33,18 +33,6 @@ const (
 // rather than silently dropping the pin: a button that reports success while
 // nothing is ever written is worse than one that reports it cannot.
 var ErrPinUnavailable = errors.New("pin filing is not configured (missing " + pinAgent + " agent)")
-
-// pinPrompt is the fixed instruction handed to the pin agent. Everything about
-// HOW to file — dedup against existing pins, the frontmatter shape, merging —
-// lives in the agent template; this only says where the directory is and what
-// the material is.
-const pinPrompt = `Pins directory: %s
-
-File the following message into that directory.
-
---- BEGIN PINNED MESSAGE ---
-%s
---- END PINNED MESSAGE ---`
 
 // Pin files a message into {sessionDir}/pins by waking the pin sibling of
 // parentKey. It returns as soon as the wake is enqueued — the actual filing is
@@ -86,7 +74,7 @@ func (mgr *Manager) Pin(parentKey, text string) error {
 	start := time.Now()
 	mgr.Wake(parentKey+session.PinSessionSuffix, &WakeMessage{
 		Source:    WakePin,
-		Message:   fmt.Sprintf(pinPrompt, pinsDir, truncateStr(text, pinInputCap)),
+		Message:   promptPinRequest.Render(prompts.Vars{"PINS_DIR": pinsDir, "MESSAGE": truncateStr(text, pinInputCap)}),
 		AgentName: pinAgent,
 		Sinks: NewSinks(SessionSink{
 			Label: "pin session — the pin is written to disk by the agent, never delivered to a channel",

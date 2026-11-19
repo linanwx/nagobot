@@ -626,16 +626,16 @@ func (t *Thread) buildUserSection() string {
 
 	content, err := os.ReadFile(userPath)
 	if err != nil {
-		return fmt.Sprintf("---\ntype: user_preference\nfile_path: %s\nprompt: Append to store.\n---", absPath)
+		return fmt.Sprintf("---\ntype: user_preference\nfile_path: %s\nprompt: %s\n---", absPath, promptHeaderUserPreference.Text())
 	}
 	text := strings.TrimSpace(string(content))
 	if text == "" {
-		return fmt.Sprintf("---\ntype: user_preference\nfile_path: %s\nprompt: Append to store.\n---", absPath)
+		return fmt.Sprintf("---\ntype: user_preference\nfile_path: %s\nprompt: %s\n---", absPath, promptHeaderUserPreference.Text())
 	}
-	prompt := "Append to store."
+	prompt := promptHeaderUserPreference.Text()
 	lineCount := strings.Count(text, "\n") + 1
 	if lineCount > 200 {
-		prompt += " WARNING: this file exceeds 200 lines. On next update, remove outdated entries or consolidate existing content to keep it concise."
+		prompt += " " + promptHeaderUserPreferenceOverlong.Text()
 	}
 	return fmt.Sprintf("---\ntype: user_preference\nfile_path: %s\nprompt: %s\n---\n\n%s", absPath, prompt, text)
 }
@@ -654,7 +654,7 @@ func (t *Thread) buildHeartbeatSection() string {
 		body = strings.TrimSpace(string(data))
 	}
 
-	header := fmt.Sprintf("---\ntype: heartbeat_information\nfile_path: %s\nprompt: Heartbeat automatically wakes the thread to reflect on follow-up items and proactively help users with tasks. The scheduler selects the task and names the skill to call in each heartbeat wake; follow that instruction directly.\n---", absPath)
+	header := fmt.Sprintf("---\ntype: heartbeat_information\nfile_path: %s\nprompt: %s\n---", absPath, promptHeaderHeartbeat.Text())
 	if body == "" {
 		return header
 	}
@@ -680,7 +680,7 @@ func (t *Thread) buildDreamSection() string {
 		return ""
 	}
 	absPath, _ := filepath.Abs(dreamPath)
-	header := fmt.Sprintf("---\ntype: dream_reflection\nfile_path: %s\nprompt: Your most recent dream — a background reflection over the past day's conversation, rewritten each night by the dream skill. Let it quietly inform how you understand and respond to the user.\n---", absPath)
+	header := fmt.Sprintf("---\ntype: dream_reflection\nfile_path: %s\nprompt: %s\n---", absPath, promptHeaderDream.Text())
 	return header + "\n\n" + body
 }
 
@@ -704,7 +704,7 @@ func (t *Thread) buildFileTrackSection() string {
 		return ""
 	}
 	absPath, _ := filepath.Abs(ftPath)
-	header := fmt.Sprintf("---\ntype: file_track\nfile_path: %s\nprompt: Catalog of the files in this session's workspace — what each file is and when to use it. Run use_skill(\"file-track\") to re-organize and refresh it after you create, change, or finish with files.\n---", absPath)
+	header := fmt.Sprintf("---\ntype: file_track\nfile_path: %s\nprompt: %s\n---", absPath, promptHeaderFileTrack.Text())
 	return header + "\n\n" + body
 }
 
@@ -768,7 +768,7 @@ func (t *Thread) buildMemoryIndexSection() string {
 
 	var result string
 	if len(items) > 0 {
-		header := fmt.Sprintf("---\ntype: memory_index\nfile_path: %s\nprompt: Summaries of past compressed conversations. Use read_file to recall details.\n---", absMemoryDir)
+		header := fmt.Sprintf("---\ntype: memory_index\nfile_path: %s\nprompt: %s\n---", absMemoryDir, promptHeaderMemoryIndex.Text())
 		result = header + "\n\n" + strings.Join(items, "\n")
 	}
 

@@ -248,6 +248,40 @@ Load-bearing details:
 
 `--replace` takes the URL a previous upload returned (what the model actually has on hand) or the bare key, and `replaceTargetKey` rejects rather than guesses — foreign origin, another prefix, `..`, or a bare prefix all fail, since the value is model-supplied and a wrong key overwrites an unrelated page. A `HeadObject` existence check comes before the PUT: without it one garbled character silently publishes a phantom page and the command reports success. There is deliberately **no local registry and no page-id system** — the URL is the id, it is already in the transcript and already in the user's chat. The cost is bounded and accepted: once compression ages the URL out of context, that page can no longer be updated, and the model is told to publish a new one rather than guess a key.
 
+### Prompt files (`prompts/`)
+
+Model-facing prose that Go code emits is not written in Go. It covers:
+- wake `action` hints;
+- every tool's description and parameter descriptions;
+- guidance carried in tool results (read_file media delegation, edit_file recovery, exec confirmations, dispatch notes, check_session hints);
+- runtime notices (turn-end, operator stop, cross-thread dispatch required, compression hints, heartbeat task lines);
+- cron `delivery` labels;
+- the `prompt:` line of every injected block's header.
+
+Each is one markdown file under `prompts/templates/<group>/<name>.md`, embedded in the binary. `onboard --sync` copies them to `{workspace}/system/prompts`, the daemon reads them from there, and a file changed on disk is picked up within 2s without a restart. They also appear in the web prompt viewer.
+
+The point is iteration speed. Changing a hint's wording used to require a full release. Now it can be tried live on a deployment. The canonical copy is still `prompts/templates` (sync overwrites the workspace), so a wording that works must be written back here.
+
+- **Code declares each prompt** with `prompts.Declare(key, ...)` / `prompts.DeclareTool(name, ...)`. Each package keeps its declarations in one `prompt_texts.go`. The declaration names the file's `{{PLACEHOLDERS}}`, no more and no fewer, and `OneLine()` for text that lands in a one-line YAML value. A `OneLine` file may be written one sentence per line, because rendering joins lines with spaces.
+- **Fail loud, never fall back.**
+  - At daemon start, `prompts.UseDir` checks the whole set: every declared prompt has a file, the placeholders match, and no file is undeclared. Any mismatch fails the start; there is no compiled-in fallback text.
+  - On a live reload, a bad file keeps its previous text and logs at Error.
+  - A render missing a variable leaves the `{{PLACEHOLDER}}` visible and logs at Error.
+  - `TestEmbeddedPromptFilesMatchDeclarations` (in `cmd`, the one package that links every declarer) is the drift guard.
+- **Substitution is single-pass**, so a value that contains `{{X}}` (a pinned message, say) is inserted literally.
+- **Tool files**:
+  - The body is the description.
+  - Frontmatter `params` maps dotted property paths (`sends.params`) to parameter descriptions.
+  - The schema's structure stays in each `Def()`: types, enums, required lists.
+  - `TestToolPromptFilesDescribeExactlyTheSchema` sweeps every tool, so a property and its description cannot drift apart.
+  - Derived phrases stay derived and arrive as variables, for example `TASK_ID_TARGETS` from `targetsAccepting`: a stale target name in the cached tool prefix rejects nothing.
+- **What stays in Go**:
+  - validation and error messages, which are bound to the logic that produces them;
+  - protocol strings code parses (`event: turn_ended`, `turn-terminated-silent`);
+  - sink labels that name a transport;
+  - the YAML header structure (`type:` / `file_path:`).
+- Frontmatter `note` is for the people editing a file and is never sent to a model.
+
 ### Agent Templates (`agent/`)
 
 Agents are markdown templates in `{workspace}/agents/{name}.md` with `{{PLACEHOLDER}}` syntax. Variables set via `agent.Set(key, value)` before `Build()`. Runtime vars (TOOLS, SKILLS, USER) are set per-turn in `thread/run.go`. `{{DATE}}` and `{{CALENDAR}}` are auto-resolved in `agent.Build()` at day-level granularity (no minutes/seconds).
@@ -731,7 +765,7 @@ Load-bearing details:
 - **Per-wake sinks**: Each WakeMessage carries `Sinks SinkSet` (the channel it arrived on), `CallerSink SessionSink` (where a reply to whoever woke us goes), and `MessageSink` (reactions on the source message). `RunOnce` unions `Sinks` over the thread's default set — it does not replace it, and an empty `Sinks` no longer falls back to anything.
 - **Agent override**: `WakeMessage.AgentName` overrides the thread's agent for that turn only.
 - **Async child threads**: dispatch to a subagent/fork is fully async and the dispatching turn continues. A child's final reply stays in its own session; when its turn ends the progress scanner wakes the immediate parent with a `progress` `event: turn_ended` notice carrying `session_file`, and the parent reads the result itself.
-- **Template workspace**: Canonical templates live in `cmd/templates/`. `onboard --sync` copies to `~/.nagobot/workspace/`. `cleanAndCopyEmbeddedDir` removes deleted templates. Never edit workspace files directly.
+- **Template workspace**: Canonical templates live in `cmd/templates/` (and model-facing prompt files in `prompts/templates/`, synced to `system/prompts`). `onboard --sync` copies to `~/.nagobot/workspace/`. `cleanAndCopyEmbeddedDir` removes deleted templates. Never edit workspace files directly.
 - **Default cron seeds**: `tidyup` (4am weekly), `world-knowledge` (midnight daily), `people-knowledge` (2am daily). Heartbeat is NOT a cron job. The old `session-summary` and `memory-summary` cron/agent/skill sets were both removed — **every per-session summary is now written by that session's own nightly dream**: the `sessions_summary.json` entry via `set-summary`, and the `memory/*.md` frontmatter via `list-memory-files --session` + `set-memory-summary`. Cron sessions no longer get summary refreshes (their last entry ages out via the 7-day cleanup once inactive).
 
   **The three seeds only fire when a human has spoken somewhere in the past 24h** (`builtinCronQuietWindow`, gated in `CronChannel.shouldSkipJob`). They exist to digest what people did, and on an unused deployment they were digesting nothing: measured across the four live deployments on 2026-08-02, three had gone 2, 3 and 9 days without a real user message while all three jobs kept firing nightly — ~19 wasted LLM turns on the quietest. The window is checked **globally, never per session**, because these jobs run in their own `cron:<id>` sessions which have no human by construction; a per-session check would skip them all forever. It **fails open** — no injected clock, or a scan that errors, runs the job, since a broken wiring must not silently stop maintenance; a scan that succeeds and finds no human at all is idle by definition and does skip. **Custom jobs are never gated**: they are the user's own schedule, and several deployed ones push weekly reports to people who are deliberately not daily chat users. `config.IsBuiltinCronJob` derives the ID set from `defaultCronSeeds()` rather than repeating it, so a fourth seed cannot be silently left ungated; `cron.Job` gains no `builtin` field, since that would be a config format change and the ID is already authoritative (a user job cannot collide — `applyDefaults` force-merges seeds by ID).
@@ -781,7 +815,7 @@ So the replacement is `grep`, documented in `session-ops` (the "Recalling someth
 - **Two levels, and the skill says which answers what.** `grep "^summary:"` over the same file set is a *global* memory index — one line per file, ~113 lines over 21 sessions on the live workspace — and is the global counterpart to the per-session `memory_index` in the prompt. It finds WHERE (which session, which period); it cannot find WHAT, because a ~200-char summary does not carry the one date or number the user said once. So an empty index sweep is explicitly documented as **not** evidence of absence; only the content grep can conclude that.
 - The skill's load-bearing instruction is **one regex with alternation instead of N calls** (`护照|passport|passeport`), because the 14-call sweep above is the exact failure it prevents, plus: two or three well-formed empty patterns is a real answer, not a cue to try a fourth phrasing.
 - `memory_index` covers **only this session, only the last 20, only summarized files** — so its silence is not evidence, and cross-session recall *requires* the grep. That sentence is in the skill because the passport turn concluded "never mentioned" from an empty prompt.
-- Deleting the command also rewrote the recovery hints embedded in every compressed message (`thread/compress.go`: `compressedHintFmt` / `compressedHintNoID`), which pointed at `search-memory --context <id>`. They now point at `history/*.jsonl` (a message ID greps verbatim there) and `memory/`, and defer to the skill for recipes — shorter than what they replaced, which matters because they ride along in every compressed message.
+- Deleting the command also rewrote the recovery hints embedded in every compressed message (`prompts/templates/notices/compressed*.md`, rendered by `thread/compress.go:buildRecoveryHint`), which pointed at `search-memory --context <id>`. They now point at `history/*.jsonl` (a message ID greps verbatim there) and `memory/`, and defer to the skill for recipes — shorter than what they replaced, which matters because they ride along in every compressed message.
 - **Prompt caching requires deterministic serialization**: All LLM providers use prefix-based prompt caching (tools → system → messages). Go map iteration is non-deterministic, so any map-derived output that ends up in the LLM request MUST be sorted. Currently sorted: `tools.Registry.Defs()`, `skills.Registry.List()`, `skills.Registry.SkillNames()`, `agent.buildSessionsSummary()`. When adding new map-iterated content to the system prompt or tools array, always sort the output.
 - **Cache monitoring**: `provider.Usage.CachedTokens` flows through `Runner.totalUsage` → `monitor.TurnRecord` → `nagobot monitor --metrics` (per-provider `cacheHitRate`). All providers fill this field from their respective API response (OpenRouter/Moonshot/Zhipu: `PromptTokensDetails.CachedTokens`; DeepSeek: `PromptCacheHitTokens`; OpenAI: `InputTokensDetails.CachedTokens`).
 - **Cache *write* monitoring**: `provider.Usage.CacheWriteTokens` rides the same path and surfaces as `cacheWriteTokens` in `monitor --metrics`. It matters because **gpt-5.6 bills a cache write at 1.25x the uncached input rate** — on a cold prefix it is the most expensive line of the request. Unlike `CachedTokens` it is summed for every provider, not gated on `isCacheUnreliable`: a raw count needs no matched denominator, so an unreliable provider cannot skew it.

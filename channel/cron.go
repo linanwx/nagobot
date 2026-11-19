@@ -3,6 +3,7 @@ package channel
 import (
 	"context"
 	"fmt"
+	"github.com/linanwx/nagobot/prompts"
 	"path/filepath"
 	"strings"
 	"time"
@@ -199,9 +200,7 @@ func (c *CronChannel) Start(ctx context.Context) error {
 			// used to assert channel-user delivery unconditionally, which was
 			// backwards for every --direct-wake into such a session. The
 			// WakeCron action hint carries the conditional form.
-			delivery := "you were woken by cron (inject mode). Caller is cron — there is nobody to reply to, " +
-				"and this session has no channel user of its own, so plain reply text is dropped. " +
-				"Use dispatch(to=session, params={session_key: ...}) to deliver results, or dispatch({}) to end silently."
+			delivery := promptCronInject.Text()
 			c.onDirectWake(target, msg.WakeCron, task, "", delivery)
 			return "", nil
 		}
@@ -211,11 +210,9 @@ func (c *CronChannel) Start(ctx context.Context) error {
 		agent := strings.TrimSpace(job.Agent)
 		var delivery string
 		if target != "" {
-			delivery = "you were woken by cron (independent mode). Caller is cron — output to caller is dropped. " +
-				"After completing your task, dispatch(to=session, params={session_key: \"" + target + "\"}) to deliver results."
+			delivery = promptCronIndependentTarget.Render(prompts.Vars{"TARGET": target})
 		} else {
-			delivery = "you were woken by cron (independent mode). Caller is cron — output to caller is dropped. " +
-				"No delivery target configured; use dispatch explicitly if you need to forward results."
+			delivery = promptCronIndependentNone.Text()
 			logger.Warn("cron: independent mode without wake_session (silent execution)", "id", jobID)
 		}
 		c.onDirectWake(sessionKey, msg.WakeCron, task, agent, delivery)
@@ -331,3 +328,11 @@ func buildCronStartMessage(job *cronpkg.Job) string {
 		"created_at":   job.CreatedAt.UTC().Format(time.RFC3339),
 	}, "scheduled cron task triggered")
 }
+
+// `delivery` labels of cron wakes. The text lives in
+// prompts/templates/delivery/.
+var (
+	promptCronInject            = prompts.Declare("delivery/cron-inject", prompts.OneLine())
+	promptCronIndependentTarget = prompts.Declare("delivery/cron-independent-target", prompts.OneLine(), prompts.WithVars("TARGET"))
+	promptCronIndependentNone   = prompts.Declare("delivery/cron-independent-none", prompts.OneLine())
+)

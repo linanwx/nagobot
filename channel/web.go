@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/linanwx/nagobot/prompts"
 	"io/fs"
 	"net"
 	"net/http"
@@ -24,8 +25,8 @@ import (
 	"github.com/klauspost/compress/gzhttp"
 	"github.com/linanwx/nagobot/agent"
 	"github.com/linanwx/nagobot/auth"
-	cronpkg "github.com/linanwx/nagobot/cron"
 	"github.com/linanwx/nagobot/config"
+	cronpkg "github.com/linanwx/nagobot/cron"
 	"github.com/linanwx/nagobot/logger"
 	"github.com/linanwx/nagobot/provider"
 	"github.com/linanwx/nagobot/push"
@@ -87,11 +88,11 @@ type WebChannel struct {
 	archivedMu sync.Mutex
 	archived   map[string]time.Time
 
-	systemPromptFn  func(string) (string, bool)
-	toolDefsFn      func(string) ([]provider.ToolDef, bool)
-	contextUsageFn  func(string) (thread.ContextUsage, bool)
-	skillsFn        func() []*skills.Skill
-	quoteFn         func(context.Context, string, string) (string, error)
+	systemPromptFn func(string) (string, bool)
+	toolDefsFn     func(string) ([]provider.ToolDef, bool)
+	contextUsageFn func(string) (thread.ContextUsage, bool)
+	skillsFn       func() []*skills.Skill
+	quoteFn        func(context.Context, string, string) (string, error)
 	// pinFn queues a message for filing into the session's pins directory. It
 	// takes no context: the call returns as soon as the filing is enqueued, so
 	// there is nothing for a request-scoped context to cancel.
@@ -101,8 +102,8 @@ type WebChannel struct {
 type wsClient struct {
 	conn         *websocket.Conn
 	mu           sync.Mutex
-	boundSession string        // session key this client is bound to
-	person       *auth.Person  // authenticated person, nil on exempt/disabled-auth connections
+	boundSession string       // session key this client is bound to
+	person       *auth.Person // authenticated person, nil on exempt/disabled-auth connections
 }
 
 type webInboundMessage struct {
@@ -943,7 +944,6 @@ type webHistoryMessage struct {
 	Content string `json:"content"`
 }
 
-
 func (w *WebChannel) handleHistory(rw http.ResponseWriter, r *http.Request) {
 	history, err := w.loadHistory()
 	if err != nil {
@@ -1622,8 +1622,9 @@ func redactTree(node any, secretScope bool) {
 //
 // Lists the global prompt files under {workspace}/system that the runtime
 // actually injects into agent prompts: GLOBAL.md / world_knowledge.md /
-// people_knowledge.md (agent.Build injections) and the system-prompt sections
-// in system/sections (agent.SectionRegistry). Curated whitelist, not a
+// people_knowledge.md (agent.Build injections), the system-prompt sections
+// in system/sections (agent.SectionRegistry), and the prompt files in
+// system/prompts (package prompts). Curated whitelist, not a
 // directory scan — legacy leftovers (CORE_MECHANISM.md, WEB_*_GUIDE.md) have
 // no runtime consumer and are deliberately absent. Read-only.
 
@@ -1659,6 +1660,30 @@ func promptFileSpecs(workspace string) []promptFileEntry {
 			Label: sectionPromptLabel(sf.Name),
 		})
 	}
+	// Then every prompt file the code renders (package prompts), labelled by
+	// its key and described by its own `note`. Derived by the same walk that
+	// gates reads, so nothing outside the directory can be named.
+	promptsDir := filepath.Join(workspace, "system", "prompts")
+	_ = filepath.WalkDir(promptsDir, func(path string, d fs.DirEntry, err error) error {
+		if err != nil || d.IsDir() || !strings.HasSuffix(path, ".md") {
+			return nil
+		}
+		rel, err := filepath.Rel(promptsDir, path)
+		if err != nil {
+			return nil
+		}
+		rel = filepath.ToSlash(rel)
+		var note string
+		if data, err := os.ReadFile(path); err == nil {
+			note = prompts.Note(string(data))
+		}
+		specs = append(specs, promptFileEntry{
+			Name:        "prompts/" + rel,
+			Label:       strings.TrimSuffix(rel, ".md"),
+			Description: note,
+		})
+		return nil
+	})
 	return specs
 }
 

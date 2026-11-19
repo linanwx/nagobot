@@ -90,7 +90,7 @@ func (t *Thread) balanceWarningHook() turnHook {
 			}
 		}
 
-		sb.WriteString("\nSuggest the user switch affected model routing. Use the set-model skill to apply changes.")
+		sb.WriteString("\n" + promptBalanceSwitch.Text())
 
 		logger.Info("balance warning injected",
 			"sessionKey", tc.SessionKey,

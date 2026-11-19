@@ -6,9 +6,11 @@ import (
 	"errors"
 	"fmt"
 	"github.com/linanwx/nagobot/logger"
+	"github.com/linanwx/nagobot/prompts"
 	"github.com/linanwx/nagobot/provider"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 )
 
@@ -37,37 +39,30 @@ type ReadFileTool struct {
 
 // Def returns the tool definition.
 func (t *ReadFileTool) Def() provider.ToolDef {
+	params := map[string]any{
+		"type": "object",
+		"properties": map[string]any{
+			"path": map[string]any{
+				"type": "string",
+			},
+			"offset": map[string]any{
+				"type": "integer",
+			},
+			"limit": map[string]any{
+				"type": "integer",
+			},
+			"tail": map[string]any{
+				"type": "integer",
+			},
+		},
+		"required": []string{"path"},
+	}
 	return provider.ToolDef{
 		Type: "function",
 		Function: provider.FunctionDef{
-			Name: "read_file",
-			Description: "Read a file. Automatically detects file type: text files are returned with line numbers " +
-				"and pagination, images are analyzed if the model supports vision or delegated to the imagereader agent, " +
-				"audio files are analyzed if the model supports audio or delegated to the audioreader agent, " +
-				"and binary files are rejected with an error. " +
-				"Use tail to read the last N lines of a text file (offset and limit are ignored when tail is set).",
-			Parameters: map[string]any{
-				"type": "object",
-				"properties": map[string]any{
-					"path": map[string]any{
-						"type":        "string",
-						"description": "The path to the file to read.",
-					},
-					"offset": map[string]any{
-						"type":        "integer",
-						"description": "Starting line number (1-based). Can be omitted to start from the beginning. Ignored when tail is set.",
-					},
-					"limit": map[string]any{
-						"type":        "integer",
-						"description": "Maximum number of lines to return. Can be omitted (reads up to 2000 lines). Ignored when tail is set.",
-					},
-					"tail": map[string]any{
-						"type":        "integer",
-						"description": "Read the last N lines of the file. When set, offset and limit are ignored.",
-					},
-				},
-				"required": []string{"path"},
-			},
+			Name:        "read_file",
+			Description: promptToolReadFile.Describe(params, nil),
+			Parameters:  params,
 		},
 	}
 }
@@ -132,18 +127,9 @@ func (t *ReadFileTool) handleImage(ctx context.Context, absPath, mimeType string
 	rt := RuntimeContextFrom(ctx)
 	if !rt.SupportsVision {
 		if !rt.ImageReaderConfigured {
-			return toolResult("read_file", fields,
-				"This is an image file. Your current model does not support vision, "+
-					"and the 'imagereader' agent is not configured. "+
-					"To enable image reading, configure a vision-capable model or set up an imagereader agent.")
+			return toolResult("read_file", fields, promptReadImageUnsupported.Text())
 		}
-		return toolResult("read_file", fields,
-			"This is an image file. You cannot view images directly. "+
-				"Delegate to the imagereader subagent: call dispatch with to=subagent, agent='imagereader', "+
-				"a descriptive task_id (e.g. 'read-image-<short-name>'), and a body that includes this image's "+
-				"file path followed by the user's question/context.\n"+
-				"path: "+absPath+"\n"+
-				"imagereader reads the image from that path itself; the body MUST contain the path or it cannot proceed.")
+		return toolResult("read_file", fields, promptReadImageDelegate.Render(prompts.Vars{"PATH": absPath}))
 	}
 	return toolResult("read_file", fields, fmt.Sprintf("<<media:%s:%s>>", mimeType, absPath))
 }
@@ -154,15 +140,9 @@ func (t *ReadFileTool) handleAudio(ctx context.Context, absPath, mimeType string
 	rt := RuntimeContextFrom(ctx)
 	if !rt.SupportsAudio {
 		if !rt.AudioReaderConfigured {
-			return toolResult("read_file", fields,
-				"This is an audio file. Your current model does not support audio, "+
-					"and the 'audioreader' agent is not configured. "+
-					"To enable audio reading, configure an audio-capable model or set up an audioreader agent.")
+			return toolResult("read_file", fields, promptReadAudioUnsupported.Text())
 		}
-		return toolResult("read_file", fields,
-			"This is an audio file. You cannot listen to audio directly. "+
-				"Use dispatch with to=subagent, agent='audioreader', and pass the audio file path as the body. "+
-				"Pick a descriptive task_id (e.g. 'read-audio-<short-name>').")
+		return toolResult("read_file", fields, promptReadAudioDelegate.Text())
 	}
 	return toolResult("read_file", fields, fmt.Sprintf("<<media:%s:%s>>", mimeType, absPath))
 }
@@ -172,11 +152,7 @@ func (t *ReadFileTool) handleAudio(ctx context.Context, absPath, mimeType string
 // read the result, or use an MCP PDF reader.
 func (t *ReadFileTool) handlePDF(ctx context.Context, absPath, mimeType string, size int64) string {
 	fields := map[string]any{"path": absPath, "type": mimeType, "size": size}
-	return toolResult("read_file", fields,
-		"This is a PDF document. PDFs are not read natively. Extract it first, then read the result: "+
-			"use the exec tool to render pages to images (e.g. pdftoppm / pdftocairo / ImageMagick) and read_file "+
-			"those images (vision is supported), or extract text (e.g. pdftotext). If no such tool is available "+
-			"on this host, say so instead of guessing the contents.")
+	return toolResult("read_file", fields, promptReadPDF.Text())
 }
 
 // handleText reads a text file with line-based pagination.
@@ -287,25 +263,24 @@ type WriteFileTool struct {
 
 // Def returns the tool definition.
 func (t *WriteFileTool) Def() provider.ToolDef {
+	params := map[string]any{
+		"type": "object",
+		"properties": map[string]any{
+			"path": map[string]any{
+				"type": "string",
+			},
+			"content": map[string]any{
+				"type": "string",
+			},
+		},
+		"required": []string{"path", "content"},
+	}
 	return provider.ToolDef{
 		Type: "function",
 		Function: provider.FunctionDef{
 			Name:        "write_file",
-			Description: "Write content to a file at the given path. Relative paths are resolved from workspace root. Creates parent directories if needed.",
-			Parameters: map[string]any{
-				"type": "object",
-				"properties": map[string]any{
-					"path": map[string]any{
-						"type":        "string",
-						"description": "The path to the file to write.",
-					},
-					"content": map[string]any{
-						"type":        "string",
-						"description": "The content to write to the file. Always required — the file is overwritten with exactly this text. Pass an empty string to create an empty file.",
-					},
-				},
-				"required": []string{"path", "content"},
-			},
+			Description: promptToolWriteFile.Describe(params, nil),
+			Parameters:  params,
 		},
 	}
 }
@@ -373,29 +348,27 @@ type EditFileTool struct {
 
 // Def returns the tool definition.
 func (t *EditFileTool) Def() provider.ToolDef {
+	params := map[string]any{
+		"type": "object",
+		"properties": map[string]any{
+			"path": map[string]any{
+				"type": "string",
+			},
+			"old_text": map[string]any{
+				"type": "string",
+			},
+			"new_text": map[string]any{
+				"type": "string",
+			},
+		},
+		"required": []string{"path", "old_text", "new_text"},
+	}
 	return provider.ToolDef{
 		Type: "function",
 		Function: provider.FunctionDef{
 			Name:        "edit_file",
-			Description: "Replace one exact block of text in a file. Relative paths are resolved from workspace root. old_text must match the file exactly (trailing whitespace, smart quotes, Unicode dashes/spaces, BOM, and CRLF/LF differences are tolerated) and must be unique in the file; include enough surrounding context to make it unique. One replacement per call — to make several changes, call edit_file once per change.",
-			Parameters: map[string]any{
-				"type": "object",
-				"properties": map[string]any{
-					"path": map[string]any{
-						"type":        "string",
-						"description": "The path to the file to edit.",
-					},
-					"old_text": map[string]any{
-						"type":        "string",
-						"description": "The exact text to find and replace. Must be unique in the file.",
-					},
-					"new_text": map[string]any{
-						"type":        "string",
-						"description": "The text to replace it with. Empty deletes the matched text.",
-					},
-				},
-				"required": []string{"path", "old_text", "new_text"},
-			},
+			Description: promptToolEditFile.Describe(params, nil),
+			Parameters:  params,
 		},
 	}
 }
@@ -527,11 +500,7 @@ func editRecoveryHint(resolvedPath, content string) string {
 		lines++
 	}
 	if lines <= editHintMaxLines && len(content) <= readFileMaxBytes {
-		return fmt.Sprintf("\n\nCurrent contents (%d lines) — copy old_text verbatim from here, including "+
-			"whitespace, and do not retype it from memory:\n%s", lines, content)
+		return "\n\n" + promptEditNotFoundContents.Render(prompts.Vars{"LINES": strconv.Itoa(lines)}) + "\n" + content
 	}
-	return fmt.Sprintf("\n\nThis file has %d lines, too large to quote here. Do NOT guess again — recover the real bytes first: "+
-		"grep(pattern: <a distinctive phrase from the text you are targeting>, path: %q, context_lines: 3) to find its line number, "+
-		"then read_file(path: %q, offset: <that line minus a few>, limit: 40) and copy old_text out of that window verbatim.",
-		lines, resolvedPath, resolvedPath)
+	return "\n\n" + promptEditNotFoundRecipe.Render(prompts.Vars{"LINES": strconv.Itoa(lines), "PATH": strconv.Quote(resolvedPath)})
 }

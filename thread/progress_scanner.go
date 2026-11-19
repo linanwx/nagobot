@@ -3,6 +3,7 @@ package thread
 import (
 	"context"
 	"fmt"
+	"github.com/linanwx/nagobot/prompts"
 	"path/filepath"
 	"strings"
 	"sync"
@@ -406,15 +407,15 @@ func (p *ProgressScanner) reportTurnEnd(ctx context.Context, parent string, te T
 // rather than no notice at all.
 func (p *ProgressScanner) turnEndReport(ctx context.Context, te TurnEnd) string {
 	if te.Err != nil {
-		return "The turn ended with an ERROR: " + te.Err.Error()
+		return promptTurnEndedError.Render(prompts.Vars{"ERROR": te.Err.Error()})
 	}
 	if !p.summarizerConfigured() {
-		return "(No summary: the progress-summary agent is not configured on this deployment.)"
+		return promptTurnEndedNoSummarizer.Text()
 	}
 	if s := p.summarize(ctx, te.SessionKey, buildTurnEndSummaryRequest(te)); s != "" {
 		return s
 	}
-	return "(No summary: the summarizer timed out or returned nothing.)"
+	return promptTurnEndedSummaryFailed.Text()
 }
 
 // nagobotBin is the CLI path the turn-end notice tells the parent to run:
@@ -446,10 +447,7 @@ func buildTurnEndBody(te TurnEnd, sessionFile, nagobotBin, report string) string
 		fmt.Fprintf(&sb, "session_file: %s\n", sessionFile)
 	}
 	sb.WriteString("\n" + report + "\n\n")
-	sb.WriteString("This notice only says the turn ENDED, not that the task is done or done right. " +
-		fmt.Sprintf("Read the child's actual output before acting: `%s read-session %s --tail 1 --full` (raise --tail for more of its history). "+
-			"Do not read_file session_file: it is the raw log, full of tool payloads and reasoning blobs. ", nagobotBin, te.SessionKey) +
-		"For follow-up tasks, dispatch to the same target (subagent or subagent_fork) with the same task_id to continue the conversation.")
+	sb.WriteString(promptTurnEnded.Render(prompts.Vars{"NAGOBOT_BIN": nagobotBin, "CHILD_SESSION": te.SessionKey}))
 	return sb.String()
 }
 

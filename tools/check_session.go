@@ -3,6 +3,7 @@ package tools
 import (
 	"context"
 	"encoding/json"
+	"github.com/linanwx/nagobot/prompts"
 	"strings"
 	"time"
 
@@ -21,15 +22,15 @@ type ToolCallRecord = msg.ToolCallRecord
 // (when a thread is currently loaded for the session). All fields are
 // optional — population depends on whether the session and/or thread exist.
 type SessionStatusInfo struct {
-	SessionKey       string     `json:"session_key"`
-	Exists           bool       `json:"exists"`                       // session.jsonl exists on disk
-	SessionDir       string     `json:"session_dir,omitempty"`
-	Agent            string     `json:"agent,omitempty"`              // from meta.json
-	MessageCount     int        `json:"message_count,omitempty"`
-	FileSizeBytes    int64      `json:"file_size_bytes,omitempty"`
-	LastModified     time.Time  `json:"last_modified,omitempty"`
-	ThreadActive     bool       `json:"thread_active"`                // thread is currently in memory
-	Thread           *ThreadInfo `json:"thread,omitempty"`            // populated only when ThreadActive
+	SessionKey    string      `json:"session_key"`
+	Exists        bool        `json:"exists"` // session.jsonl exists on disk
+	SessionDir    string      `json:"session_dir,omitempty"`
+	Agent         string      `json:"agent,omitempty"` // from meta.json
+	MessageCount  int         `json:"message_count,omitempty"`
+	FileSizeBytes int64       `json:"file_size_bytes,omitempty"`
+	LastModified  time.Time   `json:"last_modified,omitempty"`
+	ThreadActive  bool        `json:"thread_active"`    // thread is currently in memory
+	Thread        *ThreadInfo `json:"thread,omitempty"` // populated only when ThreadActive
 }
 
 // SessionChecker is implemented by Manager.
@@ -50,29 +51,21 @@ func NewCheckSessionTool(checker SessionChecker) *CheckSessionTool {
 
 // Def returns the tool definition.
 func (t *CheckSessionTool) Def() provider.ToolDef {
+	params := map[string]any{
+		"type": "object",
+		"properties": map[string]any{
+			"session_key": map[string]any{
+				"type": "string",
+			},
+		},
+		"required": []string{"session_key"},
+	}
 	return provider.ToolDef{
 		Type: "function",
 		Function: provider.FunctionDef{
-			Name: "check_session",
-			Description: "Inspect a session by key. Reports whether the session exists on disk, " +
-				"whether a thread is currently loaded for it, and the thread's runtime state " +
-				"(iterations / current tool / pending) when a thread is active. " +
-				// Derived, not spelled out: this sits in the cached tool prefix,
-				// so a stale target name here is shown to every model on every
-				// turn while nothing rejects it.
-				"Useful for checking the actual state of a child session you dispatched (" + targetsAccepting("task_id") + ") by its " +
-				"resolved session_key, e.g. whether it is still running after its end-of-turn notice. " +
-				"Do NOT poll it while waiting for a child: its end-of-turn notice arrives on its own as a `progress` wake.",
-			Parameters: map[string]any{
-				"type": "object",
-				"properties": map[string]any{
-					"session_key": map[string]any{
-						"type":        "string",
-						"description": "Target session key (e.g. 'cli:threads:bg-check', 'telegram:123456').",
-					},
-				},
-				"required": []string{"session_key"},
-			},
+			Name:        "check_session",
+			Description: promptToolCheckSession.Describe(params, prompts.Vars{"TASK_ID_TARGETS": targetsAccepting("task_id")}),
+			Parameters:  params,
 		},
 	}
 }
@@ -106,10 +99,10 @@ func (t *CheckSessionTool) run(_ context.Context, args json.RawMessage) string {
 
 	if !info.Exists && !info.ThreadActive {
 		return toolResult("check_session", map[string]any{
-			"session_key": key,
-			"exists":      false,
+			"session_key":   key,
+			"exists":        false,
 			"thread_active": false,
-		}, "Session not found on disk and no thread loaded. Either it never existed or both the file and thread have been removed.")
+		}, promptCheckSessionMissing.Text())
 	}
 
 	fields := map[string]any{
@@ -152,17 +145,14 @@ func (t *CheckSessionTool) run(_ context.Context, args json.RawMessage) string {
 		}
 		switch info.Thread.State {
 		case "running":
-			hint = "Thread is running. It will deliver output via its sink when done. " +
-				"Wait for the result rather than polling — sleep your turn or do other work."
+			hint = promptCheckSessionRunning.Text()
 		case "pending":
-			hint = "Thread has queued messages but is not currently executing. The Manager will pick it up shortly."
+			hint = promptCheckSessionPending.Text()
 		case "idle":
-			hint = "Thread is loaded and idle. No pending work."
+			hint = promptCheckSessionIdle.Text()
 		}
 	} else {
-		hint = "Session exists on disk but no thread is currently loaded. " +
-			"A new thread will be created automatically the next time the session is woken " +
-			"(via dispatch with to=session, or any other wake source)."
+		hint = promptCheckSessionUnloaded.Text()
 	}
 
 	return toolResult("check_session", fields, hint)

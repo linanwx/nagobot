@@ -629,11 +629,11 @@ func buildHeartbeatMessage(mdModified, nextPulse string, pulseIndex int, elapsed
 	message := sysmsg.BuildSystemMessage("heartbeat", fields, "")
 	switch task {
 	case hbTaskDream:
-		message += "\n\nYou must call use_skill(\"dream\") and follow its instructions."
+		message += "\n\n" + promptHeartbeatDream.Text()
 	case hbTaskReflect:
-		message += "\n\nYou must call use_skill(\"session-reflect\") and follow its instructions."
+		message += "\n\n" + promptHeartbeatReflect.Text()
 	default:
-		message += "\n\nNo heartbeat task was selected. Call dispatch({}) to end silently."
+		message += "\n\n" + promptHeartbeatNone.Text()
 	}
 	return message
 }

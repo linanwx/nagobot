@@ -8,6 +8,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"github.com/linanwx/nagobot/prompts"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -64,33 +65,30 @@ func NewExecTool(workspace string, defaultTimeout int, restrictToWorkspace bool)
 
 // Def returns the tool definition.
 func (t *ExecTool) Def() provider.ToolDef {
+	params := map[string]any{
+		"type": "object",
+		"properties": map[string]any{
+			"command": map[string]any{
+				"type": "string",
+			},
+			"workdir": map[string]any{
+				"type": "string",
+			},
+			"timeout": map[string]any{
+				"type": "integer",
+			},
+			"confirm": map[string]any{
+				"type": "string",
+			},
+		},
+		"required": []string{"command"},
+	}
 	return provider.ToolDef{
 		Type: "function",
 		Function: provider.FunctionDef{
 			Name:        "exec",
-			Description: "Execute a shell command and return its output. Use for running programs, scripts, git commands, etc.",
-			Parameters: map[string]any{
-				"type": "object",
-				"properties": map[string]any{
-					"command": map[string]any{
-						"type":        "string",
-						"description": "The shell command to execute.",
-					},
-					"workdir": map[string]any{
-						"type":        "string",
-						"description": "Optional working directory. If omitted, runs in the workspace root.",
-					},
-					"timeout": map[string]any{
-						"type":        "integer",
-						"description": "Optional timeout in seconds. If omitted, uses the system-configured default.",
-					},
-					"confirm": map[string]any{
-						"type":        "string",
-						"description": "Confirmation token returned by a previous call when a dangerous command was detected. Pass it back with the same command to confirm execution. Leave it empty (omit it, or pass an empty string) on a first attempt.",
-					},
-				},
-				"required": []string{"command"},
-			},
+			Description: promptToolExec.Describe(params, nil),
+			Parameters:  params,
 		},
 	}
 }
@@ -144,9 +142,7 @@ func (t *ExecTool) Run(ctx context.Context, args json.RawMessage) string {
 	// Check for dangerous rm command.
 	if isRmCommand(a.Command) {
 		if confirm == "" {
-			return toolError("exec", fmt.Sprintf("Dangerous command detected: rm. "+
-				"Prefer using safer alternatives like `trash` or `gio trash` to move files to trash instead of permanent deletion. "+
-				"If you still need to use rm, re-call this tool with the same command and set confirm to: %s", t.computeHMAC(a.Command)))
+			return toolError("exec", promptExecConfirmRm.Render(prompts.Vars{"TOKEN": t.computeHMAC(a.Command)}))
 		}
 		if !hmac.Equal([]byte(confirm), []byte(t.computeHMAC(a.Command))) {
 			return toolError("exec", "invalid confirmation token. The command may have been modified. Retry with confirm left empty (omit it, or pass an empty string) to get a fresh token for the exact command you intend to run.")
@@ -156,11 +152,7 @@ func (t *ExecTool) Run(ctx context.Context, args json.RawMessage) string {
 	// Check for pip install — pollutes host Python.
 	if isPipInstallCommand(a.Command) {
 		if confirm == "" {
-			return toolError("exec", fmt.Sprintf("Dangerous command detected: pip install. "+
-				"Installing packages with pip pollutes the host Python environment (system or Homebrew). "+
-				"Prefer `uv run --with <pkg> <script>` for one-off script runs, `uv tool install <pkg>` or `pipx install <pkg>` for CLI tools, "+
-				"or run pip from inside an activated venv (e.g. `.venv/bin/pip install <pkg>`). "+
-				"If you still need to run this exact command, re-call this tool with the same command and set confirm to: %s", t.computeHMAC(a.Command)))
+			return toolError("exec", promptExecConfirmPip.Render(prompts.Vars{"TOKEN": t.computeHMAC(a.Command)}))
 		}
 		if !hmac.Equal([]byte(confirm), []byte(t.computeHMAC(a.Command))) {
 			return toolError("exec", "invalid confirmation token. The command may have been modified. Retry with confirm left empty (omit it, or pass an empty string) to get a fresh token for the exact command you intend to run.")

@@ -20,25 +20,24 @@ type GlobTool struct {
 
 // Def returns the tool definition.
 func (t *GlobTool) Def() provider.ToolDef {
+	params := map[string]any{
+		"type": "object",
+		"properties": map[string]any{
+			"pattern": map[string]any{
+				"type": "string",
+			},
+			"path": map[string]any{
+				"type": "string",
+			},
+		},
+		"required": []string{"pattern"},
+	}
 	return provider.ToolDef{
 		Type: "function",
 		Function: provider.FunctionDef{
 			Name:        "glob",
-			Description: "Find files by NAME/path matching a glob pattern. Supports ** for recursive directory matching (e.g. \"**/*.go\", \"cmd/**/*.md\"). Results are sorted by modification time (most recent first), limited to 200 entries. This does NOT look inside files — to find files CONTAINING certain text, use grep instead.",
-			Parameters: map[string]any{
-				"type": "object",
-				"properties": map[string]any{
-					"pattern": map[string]any{
-						"type":        "string",
-						"description": "Glob pattern to match, e.g. \"**/*.go\", \"*.json\", \"cmd/**/*.md\".",
-					},
-					"path": map[string]any{
-						"type":        "string",
-						"description": "Starting directory for the search. Defaults to workspace root.",
-					},
-				},
-				"required": []string{"pattern"},
-			},
+			Description: promptToolGlob.Describe(params, nil),
+			Parameters:  params,
 		},
 	}
 }

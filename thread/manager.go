@@ -274,14 +274,6 @@ func (m *Manager) RegisterTool(t tools.Tool) {
 	}
 }
 
-// stopSessionBody is the control message injected by StopSession. It is a soft
-// stop: the running turn's LLM sees it at the next iteration boundary and is
-// asked to terminate the turn itself. There is no hard cancellation — an
-// in-flight tool/LLM call runs to completion before the boundary is reached.
-const stopSessionBody = "OPERATOR STOP: an operator has requested that this session stop immediately. " +
-	"Do NOT start any new tool calls or begin any new work. End this turn right now by calling " +
-	"dispatch({}) (empty sends — silent termination). Abandon anything still in progress."
-
 // InjectMessage pushes body onto the target thread's dedicated injection queue,
 // bypassing the normal merge gate (canMerge). The message surfaces at the
 // running turn's next iteration boundary. This is a general, internal primitive;
@@ -309,11 +301,14 @@ func (m *Manager) InjectMessage(sessionKey, body string) (string, error) {
 	return "thread loaded but not currently running; injection queued for its next turn", nil
 }
 
-// StopSession soft-stops a session by injecting stopSessionBody. The session's
+// StopSession soft-stops a session by injecting the operator-stop notice
+// (notices/operator-stop): a soft stop the running turn's LLM sees at its next
+// iteration boundary and is asked to end the turn itself. There is no hard
+// cancellation — an in-flight tool/LLM call runs to completion first. The session's
 // LLM is asked to terminate the current turn via dispatch({}) at the next
 // iteration boundary. Returns an error if no thread is loaded for the key.
 func (m *Manager) StopSession(sessionKey string) (string, error) {
-	return m.InjectMessage(sessionKey, stopSessionBody)
+	return m.InjectMessage(sessionKey, promptOperatorStop.Text())
 }
 
 // HasThread reports whether a thread exists for the given session key.

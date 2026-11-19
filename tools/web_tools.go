@@ -36,29 +36,27 @@ const webSearchGuideSkill = "web-search-guide"
 
 // Def returns the tool definition.
 func (t *WebSearchTool) Def() provider.ToolDef {
+	params := map[string]any{
+		"type": "object",
+		"properties": map[string]any{
+			"query": map[string]any{
+				"type": "string",
+			},
+			"max_results": map[string]any{
+				"type": "integer",
+			},
+			"source": map[string]any{
+				"type": "string",
+			},
+		},
+		"required": []string{"query"},
+	}
 	return provider.ToolDef{
 		Type: "function",
 		Function: provider.FunctionDef{
 			Name:        "web_search",
-			Description: "Search the web.",
-			Parameters: map[string]any{
-				"type": "object",
-				"properties": map[string]any{
-					"query": map[string]any{
-						"type":        "string",
-						"description": "Search query.",
-					},
-					"max_results": map[string]any{
-						"type":        "integer",
-						"description": "Max results. Default: 5.",
-					},
-					"source": map[string]any{
-						"type":        "string",
-						"description": "Search source. Empty to see guide.",
-					},
-				},
-				"required": []string{"query"},
-			},
+			Description: promptToolWebSearch.Describe(params, nil),
+			Parameters:  params,
 		},
 	}
 }
@@ -197,33 +195,30 @@ const webFetchGuideSkill = "web-fetch-guide"
 
 // Def returns the tool definition.
 func (t *WebFetchTool) Def() provider.ToolDef {
+	params := map[string]any{
+		"type": "object",
+		"properties": map[string]any{
+			"url": map[string]any{
+				"type": "string",
+			},
+			"source": map[string]any{
+				"type": "string",
+			},
+			"offset": map[string]any{
+				"type": "integer",
+			},
+			"limit": map[string]any{
+				"type": "integer",
+			},
+		},
+		"required": []string{"url"},
+	}
 	return provider.ToolDef{
 		Type: "function",
 		Function: provider.FunctionDef{
 			Name:        "web_fetch",
-			Description: "Fetch the content of a web page. Returns readable text/markdown. If the URL serves a file rather than a page (PDF, image, audio, archive, Office document), the file is downloaded to the workspace and the result gives its local path and type instead of page text. Content is cached for 10 minutes — repeated fetches of the same URL are free. Use offset/limit to paginate through long pages without re-fetching. If a site returns 403/503 (anti-bot), retry with a different source.",
-			Parameters: map[string]any{
-				"type": "object",
-				"properties": map[string]any{
-					"url": map[string]any{
-						"type":        "string",
-						"description": "The URL to fetch.",
-					},
-					"source": map[string]any{
-						"type":        "string",
-						"description": "Fetch source. Empty to see guide.",
-					},
-					"offset": map[string]any{
-						"type":        "integer",
-						"description": "Character offset to start returning content from. Use to paginate through long pages. Default: 0.",
-					},
-					"limit": map[string]any{
-						"type":        "integer",
-						"description": "Maximum number of characters to return. Default: 10000.",
-					},
-				},
-				"required": []string{"url"},
-			},
+			Description: promptToolWebFetch.Describe(params, nil),
+			Parameters:  params,
 		},
 	}
 }
@@ -372,10 +367,9 @@ func (t *WebFetchTool) nonPageResult(fetchURL, source string, nonPage *NonPageCo
 	fmt.Fprintf(&body, "This URL served a file (%s), not a web page. It has been downloaded to:\n%s\n\n", nonPage.MIME, nonPage.Path)
 	switch fileType, _ := DetectFileType(nonPage.Path); fileType {
 	case FileTypeImage, FileTypeAudio, FileTypePDF:
-		body.WriteString("Call read_file on that path — it handles this file type and will tell you how to proceed.\n")
+		body.WriteString(promptWebFetchFileReadable.Text() + "\n")
 	default:
-		body.WriteString("read_file cannot read this as text. Use the exec tool to process it at that path " +
-			"(e.g. unzip for an archive, python with openpyxl/python-docx for an Office document).\n")
+		body.WriteString(promptWebFetchFileUnreadable.Text() + "\n")
 	}
 	return toolResult("web_fetch", fields, body.String())
 }

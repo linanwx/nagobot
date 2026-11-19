@@ -30,20 +30,20 @@ func NewUseSkillTool(provider SkillProvider) *UseSkillTool {
 
 // Def returns the tool definition.
 func (t *UseSkillTool) Def() provider.ToolDef {
+	params := map[string]any{
+		"type": "object",
+		"properties": map[string]any{
+			"name": map[string]any{
+				"type": "string",
+			},
+		},
+	}
 	return provider.ToolDef{
 		Type: "function",
 		Function: provider.FunctionDef{
 			Name:        "use_skill",
-			Description: "Load the instructions for a named skill. Use this when you need the guidance for a skill listed in your system prompt.",
-			Parameters: map[string]any{
-				"type": "object",
-				"properties": map[string]any{
-					"name": map[string]any{
-						"type":        "string",
-						"description": "The skill name to load (for example: 'research'). Omit it, or pass an empty string, to list all available skills instead.",
-					},
-				},
-			},
+			Description: promptToolUseSkill.Describe(params, nil),
+			Parameters:  params,
 		},
 	}
 }

@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"fmt"
+	"github.com/linanwx/nagobot/prompts"
 	"os"
 	"path/filepath"
 	"strings"
@@ -25,6 +26,15 @@ func buildThreadManager(cfg *config.Config, enableSessions bool) (*thread.Manage
 	workspace, err := cfg.WorkspacePath()
 	if err != nil {
 		return nil, nil, nil, fmt.Errorf("failed to get workspace: %w", err)
+	}
+
+	// Every model-facing prompt the code emits is read from here from now on.
+	// A missing or malformed file fails the start rather than running with a
+	// prompt the code cannot fill; `onboard --sync` (run by update and by the
+	// container entrypoint) writes the set this binary was built with.
+	promptsDir := filepath.Join(workspace, "system", "prompts")
+	if err := prompts.UseDir(promptsDir); err != nil {
+		return nil, nil, nil, fmt.Errorf("load prompt files (run `nagobot onboard --sync`): %w", err)
 	}
 
 	cfgFn := func() *config.Config {

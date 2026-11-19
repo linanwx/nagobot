@@ -3,6 +3,7 @@ package thread
 import (
 	"context"
 	"fmt"
+	"github.com/linanwx/nagobot/prompts"
 	"regexp"
 	"strconv"
 	"strings"
@@ -17,14 +18,6 @@ const (
 	compressKeepAssistants = 3    // protect last N assistant turns
 	softTrimHeadRunes      = 1500 // runes kept from start of result
 	softTrimTailRunes      = 1500 // runes kept from end of result
-
-	// Recovery hints embedded in every compressed message, so they stay short.
-	// They used to point at `search-memory --context <id>`, which no longer
-	// exists; the surviving paths are the pre-compression snapshots (a message
-	// ID is greppable there verbatim) and the day's memory/ summary. The
-	// session-ops skill carries the actual recipes.
-	compressedHintFmt  = "[compressed — original: grep %s in history/*.jsonl; see skill session-ops]"
-	compressedHintNoID = "[compressed — originals in history/*.jsonl, day summaries in memory/; see skill session-ops]"
 
 	compressExpireAge = 2 * time.Hour // unified age threshold for tier-1 compression
 )
@@ -522,12 +515,15 @@ func ExtractFrontmatterValue(yamlBlock, key string) string {
 	return msg.ExtractFrontmatterValue(yamlBlock, key)
 }
 
-// buildRecoveryHint builds the hint string pointing to the original content.
+// buildRecoveryHint builds the hint embedded in every compressed message,
+// pointing at the original content (notices/compressed*). It rides along in
+// every compressed message, so the text stays short; the session-ops skill
+// carries the actual recovery recipes.
 func buildRecoveryHint(messageID string) string {
 	if messageID == "" {
-		return compressedHintNoID
+		return promptCompressed.Text()
 	}
-	return fmt.Sprintf(compressedHintFmt, messageID)
+	return promptCompressedWithID.Render(prompts.Vars{"MESSAGE_ID": messageID})
 }
 
 // softTrimWithHint applies head+hint+tail compression and returns a Compressed value.

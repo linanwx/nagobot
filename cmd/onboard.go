@@ -3,6 +3,8 @@ package cmd
 import (
 	"embed"
 	"fmt"
+	"github.com/linanwx/nagobot/prompts"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"sort"
@@ -783,6 +785,7 @@ func createBootstrapFiles(workspace string) error {
 		"docs",
 		"system",
 		filepath.Join("system", "sections"),
+		filepath.Join("system", "prompts"),
 		"save",
 		skillsDir,
 		builtinSkillsDir,
@@ -797,6 +800,13 @@ func createBootstrapFiles(workspace string) error {
 	// System sections: clean and re-copy to stay current.
 	sectionsDest := filepath.Join(workspace, "system", "sections")
 	if err := cleanAndCopyEmbeddedDir("templates/system/sections", sectionsDest); err != nil {
+		return err
+	}
+
+	// Prompt files (package prompts): clean and re-copy, like sections. A
+	// running daemon reads these, so a hand edit on the deployment takes effect
+	// live but is overwritten here: the canonical copy is prompts/templates.
+	if err := cleanAndCopyFS(prompts.Embedded(), filepath.Join(workspace, "system", "prompts")); err != nil {
 		return err
 	}
 
@@ -996,6 +1006,30 @@ func cleanAndCopyEmbeddedDir(embeddedRoot, dest string) error {
 		return err
 	}
 	return copyEmbeddedDir(embeddedRoot, dest)
+}
+
+// cleanAndCopyFS replaces the contents of dest with the tree in fsys.
+func cleanAndCopyFS(fsys fs.FS, dest string) error {
+	entries, err := os.ReadDir(dest)
+	if err == nil {
+		for _, entry := range entries {
+			os.RemoveAll(filepath.Join(dest, entry.Name()))
+		}
+	}
+	return fs.WalkDir(fsys, ".", func(path string, d fs.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		target := filepath.Join(dest, filepath.FromSlash(path))
+		if d.IsDir() {
+			return os.MkdirAll(target, 0755)
+		}
+		data, err := fs.ReadFile(fsys, path)
+		if err != nil {
+			return err
+		}
+		return os.WriteFile(target, data, 0644)
+	})
 }
 
 // copyEmbeddedDir recursively copies an embedded directory tree to dest,

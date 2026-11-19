@@ -17,41 +17,36 @@ type GrepTool struct {
 
 // Def returns the tool definition.
 func (t *GrepTool) Def() provider.ToolDef {
+	params := map[string]any{
+		"type": "object",
+		"properties": map[string]any{
+			"pattern": map[string]any{
+				"type": "string",
+			},
+			"path": map[string]any{
+				"type": "string",
+			},
+			"include": map[string]any{
+				"type": "string",
+			},
+			"max_results": map[string]any{
+				"type": "integer",
+			},
+			"context_lines": map[string]any{
+				"type": "integer",
+			},
+			"case_insensitive": map[string]any{
+				"type": "boolean",
+			},
+		},
+		"required": []string{"pattern"},
+	}
 	return provider.ToolDef{
 		Type: "function",
 		Function: provider.FunctionDef{
 			Name:        "grep",
-			Description: "Search file CONTENTS using a regular expression pattern. Uses ripgrep (rg) if available, otherwise falls back to grep -rn. Returns matching lines with file paths and line numbers. To find files by NAME/path (not contents), use glob instead.",
-			Parameters: map[string]any{
-				"type": "object",
-				"properties": map[string]any{
-					"pattern": map[string]any{
-						"type":        "string",
-						"description": "The regular expression pattern to search for.",
-					},
-					"path": map[string]any{
-						"type":        "string",
-						"description": "The directory or file to search in. Defaults to workspace root.",
-					},
-					"include": map[string]any{
-						"type":        "string",
-						"description": "Glob pattern to filter files, e.g. \"*.go\".",
-					},
-					"max_results": map[string]any{
-						"type":        "integer",
-						"description": "Maximum number of output LINES to return. Defaults to 50. Context lines and the separators between context blocks each count toward this limit, so with context_lines set, one match costs several lines of the budget.",
-					},
-					"context_lines": map[string]any{
-						"type":        "integer",
-						"description": "Number of context lines before and after each match. Defaults to 0.",
-					},
-					"case_insensitive": map[string]any{
-						"type":        "boolean",
-						"description": "Ignore case when matching.",
-					},
-				},
-				"required": []string{"pattern"},
-			},
+			Description: promptToolGrep.Describe(params, nil),
+			Parameters:  params,
 		},
 	}
 }

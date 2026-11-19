@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"fmt"
+	"github.com/linanwx/nagobot/prompts"
 	"os"
 	"regexp"
 	"strings"
@@ -390,9 +391,9 @@ func (d *Dispatcher) buildCronSink(msg *channel.Message) thread.SessionSink {
 	}
 	var label string
 	if reportTo != "" {
-		label = "cron caller output is dropped. After completing your task, dispatch(to=session, params={session_key: \"" + reportTo + "\"}) to deliver results."
+		label = promptCronCallerTarget.Render(prompts.Vars{"TARGET": reportTo})
 	} else {
-		label = "cron caller output is dropped. No delivery target configured; use dispatch explicitly if you need to forward results."
+		label = promptCronCallerNone.Text()
 	}
 	return thread.SessionSink{
 		Label: label,
@@ -414,7 +415,7 @@ var platformEmoji = map[string]map[thread.ReactEvent]string{
 // defaultEmoji is used for CLI/socket/web debugging.
 var defaultEmoji = map[thread.ReactEvent]string{
 	thread.ReactToolCalls: "🔧",
-	thread.ReactStreaming:  "✏️",
+	thread.ReactStreaming: "✏️",
 }
 
 func emojiFor(channelName string, event thread.ReactEvent) string {

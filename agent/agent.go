@@ -59,14 +59,14 @@ func (a *Agent) Build() string {
 
 	// ── Stage 1: Agent personality ──
 	body := a.readTemplate()
-	agentHeader := fmt.Sprintf("---\ntype: agent_identity\nfile_path: %s\nprompt: This is your identity and behavioral guidelines.\n---", a.templatePath())
+	agentHeader := fmt.Sprintf("---\ntype: agent_identity\nfile_path: %s\nprompt: %s\n---", a.templatePath(), promptHeaderAgentIdentity.Text())
 	prompt := agentHeader + "\n\n" + strings.TrimSpace(body)
 
 	// ── Stage 2: Core sections (unconditional auto-append) ──
 	if a.sections != nil {
 		a.sections.Reload()
 		if a.sections.Count() > 0 {
-			coreHeader := "---\ntype: core_mechanism\nfile_path: internal\nprompt: This describes how the nagobot system works.\n---"
+			coreHeader := "---\ntype: core_mechanism\nfile_path: internal\nprompt: " + promptHeaderCoreMechanism.Text() + "\n---"
 			prompt = strings.TrimSpace(prompt) + "\n\n" + coreHeader + "\n\n" + a.sections.Assemble()
 		}
 	}
@@ -77,7 +77,7 @@ func (a *Agent) Build() string {
 		wkContent := buildWorldKnowledge(a.workspace)
 		if wkContent != "" {
 			wkPath, _ := filepath.Abs(filepath.Join(a.workspace, "system", "world_knowledge.md"))
-			wkHeader := fmt.Sprintf("---\ntype: world_knowledge\nfile_path: %s\nprompt: Recent events beyond model training cutoff.\n---", wkPath)
+			wkHeader := fmt.Sprintf("---\ntype: world_knowledge\nfile_path: %s\nprompt: %s\n---", wkPath, promptHeaderWorldKnowledge.Text())
 			prompt += "\n\n" + wkHeader + "\n\n" + wkContent
 		}
 
@@ -85,7 +85,7 @@ func (a *Agent) Build() string {
 		globalContent := buildGlobal(a.workspace)
 		if globalContent != "" {
 			globalPath, _ := filepath.Abs(filepath.Join(a.workspace, "system", "GLOBAL.md"))
-			globalHeader := fmt.Sprintf("---\ntype: global_instruction\nfile_path: %s\nprompt: follow the instruction\n---", globalPath)
+			globalHeader := fmt.Sprintf("---\ntype: global_instruction\nfile_path: %s\nprompt: %s\n---", globalPath, promptHeaderGlobalInstruction.Text())
 			prompt += "\n\n" + globalHeader + "\n\n" + globalContent
 		}
 
@@ -100,7 +100,7 @@ func (a *Agent) Build() string {
 			pkContent := buildPeopleKnowledge(a.workspace)
 			if pkContent != "" {
 				pkPath, _ := filepath.Abs(filepath.Join(a.workspace, "system", "people_knowledge.md"))
-				pkHeader := fmt.Sprintf("---\ntype: people_knowledge\nfile_path: %s\nprompt: Cross-session knowledge about people — recent activity and upcoming plans with confidence. Items are dated; weigh recency and do not treat as certain.\n---", pkPath)
+				pkHeader := fmt.Sprintf("---\ntype: people_knowledge\nfile_path: %s\nprompt: %s\n---", pkPath, promptHeaderPeopleKnowledge.Text())
 				prompt += "\n\n" + pkHeader + "\n\n" + pkContent
 			}
 		}
