@@ -421,3 +421,29 @@ func (r *Registry) GetSkillPrompt(name string) (prompt string, dir string, ok bo
 	}
 	return s.Prompt, s.Dir, true
 }
+
+// PromptVars are the per-call values a skill body's placeholders resolve to.
+// An empty field leaves its placeholder untouched.
+type PromptVars struct {
+	Workspace  string
+	SessionDir string
+	SessionKey string
+	SkillDir   string
+}
+
+// ResolvePrompt substitutes {{WORKSPACE}}, {{SESSIONDIR}}, {{SESSIONKEY}} and
+// {{SKILLDIR}} in a skill body. It is the one resolver behind both use_skill
+// and the web skills viewer, so what a person reads is what the model is given.
+func ResolvePrompt(prompt string, v PromptVars) string {
+	for _, r := range []struct{ placeholder, value string }{
+		{"{{WORKSPACE}}", v.Workspace},
+		{"{{SESSIONDIR}}", v.SessionDir},
+		{"{{SESSIONKEY}}", v.SessionKey},
+		{"{{SKILLDIR}}", v.SkillDir},
+	} {
+		if strings.TrimSpace(r.value) != "" {
+			prompt = strings.ReplaceAll(prompt, r.placeholder, r.value)
+		}
+	}
+	return prompt
+}

@@ -54,3 +54,16 @@ func TestOneBadSkillDoesNotKillTheRest(t *testing.T) {
 		t.Error("the malformed skill was registered anyway")
 	}
 }
+
+func TestResolvePromptSubstitutesEveryPlaceholder(t *testing.T) {
+	got := ResolvePrompt("{{WORKSPACE}}|{{SESSIONDIR}}|{{SESSIONKEY}}|{{SKILLDIR}}|{{WORKSPACE}}", PromptVars{
+		Workspace: "/w", SessionDir: "/w/sessions/web/a", SessionKey: "web:a", SkillDir: "/w/skills/x",
+	})
+	if want := "/w|/w/sessions/web/a|web:a|/w/skills/x|/w"; got != want {
+		t.Fatalf("got %q, want %q", got, want)
+	}
+	// An empty value leaves its placeholder for the model to see, not "".
+	if got := ResolvePrompt("{{SESSIONKEY}}", PromptVars{SessionKey: "  "}); got != "{{SESSIONKEY}}" {
+		t.Fatalf("blank value substituted: %q", got)
+	}
+}

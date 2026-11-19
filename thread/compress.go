@@ -180,7 +180,7 @@ func (m *Manager) tryAICompress(sessionKey string, tier3 bool) {
 	// USER.md) can sit past the trim line while looking under both Tier 2 and
 	// Tier 3, and the trim then flips the request head on and off, missing the
 	// prefix cache each time. Zero before the thread has run a turn.
-	tokens := systemPromptTokens + EstimateMessagesTokens(ApplyCompressed(sess.Messages)) + EstimateToolDefsTokens(toolDefs)
+	tokens := RequestTokens(systemPromptTokens, EstimateToolDefsTokens(toolDefs), sess.Messages)
 	ct := t.contextBudget()
 	effectiveWindow := ct.ContextWindow
 	reserve := ct.Tier2Token

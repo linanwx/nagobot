@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"github.com/linanwx/nagobot/provider"
+	"github.com/linanwx/nagobot/skills"
 	"github.com/linanwx/nagobot/thread/msg"
 )
 
@@ -92,18 +93,12 @@ func (t *UseSkillTool) run(ctx context.Context, args json.RawMessage) string {
 	}
 
 	rt := RuntimeContextFrom(ctx)
-	if strings.TrimSpace(rt.Workspace) != "" {
-		prompt = strings.ReplaceAll(prompt, "{{WORKSPACE}}", rt.Workspace)
-	}
-	if strings.TrimSpace(rt.SessionDir) != "" {
-		prompt = strings.ReplaceAll(prompt, "{{SESSIONDIR}}", rt.SessionDir)
-	}
-	if strings.TrimSpace(rt.SessionKey) != "" {
-		prompt = strings.ReplaceAll(prompt, "{{SESSIONKEY}}", rt.SessionKey)
-	}
-	if strings.TrimSpace(dir) != "" {
-		prompt = strings.ReplaceAll(prompt, "{{SKILLDIR}}", dir)
-	}
+	prompt = skills.ResolvePrompt(prompt, skills.PromptVars{
+		Workspace:  rt.Workspace,
+		SessionDir: rt.SessionDir,
+		SessionKey: rt.SessionKey,
+		SkillDir:   dir,
+	})
 
 	header := skillHeader{Skill: a.Name, Time: nowStamp()}
 	if dir != "" {

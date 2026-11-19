@@ -595,6 +595,9 @@ export function useNagobotChat(
   // resets this to one page.
   const [windowStartID, setWindowStartID] = useState<string | null>(null);
   const [isRunning, setIsRunning] = useState(false);
+  const [persistedTick, setPersistedTick] = useState(0);
+  // Stable identity, so the socket effect below need not list it.
+  const bumpPersisted = useCallback(() => setPersistedTick((n) => n + 1), []);
   const [status, setStatus] = useState<SocketStatus>("connecting");
   const [historyError, setHistoryError] = useState<string | null>(null);
   // True until the history fetch settles — the pane shows a spinner instead
@@ -877,6 +880,7 @@ export function useNagobotChat(
           if (!ev.message) break;
           upsertRaw(ev.message);
           retirePlaced(ev.message);
+          bumpPersisted();
           break;
         }
         case "message_start": {
@@ -912,6 +916,7 @@ export function useNagobotChat(
           live.active = false;
           setLiveID(null);
           stopRunning();
+          bumpPersisted();
           break;
         }
         // tool_call / tool_result / round_end are deliberately not handled.
@@ -1023,6 +1028,7 @@ export function useNagobotChat(
     updatePending,
     clearAckTimer,
     markFailed,
+    bumpPersisted,
   ]);
 
   // enqueue is the send path. It puts the message on the wire immediately —
@@ -1319,5 +1325,9 @@ export function useNagobotChat(
     // Entries above the rendered window (0 = everything is shown).
     earlierCount: messages.length - visibleMessages.length,
     loadEarlier,
+    // Bumps whenever session.jsonl may have changed under this page: a
+    // persisted-entry frame or a turn end. Readers of derived session state
+    // (the context ring) refetch on it instead of opening their own socket.
+    persistedTick,
   };
 }

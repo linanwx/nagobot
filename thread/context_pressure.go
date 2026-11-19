@@ -71,6 +71,31 @@ func (t *Thread) sessionFilePath() (string, bool) {
 	return cfg.Sessions.PathForKey(key), true
 }
 
+// RequestTokens is the size of the request the compression tiers measure: the
+// system prompt, the session as it is sent (Tier-1 compressed, heartbeat-trimmed
+// turns dropped), and the tool definitions. It is the ONE definition shared by
+// tryAICompress and the web usage ring, so the ring cannot drift from the
+// number that actually fires Tier 2 / Tier 3.
+func RequestTokens(systemPromptTokens, toolDefsTokens int, messages []provider.Message) int {
+	return systemPromptTokens + EstimateMessagesTokens(ApplyCompressed(messages)) + toolDefsTokens
+}
+
+// TrimBudget is the last-resort context trim line for a window: the request
+// size above which trimMessageGroups halves the conversation.
+func TrimBudget(contextWindow, maxCompletion int) int {
+	return contextLoopBudget(contextWindow, maxCompletion)
+}
+
+// ContextUsage is a live thread's view of its own request: the window it is
+// measured against, the trim line, and the parts of the request that are not
+// in session.jsonl.
+type ContextUsage struct {
+	ContextWindow      int
+	TrimBudget         int
+	SystemPromptTokens int // the last turn's; 0 before the thread has run one, as tryAICompress counts it
+	ToolDefsTokens     int
+}
+
 func (t *Thread) contextBudget() ContextThresholds {
 	cfg := t.cfg()
 	provName, modelName := t.resolvedProviderModel()

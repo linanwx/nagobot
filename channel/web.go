@@ -30,6 +30,7 @@ import (
 	"github.com/linanwx/nagobot/provider"
 	"github.com/linanwx/nagobot/push"
 	"github.com/linanwx/nagobot/session"
+	"github.com/linanwx/nagobot/skills"
 	"github.com/linanwx/nagobot/thread"
 )
 
@@ -88,7 +89,8 @@ type WebChannel struct {
 
 	systemPromptFn  func(string) (string, bool)
 	toolDefsFn      func(string) ([]provider.ToolDef, bool)
-	contextBudgetFn func(string) (int, int, bool)
+	contextUsageFn  func(string) (thread.ContextUsage, bool)
+	skillsFn        func() []*skills.Skill
 	quoteFn         func(context.Context, string, string) (string, error)
 	// pinFn queues a message for filing into the session's pins directory. It
 	// takes no context: the call returns as soon as the filing is enqueued, so
@@ -217,10 +219,15 @@ func (w *WebChannel) SetToolDefsFn(fn func(string) ([]provider.ToolDef, bool)) {
 	w.toolDefsFn = fn
 }
 
-// SetContextBudgetFn sets a callback that returns the effective context window
-// and warn token for a given session key from the thread runtime.
-func (w *WebChannel) SetContextBudgetFn(fn func(string) (int, int, bool)) {
-	w.contextBudgetFn = fn
+// SetContextUsageFn sets a callback that reports a loaded thread's context
+// window, trim line, system prompt and tool-definition sizes for a session key.
+func (w *WebChannel) SetContextUsageFn(fn func(string) (thread.ContextUsage, bool)) {
+	w.contextUsageFn = fn
+}
+
+// SetSkillsFn sets a callback that lists the registered skills.
+func (w *WebChannel) SetSkillsFn(fn func() []*skills.Skill) {
+	w.skillsFn = fn
 }
 
 // SetQuoteFn sets the reply-quote generator behind POST /api/quote: given a
@@ -1360,6 +1367,12 @@ func (w *WebChannel) handleSessionMessages(rw http.ResponseWriter, r *http.Reque
 		return
 	}
 
+	// Route: /api/sessions/{key...}/skills[?name=<slug>]
+	if key, ok := strings.CutSuffix(raw, ":skills"); ok {
+		w.handleSessionSkills(rw, r, key)
+		return
+	}
+
 	// Route: /api/sessions/{key...}/chat
 	if key, ok := strings.CutSuffix(raw, ":chat"); ok {
 		w.handleSessionChat(rw, key)
@@ -1519,128 +1532,6 @@ func (w *WebChannel) handleToolDefs(rw http.ResponseWriter, key string) {
 	}
 	rw.Header().Set("Content-Type", "application/json")
 	_ = json.NewEncoder(rw).Encode(resp)
-}
-
-// --- GET /api/sessions/{key...}/stats ---
-
-type sessionStatsResponse struct {
-	Key                 string          `json:"key"`
-	MessageCount        int             `json:"message_count"`
-	RoleCounts          map[string]int  `json:"role_counts"`
-	CompressedMessages  int             `json:"compressed_messages"`
-	RoleTokens          map[string]int  `json:"role_tokens"`
-	RawTokens           int             `json:"raw_tokens"`
-	CompressedTokens    int             `json:"compressed_tokens"`
-	TokensSaved         int             `json:"tokens_saved"`
-	ContextWindowTokens int             `json:"context_window_tokens"`
-	UsagePercent        float64         `json:"usage_percent"`
-	Tier2TriggerPercent float64         `json:"tier2_trigger_percent"`
-	Tier3TriggerPercent float64         `json:"tier3_trigger_percent"`
-	PressureStatus      string          `json:"pressure_status"`
-	IsRuntime           bool            `json:"is_runtime"`
-	TokenBreakdown      *tokenBreakdown `json:"token_breakdown,omitempty"`
-}
-
-type tokenBreakdown struct {
-	BySource    map[string]int   `json:"by_source"`
-	ByRole      map[string]int   `json:"by_role"`
-	Compression compressionStats `json:"compression"`
-}
-
-type compressionStats struct {
-	RawTokens        int `json:"raw_tokens"`
-	CompressedTokens int `json:"compressed_tokens"`
-	SavedTokens      int `json:"saved_tokens"`
-}
-
-func (w *WebChannel) handleSessionStats(rw http.ResponseWriter, key string) {
-	path := w.resolveSessionFile(key, session.SessionFileName)
-	if path == "" {
-		http.Error(rw, "invalid session key", http.StatusBadRequest)
-		return
-	}
-	s, err := session.ReadFile(path)
-	if err != nil {
-		http.Error(rw, "session not found", http.StatusNotFound)
-		return
-	}
-
-	messages := s.Messages
-	roleCounts := map[string]int{}
-	compressedCount := 0
-	for _, m := range messages {
-		roleCounts[m.Role]++
-		if m.Compressed != "" {
-			compressedCount++
-		}
-	}
-
-	rawTokens := thread.EstimateMessagesTokens(messages)
-	compressed := thread.ApplyCompressed(provider.SanitizeMessages(messages))
-	compressedTokens := thread.EstimateMessagesTokens(compressed)
-
-	roleTokens := map[string]int{}
-	sourceTokens := map[string]int{}
-	for _, m := range compressed {
-		tok := thread.EstimateMessageTokens(m)
-		roleTokens[m.Role] += tok
-		src := m.Source
-		if src == "" {
-			src = "(no source)"
-		}
-		sourceTokens[src] += tok
-	}
-
-	// Try to get context window from thread runtime; fall back to global config.
-	var contextWindow int
-	var isRuntime bool
-	if w.contextBudgetFn != nil {
-		if tw, _, ok := w.contextBudgetFn(key); ok {
-			contextWindow = tw
-			isRuntime = true
-		}
-	}
-	if contextWindow == 0 {
-		cfg, _ := config.Load()
-		if cfg == nil {
-			cfg = config.DefaultConfig()
-		}
-		contextWindow = provider.EffectiveContextWindow(cfg.GetProvider(), cfg.GetModelName(), cfg.GetContextWindowTokens())
-	}
-	ct := thread.ComputeContextThresholds(contextWindow)
-
-	var usagePercent float64
-	if ct.ContextWindow > 0 {
-		usagePercent = float64(compressedTokens) / float64(ct.ContextWindow) * 100
-	}
-	status := thread.PressureStatus(compressedTokens, ct)
-
-	rw.Header().Set("Content-Type", "application/json")
-	_ = json.NewEncoder(rw).Encode(sessionStatsResponse{
-		Key:                 key,
-		MessageCount:        len(messages),
-		RoleCounts:          roleCounts,
-		CompressedMessages:  compressedCount,
-		RoleTokens:          roleTokens,
-		RawTokens:           rawTokens,
-		CompressedTokens:    compressedTokens,
-		TokensSaved:         rawTokens - compressedTokens,
-		ContextWindowTokens: contextWindow,
-		UsagePercent:        usagePercent,
-		Tier2TriggerPercent: ct.Tier2TriggerPercent(),
-		Tier3TriggerPercent: ct.Tier3TriggerPercent(),
-		PressureStatus:      status,
-		IsRuntime:           isRuntime,
-		TokenBreakdown: &tokenBreakdown{
-			BySource: sourceTokens,
-			ByRole:   roleTokens,
-			Compression: compressionStats{
-				RawTokens:        rawTokens,
-				CompressedTokens: compressedTokens,
-				SavedTokens:      rawTokens - compressedTokens,
-			},
-		},
-	})
 }
 
 // --- GET /api/config ---

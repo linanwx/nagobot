@@ -467,3 +467,85 @@ export function splitSpeakerPrefix(text: string): {
   if (!m) return { name: "", rest: text };
   return { name: m[1], rest: text.slice(m[0].length) };
 }
+
+// --- context usage (GET /api/sessions/{key}:stats) ---
+
+// Sized the way the compression tiers size a request: system prompt + the
+// session as sent + tool definitions. used_tokens is their sum. With no thread
+// loaded (is_runtime false) the prompt and tool parts are unknown and reported
+// as 0, and the window comes from the config default.
+export type SessionStats = {
+  key: string;
+  message_count: number;
+  compressed_messages: number;
+  system_prompt_tokens: number;
+  message_tokens: number;
+  tool_defs_tokens: number;
+  used_tokens: number;
+  raw_message_tokens: number;
+  tokens_saved: number;
+  context_window_tokens: number;
+  usage_percent: number;
+  tier2_trigger_percent: number;
+  tier3_trigger_percent: number;
+  trim_trigger_percent: number;
+  pressure_status: "ok" | "warning" | "pressure";
+  is_runtime: boolean;
+};
+
+export async function fetchSessionStats(key: string): Promise<SessionStats> {
+  const res = await fetch(`/api/sessions/${sessionPath(key)}/stats`);
+  if (!res.ok) {
+    throw new Error(
+      (await res.text()).trim() || `GET /api/sessions/${key}/stats: ${res.status}`,
+    );
+  }
+  return res.json();
+}
+
+// --- skills (GET /api/sessions/{key}:skills[?name=]) ---
+
+export type SessionSkill = {
+  slug: string;
+  description?: string;
+  // False for a skill this session loaded that the registry no longer has.
+  registered: boolean;
+  loaded: boolean;
+  // At least one load's body is still sent (not compressed to a header).
+  in_context: boolean;
+  load_count?: number;
+  last_loaded_at?: string;
+};
+
+export type SessionSkillBody = {
+  slug: string;
+  description?: string;
+  dir?: string;
+  prompt: string;
+};
+
+export async function fetchSessionSkills(key: string): Promise<SessionSkill[]> {
+  const res = await fetch(`/api/sessions/${sessionPath(key)}/skills`);
+  if (!res.ok) {
+    throw new Error(
+      (await res.text()).trim() || `GET /api/sessions/${key}/skills: ${res.status}`,
+    );
+  }
+  const data = await res.json();
+  return Array.isArray(data?.skills) ? (data.skills as SessionSkill[]) : [];
+}
+
+export async function fetchSessionSkill(
+  key: string,
+  slug: string,
+): Promise<SessionSkillBody> {
+  const res = await fetch(
+    `/api/sessions/${sessionPath(key)}/skills?name=${encodeURIComponent(slug)}`,
+  );
+  if (!res.ok) {
+    throw new Error(
+      (await res.text()).trim() || `GET /api/sessions/${key}/skills/${slug}: ${res.status}`,
+    );
+  }
+  return res.json();
+}

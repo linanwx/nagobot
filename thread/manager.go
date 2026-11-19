@@ -13,6 +13,7 @@ import (
 	"github.com/linanwx/nagobot/logger"
 	"github.com/linanwx/nagobot/provider"
 	"github.com/linanwx/nagobot/session"
+	"github.com/linanwx/nagobot/skills"
 	"github.com/linanwx/nagobot/thread/msg"
 	"github.com/linanwx/nagobot/tools"
 )
@@ -344,17 +345,37 @@ func (m *Manager) ThreadStatus(id string) (tools.ThreadInfo, bool) {
 	return tools.ThreadInfo{}, false
 }
 
-// ContextBudget returns the effective context window and warn token for the
-// thread identified by sessionKey. Returns (0, 0, false) if no thread exists.
-func (m *Manager) ContextBudget(sessionKey string) (contextWindow int, warnToken int, ok bool) {
+// ContextUsage reports the window, trim line, system prompt and tool-definition
+// sizes of the thread loaded for sessionKey — the same inputs tryAICompress
+// reads. Returns false if no thread is loaded for that key.
+func (m *Manager) ContextUsage(sessionKey string) (ContextUsage, bool) {
 	m.mu.Lock()
 	t, exists := m.threads[sessionKey]
-	m.mu.Unlock()
 	if !exists {
-		return 0, 0, false
+		m.mu.Unlock()
+		return ContextUsage{}, false
 	}
-	ct := t.contextBudget()
-	return ct.ContextWindow, ct.WarnToken, true
+	toolDefs := t.tools.Defs()
+	m.mu.Unlock()
+	t.mu.Lock()
+	systemPromptTokens := t.lastSystemPromptTokens
+	t.mu.Unlock()
+	window := t.contextBudget().ContextWindow
+	return ContextUsage{
+		ContextWindow:      window,
+		TrimBudget:         TrimBudget(window, t.cfg().MaxCompletionTokens),
+		SystemPromptTokens: systemPromptTokens,
+		ToolDefsTokens:     EstimateToolDefsTokens(toolDefs),
+	}, true
+}
+
+// Skills lists the registered skills, sorted by slug. The registry is global:
+// every agent in every session is offered the same set.
+func (m *Manager) Skills() []*skills.Skill {
+	if m.cfg.Skills == nil {
+		return nil
+	}
+	return m.cfg.Skills.List()
 }
 
 // SystemPrompt builds the current system prompt for the thread identified by

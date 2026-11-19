@@ -6,9 +6,11 @@ import {
   MoreHorizontal,
   Pin,
   ScrollText,
+  Sparkles,
 } from "lucide-react";
 import { createContext, useCallback, useContext, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
+import { ContextRing } from "@/components/context-ring";
 import { ComposerDeliveryProvider } from "@/components/assistant-ui/composer-queue";
 import { PinProvider } from "@/components/assistant-ui/pin-message";
 import { QuoteReplyProvider } from "@/components/assistant-ui/quote-reply";
@@ -16,6 +18,7 @@ import { Thread, ThreadWelcome } from "@/components/assistant-ui/thread";
 import { RecentSessions } from "@/components/recent-sessions";
 import { PinsDialog } from "@/components/pins-dialog";
 import { SessionRawDialog } from "@/components/session-raw-dialog";
+import { SkillsDialog } from "@/components/skills-dialog";
 import { SystemPromptDialog } from "@/components/system-prompt-dialog";
 import { Button } from "@/components/ui/button";
 import { Spinner } from "@/components/ui/spinner";
@@ -115,6 +118,7 @@ export function ChatPane({
     messageCount,
     earlierCount,
     loadEarlier,
+    persistedTick,
   } = useNagobotChat(sessionKey, onFirstSend, summary);
   const hasMessages = messageCount > 0;
   const threadComponents = hasMessages ? nullWelcomeSlot : recentsWelcomeSlot;
@@ -125,6 +129,7 @@ export function ChatPane({
   const [rawOpen, setRawOpen] = useState(false);
   const [pinsOpen, setPinsOpen] = useState(false);
   const [promptOpen, setPromptOpen] = useState(false);
+  const [skillsOpen, setSkillsOpen] = useState(false);
   // This pane is the only place that knows both the session and the endpoint;
   // the reply and pin components below take a plain function of the message
   // text and stay unaware of both, so swapping either backend never reaches
@@ -167,6 +172,7 @@ export function ChatPane({
           />
           {t(statusLabelKey[status])}
         </span>
+        <ContextRing sessionKey={sessionKey} refreshTick={persistedTick} />
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
             <Button variant="ghost" size="icon" className="size-7">
@@ -178,6 +184,10 @@ export function ChatPane({
             <DropdownMenuItem onSelect={() => setPinsOpen(true)}>
               <Pin className="size-4" />
               {t("pins.title")}
+            </DropdownMenuItem>
+            <DropdownMenuItem onSelect={() => setSkillsOpen(true)}>
+              <Sparkles className="size-4" />
+              {t("skills.title")}
             </DropdownMenuItem>
             <DropdownMenuItem onSelect={() => setRawOpen(true)}>
               <FileJson className="size-4" />
@@ -240,6 +250,11 @@ export function ChatPane({
           sessionKey={sessionKey}
           open={pinsOpen}
           onOpenChange={setPinsOpen}
+        />
+        <SkillsDialog
+          sessionKey={sessionKey}
+          open={skillsOpen}
+          onOpenChange={setSkillsOpen}
         />
         <SystemPromptDialog
           sessionKey={sessionKey}

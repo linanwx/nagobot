@@ -264,7 +264,8 @@ func runServe(cmd *cobra.Command, args []string) error {
 		if webCh, ok := ch.(*channel.WebChannel); ok {
 			webCh.SetSystemPromptFn(threadMgr.SystemPrompt)
 			webCh.SetToolDefsFn(threadMgr.ToolDefs)
-			webCh.SetContextBudgetFn(threadMgr.ContextBudget)
+			webCh.SetContextUsageFn(threadMgr.ContextUsage)
+			webCh.SetSkillsFn(threadMgr.Skills)
 			webCh.SetQuoteFn(threadMgr.Quote)
 			webCh.SetPinFn(threadMgr.Pin)
 		}

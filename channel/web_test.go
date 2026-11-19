@@ -11,13 +11,14 @@ import (
 
 	"github.com/linanwx/nagobot/config"
 	"github.com/linanwx/nagobot/session"
+	"github.com/linanwx/nagobot/thread"
 )
 
 func splitKey(key string) []string { return strings.Split(key, ":") }
 
 // newTestWebChannelWithSession sets up a WebChannel with a temp workspace
-// containing a single-message session at the given key. contextBudgetFn is
-// stubbed to return a 200K window so tier2/tier3 percents are deterministic.
+// containing a single-message session at the given key. contextUsageFn is
+// stubbed to a 200K window so tier2/tier3 percents are deterministic.
 func newTestWebChannelWithSession(t *testing.T, sessionKey string) *WebChannel {
 	t.Helper()
 	workspace := t.TempDir()
@@ -36,11 +37,11 @@ func newTestWebChannelWithSession(t *testing.T, sessionKey string) *WebChannel {
 	cfg := config.DefaultConfig()
 	ch := NewWebChannel(cfg, nil).(*WebChannel)
 	ch.workspace = workspace
-	ch.SetContextBudgetFn(func(key string) (int, int, bool) {
+	ch.SetContextUsageFn(func(key string) (thread.ContextUsage, bool) {
 		if key == sessionKey {
-			return 200000, 0, true
+			return thread.ContextUsage{ContextWindow: 200000, TrimBudget: 174000}, true
 		}
-		return 0, 0, false
+		return thread.ContextUsage{}, false
 	})
 	return ch
 }

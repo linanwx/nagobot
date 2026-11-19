@@ -102,3 +102,34 @@ func TestTryTier3Compress_CountsTheSystemPrompt(t *testing.T) {
 		t.Fatal("system prompt + messages exceed the threshold; a compression wake must be enqueued")
 	}
 }
+
+// ContextUsage reports exactly the inputs tryAICompress sizes the request
+// with, so the web ring and the tiers cannot disagree about one session.
+func TestContextUsageMatchesTheTierInputs(t *testing.T) {
+	key := "test:context-usage"
+	mgr, th, store := newTier3TestManager(t, key, 300000)
+	if err := store.Append(key, provider.UserMessage(strings.Repeat("alpha beta ", 100))); err != nil {
+		t.Fatalf("append: %v", err)
+	}
+	th.lastSystemPromptTokens = 4321
+
+	u, ok := mgr.ContextUsage(key)
+	if !ok {
+		t.Fatal("no usage for a loaded thread")
+	}
+	if u.SystemPromptTokens != 4321 {
+		t.Errorf("SystemPromptTokens = %d, want the last turn's 4321", u.SystemPromptTokens)
+	}
+	if want := EstimateToolDefsTokens(th.tools.Defs()); u.ToolDefsTokens != want {
+		t.Errorf("ToolDefsTokens = %d, want %d", u.ToolDefsTokens, want)
+	}
+	if want := th.contextBudget().ContextWindow; u.ContextWindow != want {
+		t.Errorf("ContextWindow = %d, want %d", u.ContextWindow, want)
+	}
+	if want := contextLoopBudget(u.ContextWindow, th.cfg().MaxCompletionTokens); u.TrimBudget != want {
+		t.Errorf("TrimBudget = %d, want %d", u.TrimBudget, want)
+	}
+	if _, ok := mgr.ContextUsage("test:not-loaded"); ok {
+		t.Error("usage reported for a session with no thread")
+	}
+}
