@@ -38,23 +38,23 @@ const (
 
 // WeCom WebSocket frame commands.
 const (
-	wsCmdSubscribe          = "aibot_subscribe"
-	wsCmdPing               = "ping"
-	wsCmdSendMsg            = "aibot_send_msg"
-	wsCmdMsgCallback        = "aibot_msg_callback"
-	wsCmdEventCallback      = "aibot_event_callback"
-	wsCmdUploadMediaInit    = "aibot_upload_media_init"
-	wsCmdUploadMediaChunk   = "aibot_upload_media_chunk"
-	wsCmdUploadMediaFinish  = "aibot_upload_media_finish"
+	wsCmdSubscribe         = "aibot_subscribe"
+	wsCmdPing              = "ping"
+	wsCmdSendMsg           = "aibot_send_msg"
+	wsCmdMsgCallback       = "aibot_msg_callback"
+	wsCmdEventCallback     = "aibot_event_callback"
+	wsCmdUploadMediaInit   = "aibot_upload_media_init"
+	wsCmdUploadMediaChunk  = "aibot_upload_media_chunk"
+	wsCmdUploadMediaFinish = "aibot_upload_media_finish"
 )
 
 // Media upload constraints (per WeCom AI Bot WebSocket spec).
 const (
-	wecomImageMaxSize    = 10 << 20  // 10 MB
-	wecomFileMaxSize     = 20 << 20  // 20 MB
-	wecomChunkRawSize    = 256 << 10 // 256 KB raw per chunk (server limit is 512 KB; stay safe)
-	wecomMaxChunks       = 100
-	wecomUploadAckWait   = 30 * time.Second
+	wecomImageMaxSize  = 10 << 20  // 10 MB
+	wecomFileMaxSize   = 20 << 20  // 20 MB
+	wecomChunkRawSize  = 256 << 10 // 256 KB raw per chunk (server limit is 512 KB; stay safe)
+	wecomMaxChunks     = 100
+	wecomUploadAckWait = 30 * time.Second
 )
 
 // wsFrame is the unified WeCom WebSocket frame format.
@@ -66,42 +66,42 @@ type wsFrame struct {
 	ErrMsg  string            `json:"errmsg,omitempty"`
 }
 
+// wecomMedia is an encrypted media reference (image / file / video).
+type wecomMedia struct {
+	URL      string `json:"url"`
+	AESKey   string `json:"aeskey"`
+	FileName string `json:"file_name"`
+}
+
+// wecomContent is the typed payload shared by a message and the message it
+// quotes: the quote object carries the same msgtype + per-type key shape.
+type wecomContent struct {
+	MsgType string                    `json:"msgtype"`
+	Text    *struct{ Content string } `json:"text,omitempty"`
+	Image   *wecomMedia               `json:"image,omitempty"`
+	Voice   *struct{ Content string } `json:"voice,omitempty"`
+	File    *wecomMedia               `json:"file,omitempty"`
+	Video   *wecomMedia               `json:"video,omitempty"`
+	Mixed   *struct {
+		MsgItem []wecomContent `json:"msg_item"`
+	} `json:"mixed,omitempty"`
+}
+
 // wecomMsgBody represents the body of an aibot_msg_callback frame.
 type wecomMsgBody struct {
+	wecomContent
 	MsgID      string `json:"msgid"`
 	AIBotID    string `json:"aibotid"`
 	ChatType   string `json:"chattype"` // "single" or "group"
 	ChatID     string `json:"chatid"`
-	MsgType    string `json:"msgtype"`
 	CreateTime int64  `json:"create_time"`
 	From       struct {
 		UserID string `json:"userid"`
 	} `json:"from"`
-	Text  *struct{ Content string } `json:"text,omitempty"`
-	Image *struct {
-		URL    string `json:"url"`
-		AESKey string `json:"aeskey"`
-	} `json:"image,omitempty"`
-	Voice *struct{ Content string } `json:"voice,omitempty"`
-	File  *struct {
-		URL      string `json:"url"`
-		AESKey   string `json:"aeskey"`
-		FileName string `json:"file_name"`
-	} `json:"file,omitempty"`
-	Video *struct {
-		URL    string `json:"url"`
-		AESKey string `json:"aeskey"`
-	} `json:"video,omitempty"`
-	Mixed *struct {
-		MsgItem []struct {
-			MsgType string  `json:"msgtype"`
-			Text    *struct{ Content string } `json:"text,omitempty"`
-			Image   *struct {
-				URL    string `json:"url"`
-				AESKey string `json:"aeskey"`
-			} `json:"image,omitempty"`
-		} `json:"msg_item"`
-	} `json:"mixed,omitempty"`
+	// Quote is the message the user quoted when @-mentioning the bot. In a
+	// group it is the ONLY way an earlier group message — including an
+	// image or file, which a group never delivers on its own — reaches us.
+	Quote *wecomContent `json:"quote,omitempty"`
 	Event *struct {
 		EventType string `json:"eventtype"`
 	} `json:"event,omitempty"`
@@ -164,7 +164,7 @@ func NewWeComChannel(cfg *config.Config) Channel {
 	}
 }
 
-func (w *WeComChannel) Name() string             { return "wecom" }
+func (w *WeComChannel) Name() string              { return "wecom" }
 func (w *WeComChannel) Messages() <-chan *Message { return w.messages }
 
 func (w *WeComChannel) Start(ctx context.Context) error {
@@ -704,51 +704,15 @@ func (w *WeComChannel) handleMsgCallback(frame wsFrame) {
 		},
 	}
 
-	switch body.MsgType {
-	case "text":
-		if body.Text != nil {
-			msg.Text = body.Text.Content
-		}
-	case "image":
-		if body.Image != nil {
-			if path := downloadWeComMedia(w.mediaDir, body.Image.URL, body.Image.AESKey, ""); path != "" {
-				msg.Metadata["media_summary"] = MediaSummary("photo", "image_path", path)
-				msg.Text = "[Image received]"
-			} else {
-				msg.Text = "[Image: download failed]"
-			}
-		}
-	case "voice":
-		if body.Voice != nil {
-			msg.Text = body.Voice.Content
-		}
-	case "file":
-		if body.File != nil {
-			if path := downloadWeComMedia(w.mediaDir, body.File.URL, body.File.AESKey, body.File.FileName); path != "" {
-				msg.Metadata["media_summary"] = MediaSummary("file",
-					"file_name", body.File.FileName,
-					"file_path", path,
-				)
-				msg.Text = "[File: " + body.File.FileName + "]"
-			} else {
-				msg.Text = "[File: download failed]"
-			}
-		}
-	case "video":
-		if body.Video != nil {
-			if path := downloadWeComMedia(w.mediaDir, body.Video.URL, body.Video.AESKey, ""); path != "" {
-				msg.Metadata["media_summary"] = MediaSummary("video", "file_path", path)
-				msg.Text = "[Video received]"
-			} else {
-				msg.Text = "[Video: download failed]"
-			}
-		}
-	case "mixed":
-		if body.Mixed != nil {
-			msg.Text = w.handleMixedMsg(body.Mixed.MsgItem, msg.Metadata)
-		}
-	default:
-		msg.Text = fmt.Sprintf("[Unsupported message type: %s]", body.MsgType)
+	text, summaries := w.renderContent(body.wecomContent, false)
+	if body.Quote != nil {
+		quoted, quotedSummaries := w.renderContent(*body.Quote, true)
+		text = quoteBlock(quoted) + "\n\n" + text
+		summaries = append(summaries, quotedSummaries...)
+	}
+	msg.Text = text
+	if len(summaries) > 0 {
+		msg.Metadata["media_summary"] = strings.Join(summaries, "\n\n")
 	}
 
 	select {
@@ -758,14 +722,61 @@ func (w *WeComChannel) handleMsgCallback(frame wsFrame) {
 	}
 }
 
-func (w *WeComChannel) handleMixedMsg(items []struct {
-	MsgType string  `json:"msgtype"`
-	Text    *struct{ Content string } `json:"text,omitempty"`
-	Image   *struct {
-		URL    string `json:"url"`
-		AESKey string `json:"aeskey"`
-	} `json:"image,omitempty"`
-}, metadata map[string]string) string {
+// renderContent turns one typed payload into message text plus media
+// summaries. It serves both the message itself and the message it quotes,
+// since WeCom gives both the same shape. Media is downloaded here; a failed
+// download leaves a visible placeholder rather than vanishing. quoted only
+// changes the placeholder wording, so a quoted image never reads as one the
+// user just sent.
+func (w *WeComChannel) renderContent(c wecomContent, quoted bool) (string, []string) {
+	received := " received"
+	if quoted {
+		received = ""
+	}
+	switch c.MsgType {
+	case "text":
+		if c.Text != nil {
+			return c.Text.Content, nil
+		}
+	case "voice":
+		if c.Voice != nil {
+			return c.Voice.Content, nil
+		}
+	case "image":
+		if c.Image != nil {
+			if path := downloadWeComMedia(w.mediaDir, c.Image.URL, c.Image.AESKey, ""); path != "" {
+				return "[Image" + received + "]", []string{MediaSummary("photo", "image_path", path)}
+			}
+			return "[Image: download failed]", nil
+		}
+	case "file":
+		if c.File != nil {
+			if path := downloadWeComMedia(w.mediaDir, c.File.URL, c.File.AESKey, c.File.FileName); path != "" {
+				return "[File: " + c.File.FileName + "]", []string{MediaSummary("file",
+					"file_name", c.File.FileName,
+					"file_path", path,
+				)}
+			}
+			return "[File: download failed]", nil
+		}
+	case "video":
+		if c.Video != nil {
+			if path := downloadWeComMedia(w.mediaDir, c.Video.URL, c.Video.AESKey, ""); path != "" {
+				return "[Video" + received + "]", []string{MediaSummary("video", "file_path", path)}
+			}
+			return "[Video: download failed]", nil
+		}
+	case "mixed":
+		if c.Mixed != nil {
+			return w.renderMixed(c.Mixed.MsgItem)
+		}
+	default:
+		return fmt.Sprintf("[Unsupported message type: %s]", c.MsgType), nil
+	}
+	return "", nil
+}
+
+func (w *WeComChannel) renderMixed(items []wecomContent) (string, []string) {
 	var parts []string
 	var summaries []string
 	for _, item := range items {
@@ -783,13 +794,24 @@ func (w *WeComChannel) handleMixedMsg(items []struct {
 			}
 		}
 	}
-	if len(summaries) > 0 {
-		metadata["media_summary"] = strings.Join(summaries, "\n\n")
-	}
 	if len(parts) == 0 {
-		return "[Mixed message]"
+		return "[Mixed message]", summaries
 	}
-	return strings.Join(parts, "\n")
+	return strings.Join(parts, "\n"), summaries
+}
+
+// quoteBlock renders quoted content as a markdown blockquote — the same
+// leading-"> " shape the web client's quote-reply produces, so a quoted
+// message reads the same whichever channel it came from.
+func quoteBlock(text string) string {
+	if strings.TrimSpace(text) == "" {
+		text = "[Quoted message]"
+	}
+	lines := strings.Split(text, "\n")
+	for i, l := range lines {
+		lines[i] = "> " + l
+	}
+	return strings.Join(lines, "\n")
 }
 
 func (w *WeComChannel) handleEventCallback(frame wsFrame, conn *websocket.Conn) {
