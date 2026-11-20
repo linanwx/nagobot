@@ -236,7 +236,12 @@ func progressEligible(info msg.ThreadInfo) (target string, ok bool) {
 // delivers the note. Blocking (called in its own goroutine).
 func (p *ProgressScanner) report(ctx context.Context, info msg.ThreadInfo, target string) {
 	key := info.SessionKey
-	summary := p.summarize(ctx, key, buildSummaryRequest(info))
+	// One snapshot (T1) feeds the summary and every line of the parent's note,
+	// and the note says when it was taken: the summary cannot describe a later
+	// moment, so nothing else in the note may either.
+	at := time.Now()
+	activity := describeActivity(info, at)
+	summary := p.summarize(ctx, key, buildSummaryRequest(info, activity))
 	if summary == "" {
 		return
 	}
@@ -252,9 +257,7 @@ func (p *ProgressScanner) report(ctx context.Context, info msg.ThreadInfo, targe
 	if target == key {
 		p.deliverToUser(ctx, th, summary)
 	} else {
-		// Activity is read again at delivery: the summary took seconds, and
-		// what the child is doing NOW is what the parent will act on.
-		p.deliverToAncestor(key, target, p.mgr.liveInfo(th), summary)
+		p.deliverToAncestor(key, target, info, at, activity, summary)
 	}
 	logger.Info("progress report sent",
 		"session", key, "target", target,
@@ -290,8 +293,8 @@ func (p *ProgressScanner) summarize(ctx context.Context, sessionKey, request str
 
 // buildSummaryRequest renders the summarizer's wake body for a RUNNING turn:
 // the origin request plus the trimmed tool trace.
-func buildSummaryRequest(info msg.ThreadInfo) string {
-	return summaryModeProgress + "\n\n" + summaryTraceSection(info)
+func buildSummaryRequest(info msg.ThreadInfo, activity string) string {
+	return summaryModeProgress + "\n\n" + summaryTraceSection(info, activity)
 }
 
 // buildTurnEndSummaryRequest renders the summarizer's wake body for a turn
@@ -299,7 +302,7 @@ func buildSummaryRequest(info msg.ThreadInfo) string {
 func buildTurnEndSummaryRequest(te TurnEnd) string {
 	var sb strings.Builder
 	sb.WriteString(summaryModeTurnEnd + "\n\n")
-	sb.WriteString(summaryTraceSection(te.Info))
+	sb.WriteString(summaryTraceSection(te.Info, ""))
 	reply := strings.TrimSpace(te.FinalReply)
 	if reply == "" {
 		reply = "(the turn ended without any reply text)"
@@ -311,7 +314,7 @@ func buildTurnEndSummaryRequest(te TurnEnd) string {
 // summaryTraceSection is the part both request modes share. Field-level
 // trimming already happened at record time (toolTraceFieldRunes); this only
 // windows the call count.
-func summaryTraceSection(info msg.ThreadInfo) string {
+func summaryTraceSection(info msg.ThreadInfo, activity string) string {
 	var sb strings.Builder
 	fmt.Fprintf(&sb, "Original request (the turn below is working on this):\n%s\n\n", info.OriginRequest)
 
@@ -337,8 +340,8 @@ func summaryTraceSection(info msg.ThreadInfo) string {
 			fmt.Fprintf(&sb, "  → %s\n", rec.ResultPreview)
 		}
 	}
-	if a := describeActivity(info, time.Now()); a != "" {
-		fmt.Fprintf(&sb, "\nRight now: %s\n", a)
+	if activity != "" {
+		fmt.Fprintf(&sb, "\nRight now: %s\n", activity)
 	}
 	fmt.Fprintf(&sb, "\nElapsed: %s\n", humanizeDuration(info.ElapsedSec))
 	return sb.String()
@@ -480,10 +483,13 @@ func (p *ProgressScanner) deliverToUser(ctx context.Context, th *Thread, summary
 // deliverToAncestor wakes the user-facing ancestor with the child's summary as
 // a WakeProgress wake. The ancestor's LLM decides whether to surface it
 // (plain reply text) or drop it (dispatch({})); its reply-to-caller is dropped.
-func (p *ProgressScanner) deliverToAncestor(childKey, ancestor string, info msg.ThreadInfo, summary string) {
-	body := fmt.Sprintf("🔍 subagent %s · running %s · %d steps\n", childKey, humanizeDuration(info.ElapsedSec), info.TotalToolCalls)
-	if a := describeActivity(info, time.Now()); a != "" {
-		body += "activity: " + a + "\n"
+// Everything in the body describes the snapshot taken `at`, which the header
+// states; the wake's own `time` is when it was enqueued, after the summary.
+func (p *ProgressScanner) deliverToAncestor(childKey, ancestor string, info msg.ThreadInfo, at time.Time, activity, summary string) {
+	body := fmt.Sprintf("🔍 subagent %s · as of %s · running %s · %d steps\n",
+		childKey, at.In(p.mgr.locationFor(ancestor)).Format("15:04:05"), humanizeDuration(info.ElapsedSec), info.TotalToolCalls)
+	if activity != "" {
+		body += "activity: " + activity + "\n"
 	}
 	body += "\n" + summary
 	p.mgr.Wake(ancestor, &WakeMessage{

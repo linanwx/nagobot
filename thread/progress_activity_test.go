@@ -74,14 +74,15 @@ func TestRunnerStampsTheCallPhase(t *testing.T) {
 func TestParentProgressWakeCarriesTheActivityLine(t *testing.T) {
 	m := NewManager(nil)
 	p := &ProgressScanner{mgr: m}
-	info := msg.ThreadInfo{ElapsedSec: 230, TotalToolCalls: 23, LLMCallStart: time.Now().Add(-time.Second)}
-	p.deliverToAncestor("discord:1:threads:x", "discord:1", info, "⏳ note")
+	at := time.Date(2026, 11, 20, 14, 3, 12, 0, time.Local)
+	info := msg.ThreadInfo{ElapsedSec: 230, TotalToolCalls: 23, LLMCallStart: at.Add(-time.Second)}
+	p.deliverToAncestor("discord:1:threads:x", "discord:1", info, at, describeActivity(info, at), "⏳ note")
 	th := m.threads["discord:1"]
 	if th == nil {
 		t.Fatal("parent not woken")
 	}
 	w := <-th.inbox
-	if !strings.Contains(w.Message, "\nactivity: waiting_first_output · model call 1s\n") {
+	if !strings.Contains(w.Message, " · as of 14:03:12 · running 3m50s · 23 steps\nactivity: waiting_first_output · model call 1s\n") {
 		t.Fatalf("wake body lacks the activity line:\n%s", w.Message)
 	}
 }

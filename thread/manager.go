@@ -454,13 +454,6 @@ func (m *Manager) runningTurnThread(key string, turnStart time.Time) *Thread {
 	return t
 }
 
-// liveInfo is threadInfo for one thread, under the same lock ListThreads holds.
-func (m *Manager) liveInfo(t *Thread) tools.ThreadInfo {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	return threadInfo(t)
-}
-
 // ListThreads returns a summary of all active threads.
 func (m *Manager) ListThreads() []tools.ThreadInfo {
 	m.mu.Lock()

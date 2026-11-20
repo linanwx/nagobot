@@ -130,7 +130,7 @@ func TestBuildSummaryRequest(t *testing.T) {
 		OriginRequest:  "find the latest quantum computing news",
 		ToolTrace:      trace,
 	}
-	out := buildSummaryRequest(info)
+	out := buildSummaryRequest(info, describeActivity(info, time.Now()))
 
 	if !strings.Contains(out, "find the latest quantum computing news") {
 		t.Error("origin request missing")
@@ -239,7 +239,7 @@ func TestDeliverToAncestor_WakesParent(t *testing.T) {
 
 	ps := NewProgressScanner(m)
 	info := msg.ThreadInfo{SessionKey: "telegram:99:threads:find-x", ElapsedSec: 372, TotalToolCalls: 14}
-	ps.deliverToAncestor(info.SessionKey, "telegram:99", info, "⏳ searched 8 sources, reading the last one")
+	ps.deliverToAncestor(info.SessionKey, "telegram:99", info, time.Now(), "", "⏳ searched 8 sources, reading the last one")
 
 	if got := len(ancestor.inbox); got != 1 {
 		t.Fatalf("expected 1 progress wake in ancestor inbox, got %d", got)
@@ -345,7 +345,7 @@ func TestBuildTurnEndSummaryRequest(t *testing.T) {
 			t.Errorf("request missing %q:\n%s", want, out)
 		}
 	}
-	if !strings.HasPrefix(buildSummaryRequest(msg.ThreadInfo{}), summaryModeProgress) {
+	if !strings.HasPrefix(buildSummaryRequest(msg.ThreadInfo{}, ""), summaryModeProgress) {
 		t.Error("a running-progress request must state its mode first")
 	}
 }

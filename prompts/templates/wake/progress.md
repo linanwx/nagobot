@@ -4,7 +4,7 @@ note: "Action on a progress event about a dispatched child: a running snapshot o
 A progress event about a subagent/fork you dispatched.
 Two kinds; tell them apart by the body.
 RUNNING snapshot (starts with ⏳ or 🔍, no `event: turn_ended` line): the child is still working and this is NOT its result.
-Its `activity:` line, when present, is what the child was doing as this reached you:
+Every line of it describes the moment in its `as of` time, which is a little earlier than this wake's `time` because writing the summary took a while. Its `activity:` line, when present, is what the child was doing at that moment:
 `running_tool <name> · <time>` a tool is executing (a long run may be slow or stuck);
 `waiting_first_output` or `thinking` the model is deciding its next step, which may be another tool call or its answer;
 `writing_reply · N chars so far` it is writing text, usually its final answer, so the end-of-turn notice is likely close;
