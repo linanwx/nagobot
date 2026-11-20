@@ -16,6 +16,7 @@ The turn is still running. Turn the trace into a short progress note so the pers
 
 - Start with "⏳ ".
 - Say what has been accomplished toward the request and what is happening right now (the current tool, the current step).
+- A `Right now:` line, when present, states what the turn is doing at this moment: `running_tool` (a tool is executing), `waiting_first_output` / `thinking` (the model is working out its next step), `writing_reply` (it is writing its answer), `writing_tool_call` (it is preparing a tool call, often writing a file). Describe the current step from that line, not from the last tool result: a failed last tool followed by `writing_reply` means it moved on and is writing up, not that it is stuck.
 
 ## Mode: turn-ended
 

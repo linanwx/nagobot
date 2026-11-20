@@ -196,6 +196,17 @@ type ExecMetrics struct {
 	// provider, which reports nothing and must therefore change no behaviour.
 	LastTextDeltaAt time.Time
 
+	// What the turn is doing right now, read by progress snapshots so the
+	// session waiting on it can tell a child writing its answer from one that
+	// is stuck. LLMCallStart is non-zero only while a model call is in flight;
+	// the three fields after it describe that call and are reset when it
+	// starts. CurrentToolSince is when CurrentTool started.
+	LLMCallStart     time.Time
+	LastReasoningAt  time.Time
+	ReplyRunes       int
+	ToolCallDraft    string // first tool the in-flight call started to emit
+	CurrentToolSince time.Time
+
 	// Last-turn token data — overwritten (not accumulated) each LLM call by the runner.
 	PromptEstimated      int
 	CompletionEstimated  int
@@ -221,6 +232,43 @@ func (m *ExecMetrics) StartIteration() {
 func (m *ExecMetrics) SetCurrentTool(name string) {
 	m.mu.Lock()
 	m.CurrentTool = name
+	m.CurrentToolSince = time.Now()
+	m.mu.Unlock()
+}
+
+// BeginLLMCall marks a model call as in flight and clears what the previous
+// call left behind.
+func (m *ExecMetrics) BeginLLMCall(at time.Time) {
+	m.mu.Lock()
+	m.LLMCallStart = at
+	m.LastReasoningAt = time.Time{}
+	m.ReplyRunes = 0
+	m.ToolCallDraft = ""
+	m.mu.Unlock()
+}
+
+// EndLLMCall marks the in-flight model call as finished.
+func (m *ExecMetrics) EndLLMCall() {
+	m.mu.Lock()
+	m.LLMCallStart = time.Time{}
+	m.mu.Unlock()
+}
+
+// NoteReasoningDelta stamps reasoning output of the in-flight call. It is
+// kept apart from LastTextDeltaAt on purpose: see NoteTextDelta.
+func (m *ExecMetrics) NoteReasoningDelta(at time.Time) {
+	m.mu.Lock()
+	m.LastReasoningAt = at
+	m.mu.Unlock()
+}
+
+// NoteToolCallDraft records that the in-flight call started emitting a tool
+// call. Providers report only its start, not its arguments.
+func (m *ExecMetrics) NoteToolCallDraft(name string) {
+	m.mu.Lock()
+	if m.ToolCallDraft == "" {
+		m.ToolCallDraft = name
+	}
 	m.mu.Unlock()
 }
 
@@ -230,9 +278,10 @@ func (m *ExecMetrics) SetCurrentTool(name string) {
 // progress note is worth most, since nothing has reached the user yet. The lock
 // is taken on every delta rather than throttled — deltas arrive tens per second
 // against a mutex read once per 30s scan, so there is no contention to save.
-func (m *ExecMetrics) NoteTextDelta(at time.Time) {
+func (m *ExecMetrics) NoteTextDelta(at time.Time, runes int) {
 	m.mu.Lock()
 	m.LastTextDeltaAt = at
+	m.ReplyRunes += runes
 	m.mu.Unlock()
 }
 

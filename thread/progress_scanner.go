@@ -252,7 +252,9 @@ func (p *ProgressScanner) report(ctx context.Context, info msg.ThreadInfo, targe
 	if target == key {
 		p.deliverToUser(ctx, th, summary)
 	} else {
-		p.deliverToAncestor(key, target, info, summary)
+		// Activity is read again at delivery: the summary took seconds, and
+		// what the child is doing NOW is what the parent will act on.
+		p.deliverToAncestor(key, target, p.mgr.liveInfo(th), summary)
 	}
 	logger.Info("progress report sent",
 		"session", key, "target", target,
@@ -335,8 +337,8 @@ func summaryTraceSection(info msg.ThreadInfo) string {
 			fmt.Fprintf(&sb, "  → %s\n", rec.ResultPreview)
 		}
 	}
-	if info.CurrentTool != "" {
-		fmt.Fprintf(&sb, "\nCurrently executing: %s\n", info.CurrentTool)
+	if a := describeActivity(info, time.Now()); a != "" {
+		fmt.Fprintf(&sb, "\nRight now: %s\n", a)
 	}
 	fmt.Fprintf(&sb, "\nElapsed: %s\n", humanizeDuration(info.ElapsedSec))
 	return sb.String()
@@ -479,8 +481,11 @@ func (p *ProgressScanner) deliverToUser(ctx context.Context, th *Thread, summary
 // a WakeProgress wake. The ancestor's LLM decides whether to surface it
 // (plain reply text) or drop it (dispatch({})); its reply-to-caller is dropped.
 func (p *ProgressScanner) deliverToAncestor(childKey, ancestor string, info msg.ThreadInfo, summary string) {
-	body := fmt.Sprintf("🔍 subagent %s · running %s · %d steps\n\n%s",
-		childKey, humanizeDuration(info.ElapsedSec), info.TotalToolCalls, summary)
+	body := fmt.Sprintf("🔍 subagent %s · running %s · %d steps\n", childKey, humanizeDuration(info.ElapsedSec), info.TotalToolCalls)
+	if a := describeActivity(info, time.Now()); a != "" {
+		body += "activity: " + a + "\n"
+	}
+	body += "\n" + summary
 	p.mgr.Wake(ancestor, &WakeMessage{
 		Source:  WakeProgress,
 		Message: body,
@@ -495,6 +500,44 @@ func (p *ProgressScanner) deliverToAncestor(childKey, ancestor string, info msg.
 			},
 		},
 	})
+}
+
+// describeActivity states what a running turn is doing at `now`, as one
+// factual line: a state name the wake/progress prompt explains, plus how long
+// and how much. "" when nothing is in flight (between steps, or ended).
+//
+// The phase of a model call is the useful part. A child that has just run its
+// last tool and is writing its answer looks, from the tool trace alone,
+// exactly like one that stalled after its last result — and a parent that
+// steers it then only lands its message after the answer, starting a second
+// turn nobody needed.
+func describeActivity(info msg.ThreadInfo, now time.Time) string {
+	since := func(t time.Time) string { return humanizeDuration(int(now.Sub(t).Seconds())) }
+	if info.CurrentTool != "" {
+		if info.CurrentToolSince.IsZero() {
+			return "running_tool " + info.CurrentTool
+		}
+		return fmt.Sprintf("running_tool %s · %s", info.CurrentTool, since(info.CurrentToolSince))
+	}
+	start := info.LLMCallStart
+	if start.IsZero() {
+		return ""
+	}
+	call := "model call " + since(start)
+	lastOut := info.LastReasoningAt
+	if info.LastTextDeltaAt.After(lastOut) && !info.LastTextDeltaAt.Before(start) {
+		lastOut = info.LastTextDeltaAt
+	}
+	switch {
+	case info.ToolCallDraft != "":
+		return fmt.Sprintf("writing_tool_call %s · %s", info.ToolCallDraft, call)
+	case info.ReplyRunes > 0:
+		return fmt.Sprintf("writing_reply · %d chars so far · %s · last output %s ago", info.ReplyRunes, call, since(lastOut))
+	case !info.LastReasoningAt.IsZero():
+		return fmt.Sprintf("thinking · %s · last output %s ago", call, since(lastOut))
+	default:
+		return "waiting_first_output · " + call
+	}
 }
 
 // humanizeDuration renders a second count as "45s" / "6m12s" / "1h03m".

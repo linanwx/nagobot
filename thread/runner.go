@@ -7,6 +7,7 @@ import (
 	"io"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"github.com/linanwx/nagobot/logger"
 	"github.com/linanwx/nagobot/obs"
@@ -415,6 +416,10 @@ func (r *Runner) callLLM(ctx context.Context, chatReq *provider.Request) (*llmCa
 	callCtx, span := obs.Start(callCtx, "llm.call", obs.Int("msg_count", len(chatReq.Messages)))
 	defer span.End()
 	callStart := time.Now()
+	if r.metrics != nil {
+		r.metrics.BeginLLMCall(callStart)
+		defer r.metrics.EndLLMCall()
+	}
 
 	result, err := r.provider.Chat(callCtx, chatReq)
 	if err != nil {
@@ -459,7 +464,7 @@ func (r *Runner) callLLM(ctx context.Context, chatReq *provider.Request) (*llmCa
 				// has reached the user during a long think, which is precisely
 				// when a progress note earns its place.
 				if r.metrics != nil {
-					r.metrics.NoteTextDelta(time.Now())
+					r.metrics.NoteTextDelta(time.Now(), utf8.RuneCountInString(delta.Text))
 				}
 				if r.onStream != nil {
 					r.onStream(streamID, delta.Text)
@@ -474,7 +479,14 @@ func (r *Runner) callLLM(ctx context.Context, chatReq *provider.Request) (*llmCa
 					stream.Cancel()
 					break recvLoop
 				}
+			case provider.DeltaReasoning:
+				if r.metrics != nil {
+					r.metrics.NoteReasoningDelta(time.Now())
+				}
 			case provider.DeltaToolCall:
+				if r.metrics != nil {
+					r.metrics.NoteToolCallDraft(delta.ToolName)
+				}
 				if !out.toolCallSignaled && r.onEvent != nil {
 					out.toolCallSignaled = true
 					r.onEvent(EventToolCalls, delta.ToolName)

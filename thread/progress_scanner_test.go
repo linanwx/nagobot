@@ -150,7 +150,7 @@ func TestBuildSummaryRequest(t *testing.T) {
 	if !strings.Contains(out, "[FAILED]") {
 		t.Error("error marker missing for failed call")
 	}
-	if !strings.Contains(out, "Currently executing: read_file") {
+	if !strings.Contains(out, "Right now: running_tool read_file") {
 		t.Error("current tool line missing")
 	}
 	if !strings.Contains(out, "6m12s") {

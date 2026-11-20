@@ -93,6 +93,12 @@ type ThreadInfo struct {
 	// zero if it has emitted none (or the provider does not stream). Raw rather
 	// than a derived age, like TurnStart above, so the reader owns the policy.
 	LastTextDeltaAt time.Time `json:"lastTextDeltaAt,omitzero"`
+	// What the running turn is doing right now (see thread.ExecMetrics).
+	LLMCallStart     time.Time `json:"llmCallStart,omitzero"`
+	LastReasoningAt  time.Time `json:"lastReasoningAt,omitzero"`
+	ReplyRunes       int       `json:"replyRunes,omitempty"`
+	ToolCallDraft    string    `json:"toolCallDraft,omitempty"`
+	CurrentToolSince time.Time `json:"currentToolSince,omitzero"`
 }
 
 // WakeSource identifies how a thread was woken.
