@@ -171,7 +171,7 @@ function PromptsDialog() {
           </p>
         ) : (
           <>
-            <div className="flex shrink-0 flex-wrap gap-1.5">
+            <div className="flex max-h-36 shrink-0 flex-wrap gap-1.5 overflow-y-auto overscroll-contain p-0.5">
               {files.map((f) => (
                 <Button
                   key={f.name}
