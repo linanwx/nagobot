@@ -143,6 +143,19 @@ func (c *CronChannel) FindJob(id string) (cronpkg.Job, bool) {
 	return c.scheduler.FindJob(id)
 }
 
+// Jobs returns the live job set (persisted + non-overridden seeds). Before the
+// scheduler starts only the seeds are known.
+func (c *CronChannel) Jobs() []cronpkg.Job {
+	if c.scheduler == nil {
+		out := make([]cronpkg.Job, 0, len(c.seedJobs))
+		for _, j := range c.seedJobs {
+			out = append(out, cronpkg.Normalize(j))
+		}
+		return out
+	}
+	return c.scheduler.Jobs()
+}
+
 // AddJob delegates to the underlying scheduler. Returns whether an existing
 // job with the same ID was replaced.
 func (c *CronChannel) AddJob(job cronpkg.Job) (bool, error) {

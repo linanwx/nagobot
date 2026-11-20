@@ -186,6 +186,27 @@ export const en = {
     deleteBody:
       "“{{title}}” will be removed from this session's pins. This cannot be undone.",
   },
+  cron: {
+    title: "Scheduled jobs",
+    count_one: "{{count}} job",
+    count_other: "{{count}} jobs",
+    empty:
+      "No scheduled jobs run in or report to this session. Ask the bot to set one up.",
+    timezone: "Schedules use the daemon's time zone: {{tz}}",
+    next: "Next: {{when}}",
+    noNext: "No upcoming run",
+    inject: "inject",
+    independent: "independent",
+    reportsHere: "reports here",
+    builtin: "built-in",
+    oneTime: "one-time",
+    task: "Task",
+    agent: "Agent",
+    runsIn: "Runs in",
+    reportsTo: "Reports to",
+    created: "Created",
+    open: "Open session",
+  },
   reasoning: {
     label: "Reasoning",
   },

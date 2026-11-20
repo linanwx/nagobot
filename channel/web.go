@@ -97,6 +97,10 @@ type WebChannel struct {
 	// takes no context: the call returns as soon as the filing is enqueued, so
 	// there is nothing for a request-scoped context to cancel.
 	pinFn func(string, string) error
+	// cronJobsFn lists the cron scheduler's live jobs, for the per-session
+	// "scheduled jobs" panel. Injected because the scheduler lives in the cron
+	// channel, and the store file alone misses the config seeds.
+	cronJobsFn func() []cronpkg.Job
 }
 
 type wsClient struct {
@@ -1376,6 +1380,12 @@ func (w *WebChannel) handleSessionMessages(rw http.ResponseWriter, r *http.Reque
 	// Route: /api/sessions/{key...}/chat
 	if key, ok := strings.CutSuffix(raw, ":chat"); ok {
 		w.handleSessionChat(rw, key)
+		return
+	}
+
+	// Route: /api/sessions/{key...}/cron
+	if key, ok := strings.CutSuffix(raw, ":cron"); ok {
+		w.handleSessionCron(rw, key)
 		return
 	}
 

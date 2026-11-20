@@ -268,6 +268,7 @@ func runServe(cmd *cobra.Command, args []string) error {
 			webCh.SetSkillsFn(threadMgr.Skills)
 			webCh.SetQuoteFn(threadMgr.Quote)
 			webCh.SetPinFn(threadMgr.Pin)
+			webCh.SetCronJobsFn(cronCh.Jobs)
 		}
 	}
 

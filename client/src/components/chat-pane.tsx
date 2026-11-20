@@ -1,6 +1,7 @@
 import { AssistantRuntimeProvider } from "@assistant-ui/react";
 import {
   ArrowUpLeft,
+  Clock,
   FileJson,
   Menu,
   MoreHorizontal,
@@ -16,6 +17,7 @@ import { PinProvider } from "@/components/assistant-ui/pin-message";
 import { QuoteReplyProvider } from "@/components/assistant-ui/quote-reply";
 import { Thread, ThreadWelcome } from "@/components/assistant-ui/thread";
 import { RecentSessions } from "@/components/recent-sessions";
+import { CronDialog } from "@/components/cron-dialog";
 import { PinsDialog } from "@/components/pins-dialog";
 import { SessionRawDialog } from "@/components/session-raw-dialog";
 import { SkillsDialog } from "@/components/skills-dialog";
@@ -128,6 +130,7 @@ export function ChatPane({
   );
   const [rawOpen, setRawOpen] = useState(false);
   const [pinsOpen, setPinsOpen] = useState(false);
+  const [cronOpen, setCronOpen] = useState(false);
   const [promptOpen, setPromptOpen] = useState(false);
   const [skillsOpen, setSkillsOpen] = useState(false);
   // This pane is the only place that knows both the session and the endpoint;
@@ -184,6 +187,10 @@ export function ChatPane({
             <DropdownMenuItem onSelect={() => setPinsOpen(true)}>
               <Pin className="size-4" />
               {t("pins.title")}
+            </DropdownMenuItem>
+            <DropdownMenuItem onSelect={() => setCronOpen(true)}>
+              <Clock className="size-4" />
+              {t("cron.title")}
             </DropdownMenuItem>
             <DropdownMenuItem onSelect={() => setSkillsOpen(true)}>
               <Sparkles className="size-4" />
@@ -250,6 +257,12 @@ export function ChatPane({
           sessionKey={sessionKey}
           open={pinsOpen}
           onOpenChange={setPinsOpen}
+        />
+        <CronDialog
+          sessionKey={sessionKey}
+          open={cronOpen}
+          onOpenChange={setCronOpen}
+          onOpenSession={onOpenSession}
         />
         <SkillsDialog
           sessionKey={sessionKey}

@@ -549,3 +549,41 @@ export async function fetchSessionSkill(
   }
   return res.json();
 }
+
+// --- cron (GET /api/sessions/{key}/cron) ---
+
+export type SessionCronJob = {
+  id: string;
+  // runs_here: the job's turn executes in this session.
+  // reports_here: it runs in its own cron:<id> session and reports here.
+  relation: "runs_here" | "reports_here";
+  kind: "cron" | "at";
+  // Cron expression, or the RFC3339 instant of a one-time job.
+  schedule: string;
+  next_run?: string;
+  mode: "inject" | "independent";
+  agent?: string;
+  wake_session?: string;
+  run_session: string;
+  task: string;
+  builtin?: boolean;
+  created_at?: string;
+};
+
+export type SessionCron = {
+  key: string;
+  // Where the daemon evaluates cron expressions; not necessarily the browser's.
+  timezone: string;
+  jobs: SessionCronJob[];
+};
+
+export async function fetchSessionCron(key: string): Promise<SessionCron> {
+  const res = await fetch(`/api/sessions/${sessionPath(key)}/cron`);
+  if (!res.ok) {
+    throw new Error(
+      (await res.text()).trim() || `GET /api/sessions/${key}/cron: ${res.status}`,
+    );
+  }
+  const data = await res.json();
+  return { ...data, jobs: Array.isArray(data?.jobs) ? data.jobs : [] };
+}
