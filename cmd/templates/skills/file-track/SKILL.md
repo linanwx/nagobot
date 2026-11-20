@@ -53,6 +53,8 @@ You keep working files in this session's workspace (`{{SESSIONDIR}}`). Over time
    - `old-report-q1.md` — superseded by Q2 → moved to archive/.
    ```
 
+   **Method files** (`how-to-*.md`, written by session reflection) get a category of their own, `## Methods`, and their "when to use" names the task that calls for them — `how-to-renew-car-tax.md — how the car tax renewal was done last time. Read before renewing it again.` A method is never expired because the task it came from is finished; it exists for the next time. Archive one only when another method file has replaced it.
+
    If there are no work files at all, write a minimal `file-track.md` saying the workspace has no tracked work files yet.
 
 ## Rules

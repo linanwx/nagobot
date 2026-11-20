@@ -1,6 +1,6 @@
 ---
 name: session-reflect
-description: Background reflection on conversation history. Records scoped user preferences, durable facts the user stated, and pitfalls the user corrected into USER.md. Triggered by heartbeat at the 4-hour quiet mark — never call directly.
+description: Background reflection on conversation history. Records scoped user preferences, durable facts the user stated, and pitfalls the user corrected into USER.md, and files a reusable method for each kind of task that was confirmed to work. Triggered by heartbeat at the 4-hour quiet mark — never call directly.
 ---
 # Session Reflect
 
@@ -18,7 +18,7 @@ Before writing anything, ask one question: **will a future turn plausibly act be
 
 3. **Review conversation history** since the last reflection (look for a `## Reflection Log` section with timestamps in USER.md to know where you left off). If no prior reflection exists, review the entire conversation.
 
-   **Read the user's messages first and weigh them most.** Requests, corrections, interruptions, redo requests and repeated narrowing are the evidence. Assistant messages only show what was attempted; an assistant proposal the user never adopted is not a preference and not a fact.
+   **Read the user's messages first and weigh them most.** Requests, corrections, interruptions, redo requests and repeated narrowing are the evidence. Assistant messages only show what was attempted; an assistant proposal the user never adopted is not a preference and not a fact. Tool outputs come next: they are the evidence for what actually worked.
 
    Scan for:
    - Explicit corrections ("no, do it this way", "I meant X not Y") and what the user wanted instead
@@ -26,8 +26,9 @@ Before writing anything, ask one question: **will a future turn plausibly act be
    - The same request or correction repeated — the strongest signal there is
    - Facts the user stated about themselves that will still be true next month
    - Mistakes the user caught: a wrong fact, a wrong assumption, a step you missed
-   - **Material worth keeping**: detail the user will want looked up later — an inventory or list that is now out of date in your head, a table of options they compared, a procedure they walked you through, account/config/device mappings, the conclusions of a piece of research. This is the half of the conversation that does NOT fit in USER.md; step 5 is where it goes.
-   - **Material worth keeping**: detail the user will want looked up later — an inventory or list that is now out of date in your head, a table of options they compared, a procedure they walked you through, account/config/device mappings, the conclusions of a piece of research. This is the half of the conversation that does NOT fit in USER.md; step 5 is where it goes.
+   - Approaches the user confirmed: "yes, exactly", "keep doing it this way", or an unusual choice of yours accepted without pushback. These are quieter than corrections, so look for them — recording only corrections drifts away from what already works and makes every later turn more cautious.
+   - **Methods that worked**: a task that reached a result the user accepted or a tool output confirmed, and how it was actually done — a procedure the user walked you through, or a route you found yourself after failed attempts. Step 4's `### Methods` decides whether it is kept.
+   - **Material worth keeping**: detail the user will want looked up later — an inventory or list that is now out of date in your head, a table of options they compared, account/config/device mappings, the conclusions of a piece of research. This is the half of the conversation that does NOT fit in USER.md; step 5 is where it goes.
 
 4. **Extract findings** into these categories:
 
@@ -40,6 +41,7 @@ Before writing anything, ask one question: **will a future turn plausibly act be
    - Turning down one offer is not a permanent opt-out of that kind of offer.
    - **A request not to be ASKED something is not a request not to be WARNED.** "Don't ask me about small things" restrains questions; it never covers a risk to an appointment, deadline, document or trip the user cares about.
    - If you cannot tell whether a preference is durable, it is not: mention it in the Reflection Log line and leave it out of `## Preferences`.
+   - A confirmed approach is evidence the same way a correction is, under the same rules: as narrow as the situation it was confirmed in, with the user's words.
 
    Write each one as a single line carrying its origin:
 
@@ -62,6 +64,22 @@ Before writing anything, ask one question: **will a future turn plausibly act be
    ```
 
    Example: `- Wrote passport expiry as 2027-09-22 → copied an old note → the user corrected it to 2030 on 2026-11-10; quote only the corrected value`.
+
+   These are about how you serve this person. A pitfall about how one kind of task gets done belongs in that task's method file, on the step it affects (below). One lesson lives in one place, never both.
+
+   ### Methods (does not go into USER.md)
+   How a kind of task gets done here, written so a later turn can repeat it. First label each task in the conversation from the evidence:
+
+   - **success** — the user accepted the result, or a tool output confirmed it.
+   - **partial** — some steps were confirmed; the whole was not.
+   - **fail** — the user rejected it, or it never worked.
+   - **uncertain** — no confirmation either way. Your own "done" is not confirmation. Judge the conversation's last task strictly: with no reaction from the user after it, it is uncertain.
+
+   Then:
+   - success → the method goes to its own file (step 5).
+   - partial → only the confirmed steps go to the file.
+   - fail or uncertain → never written up as a method. If a method file for that kind of task already exists, add what failed and what to do instead as a pitfall on the step it affects; otherwise write nothing. A list of attempts that did not work, filed as "the way to do it", is a method a later turn will trust and repeat.
+   - A one-off task — one that will not plausibly come up again in this session — gets no method, however well it went.
 
    ### Material (does not go into USER.md)
    - Anything from the last scan bullet: the detail itself, not a rule about it. Carry it to step 5 rather than compressing it into a USER.md line — compressing it is what loses it.
@@ -87,10 +105,29 @@ Before writing anything, ask one question: **will a future turn plausibly act be
    - **Name it after the topic**, kebab-case: `fridge-inventory.md`, `driving-test-checklist.md`. Never a date-shaped name like `2026-08-09.md` — that is `memory/`'s naming convention, and a date-named file at the session root collides with the cross-session recall globs.
    - **If a file on that topic already exists, update it — do not create a second one.** Your system prompt already catalogs this session's files; find the one that matches, `read_file` it, merge the new material in, and write it back. Two files on one subject means every future lookup finds half the answer.
    - **Write it to stand on its own.** A future turn opens this file cold, possibly months later, with none of today's conversation in context. Say what things are, not "the thing we discussed".
+   - **A method gets one file per kind of task**, named `how-to-<task>.md` (`how-to-renew-car-tax.md`), in this shape:
+
+     ```markdown
+     # How to <task>
+
+     Applies when: <the task, and the conditions under which this was shown to work — no broader than the evidence>.
+
+     ## Steps
+     1. <the step, with the exact command, query, site, path or setting that was used>
+        - Pitfall: <rule> — <why it bites>
+
+     ## Check it worked
+     - <what showed the result was right>
+
+     ## Evidence
+     - <YYYY-MM-DD>: <success|partial> — confirmed by <the user's words, or the tool output>
+     ```
+
+     Keep exact strings exact: a command, URL or query paraphrased is a step that no longer works. A pitfall is a rule with its reason, not the story of what happened. When a method turns out wrong, fix the sentence that misled in place rather than appending a correction under it, and add the new evidence line. The same lesson learned twice is one rule.
 
    One reflection can produce both kinds at once. When it does, split them: the rule stays as one line in USER.md, the material goes to the file. Do not move the rule out, and do not leave a second copy of the material behind in USER.md.
 
-   Writing the file is the whole job here — nothing else to update, nothing else to register.
+   For material, writing the file is the whole job — nothing else to update, nothing else to register. A **new** method file is the one exception: it is only useful once a later turn sees it in `file-track.md`, and the catalog rebuild cannot be relied on to notice a file this background turn wrote. So after creating one, `read_file` `{{SESSIONDIR}}/file-track.md` and add one line for it under `## Methods` (create the heading, or the file, if missing), in the shape the file-track skill uses: `` `how-to-<task>.md` — <what it covers>. Read before <the task>. `` Updating an existing method file needs no new line.
 
 6. **Update USER.md**:
    - New and changed entries go under `## Preferences`, `## Facts` or `## Pitfalls`. Create a heading the first time it is needed. Do not reorganize or rewrite existing lines just to fit this layout — leave them where they are, and only move a line when you are already changing it.
@@ -114,6 +151,7 @@ Before writing anything, ask one question: **will a future turn plausibly act be
 - If the conversation has no meaningful patterns to extract (e.g., a single trivial exchange), skip the USER.md write. Judge step 5 separately — a conversation can produce material worth filing and no new rule at all, and vice versa. Nothing for either → straight to `dispatch({})`.
 - Only record what passes the gate: a future turn acts better because of it. Skip trivial or obvious things like "user asked a question and I answered it."
 - Keep every preference as narrow as the evidence for it. When unsure whether it is durable, leave it out.
+- Never write a failed or unconfirmed attempt up as a method (step 4, `### Methods`).
 - Never overwrite USER.md from scratch. Always read first, then merge. Same for a topic file that already exists.
 - Each reflection should be incremental — add what is new, update what changed, leave the rest untouched.
 - USER.md holds rules, not material. It is injected in full on every turn of this session, so anything that belongs in a lookup rather than in your behavior belongs in its own file (step 5).
