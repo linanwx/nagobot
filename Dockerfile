@@ -87,8 +87,13 @@ RUN set -eux; \
 # unpinned upgrade would leave the image's browser unusable and silently pull a
 # new one at runtime, back into the throwaway layer. third-party-skill-setup
 # therefore tells the agent to USE what is here, not to install or upgrade it.
+#
+# NO_UPDATE_NOTIFIER silences the CLI's once-a-day "Update available … Run
+# `npm install -g @playwright/cli@latest`" banner. It lands in the exec output
+# the model reads, and following it is exactly the upgrade described above.
 ENV PLAYWRIGHT_CLI_VERSION=0.1.18 \
-    PLAYWRIGHT_BROWSERS_PATH=/usr/local/ms-playwright
+    PLAYWRIGHT_BROWSERS_PATH=/usr/local/ms-playwright \
+    NO_UPDATE_NOTIFIER=1
 RUN set -eux; \
     npm install -g "@playwright/cli@${PLAYWRIGHT_CLI_VERSION}"; \
     apt-get update; \
