@@ -1,13 +1,13 @@
 # Edit image (reference image(s) → image)
 
-Image-conditioned generation via gpt-image-2. Use when the user provides one or more reference images and asks to change something on them, combine them, or produce variations of a subject.
+Image-conditioned generation via GPT Image 2.6. Use when the user provides one or more reference images and asks to change something on them, combine them, or produce variations of a subject.
 
 ## Workflow
 
 1. Make sure each reference image is a real file on disk (PNG / JPEG / WebP). If the user attached an image to the chat, the path is already in conversation context — use it as-is, do not re-encode.
 2. Compose a prompt that:
    - References each input as `image 1`, `image 2`, … in the order you list them on the command line.
-   - States explicitly what should change AND what should be preserved (face, hair, body shape, pose, background, lighting). Without preservation hints, gpt-image-2 often replaces things you wanted to keep.
+   - States explicitly what should change AND what should be preserved (face, hair, body shape, pose, background, lighting). Without preservation hints, the model often replaces things you wanted to keep.
 3. Run:
 ```
 exec: {{WORKSPACE}}/bin/nagobot edit-image \
@@ -27,7 +27,7 @@ exec: {{WORKSPACE}}/bin/nagobot edit-image \
 
 For shared flags (`--provider`, `--model`, `--size`, `--quality`, `--format`, `--compression`, `--output`) see the parent `SKILL.md`.
 
-Each call returns exactly one image. For multiple variations (e.g. "5 different sunglasses"), describe them inside one prompt as a labeled grid — gpt-image-2 composes the whole set into a single image.
+Each call returns exactly one image. For multiple variations (e.g. "5 different sunglasses"), describe them inside one prompt as a labeled grid — the model composes the whole set into a single image.
 
 ## Examples
 
@@ -66,7 +66,7 @@ exec: {{WORKSPACE}}/bin/nagobot edit-image \
 command: edit-image
 status: ok
 provider: openai
-model: gpt-image-2
+model: gpt-image-2.6-flare
 images: "2"
 input_tokens: "460"
 output_tokens: "1372"

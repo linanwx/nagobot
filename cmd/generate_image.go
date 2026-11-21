@@ -18,6 +18,11 @@ import (
 )
 
 const (
+	// defaultImageModel is the speed tier of GPT Image 2.6. Measured
+	// 2026-11-21 against gpt-image-2 at medium 1024x1024: 5.3s vs 20.9s for
+	// the same prompt. The quality tier is gpt-image-2.6-sunburst.
+	defaultImageModel = "gpt-image-2.6-flare"
+
 	openaiImagesEndpointDefault = "https://api.openai.com/v1/images/generations"
 	openaiImagesAPIBaseDefault  = "https://api.openai.com"
 )
@@ -30,13 +35,14 @@ var (
 	genImageQuality     string
 	genImageFormat      string
 	genImageCompression int
+	genImageBackground  string
 	genImageN           int
 	genImageOutput      string
 )
 
 var generateImageCmd = &cobra.Command{
 	Use:     "generate-image --prompt <text> [flags]",
-	Short:   "Generate an image (gpt-image-2) and save it to disk",
+	Short:   "Generate an image (GPT Image) and save it to disk",
 	GroupID: "internal",
 	RunE:    runGenerateImage,
 }
@@ -44,11 +50,12 @@ var generateImageCmd = &cobra.Command{
 func init() {
 	generateImageCmd.Flags().StringVarP(&genImagePrompt, "prompt", "p", "", "Image prompt (required)")
 	generateImageCmd.Flags().StringVar(&genImageProvider, "provider", "openai", "openai (direct API)")
-	generateImageCmd.Flags().StringVar(&genImageModel, "model", "gpt-image-2", "Image model name as understood by the chosen provider")
+	generateImageCmd.Flags().StringVar(&genImageModel, "model", defaultImageModel, "Image model name as understood by the chosen provider")
 	generateImageCmd.Flags().StringVar(&genImageSize, "size", "auto", "auto | 1024x1024 | 1536x1024 | 1024x1536")
 	generateImageCmd.Flags().StringVar(&genImageQuality, "quality", "auto", "auto | low | medium | high")
-	generateImageCmd.Flags().StringVar(&genImageFormat, "format", "png", "png | jpeg (gpt-image-2 ignores webp and returns png)")
-	generateImageCmd.Flags().IntVar(&genImageCompression, "compression", -1, "Output compression 0-100 (jpeg only; -1 = omit)")
+	generateImageCmd.Flags().StringVar(&genImageFormat, "format", "png", "png | jpeg | webp")
+	generateImageCmd.Flags().IntVar(&genImageCompression, "compression", -1, "Output compression 0-100 (jpeg/webp only; -1 = omit)")
+	generateImageCmd.Flags().StringVar(&genImageBackground, "background", "auto", "auto | opaque | transparent (transparent needs png or webp)")
 	generateImageCmd.Flags().IntVarP(&genImageN, "n", "n", 1, "Number of images to generate (1-10)")
 	generateImageCmd.Flags().StringVarP(&genImageOutput, "output", "o", "", "Output file path. Default: {workspace}/media/img-{ts}.{ext}; with n>1 the index is appended.")
 	_ = generateImageCmd.MarkFlagRequired("prompt")
@@ -62,8 +69,9 @@ type imageGenParams struct {
 	N           int
 	Size        string // "" if auto
 	Quality     string // "" if auto
-	Format      string // "png" or "jpeg"
-	Compression int    // -1 if unset; only applies to jpeg
+	Format      string // "png", "jpeg" or "webp"
+	Compression int    // -1 if unset; only applies to jpeg/webp
+	Background  string // "" if auto
 }
 
 // imageGenResult is what each provider implementation returns. Bytes are raw
@@ -83,13 +91,13 @@ func runGenerateImage(_ *cobra.Command, _ []string) error {
 		return fmt.Errorf("--n must be between 1 and 10")
 	}
 
-	format := strings.ToLower(strings.TrimSpace(genImageFormat))
-	switch format {
-	case "png", "jpeg":
-	case "jpg":
-		format = "jpeg"
-	default:
-		return fmt.Errorf("--format must be png or jpeg (got %q)", genImageFormat)
+	format, err := normalizeImageFormat(genImageFormat)
+	if err != nil {
+		return err
+	}
+	background, err := normalizeImageBackground(genImageBackground, format)
+	if err != nil {
+		return err
 	}
 
 	cfg, err := config.Load()
@@ -103,6 +111,7 @@ func runGenerateImage(_ *cobra.Command, _ []string) error {
 		N:           genImageN,
 		Format:      format,
 		Compression: genImageCompression,
+		Background:  background,
 	}
 	if s := strings.TrimSpace(genImageSize); s != "" && s != "auto" {
 		params.Size = s
@@ -143,6 +152,9 @@ func runGenerateImage(_ *cobra.Command, _ []string) error {
 	if params.Quality != "" {
 		pairs = append(pairs, [2]string{"quality", params.Quality})
 	}
+	if params.Background != "" {
+		pairs = append(pairs, [2]string{"background", params.Background})
+	}
 	pairs = append(pairs, [2]string{"format", format})
 	for i, p := range outputs {
 		pairs = append(pairs, [2]string{fmt.Sprintf("path_%d", i), p})
@@ -155,7 +167,7 @@ func runGenerateImage(_ *cobra.Command, _ []string) error {
 // ============================================================================
 // Provider: openai (direct OpenAI API)
 //
-// Contract: gpt-image-2 always returns b64_json. response_format is rejected
+// Contract: GPT Image models always return b64_json. response_format is rejected
 // (HTTP 400 "Unknown parameter"). Honors output_format/output_compression.
 // ============================================================================
 
@@ -167,6 +179,7 @@ type openaiImgRequest struct {
 	Quality           string `json:"quality,omitempty"`
 	OutputFormat      string `json:"output_format,omitempty"`
 	OutputCompression *int   `json:"output_compression,omitempty"`
+	Background        string `json:"background,omitempty"`
 }
 
 type openaiImgResponse struct {
@@ -196,13 +209,11 @@ func generateViaOpenAI(cfg *config.Config, p imageGenParams) (imageGenResult, er
 		endpoint = base + "/v1/images/generations"
 	}
 
-	req := openaiImgRequest{Model: p.Model, Prompt: p.Prompt, N: p.N, Size: p.Size, Quality: p.Quality}
-	if p.Format == "jpeg" {
-		req.OutputFormat = "jpeg"
-	} else {
-		req.OutputFormat = "png"
+	req := openaiImgRequest{
+		Model: p.Model, Prompt: p.Prompt, N: p.N, Size: p.Size, Quality: p.Quality,
+		OutputFormat: p.Format, Background: p.Background,
 	}
-	if p.Format == "jpeg" && p.Compression >= 0 {
+	if p.Format != "png" && p.Compression >= 0 {
 		if p.Compression > 100 {
 			return imageGenResult{}, fmt.Errorf("--compression must be 0-100")
 		}
@@ -253,9 +264,41 @@ func generateViaOpenAI(cfg *config.Config, p imageGenParams) (imageGenResult, er
 // Shared helpers
 // ============================================================================
 
+// normalizeImageFormat maps --format onto the API's output_format. webp was
+// silently returned as png by gpt-image-2; the 2.6 models honor it.
+func normalizeImageFormat(raw string) (string, error) {
+	switch f := strings.ToLower(strings.TrimSpace(raw)); f {
+	case "png", "jpeg", "webp":
+		return f, nil
+	case "jpg":
+		return "jpeg", nil
+	default:
+		return "", fmt.Errorf("--format must be png, jpeg or webp (got %q)", raw)
+	}
+}
+
+// normalizeImageBackground returns "" for auto (the field is then omitted).
+// jpeg has no alpha channel, so transparent+jpeg is refused here rather than
+// left for the API to answer with an opaque image.
+func normalizeImageBackground(raw, format string) (string, error) {
+	switch b := strings.ToLower(strings.TrimSpace(raw)); b {
+	case "", "auto":
+		return "", nil
+	case "opaque":
+		return b, nil
+	case "transparent":
+		if format == "jpeg" {
+			return "", fmt.Errorf("--background transparent needs --format png or webp (jpeg has no alpha channel)")
+		}
+		return b, nil
+	default:
+		return "", fmt.Errorf("--background must be auto, opaque or transparent (got %q)", raw)
+	}
+}
+
 // doImagePOST marshals payload, posts to endpoint with bearer auth, returns
 // raw response bytes and HTTP status code. The 5-min timeout matches the
-// worst-case latency for high-quality non-square gpt-image-2 generations.
+// worst-case latency for high-quality non-square GPT Image generations.
 func doImagePOST(endpoint, apiKey string, payload any) ([]byte, int, error) {
 	body, err := json.Marshal(payload)
 	if err != nil {

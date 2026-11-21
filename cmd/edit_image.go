@@ -33,12 +33,13 @@ var (
 	editImageQuality     string
 	editImageFormat      string
 	editImageCompression int
+	editImageBackground  string
 	editImageOutput      string
 )
 
 var editImageCmd = &cobra.Command{
 	Use:     "edit-image --image <path> [--image <path>...] --prompt <text> [flags]",
-	Short:   "Edit / compose with reference images via gpt-image-2 and save the result",
+	Short:   "Edit / compose with reference images via GPT Image and save the result",
 	GroupID: "internal",
 	RunE:    runEditImage,
 }
@@ -48,11 +49,12 @@ func init() {
 	editImageCmd.Flags().StringVar(&editImageMask, "mask", "", "Optional PNG mask. Transparent regions are the editable area. Applies to the first --image.")
 	editImageCmd.Flags().StringVarP(&editImagePrompt, "prompt", "p", "", "Edit instruction (required). Refer to inputs as 'image 1', 'image 2', etc.")
 	editImageCmd.Flags().StringVar(&editImageProvider, "provider", "openai", "openai (direct API)")
-	editImageCmd.Flags().StringVar(&editImageModel, "model", "gpt-image-2", "Image model name as understood by the chosen provider")
+	editImageCmd.Flags().StringVar(&editImageModel, "model", defaultImageModel, "Image model name as understood by the chosen provider")
 	editImageCmd.Flags().StringVar(&editImageSize, "size", "auto", "auto | 1024x1024 | 1536x1024 | 1024x1536")
 	editImageCmd.Flags().StringVar(&editImageQuality, "quality", "auto", "auto | low | medium | high")
-	editImageCmd.Flags().StringVar(&editImageFormat, "format", "png", "png | jpeg")
-	editImageCmd.Flags().IntVar(&editImageCompression, "compression", -1, "Output compression 0-100 (jpeg only; -1 = omit)")
+	editImageCmd.Flags().StringVar(&editImageFormat, "format", "png", "png | jpeg | webp")
+	editImageCmd.Flags().IntVar(&editImageCompression, "compression", -1, "Output compression 0-100 (jpeg/webp only; -1 = omit)")
+	editImageCmd.Flags().StringVar(&editImageBackground, "background", "auto", "auto | opaque | transparent (transparent needs png or webp)")
 	editImageCmd.Flags().StringVarP(&editImageOutput, "output", "o", "", "Output file path. Default: {workspace}/media/edit-{ts}.{ext}")
 	_ = editImageCmd.MarkFlagRequired("image")
 	_ = editImageCmd.MarkFlagRequired("prompt")
@@ -67,8 +69,9 @@ type editParams struct {
 	Model       string
 	Size        string // "" if auto
 	Quality     string // "" if auto
-	Format      string // "png" or "jpeg"
+	Format      string // "png", "jpeg" or "webp"
 	Compression int    // -1 if unset
+	Background  string // "" if auto
 }
 
 // editResult mirrors imageGenResult but is local to the edit path.
@@ -97,13 +100,13 @@ func runEditImage(_ *cobra.Command, _ []string) error {
 		}
 	}
 
-	format := strings.ToLower(strings.TrimSpace(editImageFormat))
-	switch format {
-	case "png", "jpeg":
-	case "jpg":
-		format = "jpeg"
-	default:
-		return fmt.Errorf("--format must be png or jpeg (got %q)", editImageFormat)
+	format, err := normalizeImageFormat(editImageFormat)
+	if err != nil {
+		return err
+	}
+	background, err := normalizeImageBackground(editImageBackground, format)
+	if err != nil {
+		return err
 	}
 
 	cfg, err := config.Load()
@@ -118,6 +121,7 @@ func runEditImage(_ *cobra.Command, _ []string) error {
 		Model:       editImageModel,
 		Format:      format,
 		Compression: editImageCompression,
+		Background:  background,
 	}
 	if s := strings.TrimSpace(editImageSize); s != "" && s != "auto" {
 		p.Size = s
@@ -213,7 +217,10 @@ func editViaOpenAI(cfg *config.Config, p editParams) (editResult, error) {
 		textFields["quality"] = p.Quality
 	}
 	textFields["output_format"] = p.Format
-	if p.Format == "jpeg" && p.Compression >= 0 {
+	if p.Background != "" {
+		textFields["background"] = p.Background
+	}
+	if p.Format != "png" && p.Compression >= 0 {
 		if p.Compression > 100 {
 			return editResult{}, fmt.Errorf("--compression must be 0-100")
 		}

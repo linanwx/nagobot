@@ -1,6 +1,6 @@
 # Generate image (text → image)
 
-Pure text-to-image via gpt-image-2. Use when the user has NOT attached a reference image and wants a generated picture / illustration / photo / scene / character art.
+Pure text-to-image via GPT Image 2.6. Use when the user has NOT attached a reference image and wants a generated picture / illustration / photo / scene / character art.
 
 ## Workflow
 
@@ -35,7 +35,7 @@ Successful output:
 ---
 command: generate-image
 status: ok
-model: gpt-image-2
+model: gpt-image-2.6-flare
 count: "1"
 input_tokens: "18"
 output_tokens: "1372"
@@ -57,4 +57,4 @@ Then invoke `send-image` with `path_0` to deliver.
 
 ## Transparent background
 
-gpt-image-2 cannot produce transparent PNGs. If the user needs an alpha channel, pass `--model gpt-image-1` (lower fidelity but supports transparency).
+For a sticker, logo or cut-out, pass `--background transparent` (with `--format png` or `webp`). The output has a real alpha channel.

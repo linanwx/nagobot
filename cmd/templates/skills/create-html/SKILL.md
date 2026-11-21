@@ -1,6 +1,6 @@
 ---
 name: create-html
-description: Build a self-contained HTML file, upload it via `nagobot upload-html`, and share the returned URL — or revise a page already published in this conversation and republish it over the same URL. Two flavors — precise SVG diagrams/charts/visualizations, and long-form layout pages (articles, reports, infographics, dashboards, presentation slides, landing pages). Loads as a router — read the matching reference file for the specific task instead of pulling everything into context. Best for documents, code, presentations / PPT, and interactive or dynamic display; prefer it over `gpt-image-2` when the result is structured (diagrams / charts) or needs interaction or animation.
+description: Build a self-contained HTML file, upload it via `nagobot upload-html`, and share the returned URL — or revise a page already published in this conversation and republish it over the same URL. Two flavors — precise SVG diagrams/charts/visualizations, and long-form layout pages (articles, reports, infographics, dashboards, presentation slides, landing pages). Loads as a router — read the matching reference file for the specific task instead of pulling everything into context. Best for documents, code, presentations / PPT, and interactive or dynamic display; prefer it over the `image` skill when the result is structured (diagrams / charts) or needs interaction or animation.
 ---
 # Create HTML (image / singlepage)
 
@@ -53,6 +53,6 @@ Rules:
 
 ## When NOT to use this skill
 
-- **Photorealistic images / generated art** → use the `image` skill (text-to-image / image edit via gpt-image-2).
+- **Photorealistic images / generated art** → use the `image` skill (text-to-image / image edit via GPT Image 2.6).
 - **Sending a file the user already has** → use `send-image` or hand the path off directly.
 - **A quick text answer that doesn't need a hosted page** → just reply in chat.
