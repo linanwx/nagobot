@@ -8,21 +8,29 @@ import "github.com/linanwx/nagobot/prompts"
 // Wake action hints (the `action` field of a wake's frontmatter). All are one
 // line, because a multi-line action would render as a YAML block scalar.
 var (
-	// promptWakeUser is the action on every channel-user wake: how to talk with
-	// the person. It rides the newest message rather than the system prompt
-	// because that is where it measurably bites. Replaying a real kingsley turn
-	// on deepseek-flash, the same guidance as a system-prompt section barely
-	// moved the reply (~590 → ~520 chars, bold and lists kept); here it took
-	// replies to 217–323 chars with no bold, no lists, and an empathetic opener
-	// in 4 of 6. The cost is ~650 uncached tokens per user message, bounded
-	// because Tier-1 compression strips `action` from every older wake
-	// (wakeTrimKeys).
+	// promptWakeUser is the action on every channel-user wake: a short reminder
+	// of how to talk with the person. The full guidance lives in soul.md's
+	// "How You Talk" section; this keeps only the parts that measurably bite on
+	// the newest message (read the conversation, name a frustration first,
+	// don't restate, short spoken paragraphs with no bold or lists).
+	//
+	// Why both places: replaying a real kingsley turn on deepseek-flash, the
+	// guidance as a system-prompt section alone barely moved the reply (~590 →
+	// ~520 chars, bold and lists kept), while on the newest message it took
+	// replies to 217–323 chars with no bold and no lists. But every past wake
+	// keeps its action until idle Tier-1 compression strips it (wakeTrimKeys),
+	// which now waits 60 minutes, so a ~650-token action piled up across an
+	// active conversation. Re-measured after the split (4 real turns × 4 runs):
+	// section + ~85-token action matched the old full action — 0 bold, 0 list
+	// lines, similar length — while no action at all brought bold back.
 	//
 	// It is written as instructions, not as the books behind them: the same
 	// ideas phrased as a summary of Duhigg/Gottman/Voss/MI came back worse than
 	// baseline (numbered lists in the prompt reappeared as numbered lists in the
-	// reply). "You may agree" is load-bearing: forbidding confirmation outright
-	// pushed the model into contradicting the user's premise instead.
+	// reply). "You may agree" (in soul.md) is load-bearing: forbidding
+	// confirmation outright pushed the model into contradicting the user's
+	// premise instead. The action is self-contained because agents other than
+	// soul answer channel users too and do not see soul.md.
 	promptWakeUser            = prompts.Declare("wake/user", prompts.OneLine())
 	promptWakeSession         = prompts.Declare("wake/session", prompts.OneLine())
 	promptWakeCron            = prompts.Declare("wake/cron", prompts.OneLine())
