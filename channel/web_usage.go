@@ -88,9 +88,12 @@ func (w *WebChannel) handleSessionStats(rw http.ResponseWriter, key string) {
 			cfg = config.DefaultConfig()
 		}
 		window := provider.EffectiveContextWindow(cfg.GetProvider(), cfg.GetModelName(), cfg.GetContextWindowTokens())
+		tier2, tier3 := cfg.GetCompressionPercents()
 		usage = thread.ContextUsage{
 			ContextWindow: window,
 			TrimBudget:    thread.TrimBudget(window, cfg.Thread.MaxTokens),
+			Tier2Percent:  tier2,
+			Tier3Percent:  tier3,
 		}
 	}
 
@@ -111,7 +114,7 @@ func (w *WebChannel) handleSessionStats(rw http.ResponseWriter, key string) {
 		bySource[src] += tok
 	}
 
-	ct := thread.ComputeContextThresholds(usage.ContextWindow)
+	ct := thread.ComputeContextThresholds(usage.ContextWindow, usage.Tier2Percent, usage.Tier3Percent)
 	resp := sessionStatsResponse{
 		Key:                 key,
 		MessageCount:        len(messages),

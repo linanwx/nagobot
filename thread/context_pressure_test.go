@@ -14,16 +14,16 @@ func TestComputeContextThresholds(t *testing.T) {
 		wantWarn      int
 		wantTier2     int
 	}{
-		{"128K model", 128000, 44800, 64000},
-		{"200K model", 200000, 70000, 100000},
-		{"256K model", 256000, 89600, 128000},
-		{"1M model", 1000000, 350000, 500000},
-		{"small 32K model", 32000, 11200, 16000},
+		{"128K model", 128000, 38400, 64000},
+		{"200K model", 200000, 60000, 100000},
+		{"256K model", 256000, 76800, 128000},
+		{"1M model", 1000000, 300000, 500000},
+		{"small 32K model", 32000, 9600, 16000},
 		{"zero", 0, 0, 0},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			ct := ComputeContextThresholds(tt.contextWindow)
+			ct := ComputeContextThresholds(tt.contextWindow, 50, 70)
 			if ct.ContextWindow != tt.contextWindow {
 				t.Errorf("ContextWindow = %d, want %d", ct.ContextWindow, tt.contextWindow)
 			}
@@ -38,7 +38,7 @@ func TestComputeContextThresholds(t *testing.T) {
 }
 
 func TestPressureStatus(t *testing.T) {
-	ct := ComputeContextThresholds(200000) // WarnToken=70000, Tier2Token=100000
+	ct := ComputeContextThresholds(200000, 50, 70) // WarnToken=60000, Tier2Token=100000
 	tests := []struct {
 		name       string
 		usedTokens int
@@ -46,7 +46,7 @@ func TestPressureStatus(t *testing.T) {
 	}{
 		{"ok - plenty of room", 50000, "ok"},
 		{"warning - within tier2 zone", 115000, "warning"},
-		{"pressure - remaining below warnToken", 140000, "pressure"},
+		{"pressure - remaining below warnToken", 145000, "pressure"},
 		{"pressure - remaining exactly zero", 200000, "pressure"},
 	}
 	for _, tt := range tests {
@@ -128,17 +128,18 @@ func TestContextThresholds_TriggerPercents(t *testing.T) {
 		wantTier2Pct  float64
 		wantTier3Pct  float64
 	}{
-		// Reserves are pure percentages (50% / 35%), so the trigger percents
-		// are 50/65 at EVERY window size — scale invariance is the property
-		// that keeps Tier 2 < Tier 3 < trim from crossing on large windows.
-		{"200K model", 200000, 50.0, 65.0},
-		{"128K model", 128000, 50.0, 65.0},
-		{"1M model", 1000000, 50.0, 65.0},
+		// The thresholds are pure percentages, so the trigger percents are
+		// exactly the configured 50/70 at EVERY window size — scale invariance
+		// is the property that keeps Tier 2 < Tier 3 < trim from crossing on
+		// large windows.
+		{"200K model", 200000, 50.0, 70.0},
+		{"128K model", 128000, 50.0, 70.0},
+		{"1M model", 1000000, 50.0, 70.0},
 		{"zero window", 0, 0.0, 0.0},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			ct := ComputeContextThresholds(tt.contextWindow)
+			ct := ComputeContextThresholds(tt.contextWindow, 50, 70)
 			gotT2 := ct.Tier2TriggerPercent()
 			gotT3 := ct.Tier3TriggerPercent()
 			if gotT2 != tt.wantTier2Pct {

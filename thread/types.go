@@ -107,29 +107,30 @@ const (
 
 // ThreadConfig contains shared dependencies for creating threads.
 type ThreadConfig struct {
-	DefaultProvider     provider.Provider
-	ProviderName        string
-	ModelName           string
-	Tools               *tools.Registry
-	Skills              *skills.Registry
-	Agents              *agent.AgentRegistry
-	Workspace           string
-	SkillsDir           string
-	BuiltinSkillsDir    string
-	SessionsDir         string
-	ContextWindowTokens int
-	MaxCompletionTokens int
-	Sessions            *session.Manager
-	DefaultSinkFor      func(sessionKey string) SinkSet
-	DefaultAgentFor     func(sessionKey string) string // Session key → default agent name
-	HealthChannelsFn    func() *tools.HealthChannelsInfo
-	ProviderFactory     *provider.Factory                       // For per-agent model routing
-	Models              []config.ModelRule                      // Typed model-routing rules (startup snapshot)
-	ModelsFn            func() []config.ModelRule               // Hot-reload: returns latest model rules from config
-	DefaultModelFn      func() (providerName, modelName string) // Hot-reload: returns latest default provider/model from config
-	SessionTimezoneFor  func(sessionKey string) string          // Session key → IANA timezone
-	MetricsStore        *monitor.Store                          // Turn metrics storage (optional)
-	Sections            *agent.SectionRegistry                  // Shared section registry for prompt assembly
+	DefaultProvider       provider.Provider
+	ProviderName          string
+	ModelName             string
+	Tools                 *tools.Registry
+	Skills                *skills.Registry
+	Agents                *agent.AgentRegistry
+	Workspace             string
+	SkillsDir             string
+	BuiltinSkillsDir      string
+	SessionsDir           string
+	ContextWindowTokens   int
+	MaxCompletionTokens   int
+	Sessions              *session.Manager
+	DefaultSinkFor        func(sessionKey string) SinkSet
+	DefaultAgentFor       func(sessionKey string) string // Session key → default agent name
+	HealthChannelsFn      func() *tools.HealthChannelsInfo
+	ProviderFactory       *provider.Factory                       // For per-agent model routing
+	Models                []config.ModelRule                      // Typed model-routing rules (startup snapshot)
+	ModelsFn              func() []config.ModelRule               // Hot-reload: returns latest model rules from config
+	DefaultModelFn        func() (providerName, modelName string) // Hot-reload: returns latest default provider/model from config
+	CompressionPercentsFn func() (tier2, tier3 int)               // Hot-reload: Tier 2 / Tier 3 trigger percents from config
+	SessionTimezoneFor    func(sessionKey string) string          // Session key → IANA timezone
+	MetricsStore          *monitor.Store                          // Turn metrics storage (optional)
+	Sections              *agent.SectionRegistry                  // Shared section registry for prompt assembly
 }
 
 // Thread is a single execution unit with an agent, wake queue, and optional session.

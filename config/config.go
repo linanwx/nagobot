@@ -127,15 +127,25 @@ type SkillHubConfig struct {
 
 // ThreadConfig contains thread runtime defaults.
 type ThreadConfig struct {
-	Provider            string         `json:"provider" yaml:"provider"` // openrouter, deepseek, moonshot-cn, moonshot-global, xai
-	ModelType           string         `json:"modelType" yaml:"modelType"`
-	ModelName           string         `json:"modelName,omitempty" yaml:"modelName,omitempty"`                     // optional, defaults to modelType
-	Workspace           string         `json:"workspace,omitempty" yaml:"workspace,omitempty"`                     // defaults to ~/.nagobot/workspace
-	MaxTokens           int            `json:"maxTokens,omitempty" yaml:"maxTokens,omitempty"`                     // defaults to 16384
-	Temperature         float64        `json:"temperature,omitempty" yaml:"temperature,omitempty"`                 // defaults to 1.0
-	ContextWindowTokens int            `json:"contextWindowTokens,omitempty" yaml:"contextWindowTokens,omitempty"` // defaults to 300000
-	Models              []ModelRule    `json:"models,omitempty" yaml:"models,omitempty"`                           // typed model-routing rules (session/agent/specialty → provider/model)
-	Preview             *PreviewConfig `json:"preview,omitempty" yaml:"preview,omitempty"`                         // override preview provider/model
+	Provider            string             `json:"provider" yaml:"provider"` // openrouter, deepseek, moonshot-cn, moonshot-global, xai
+	ModelType           string             `json:"modelType" yaml:"modelType"`
+	ModelName           string             `json:"modelName,omitempty" yaml:"modelName,omitempty"`                     // optional, defaults to modelType
+	Workspace           string             `json:"workspace,omitempty" yaml:"workspace,omitempty"`                     // defaults to ~/.nagobot/workspace
+	MaxTokens           int                `json:"maxTokens,omitempty" yaml:"maxTokens,omitempty"`                     // defaults to 16384
+	Temperature         float64            `json:"temperature,omitempty" yaml:"temperature,omitempty"`                 // defaults to 1.0
+	ContextWindowTokens int                `json:"contextWindowTokens,omitempty" yaml:"contextWindowTokens,omitempty"` // defaults to 300000
+	Compression         *CompressionConfig `json:"compression,omitempty" yaml:"compression,omitempty"`                 // Tier 2 / Tier 3 trigger percents
+	Models              []ModelRule        `json:"models,omitempty" yaml:"models,omitempty"`                           // typed model-routing rules (session/agent/specialty → provider/model)
+	Preview             *PreviewConfig     `json:"preview,omitempty" yaml:"preview,omitempty"`                         // override preview provider/model
+}
+
+// CompressionConfig sets where the compression tiers fire, as a percent of the
+// effective context window. Zero means "use the default". Every cache miss
+// re-bills the whole history, so these are a cost dial: lower fires earlier and
+// keeps sessions shorter.
+type CompressionConfig struct {
+	Tier2Percent int `json:"tier2Percent,omitempty" yaml:"tier2Percent,omitempty"` // idle AI compression; defaults to 50
+	Tier3Percent int `json:"tier3Percent,omitempty" yaml:"tier3Percent,omitempty"` // turn-end compression; defaults to 70
 }
 
 // PreviewConfig overrides the default preview priority chain.

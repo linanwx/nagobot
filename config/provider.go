@@ -2,6 +2,7 @@ package config
 
 import (
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -92,6 +93,50 @@ func (c *Config) GetContextWindowTokens() int {
 		return 0
 	}
 	return c.Thread.ContextWindowTokens
+}
+
+const (
+	DefaultCompressTier2Percent = 50
+	DefaultCompressTier3Percent = 70
+	// maxCompressTier3Percent keeps Tier 3 below the context trim, which fires
+	// at min(92% of the window, window - maxTokens - 10K): compression must
+	// always get its chance before the trim halves the conversation.
+	maxCompressTier3Percent = 85
+)
+
+// GetCompressionPercents returns the Tier 2 and Tier 3 trigger percents, with
+// defaults filled in for unset values.
+func (c *Config) GetCompressionPercents() (tier2, tier3 int) {
+	tier2, tier3 = DefaultCompressTier2Percent, DefaultCompressTier3Percent
+	if c == nil || c.Thread.Compression == nil {
+		return tier2, tier3
+	}
+	if v := c.Thread.Compression.Tier2Percent; v != 0 {
+		tier2 = v
+	}
+	if v := c.Thread.Compression.Tier3Percent; v != 0 {
+		tier3 = v
+	}
+	return tier2, tier3
+}
+
+// validateCompression rejects percents that would break the order
+// Tier 2 < Tier 3 < trim. It checks the values after defaults are filled in,
+// so setting only one of the two is still checked against the other.
+func (c *Config) validateCompression() error {
+	if c.Thread.Compression != nil {
+		if c.Thread.Compression.Tier2Percent < 0 || c.Thread.Compression.Tier3Percent < 0 {
+			return fmt.Errorf("thread.compression: percents must not be negative")
+		}
+	}
+	tier2, tier3 := c.GetCompressionPercents()
+	if tier2 >= tier3 {
+		return fmt.Errorf("thread.compression: tier2Percent (%d) must be below tier3Percent (%d)", tier2, tier3)
+	}
+	if tier3 > maxCompressTier3Percent {
+		return fmt.Errorf("thread.compression: tier3Percent (%d) must be at most %d, below the context trim", tier3, maxCompressTier3Percent)
+	}
+	return nil
 }
 
 // GetWebAddr returns the configured web channel listen address.

@@ -23,7 +23,7 @@ const openAIAPIBase = "https://api.openai.com/v1"
 // gpt-6.1). OpenAI bills a request whose input exceeds 272K at long-context
 // rates (2x input / 1.5x output on gpt-5.6), for the *whole* request, not just
 // the excess. The context window is what drives compression and the context
-// budget trim (Tier 2 at 50%, Tier 3 at 65%, trim at min(92%,
+// budget trim (Tier 2 at 50%, Tier 3 at 70% by default, trim at min(92%,
 // window-maxTokens-10K)), so registering the true capacity would let requests
 // grow past 272K, with every request in that band silently billed at the
 // higher rate. 272000 caps the trim line at ~245K, making crossing the band

@@ -39,7 +39,7 @@ func newTestWebChannelWithSession(t *testing.T, sessionKey string) *WebChannel {
 	ch.workspace = workspace
 	ch.SetContextUsageFn(func(key string) (thread.ContextUsage, bool) {
 		if key == sessionKey {
-			return thread.ContextUsage{ContextWindow: 200000, TrimBudget: 174000}, true
+			return thread.ContextUsage{ContextWindow: 200000, TrimBudget: 174000, Tier2Percent: 50, Tier3Percent: 70}, true
 		}
 		return thread.ContextUsage{}, false
 	})
@@ -73,8 +73,8 @@ func TestHandleSessionStats_TierTriggerPercents(t *testing.T) {
 	if !ok {
 		t.Fatalf("tier3_trigger_percent missing or not a number: %v", resp["tier3_trigger_percent"])
 	}
-	if t3 != 65.0 {
-		t.Errorf("tier3_trigger_percent = %v, want 65", t3)
+	if t3 != 70.0 {
+		t.Errorf("tier3_trigger_percent = %v, want 70", t3)
 	}
 
 	if got := resp["context_window_tokens"].(float64); got != 200000 {

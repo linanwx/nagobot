@@ -117,7 +117,8 @@ func runSessionStats(_ *cobra.Command, args []string) error {
 
 	// Use the resolved model for context window, not the global default.
 	contextWindow := resolution.ResolvedCtxWindow
-	ct := thread.ComputeContextThresholds(contextWindow)
+	tier2, tier3 := cfg.GetCompressionPercents()
+	ct := thread.ComputeContextThresholds(contextWindow, tier2, tier3)
 	usageRatio := float64(compressedTokens) / float64(contextWindow)
 
 	status := thread.PressureStatus(compressedTokens, ct)

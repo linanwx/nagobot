@@ -71,7 +71,7 @@ func TestHandleSessionStats_UsedTokensIsTheTierRequestSize(t *testing.T) {
 func TestHandleSessionStats_PressureCountsTheSystemPrompt(t *testing.T) {
 	ch := newTestWebChannelWithSession(t, "web:pressure")
 	ch.SetContextUsageFn(func(string) (thread.ContextUsage, bool) {
-		return thread.ContextUsage{ContextWindow: 100000, TrimBudget: 73616, SystemPromptTokens: 55000}, true
+		return thread.ContextUsage{ContextWindow: 100000, TrimBudget: 73616, SystemPromptTokens: 55000, Tier2Percent: 50, Tier3Percent: 70}, true
 	})
 	rw := httptest.NewRecorder()
 	ch.handleSessionStats(rw, "web:pressure")

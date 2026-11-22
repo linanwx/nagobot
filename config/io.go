@@ -54,6 +54,10 @@ func Load() (*Config, error) {
 		return nil, err
 	}
 
+	if err := cfg.validateCompression(); err != nil {
+		return nil, err
+	}
+
 	migrated := cfg.migrateLegacyModelNames()
 	defaultsChanged := cfg.applyDefaults()
 	if migrated || defaultsChanged {

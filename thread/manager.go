@@ -347,7 +347,10 @@ func (m *Manager) ContextUsage(sessionKey string) (ContextUsage, bool) {
 	systemPromptTokens := t.lastSystemPromptTokens
 	t.mu.Unlock()
 	window := t.contextBudget().ContextWindow
+	tier2, tier3 := t.cfg().compressionPercents()
 	return ContextUsage{
+		Tier2Percent:       tier2,
+		Tier3Percent:       tier3,
 		ContextWindow:      window,
 		TrimBudget:         TrimBudget(window, t.cfg().MaxCompletionTokens),
 		SystemPromptTokens: systemPromptTokens,

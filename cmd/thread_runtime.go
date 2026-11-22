@@ -304,6 +304,16 @@ func buildThreadManager(cfg *config.Config, enableSessions bool) (*thread.Manage
 			}
 			return c.Thread.Provider, c.GetModelName()
 		},
+		CompressionPercentsFn: func() (int, int) {
+			c, err := config.Load()
+			if err != nil {
+				// An invalid thread.compression edit lands here too: keep the
+				// startup values, which passed validation, and say so.
+				logger.Error("config reload failed; compression thresholds keep their startup values", "err", err)
+				return cfg.GetCompressionPercents()
+			}
+			return c.GetCompressionPercents()
+		},
 		SessionTimezoneFor: cfg.SessionTimezone,
 		MetricsStore:       metricsStore,
 		Sections:           initSectionRegistry(workspace),

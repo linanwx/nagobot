@@ -48,7 +48,7 @@ func TestTryTier3Compress_EnqueuesWhenOverThreshold(t *testing.T) {
 
 func TestTryTier3Compress_SkipsWhenUnderThreshold(t *testing.T) {
 	key := "test:tier3-under"
-	// Large window → Tier 3 threshold 130000 tokens (65%); a tiny session stays well under.
+	// Large window → Tier 3 threshold 140000 tokens (70%, the default); a tiny session stays well under.
 	mgr, th, store := newTier3TestManager(t, key, 200000)
 
 	if err := store.Append(key, provider.UserMessage("just a short message")); err != nil {
@@ -68,7 +68,7 @@ func TestTryTier3Compress_SkipsWhenUnderThreshold(t *testing.T) {
 // trim line and the trim flips the request head on and off, missing the cache.
 func TestTryTier3Compress_CountsTheSystemPrompt(t *testing.T) {
 	key := "test:tier3-system-prompt"
-	// window 4000 → Tier 3 threshold = 2600 tokens (65%).
+	// window 4000 → Tier 3 threshold = 2800 tokens (70%, the default).
 	mgr, th, store := newTier3TestManager(t, key, 4000)
 	if err := store.Append(key, provider.UserMessage(strings.Repeat("alpha beta ", 100))); err != nil {
 		t.Fatalf("append: %v", err)
@@ -79,7 +79,7 @@ func TestTryTier3Compress_CountsTheSystemPrompt(t *testing.T) {
 		t.Fatal("messages alone are under the threshold; nothing should be enqueued yet")
 	}
 
-	th.lastSystemPromptTokens = 2600
+	th.lastSystemPromptTokens = 2800
 	mgr.tryTier3Compress(key)
 	if !th.hasMessages() {
 		t.Fatal("system prompt + messages exceed the threshold; a compression wake must be enqueued")
