@@ -1,7 +1,19 @@
-import { Check, Copy, RefreshCw } from "lucide-react";
-import { useCallback, useEffect, useState } from "react";
+import {
+  Check,
+  ChevronRight,
+  ChevronsDownUp,
+  ChevronsUpDown,
+  Copy,
+  RefreshCw,
+} from "lucide-react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { Button } from "@/components/ui/button";
+import {
+  Collapsible,
+  CollapsibleContent,
+  CollapsibleTrigger,
+} from "@/components/ui/collapsible";
 import {
   Dialog,
   DialogContent,
@@ -10,12 +22,19 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { fetchSystemPrompt, type SystemPromptInfo } from "@/lib/api";
+import { splitPromptSections } from "@/lib/prompt-sections";
 
 // Live system prompt inspector, restoring the pre-React dashboard's
 // "SYSTEM PROMPT (LIVE)" panel. Deliberately raw: the prompt is markdown, but
 // rendering it would hide exactly what this view exists to show — literal
-// section boundaries, stray whitespace, an unresolved {{PLACEHOLDER}}. Browser
-// find works over the <pre> because the whole text stays in the DOM.
+// section boundaries, stray whitespace, an unresolved {{PLACEHOLDER}}.
+//
+// It is split into collapsed sections (lib/prompt-sections.ts) because the
+// whole thing runs to 60K+ chars: one <pre> was a wall nobody could navigate,
+// least of all on a phone. Each section still shows its exact raw text.
+// Collapsed sections are not in the DOM, so browser find only searches what
+// is open; "Expand all" restores the old whole-text search, and Copy always
+// copies the complete prompt.
 //
 // The value is a *rebuild off current thread state*, not a recording of what
 // any past turn actually sent: {{DATE}}, USER.md, the skill list and the
@@ -87,6 +106,25 @@ export function SystemPromptDialog({
 
   const hasPrompt = info != null && info.available && info.prompt !== "";
 
+  const sections = useMemo(
+    () => (hasPrompt ? splitPromptSections(info.prompt) : []),
+    [hasPrompt, info],
+  );
+  // Open state is per section index; a refetch can change the section list,
+  // so it resets with the prompt rather than pointing at the wrong section.
+  const [openSet, setOpenSet] = useState<Set<number>>(new Set());
+  useEffect(() => setOpenSet(new Set()), [sections]);
+  const allOpen = sections.length > 0 && openSet.size === sections.length;
+  const toggleAll = () =>
+    setOpenSet(allOpen ? new Set() : new Set(sections.map((_, i) => i)));
+  const setSectionOpen = (i: number, o: boolean) =>
+    setOpenSet((prev) => {
+      const next = new Set(prev);
+      if (o) next.add(i);
+      else next.delete(i);
+      return next;
+    });
+
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="flex max-h-[85dvh] flex-col sm:max-w-3xl">
@@ -116,6 +154,21 @@ export function SystemPromptDialog({
             variant="ghost"
             className="h-7 shrink-0 px-2"
             disabled={!hasPrompt}
+            onClick={toggleAll}
+            aria-label={allOpen ? t("chat.collapseAll") : t("chat.expandAll")}
+            title={allOpen ? t("chat.collapseAll") : t("chat.expandAll")}
+          >
+            {allOpen ? (
+              <ChevronsDownUp className="size-3.5" />
+            ) : (
+              <ChevronsUpDown className="size-3.5" />
+            )}
+          </Button>
+          <Button
+            size="sm"
+            variant="ghost"
+            className="h-7 shrink-0 px-2"
+            disabled={!hasPrompt}
             onClick={copy}
           >
             {copied ? <Check className="size-3.5" /> : <Copy className="size-3.5" />}
@@ -135,10 +188,34 @@ export function SystemPromptDialog({
             {t("chat.systemPromptUnavailable")}
           </p>
         ) : (
-          <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain rounded-md border p-3">
-            <pre className="font-mono text-xs leading-relaxed break-words whitespace-pre-wrap">
-              {info.prompt}
-            </pre>
+          <div className="min-h-0 flex-1 divide-y overflow-y-auto overscroll-contain rounded-md border">
+            {sections.map((sec, i) => (
+              <Collapsible
+                key={i}
+                open={openSet.has(i)}
+                onOpenChange={(o) => setSectionOpen(i, o)}
+              >
+                <CollapsibleTrigger className="hover:bg-muted/50 group flex w-full items-center gap-2 px-3 py-2 text-left text-sm">
+                  <ChevronRight className="text-muted-foreground size-3.5 shrink-0 transition-transform group-data-[state=open]:rotate-90" />
+                  <span className="min-w-0 flex-1 truncate font-medium">
+                    {sec.title || "—"}
+                  </span>
+                  {sec.blockType && sec.blockType !== sec.title && (
+                    <span className="text-muted-foreground hidden shrink-0 font-mono text-[11px] sm:inline">
+                      {sec.blockType}
+                    </span>
+                  )}
+                  <span className="text-muted-foreground shrink-0 font-mono text-[11px] tabular-nums">
+                    {fmtTok(sec.text.length)}
+                  </span>
+                </CollapsibleTrigger>
+                <CollapsibleContent>
+                  <pre className="bg-muted/30 border-t px-3 py-2 font-mono text-xs leading-relaxed break-words whitespace-pre-wrap">
+                    {sec.text}
+                  </pre>
+                </CollapsibleContent>
+              </Collapsible>
+            ))}
           </div>
         )}
       </DialogContent>

@@ -93,6 +93,8 @@ export const zh = {
     systemPrompt: "系统提示词",
     systemPromptLive:
       "基于线程当前状态实时重建 —— 与历史某一轮实际发送的内容接近，但并非其录像。",
+    expandAll: "全部展开",
+    collapseAll: "全部收起",
     systemPromptUnavailable:
       "该会话没有加载中的线程，因而无从构建提示词。线程空闲 3 小时后会被回收 —— 发一条消息让它加载，然后点刷新。",
     backTo: "返回 {{key}}",

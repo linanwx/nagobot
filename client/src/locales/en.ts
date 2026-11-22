@@ -95,6 +95,8 @@ export const en = {
     systemPrompt: "System prompt",
     systemPromptLive:
       "Rebuilt now from live thread state — close to, but not a recording of, what any past turn sent.",
+    expandAll: "Expand all",
+    collapseAll: "Collapse all",
     systemPromptUnavailable:
       "No thread is loaded for this session, so there is no prompt to build. Threads are collected after 3h idle — send a message to load one, then refresh.",
     backTo: "Back to {{key}}",
