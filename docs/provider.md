@@ -60,7 +60,7 @@ providers:
 
 When using `moonshotai/kimi-k2.6`, provider routing to Moonshot is applied automatically.
 
-OpenCode Go (Haiku / Qwen / GLM / DeepSeek / Step):
+OpenCode Go (Haiku / Qwen / GLM / DeepSeek / Step / Hy4):
 
 ```yaml
 thread:
@@ -74,7 +74,8 @@ providers:
 ```
 
 Supported models: `claude-haiku-5-5`, `glm-5.3-flash`, `glm-5.3`,
-`deepseek-v4.1-flash`, `deepseek-v4-pro`, `qwen3.8-flash`, and `step-5-preview-free`.
+`deepseek-v4.1-flash`, `deepseek-v4-pro`, `qwen3.8-flash`, `step-5-preview-free`,
+and `hy4-flash-free`.
 Haiku supports `[low]`, `[medium]`, `[high]`, `[xhigh]`, and `[max]`, for example
 `claude-haiku-5-5[low]`. Its effort uses `output_config.effort` on the Go
 Messages endpoint, with its own `x-api-key` authentication. It uses adaptive
@@ -104,11 +105,17 @@ rewritten to the native StepFun model id. Reasoning is replayed through
 `reasoning_content`, and no native thinking extension or temperature is sent.
 The Go route's output limit is 65,536 tokens; larger configured limits are
 capped at that value. See the [Go model catalog](https://github.com/anomalyco/models.dev/blob/dev/providers/opencode-go/models/step-5-preview-free.toml).
+Hy4 flash Free (Tencent, free for a limited time) uses the same Chat Completions
+path with the exact `hy4-flash-free` id. It supports `[none]` and `[high]` through
+`reasoning_effort`, the two values Tencent TokenHub accepts; a bare model omits
+effort. No native thinking extension or temperature is sent. Its output is capped
+at the route's 65,536 tokens. See the [Go model catalog](https://github.com/anomalyco/models.dev/blob/dev/providers/opencode-go/models/hy4-flash-free.toml).
 
-All seven register a 1,000,000-token
-context window, still capped by `thread.contextWindowTokens`. Image input is
-enabled for `claude-haiku-5-5`, `qwen3.8-flash`, `glm-5.3-flash`,
-`deepseek-v4.1-flash`, and `step-5-preview-free`.
+Every model except Hy4 registers a 1,000,000-token context window. Hy4 registers
+983,040, its max input (the model's full context is 1,048,576 including output).
+All are still capped by `thread.contextWindowTokens`. Image input is enabled for
+`claude-haiku-5-5`, `qwen3.8-flash`, `glm-5.3-flash`, `deepseek-v4.1-flash`,
+`step-5-preview-free`, and `hy4-flash-free`.
 
 Configure with `nagobot set-provider-key --provider opencode-go --api-key YOUR_KEY`,
 then `nagobot set-model --default --provider opencode-go --model glm-5.3-flash`.
@@ -117,7 +124,7 @@ and endpoint. The dedicated `internal/opencodego` inference SDK owns the model
 catalog, request serialization, authentication, HTTP transport, SSE parser,
 tool continuation, reasoning replay and usage accounting. It has no dependency
 on other Provider implementations or on OpenAI/Anthropic SDKs. Haiku and Qwen use
-`/messages`; GLM, DeepSeek and Step use `/chat/completions`. Both use nagobot's own
+`/messages`; GLM, DeepSeek, Step and Hy4 use `/chat/completions`. Both use nagobot's own
 User-Agent and a stable, hashed `x-opencode-session` per conversation, including
 tool iterations and subsequent turns. Token/cache usage is recorded under
 `opencode-go`; subscription balance is unavailable through a public API.

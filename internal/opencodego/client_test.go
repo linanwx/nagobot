@@ -208,9 +208,10 @@ func TestStreamsRejectInvalidAndTruncatedData(t *testing.T) {
 			cases = append(cases, test)
 		}
 		if test.model == "glm-5.3" {
-			test.name = "step_" + test.name
-			test.model = "step-5-preview-free"
-			cases = append(cases, test)
+			step, hy4 := test, test
+			step.name, step.model = "step_"+test.name, "step-5-preview-free"
+			hy4.name, hy4.model = "hy4_"+test.name, "hy4-flash-free"
+			cases = append(cases, step, hy4)
 		}
 	}
 	for _, test := range cases {

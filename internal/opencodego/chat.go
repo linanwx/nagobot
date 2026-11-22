@@ -49,9 +49,8 @@ type chatToolFunction struct {
 func chatRequest(req Request) (chatWireRequest, error) {
 	result := chatWireRequest{Model: req.Model, Stream: true, MaxTokens: req.MaxTokens, Effort: req.Effort}
 	result.StreamOptions.IncludeUsage = true
-	if req.Model == "step-5-preview-free" && (result.MaxTokens <= 0 || result.MaxTokens > 65536) {
-		// The free Go route has a lower output limit than the base catalog model.
-		result.MaxTokens = 65536
+	if limit, ok := freeRouteOutputLimits[req.Model]; ok && (result.MaxTokens <= 0 || result.MaxTokens > limit) {
+		result.MaxTokens = limit
 	}
 	if strings.HasPrefix(req.Model, "glm-") {
 		temperature := 1.0

@@ -52,6 +52,16 @@ var catalog = []Model{
 	{"claude-haiku-5-5", 1000000, true, []string{"low", "medium", "high", "xhigh", "max"}},
 	{"qwen3.8-flash", 1000000, true, []string{"none", "low", "medium", "xhigh"}},
 	{"step-5-preview-free", 1000000, true, []string{"low", "medium", "high"}},
+	// Tencent Hy4 flash: 1,048,576 context but 983,040 max input, so the
+	// input limit is what the compression and trim budget may use.
+	{"hy4-flash-free", 983040, true, []string{"none", "high"}},
+}
+
+// freeRouteOutputLimits caps output on Go's free routes, which accept less
+// than their base catalog models.
+var freeRouteOutputLimits = map[string]int{
+	"step-5-preview-free": 65536,
+	"hy4-flash-free":      65536,
 }
 
 func Models() []Model {

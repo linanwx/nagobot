@@ -18,6 +18,7 @@ the provider package, other providers' implementations, or their SDKs.
 | GLM 5.3 / Flash | `/chat/completions` | Bearer | `reasoning_effort` |
 | DeepSeek V4.1 Flash / V4 Pro | `/chat/completions` | Bearer | `reasoning_effort` |
 | Step 5 Preview Free | `/chat/completions` | Bearer | `reasoning_effort` (`low`/`medium`/`high`) |
+| Hy4 flash Free | `/chat/completions` | Bearer | `reasoning_effort` (`none`/`high`) |
 
 Haiku uses adaptive thinking and signed block binding controls. Signed blocks
 with empty thinking text are retained; prefix mismatch controls allow stale
@@ -26,8 +27,8 @@ Qwen uses enabled/disabled thinking and unsigned reasoning, without Haiku's
 binding controls or beta header. It sends effort rather than a fixed thinking
 budget, leaving the configured output limit available to reasoning and text.
 The Chat Completions models do not receive the native `thinking` extension.
-Step preserves the free-route model id and caps output at that route's 65,536
-token limit. Its interleaved reasoning is replayed as `reasoning_content`.
+Step and Hy4 preserve their free-route model ids and cap output at those routes'
+65,536 token limit. Its interleaved reasoning is replayed as `reasoning_content`.
 
 Both protocols send `User-Agent: nagobot/1.0` and `x-opencode-session`. Callers
 supply the stable conversation identifier; a client-local fallback is used for

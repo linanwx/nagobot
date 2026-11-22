@@ -69,6 +69,7 @@ func TestOpenCodeGoToolLoop(t *testing.T) {
 		{"deepseek-v4.1-flash", "max"}, {"deepseek-v4-pro", "max"},
 		{"step-5-preview-free", ""}, {"step-5-preview-free", "low"},
 		{"step-5-preview-free", "medium"}, {"step-5-preview-free", "high"},
+		{"hy4-flash-free", ""}, {"hy4-flash-free", "none"}, {"hy4-flash-free", "high"},
 	} {
 		model, effort := test.model, test.effort
 		modelType := model
@@ -246,7 +247,7 @@ func TestOpenCodeGoSessionIsolation(t *testing.T) {
 }
 
 func TestOpenCodeGoModelCapabilities(t *testing.T) {
-	for _, model := range []string{"glm-5.3-flash", "glm-5.3", "deepseek-v4.1-flash", "deepseek-v4-pro", "claude-haiku-5-5", "qwen3.8-flash", "step-5-preview-free"} {
+	for _, model := range []string{"glm-5.3-flash", "glm-5.3", "deepseek-v4.1-flash", "deepseek-v4-pro", "claude-haiku-5-5", "qwen3.8-flash", "step-5-preview-free", "hy4-flash-free"} {
 		if err := ValidateProviderModelType("opencode-go", model); err != nil {
 			t.Error(err)
 		}
@@ -255,16 +256,20 @@ func TestOpenCodeGoModelCapabilities(t *testing.T) {
 		if err := ValidateProviderModelType("opencode-go", model); err != nil {
 			t.Error(err)
 		}
-		if ContextWindowForModel("opencode-go", model) != 1000000 {
+		base, _ := openCodeGoModelEffort(model)
+		wantWindow := 1000000
+		if base == "hy4-flash-free" {
+			wantWindow = 983040 // Hy4's max input, below its 1,048,576 context
+		}
+		if ContextWindowForModel("opencode-go", model) != wantWindow {
 			t.Errorf("incorrect context window for %s", model)
 		}
-		base, _ := openCodeGoModelEffort(model)
-		wantVision := base == "glm-5.3-flash" || base == "deepseek-v4.1-flash" || base == "claude-haiku-5-5" || base == "qwen3.8-flash" || base == "step-5-preview-free"
+		wantVision := base == "glm-5.3-flash" || base == "deepseek-v4.1-flash" || base == "claude-haiku-5-5" || base == "qwen3.8-flash" || base == "step-5-preview-free" || base == "hy4-flash-free"
 		if SupportsVision("opencode-go", model) != wantVision || SupportsAudio("opencode-go", model) || SupportsPDF("opencode-go", model) {
 			t.Errorf("incorrect media capabilities for %s", model)
 		}
 	}
-	for _, model := range []string{"minimax-m3", "gpt-6-luna", "deepseek-v4.1-flash[none]", "deepseek-v4-pro[low]", "qwen3.8-flash[high]", "qwen3.8-flash[max]", "step-5-preview-free[none]", "step-5-preview-free[max]", "step-5-preview"} {
+	for _, model := range []string{"minimax-m3", "gpt-6-luna", "deepseek-v4.1-flash[none]", "deepseek-v4-pro[low]", "qwen3.8-flash[high]", "qwen3.8-flash[max]", "step-5-preview-free[none]", "step-5-preview-free[max]", "step-5-preview", "hy4-flash-free[low]", "hy4-flash-free[max]", "hy4-flash", "hy4"} {
 		if ValidateProviderModelType("opencode-go", model) == nil {
 			t.Errorf("unsupported model %s was accepted", model)
 		}
