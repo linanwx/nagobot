@@ -90,16 +90,19 @@ const (
 	gcInterval             = 5 * time.Minute
 	streamFlushThreshold   = 600 // minimum unsent bytes before attempting a streamer split
 
-	// Tier 1: mechanical tool-result compression (idle ≥5 min, no token threshold)
-	tier1IdleMin = 5 * time.Minute
+	// Tier 1 (and the lossy slide_window tier): mechanical rewrites of already-sent
+	// history. They wait until the provider's prompt cache has gone cold: the
+	// openai-oauth cache only reuses the full prefix of an earlier request, so
+	// rewriting even the last few messages discards every cached prefix. Measured
+	// on kingsley, a prefix with no rewrite survived every 5-45 min gap and about
+	// half of 45-60 min ones, in line with OpenAI's documented retention of up to
+	// one hour.
+	tier1IdleMin = 60 * time.Minute
 
-	// During an active (non-idle) conversation the idle scan never fires, so
-	// Tier 1 is also forced at turn-end once this many user messages have
-	// accumulated since the last Tier 1 run.
-	forcedTier1UserMsgs = 5
-
-	// Tier 2: AI-driven silent compression (idle ≥30 min, remaining < Tier2Token)
-	tier2IdleMin = 30 * time.Minute
+	// Tier 2: AI-driven silent compression (remaining < Tier2Token). It replaces
+	// the history wholesale, so it waits for a cold cache too, and runs after
+	// Tier 1 in the same scan so it only fires if Tier 1 was not enough.
+	tier2IdleMin = tier1IdleMin
 )
 
 // ThreadConfig contains shared dependencies for creating threads.
@@ -167,9 +170,6 @@ type Thread struct {
 	lastCompressAttemptAt  time.Time    // Last time tier 2 compression was enqueued (prevents duplicate enqueue).
 	lastCompressedAt       time.Time    // Last time tier 2 compression completed successfully.
 	lastSystemPromptTokens int          // Estimated tokens of the last turn's system prompt; counted by Tier 2/3 so they size the request the trim sees.
-
-	lastTurnMsgCount   int // Number of wake messages merged into the just-run turn (set by tryMerge).
-	userMsgsSinceTier1 int // Count of user messages since the last Tier 1 run; forces Tier 1 at turn-end once it reaches forcedTier1UserMsgs.
 
 	memoryIndexCache   string    // Cached buildMemoryIndexSection result.
 	memoryIndexModTime time.Time // Directory modtime when cache was built.

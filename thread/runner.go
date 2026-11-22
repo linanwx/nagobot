@@ -671,8 +671,8 @@ func trimMessageGroups(messages []provider.Message, toolDefsTokens, budget int) 
 }
 
 // contextLoopBudget is the shared token budget for in-context trimming — the
-// LAST-RESORT line, which must sit above both compression tiers (Tier 2 at 70%,
-// Tier 3 at 85% of the window) so compression always gets the first chance:
+// LAST-RESORT line, which must sit above both compression tiers (Tier 2 at 50%,
+// Tier 3 at 65% of the window) so compression always gets the first chance:
 //
 //	min(92% of the window, window − maxCompletion − 10K)
 //

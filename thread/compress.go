@@ -46,8 +46,10 @@ func runeLen(s string) int {
 }
 
 // runCompressionScan scans idle threads and applies the appropriate compression tier:
-//   - Tier 1 (idle 5-30min): mechanical compression of tools and large assistant-only user messages
-//   - Tier 2 (idle ≥30min, >60% tokens): AI-driven silent compression via context-ops skill
+//   - Tier 1 and lossy (idle ≥60min): mechanical rewrites, only once the prompt
+//     cache is cold (see tier1IdleMin)
+//   - Tier 2 (same idle, >50% tokens after Tier 1): AI-driven silent compression
+//     via context-ops skill
 //
 // Idle is measured from lastActiveAt — the thread's own last turn (user OR
 // system) — not lastUserActiveAt. So the scan only fires once a session has
@@ -83,7 +85,7 @@ func (m *Manager) runCompressionScan() {
 	}
 
 	for _, c := range candidates {
-		// Tier 1 always runs first (mechanical, idempotent, cheap).
+		// Tier 1 runs first (mechanical, idempotent, cheap).
 		m.tryTier1Compress(c.key)
 		// Tier-lossy runs next for agents that opt into slide_window — hard-deletes
 		// old history to keep simple writing models off Tier 2/3. (stateless is
@@ -97,7 +99,7 @@ func (m *Manager) runCompressionScan() {
 }
 
 // tryTier1Compress performs mechanical compression on an idle session.
-// No token threshold — always runs when idle 5-30min.
+// No token threshold — runs once the session has been idle for tier1IdleMin.
 func (m *Manager) tryTier1Compress(sessionKey string) {
 	cfg := m.cfg
 	sess, err := cfg.Sessions.Reload(sessionKey)
@@ -108,14 +110,6 @@ func (m *Manager) tryTier1Compress(sessionKey string) {
 	if len(sess.Messages) == 0 {
 		return
 	}
-
-	// Tier 1 is executing for this session — reset the forced-Tier1 user-message
-	// counter (records the new "position"). Counts even when nothing changes.
-	m.mu.Lock()
-	if t, ok := m.threads[sessionKey]; ok {
-		t.userMsgsSinceTier1 = 0
-	}
-	m.mu.Unlock()
 
 	modified, newMessages := compressTier1(sess.Messages, compressKeepAssistants)
 	if !modified {
@@ -135,7 +129,7 @@ func (m *Manager) tryTier1Compress(sessionKey string) {
 }
 
 // tryTier2Compress wakes an idle session to run AI-driven compression once it
-// exceeds the Tier 2 token threshold. Scan-driven (idle ≥30 min).
+// exceeds the Tier 2 token threshold. Scan-driven (idle ≥ tier2IdleMin).
 func (m *Manager) tryTier2Compress(sessionKey string) { m.tryAICompress(sessionKey, false) }
 
 // tryTier3Compress wakes a session to run AI-driven compression once it exceeds
@@ -213,7 +207,7 @@ func (m *Manager) tryAICompress(sessionKey string, tier3 bool) {
 		"estimated_tokens": fmt.Sprintf("%d", tokens),
 		"context_window":   fmt.Sprintf("%d", effectiveWindow),
 		"usage_ratio":      fmt.Sprintf("%.2f", float64(tokens)/float64(effectiveWindow)),
-	}, `This is an automated background maintenance task. You MUST load and execute skill "context-ops" NOW. Use the session_file path provided above. Do NOT produce any user-facing output. Reply with COMPRESS_OK when done.`)
+	}, "") // the instructions are the wake's action (wake/compression.md), which Tier 1 strips from old turns
 
 	t.Enqueue(&WakeMessage{
 		Source:  WakeCompression,

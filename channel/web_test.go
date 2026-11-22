@@ -65,16 +65,16 @@ func TestHandleSessionStats_TierTriggerPercents(t *testing.T) {
 	if !ok {
 		t.Fatalf("tier2_trigger_percent missing or not a number: %v", resp["tier2_trigger_percent"])
 	}
-	if t2 != 70.0 {
-		t.Errorf("tier2_trigger_percent = %v, want 70", t2)
+	if t2 != 50.0 {
+		t.Errorf("tier2_trigger_percent = %v, want 50", t2)
 	}
 
 	t3, ok := resp["tier3_trigger_percent"].(float64)
 	if !ok {
 		t.Fatalf("tier3_trigger_percent missing or not a number: %v", resp["tier3_trigger_percent"])
 	}
-	if t3 != 85.0 {
-		t.Errorf("tier3_trigger_percent = %v, want 85", t3)
+	if t3 != 65.0 {
+		t.Errorf("tier3_trigger_percent = %v, want 65", t3)
 	}
 
 	if got := resp["context_window_tokens"].(float64); got != 200000 {

@@ -135,6 +135,14 @@ Before writing anything, ask one question: **will a future turn plausibly act be
    - Apply step 5's verification gate to any key third-party fact a new or changed rule depends on. Keep the verified factual detail and evidence in the topic file; USER.md keeps only the standing rule, optionally pointing to that file.
    - Merge new findings with existing content. Do NOT duplicate entries that already exist.
    - If an existing entry conflicts with a newer observation, update it to reflect the latest preference.
+   - **Retire expired entries on every pass**, not only when the file is long. USER.md is injected in full on every turn, so a line that no longer applies costs every turn and can steer it wrong. Read every existing line under `## Preferences`, `## Facts`, `## Pitfalls` and any older heading, and delete a line when one of these holds:
+     - **No longer true**: a fact the user has since changed or contradicted (a renewed document, a new address, a device replaced), or a state that has passed (where they are this week, what they are waiting on now).
+     - **Its situation is over**: a rule written for one task, trip, project, device or service that has finished or that the user no longer uses.
+     - **Superseded or duplicated**: a newer line covers the same subject. Keep the newer one, and fold in anything the older one adds.
+     - **Only an instance of a general rule**: the line is one incident of a rule another line already states ("search before answering facts", "read the label word for word"). Fold anything the incident adds into the general rule and delete the incident line.
+     A line is not expired just because it is old or has not been needed lately: a standing rule with nothing contradicting it stays. Decide from evidence — this conversation, another line in USER.md, or a document the user sent — never from a guess. When unsure, keep it. Name what you retired in this pass's Reflection Log line.
+   - **Compress lines that are no longer fresh, on every pass.** A line older than about a week keeps only its rule, its date and one short quote of the user's words — the shape in step 4. Drop the story: timestamps, the rounds of back-and-forth, what you said before being corrected, which file you later checked. The conversation itself is archived in `memory/`, so the story is not lost; in USER.md it is paid for on every turn and changes nothing a later turn does. Keep exact values the rule needs to be applied (an entity ID, a coordinate, a threshold).
+   - **Move material out on every pass**, not only when the file is long: parameters, specifications, timelines, lists and research findings in an existing line go to their topic file per step 5, leaving at most the one-line rule and a pointer to the file.
    - Maintain a `## Reflection Log` section at the bottom with a timestamp for each reflection pass (e.g., `- 2025-01-15: extracted language preference, recorded correction about X`).
    - Keep the `## Reflection Log` bounded: only when it exceeds 20 entries, merge or delete the oldest 10 (keeping the ~10 most recent). Do this in a batch when it crosses 20 — do NOT prune every pass.
    - **Keep every entry to one line.** An entry that is growing into a block is material that took the wrong destination — move it out per step 5 and leave behind at most the one-line rule.
@@ -153,6 +161,6 @@ Before writing anything, ask one question: **will a future turn plausibly act be
 - Keep every preference as narrow as the evidence for it. When unsure whether it is durable, leave it out.
 - Never write a failed or unconfirmed attempt up as a method (step 4, `### Methods`).
 - Never overwrite USER.md from scratch. Always read first, then merge. Same for a topic file that already exists.
-- Each reflection should be incremental — add what is new, update what changed, leave the rest untouched.
+- Each reflection should be incremental — add what is new, update what changed, retire what has expired (step 6), leave the rest untouched.
 - USER.md holds rules, not material. It is injected in full on every turn of this session, so anything that belongs in a lookup rather than in your behavior belongs in its own file (step 5).
 - Never promote an assistant's earlier claim or an old memory into a verified fact or a user preference. Key third-party facts require fresh tool evidence before writing to either USER.md or a topic file; personal facts require the user's own message or a document they sent (step 5).

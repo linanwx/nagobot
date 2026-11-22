@@ -46,26 +46,9 @@ func TestTryTier3Compress_EnqueuesWhenOverThreshold(t *testing.T) {
 	}
 }
 
-// A Tier 1 run resets the forced-Tier1 user-message counter (records the new
-// position), even when nothing actually gets compressed — "this run counts".
-func TestTryTier1Compress_ResetsUserMsgCounter(t *testing.T) {
-	key := "test:tier1-reset"
-	mgr, th, store := newTier3TestManager(t, key, 200000)
-	if err := store.Append(key, provider.UserMessage("some session content")); err != nil {
-		t.Fatalf("append: %v", err)
-	}
-	th.userMsgsSinceTier1 = forcedTier1UserMsgs // simulate 5 accumulated user messages
-
-	mgr.tryTier1Compress(key)
-
-	if th.userMsgsSinceTier1 != 0 {
-		t.Errorf("Tier 1 should reset the user-message counter to 0, got %d", th.userMsgsSinceTier1)
-	}
-}
-
 func TestTryTier3Compress_SkipsWhenUnderThreshold(t *testing.T) {
 	key := "test:tier3-under"
-	// Large window → Tier 3 threshold 170000 tokens (85%); a tiny session stays well under.
+	// Large window → Tier 3 threshold 130000 tokens (65%); a tiny session stays well under.
 	mgr, th, store := newTier3TestManager(t, key, 200000)
 
 	if err := store.Append(key, provider.UserMessage("just a short message")); err != nil {
@@ -85,8 +68,8 @@ func TestTryTier3Compress_SkipsWhenUnderThreshold(t *testing.T) {
 // trim line and the trim flips the request head on and off, missing the cache.
 func TestTryTier3Compress_CountsTheSystemPrompt(t *testing.T) {
 	key := "test:tier3-system-prompt"
-	// window 2000 → Tier 3 threshold = 1700 tokens.
-	mgr, th, store := newTier3TestManager(t, key, 2000)
+	// window 4000 → Tier 3 threshold = 2600 tokens (65%).
+	mgr, th, store := newTier3TestManager(t, key, 4000)
 	if err := store.Append(key, provider.UserMessage(strings.Repeat("alpha beta ", 100))); err != nil {
 		t.Fatalf("append: %v", err)
 	}
@@ -96,7 +79,7 @@ func TestTryTier3Compress_CountsTheSystemPrompt(t *testing.T) {
 		t.Fatal("messages alone are under the threshold; nothing should be enqueued yet")
 	}
 
-	th.lastSystemPromptTokens = 1700
+	th.lastSystemPromptTokens = 2600
 	mgr.tryTier3Compress(key)
 	if !th.hasMessages() {
 		t.Fatal("system prompt + messages exceed the threshold; a compression wake must be enqueued")

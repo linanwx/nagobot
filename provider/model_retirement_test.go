@@ -216,15 +216,15 @@ func TestLongContextPriceBreakStaysUnderPriceBreak(t *testing.T) {
 			longContextPriceBreak, priceBreak, priceBreak)
 	}
 
-	// Mirror thread.ComputeContextThresholds (Tier 2 fires at 70% of the
+	// Mirror thread.ComputeContextThresholds (Tier 2 fires at 50% of the
 	// window) and thread.contextLoopBudget, the last-resort trim line that is
 	// the actual hard bound on request size: min(92% of the window,
 	// window − maxTokens − 10K) with the 16,384 maxTokens default. Tier 2
 	// firing under the break is the soft guarantee; the trim line staying
 	// under it is the structural one — a "restore the real 372K capacity"
 	// edit would push the trim line to ~342K and reintroduce double billing
-	// even though Tier 2 (at 260K) would still look safe.
-	tier2At := longContextPriceBreak * 70 / 100
+	// even though Tier 2 (at 186K) would still look safe.
+	tier2At := longContextPriceBreak * 50 / 100
 	if tier2At >= priceBreak {
 		t.Fatalf("Tier 2 would not fire until %d tokens, at or past the %d price break", tier2At, priceBreak)
 	}

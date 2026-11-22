@@ -14,11 +14,11 @@ func TestComputeContextThresholds(t *testing.T) {
 		wantWarn      int
 		wantTier2     int
 	}{
-		{"128K model", 128000, 19200, 38400},
-		{"200K model", 200000, 30000, 60000},
-		{"256K model", 256000, 38400, 76800},
-		{"1M model", 1000000, 150000, 300000},
-		{"small 32K model", 32000, 4800, 9600},
+		{"128K model", 128000, 44800, 64000},
+		{"200K model", 200000, 70000, 100000},
+		{"256K model", 256000, 89600, 128000},
+		{"1M model", 1000000, 350000, 500000},
+		{"small 32K model", 32000, 11200, 16000},
 		{"zero", 0, 0, 0},
 	}
 	for _, tt := range tests {
@@ -38,15 +38,15 @@ func TestComputeContextThresholds(t *testing.T) {
 }
 
 func TestPressureStatus(t *testing.T) {
-	ct := ComputeContextThresholds(200000) // WarnToken=30000, Tier2Token=60000
+	ct := ComputeContextThresholds(200000) // WarnToken=70000, Tier2Token=100000
 	tests := []struct {
 		name       string
 		usedTokens int
 		want       string
 	}{
 		{"ok - plenty of room", 50000, "ok"},
-		{"warning - within tier2 zone", 145000, "warning"},
-		{"pressure - remaining below warnToken", 175000, "pressure"},
+		{"warning - within tier2 zone", 115000, "warning"},
+		{"pressure - remaining below warnToken", 140000, "pressure"},
 		{"pressure - remaining exactly zero", 200000, "pressure"},
 	}
 	for _, tt := range tests {
@@ -128,12 +128,12 @@ func TestContextThresholds_TriggerPercents(t *testing.T) {
 		wantTier2Pct  float64
 		wantTier3Pct  float64
 	}{
-		// Reserves are pure percentages (30% / 15%), so the trigger percents
-		// are 70/85 at EVERY window size — scale invariance is the property
+		// Reserves are pure percentages (50% / 35%), so the trigger percents
+		// are 50/65 at EVERY window size — scale invariance is the property
 		// that keeps Tier 2 < Tier 3 < trim from crossing on large windows.
-		{"200K model", 200000, 70.0, 85.0},
-		{"128K model", 128000, 70.0, 85.0},
-		{"1M model", 1000000, 70.0, 85.0},
+		{"200K model", 200000, 50.0, 65.0},
+		{"128K model", 128000, 50.0, 65.0},
+		{"1M model", 1000000, 50.0, 65.0},
 		{"zero window", 0, 0.0, 0.0},
 	}
 	for _, tt := range tests {

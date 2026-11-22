@@ -71,12 +71,12 @@ func TestHandleSessionStats_UsedTokensIsTheTierRequestSize(t *testing.T) {
 func TestHandleSessionStats_PressureCountsTheSystemPrompt(t *testing.T) {
 	ch := newTestWebChannelWithSession(t, "web:pressure")
 	ch.SetContextUsageFn(func(string) (thread.ContextUsage, bool) {
-		return thread.ContextUsage{ContextWindow: 100000, TrimBudget: 73616, SystemPromptTokens: 75000}, true
+		return thread.ContextUsage{ContextWindow: 100000, TrimBudget: 73616, SystemPromptTokens: 55000}, true
 	})
 	rw := httptest.NewRecorder()
 	ch.handleSessionStats(rw, "web:pressure")
 	if got := decodeStats(t, rw).PressureStatus; got != "warning" {
-		t.Fatalf("pressure_status = %q, want warning (75K prompt in a 100K window is past Tier 2 at 70%%)", got)
+		t.Fatalf("pressure_status = %q, want warning (55K prompt in a 100K window is past Tier 2 at 50%%)", got)
 	}
 }
 

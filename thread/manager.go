@@ -152,23 +152,14 @@ func (m *Manager) scheduleReady(ctx context.Context, sem chan struct{}) {
 				thread.lastActiveAt = now
 				if msg.IsUserVisibleSource(thread.lastWakeSource) {
 					thread.lastUserActiveAt = now
-					thread.userMsgsSinceTier1 += thread.lastTurnMsgCount
 				}
 				if thread.lastWakeSource == WakeCompression {
 					thread.lastCompressedAt = now
 				}
 				justEnded := thread.lastWakeSource
-				// Force Tier 1 once enough user messages have accumulated since the
-				// last run — keeps an active (never-idle) conversation compressed.
-				forceTier1 := justEnded != WakeCompression && thread.userMsgsSinceTier1 >= forcedTier1UserMsgs
 				thread.state = threadIdle
 				hasMore := thread.hasMessages()
 				m.mu.Unlock()
-
-				// Turn-end forced Tier 1 (active conversation, no idle window).
-				if forceTier1 {
-					m.tryTier1Compress(thread.sessionKey)
-				}
 
 				// Turn-end Tier 3: if this turn grew context past the Tier 3
 				// threshold, enqueue a separate background compression turn,

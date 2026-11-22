@@ -16,8 +16,8 @@ import (
 // trimming before compression ever had a chance). All-percentage keeps the
 // ordering Tier 2 < Tier 3 < trim at every window size ≥ ~176K.
 const (
-	tier3ReserveFraction = 0.15 // Tier 3 fires at 85% of the window
-	tier2ReserveFraction = 0.30 // Tier 2 fires at 70% of the window
+	tier3ReserveFraction = 0.35 // Tier 3 fires at 65% of the window
+	tier2ReserveFraction = 0.50 // Tier 2 fires at 50% of the window
 )
 
 // ContextThresholds holds computed context pressure thresholds.
@@ -240,4 +240,3 @@ func EstimateMessagesTokens(messages []provider.Message) int {
 	}
 	return total
 }
-
