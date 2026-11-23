@@ -704,6 +704,9 @@ func wakeActionHint(source WakeSource) string {
 		// context the reader lacks) rather than forbidding mentions of the
 		// schedule — the old "do not mention the schedule" line pushed replies
 		// toward bare answers ("有的，有打折") to a question nobody asked.
+		// That guidance lives in the wake-and-delivery section; the action
+		// only points at it, like progress and session, because an action
+		// stays on every past wake until idle Tier-1 compression strips it.
 		return promptWakeCron.Text()
 	case WakeCompression:
 		return promptWakeCompression.Text()

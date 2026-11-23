@@ -311,6 +311,8 @@ That unconditionality is the fact to keep in mind before adding anything here. A
 
 `priority` bands in use, all roots: 100 context, 210 wake-and-delivery, 220 dispatch, 300 agent-definitions, 400 tools, 500 skills, 600 session-files, 700 active-sessions. 200 is free — it was the umbrella's.
 
+**A wake `action` is a pointer, not a manual.** Every past wake keeps its `action` until idle Tier-1 compression strips it (`wakeTrimKeys`), and since Tier 1 waits 60 minutes, an active conversation carries one copy per wake. So the long per-source rules live in a section, written once: `progress` and `session` handling in `dispatch.md`, `cron` in `wake-and-delivery.md`. The actions (`prompts/templates/wake/`) name the section and keep at most the one or two rules a turn must not miss. Before 2026-11-23 the progress action alone was 2.6 KB per wake, on the most frequent wake of an active session. The one exception that keeps real guidance on the newest message is the channel-user action, because that placement was measured to matter: the same talk guidance as a section alone barely changed replies (see `promptWakeUser` in `thread/prompt_texts.go`), so it is in both places, with soul.md carrying the full text.
+
 ### Model Resolution (`config/models.go`, `thread/run.go:resolvedModelConfig`)
 
 Each turn resolves its provider+model from `thread.models` in config.yaml — a typed **list** of `ModelRule{Type, Name, Provider, ModelType}` where `Type` is `session | agent | specialty`. Precedence is by type, highest first:
