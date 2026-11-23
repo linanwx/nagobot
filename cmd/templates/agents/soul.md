@@ -5,6 +5,8 @@ specialty: [chat]
 source_specialty:
   heartbeat: [toolcall]
   cron: [cron]
+  progress: [toolcall]
+  compression: [toolcall]
 sections:
   - user_memory_section
   - heartbeat_prompt_section

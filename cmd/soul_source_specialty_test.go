@@ -15,6 +15,12 @@ import (
 // `cron` specialty lets a deployment send it to a cheaper model with one
 // rule. Without a `cron` rule the resolution cascades to `chat`, so
 // deployments that never configured one keep today's routing.
+//
+// progress and compression ride `toolcall` for the same reason heartbeat does:
+// neither speaks to the human directly, both re-read the whole conversation
+// (measured on kingsley the week to 2026-11-23: progress 36% and compression
+// 15% of the chat agent's subscription credits), so a deployment can put the
+// conversation on a stronger model without paying its rate for them.
 func TestSoulRoutesCronTurnsThroughCronSpecialty(t *testing.T) {
 	data, err := templateFS.ReadFile("templates/agents/soul.md")
 	if err != nil {
@@ -25,8 +31,10 @@ func TestSoulRoutesCronTurnsThroughCronSpecialty(t *testing.T) {
 		t.Fatal(err)
 	}
 	want := map[string][]string{
-		string(msg.WakeHeartbeat): {"toolcall"},
-		string(msg.WakeCron):      {"cron"},
+		string(msg.WakeHeartbeat):   {"toolcall"},
+		string(msg.WakeCron):        {"cron"},
+		string(msg.WakeProgress):    {"toolcall"},
+		string(msg.WakeCompression): {"toolcall"},
 	}
 	for src, specs := range want {
 		if got := []string(meta.SourceSpecialties[src]); !reflect.DeepEqual(got, specs) {
