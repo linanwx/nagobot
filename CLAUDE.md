@@ -292,7 +292,7 @@ Agents are markdown templates in `{workspace}/agents/{name}.md` with `{{PLACEHOL
 
 ### System-prompt sections (`agent/section.go`, `cmd/templates/system/sections/`)
 
-Sections are `.md` files with `name` / `priority` / optional `parent` frontmatter, sorted by `(priority, name)`; a section naming a `parent` renders one heading level deeper than it. **Stage 2 of `Build()` is unconditional**: whatever is in the directory goes into every agent's prompt. There is no per-agent gating, and `sections:` in agent frontmatter is a different thing entirely (Stage 4, runtime *vars* like `dream_section`).
+Sections are `.md` files with `name` / `priority` / optional `parent` frontmatter, sorted by `(priority, name)`; a section naming a `parent` renders one heading level deeper than it. **Stage 2 of `Build()` is unconditional**: whatever is in the directory goes into every agent's prompt. There is no per-agent gating, and `sections:` in agent frontmatter is a different thing entirely (Stage 4, runtime *vars* like `clarify_section`).
 
 **Nothing uses `parent` today — every section is a root.** It was used to hang seven sections under `how-nagobot-works`, and that nesting is what kept the file alive after its body was emptied: deleting a parent makes `loadSections` log `section has dangling parent` for each child and promote them all to roots. Dropping the `parent:` lines *with* the file removes both the warning and the umbrella, and **the render order is unchanged** because the priorities were already globally ordered. What that revealed is that the umbrella was never load-bearing: an H1 with no body grouped four injection points (`tools`, `skills`, `agent-definitions`, `active-sessions`) together with three pieces of guidance, which is not a distinction worth a heading.
 
@@ -668,6 +668,14 @@ Two structural changes, both taken from published memory and proactive-assistant
 - **A preference is exactly as broad as its evidence.** session-reflect writes each preference with its date, situation and the user's quote, treats "this time / this kind of question" as narrowing, and keeps an uncertain preference out of USER.md. The rule that broke here is spelled out in both skills: a request not to be ASKED something is not a request not to be WARNED. This matches a published failure mode (Liang et al., "The Memory Trap", arXiv 2611.07554), where a skip-confirmation request in low-stakes chores carried over to high-stakes tasks. Existing USER.md lines were deliberately not migrated; the new shape applies to lines as they are written or changed.
 
 The skill's step numbers shifted by two with this change (summary is now step 6, follow-ups 7a/7b, memory summaries 8, tracked files 9, file-track 10).
+
+### dream.md is not injected; only its question list is (`clarify.md`)
+
+`dream.md` used to ride in every soul turn through `dream_section`. It is a nightly diary — the day's recap, the bot's self-criticism, re-verified prices — at 6–8 KB per session on kingsley, and nearly everything a daytime turn should act on already lives somewhere better: commitments in USER.md, preferences via session-reflect, follow-ups in cron, history in `memory/`. The one part only it carried was `## To clarify`, the questions the dream wants put to the user, and that is a different kind of thing: small, read by daytime turns, carried forward night to night.
+
+So the list moved to its own file, `{sessionDir}/clarify.md`, overwritten each night by the dream (step 3) and injected by `clarify_section` (`buildClarifySection`); `dream.md` is now read-on-demand only. Size is enforced twice: the skill asks for at most 5 one-line questions, and the injection cuts at `clarifyMaxRunes` (1500) on a line boundary, adds the `headers/clarify-overlong` warning to the block header and logs a Warn — the overrun is visible to the model and the operator, never a silently missing tail. The dream reads last night's list from its own prompt (heartbeat turns run soul, so the block is there) to carry unanswered questions forward.
+
+The section key was renamed, not aliased: an agent file still listing `dream_section` simply gets nothing for it. kingsley's custom `coffee-scientist` / `music-scientist` list it and need `clarify_section` by hand.
 
 ### Architecture
 

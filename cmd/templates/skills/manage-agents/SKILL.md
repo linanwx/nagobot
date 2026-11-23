@@ -77,7 +77,7 @@ Common tags: `chat`, `art`, `audio`, `image`, `writing`, `toolcall`, `roleplay`,
 - `user_memory_section` — appends the session's `USER.md`
 - `heartbeat_prompt_section` — appends the session's `heartbeat.md`
 - `memory_index_section` — appends a listing of the session's `memory/`
-- `dream_section` — appends the session's `dream.md` (written by the dream skill)
+- `clarify_section` — appends the session's `clarify.md` (the dream skill's list of questions to ask the user)
 - `file_track_section` — appends the session's `file-track.md` (written by the file-track skill — a catalog of the session's work files and when to use each)
 
 Omit the field entirely if you don't need any of them.

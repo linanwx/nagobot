@@ -11,7 +11,7 @@ You keep working files in this session's workspace (`{{SESSIONDIR}}`). Over time
 **ONLY organize work files you (the agent) created** — reports, generated docs/HTML, exports, data files, drafts, scratch notes, downloaded media, etc.
 
 **NEVER move, archive, rename, or delete these system files/dirs** (the runtime owns them):
-- Files: `USER.md`, `session.jsonl`, `chat.jsonl`, `meta.json`, `dream.md`, `heartbeat.md`, `heartbeat_log.md`, `heartbeat_skip_log.md`, `file-track.md`
+- Files: `USER.md`, `session.jsonl`, `chat.jsonl`, `meta.json`, `dream.md`, `clarify.md`, `heartbeat.md`, `heartbeat_log.md`, `heartbeat_skip_log.md`, `file-track.md`
 - Dirs: `memory/`, `threads/`, `fork/`, `prethink/`, `history/`, `archive/`
 
 ## Workflow

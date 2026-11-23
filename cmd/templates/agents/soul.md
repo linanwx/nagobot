@@ -9,7 +9,7 @@ sections:
   - user_memory_section
   - heartbeat_prompt_section
   - memory_index_section
-  - dream_section
+  - clarify_section
   - file_track_section
 ---
 

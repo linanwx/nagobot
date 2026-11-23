@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"github.com/linanwx/nagobot/agent"
 	"github.com/linanwx/nagobot/config"
@@ -193,7 +194,7 @@ func (t *Thread) buildSystemPrompt() string {
 	activeAgent.Set(agent.SectionUserMemory, t.buildUserSection())
 	activeAgent.Set(agent.SectionHeartbeatPrompt, t.buildHeartbeatSection())
 	activeAgent.Set(agent.SectionMemoryIndex, t.buildMemoryIndexSection())
-	activeAgent.Set(agent.SectionDream, t.buildDreamSection())
+	activeAgent.Set(agent.SectionClarify, t.buildClarifySection())
 	activeAgent.Set(agent.SectionFileTrack, t.buildFileTrackSection())
 	prompt := activeAgent.Build()
 	if strings.TrimSpace(prompt) == "" {
@@ -661,17 +662,25 @@ func (t *Thread) buildHeartbeatSection() string {
 	return header + "\n\n" + body
 }
 
-// buildDreamSection resolves the per-session dream.md into a YAML-frontmattered section.
-// Returns "" when no dream.md exists, so sessions that have never dreamed add nothing
-// to the prompt. The dream skill overwrites dream.md each night; the soul agent
-// consumes it here to let the latest dream quietly inform conversations.
-func (t *Thread) buildDreamSection() string {
-	dir := t.sectionDir("dream.md")
+// clarifyMaxRunes caps the injected clarify.md. The list rides in every turn's
+// system prompt, so its size is a per-turn cost: the dream skill keeps it to at
+// most 5 questions, and this cap is the backstop when it does not.
+const clarifyMaxRunes = 1500
+
+// buildClarifySection resolves the per-session clarify.md, the dream's list of
+// questions to put to the user when the moment fits, into a YAML-frontmattered
+// section. Returns "" when the file is missing or empty. dream.md itself is NOT
+// injected: it is a nightly log, and this list is the only part of it a daytime
+// turn needs. An overlong file is cut at a line boundary, the header says so,
+// and a Warn names the file, so the overrun is visible to both the model and
+// the operator rather than silently dropped.
+func (t *Thread) buildClarifySection() string {
+	dir := t.sectionDir("clarify.md")
 	if dir == "" {
 		return ""
 	}
-	dreamPath := filepath.Join(dir, "dream.md")
-	data, err := os.ReadFile(dreamPath)
+	clarifyPath := filepath.Join(dir, "clarify.md")
+	data, err := os.ReadFile(clarifyPath)
 	if err != nil {
 		return ""
 	}
@@ -679,9 +688,30 @@ func (t *Thread) buildDreamSection() string {
 	if body == "" {
 		return ""
 	}
-	absPath, _ := filepath.Abs(dreamPath)
-	header := fmt.Sprintf("---\ntype: dream_reflection\nfile_path: %s\nprompt: %s\n---", absPath, promptHeaderDream.Text())
+	absPath, _ := filepath.Abs(clarifyPath)
+	prompt := promptHeaderClarify.Text()
+	if total := utf8.RuneCountInString(body); total > clarifyMaxRunes {
+		body = truncateAtLine(body, clarifyMaxRunes)
+		prompt += " " + promptHeaderClarifyOverlong.Text()
+		logger.Warn("clarify.md exceeds its injection cap; truncated", "path", absPath, "runes", total, "cap", clarifyMaxRunes)
+	}
+	header := fmt.Sprintf("---\ntype: to_clarify\nfile_path: %s\nprompt: %s\n---", absPath, prompt)
 	return header + "\n\n" + body
+}
+
+// truncateAtLine returns the longest prefix of s holding at most maxRunes
+// runes that ends at a line boundary. A single first line longer than the cap
+// is cut mid-line, since returning nothing would hide the whole list.
+func truncateAtLine(s string, maxRunes int) string {
+	runes := []rune(s)
+	if len(runes) <= maxRunes {
+		return s
+	}
+	cut := string(runes[:maxRunes])
+	if i := strings.LastIndex(cut, "\n"); i > 0 {
+		return strings.TrimRight(cut[:i], " \t\n")
+	}
+	return cut
 }
 
 // buildFileTrackSection resolves the per-session file-track.md into a

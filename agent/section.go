@@ -17,7 +17,7 @@ const (
 	SectionUserMemory      = "user_memory_section"
 	SectionHeartbeatPrompt = "heartbeat_prompt_section"
 	SectionMemoryIndex     = "memory_index_section"
-	SectionDream           = "dream_section"
+	SectionClarify         = "clarify_section"
 	SectionFileTrack       = "file_track_section"
 )
 

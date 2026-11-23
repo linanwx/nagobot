@@ -1,12 +1,12 @@
 ---
 name: dream
-description: Nighttime dreaming. Reviews the past 24 hours of this session's conversation, reflects on what matters, overwrites dream.md (a volatile nightly log) with the result, keeps the Open commitments section of USER.md current and checks those commitments for conflicts and missing prerequisites, refreshes the session summary if it has gone stale, summarizes this session's unsummarized memory files, and schedules follow-up wakes — a next-day check-in when one is clearly warranted, plus a wake at any distance for anything the day left open whose natural moment to come back is later than tomorrow. Triggered by the heartbeat scheduler at night (should_dream=true) — never call directly.
+description: Nighttime dreaming. Reviews the past 24 hours of this session's conversation, reflects on what matters, overwrites dream.md (a volatile nightly log) with the result, rewrites clarify.md (the short list of questions to ask the user), keeps the Open commitments section of USER.md current and checks those commitments for conflicts and missing prerequisites, refreshes the session summary if it has gone stale, summarizes this session's unsummarized memory files, and schedules follow-up wakes — a next-day check-in when one is clearly warranted, plus a wake at any distance for anything the day left open whose natural moment to come back is later than tomorrow. Triggered by the heartbeat scheduler at night (should_dream=true) — never call directly.
 ---
 # Dream
 
 The heartbeat scheduler decided this session should dream. It is night and the user has been quiet for a while. Look back over the past 24 hours of conversation, reflect on what happened, organize what matters, and write a fresh dream into `dream.md`.
 
-**`dream.md` is volatile.** It is tonight's log and tomorrow night's dream replaces it, so nothing that has to outlive tonight may live only there. What the user is committed to — an appointment, an exam, a trip, a deadline, a document handed in, something being waited on — lives in the `## Open commitments` section of USER.md (step 4). What must happen at a later moment lives in a cron wake (step 7).
+**`dream.md` is volatile, and it is NOT in any turn's prompt.** It is tonight's log, tomorrow night's dream replaces it, and no daytime turn sees it, so nothing that has to outlive tonight or reach a daytime turn may live only there. What the user is committed to — an appointment, an exam, a trip, a deadline, a document handed in, something being waited on — lives in the `## Open commitments` section of USER.md (step 4). What must happen at a later moment lives in a cron wake (step 7).
 
 This is a BACKGROUND task. You will NOT message the user.
 
@@ -20,7 +20,7 @@ This is a BACKGROUND task. You will NOT message the user.
    - **Commitments**: anything the user booked, scheduled, submitted, handed over or is waiting on today, and any outcome of an existing open commitment ("考完了", "the passport came back", "the viewing is cancelled"). Step 4 records them.
    - **Conversation insights**: what the user actually wanted underneath the literal request; recurring patterns; corrections; how to serve them better next time.
    - **Connections**: links between today and what you already know about this user — ongoing projects, preferences, prior decisions.
-   - **What you did not understand**: be honest about the gaps. Where did you guess instead of knowing: a term, a name, a reference to something you had no context for, an ambiguous request you resolved one way without asking, a preference you assumed, an answer the user seemed unhappy with but never said why? For each one, write the question you should ask the user to clear it up. Step 3 files these.
+   - **What you did not understand**: be honest about the gaps. Where did you guess instead of knowing: a term, a name, a reference to something you had no context for, an ambiguous request you resolved one way without asking, a preference you assumed, an answer the user seemed unhappy with but never said why? For each one, write the question you should ask the user to clear it up. Step 3 files these in `clarify.md`.
    - **Tracked files the day made stale**: `file-track.md` is in your system prompt and catalogs this session's work files, saying what each one holds. Did anything said today change what one of them should *contain*? Name any such file here. Step 9 acts on it, and naming it in the dream is the record of an edit made while nobody was watching.
 
 3. **Verify key third-party facts, then overwrite `dream.md`.** Before writing, identify external claims that affect advice, decisions, timing, or follow-ups — for example a business's location, shipping origin, delivery time, price, or policy.
@@ -34,8 +34,14 @@ This is a BACKGROUND task. You will NOT message the user.
    - **You MUST overwrite the entire file.** Replace the previous `dream.md` completely — do NOT append to or merge with the old dream. Each night's dream fully replaces the last one.
    - Write in the language the user predominantly uses in conversation.
    - Keep it focused — one coherent reflection, not a transcript. Aim for something that will genuinely help future-you understand and serve this user.
-   - **End it with a `## To clarify` section**: the questions from step 2's "What you did not understand", each written as the actual question to put to the user plus one line on why it matters. `dream.md` is injected into every turn of this session, so this list is how a daytime turn knows what to ask. Carry forward any question in the previous dream's `## To clarify` that the conversation since has not answered, and drop the ones it has. At most 5, most consequential first. No gaps → leave the section out rather than inventing questions.
-   - The section is for asking **when the moment fits**: next time the user raises that topic, or while they are around and the question is quick. It is not a reason to message them, so never schedule a wake in step 7 just to ask one of these.
+   - Write the reflection only; the questions from step 2 go in `clarify.md` below, not here.
+
+   Then use `write_file` to overwrite `{{SESSIONDIR}}/clarify.md`: the questions to put to the user. It is injected into every turn of this session (the `to_clarify` block of your system prompt), so this list is how a daytime turn knows what to ask, and that is also why it must stay small.
+   - The current list is in your system prompt. Carry forward each question the conversation since has not answered, drop the ones it has, and add tonight's gaps from step 2.
+   - **At most 5 questions, most consequential first**, each as one bullet: the actual question to put to the user, then ` — ` and one short clause on why it matters. No headings, no preamble, no dates or sources. Write in the user's language.
+   - The injected copy is cut at about 1500 characters and flagged as overlong, so a longer list loses its tail. Shorten wording before you drop a question.
+   - No open questions → overwrite it with an empty file rather than inventing questions or leaving stale ones.
+   - The list is for asking **when the moment fits**: next time the user raises that topic, or while they are around and the question is quick. It is not a reason to message them, so never schedule a wake in step 7 just to ask one of these.
 
 4. **Keep `## Open commitments` in USER.md current.** This section is how every turn of this session, day or night, knows what the user is committed to. It survives the nightly overwrite of `dream.md`, which is why it lives in USER.md. The dream owns this section; session-reflect never edits it.
 
@@ -208,10 +214,10 @@ This is a BACKGROUND task. You will NOT message the user.
 ## Rules
 
 - BACKGROUND task — NEVER send messages to the user.
-- ALWAYS overwrite `dream.md` completely; never append to the previous dream. It is a volatile log: anything that must outlive tonight goes into `## Open commitments` (step 4) or a cron wake (step 7).
+- ALWAYS overwrite `dream.md` completely; never append to the previous dream. It is a volatile log that no other turn reads: anything that must outlive tonight goes into `## Open commitments` (step 4), `clarify.md` (step 3) or a cron wake (step 7).
 - Step 4 is the only place a dream writes USER.md, and it touches only the `## Open commitments` section.
 - Never promote an assistant's earlier claim or an old memory into a verified fact. Key third-party facts require fresh tool evidence before persistence, including facts embedded in follow-up plans.
 - If the past 24 hours hold nothing meaningful (e.g. no real conversation), skip the dream write — and the summary in step 6 is almost certainly still accurate, so skip that too. Still do the memory files (step 8), and still run steps 4, 5 and 7 against the open commitments: the eve of an exam can fall on a night after a quiet day, and that is when the check matters. Apply the gates in steps 7 and 10: no particular follow-up → skip step 7; confidently no independent file work and no known organization issue → step 10 may be skipped; uncertainty → continue the relevant checks. Step 9 is derived entirely from what was said, so a night with nothing said has nothing for it to do. Then `dispatch({})`.
 - When step 7b is unsure, it SCHEDULES. A wake that decides not to speak ends in `dispatch({})` and costs nothing anyone sees; a follow-up never scheduled is gone, because tomorrow night this conversation is already outside the window step 1 reviews.
-- Step 9 is the only place a dream writes to the user's own work files. Everything else it touches (`dream.md`, the session summary, memory frontmatter, `file-track.md`) belongs to the runtime. Keep that edit narrow and stated-in-conversation, or leave the file alone.
+- Step 9 is the only place a dream writes to the user's own work files. Everything else it touches (`dream.md`, `clarify.md`, the session summary, memory frontmatter, `file-track.md`) belongs to the runtime. Keep that edit narrow and stated-in-conversation, or leave the file alone.
 - MUST terminate with `dispatch({})` — silent termination.
