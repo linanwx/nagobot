@@ -32,6 +32,8 @@ func TestParseModelEffort(t *testing.T) {
 // validation and then fail every turn.
 func TestSubscriptionModelCatalog(t *testing.T) {
 	want := map[string][]string{
+		"gpt-6.2-sol":   effortsToUltra,
+		"gpt-6.2-astra": effortsToUltra,
 		"gpt-6.1-sol":   effortsToUltra,
 		"gpt-6.1-terra": effortsToUltra,
 		"gpt-6-sol":     effortsToUltra,

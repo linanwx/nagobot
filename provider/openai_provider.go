@@ -86,6 +86,8 @@ func registerOpenAIModels(name string, models []openAIModel, reg ProviderRegistr
 // lists it (visibility "list", supported_in_api). Every one takes text and
 // image input.
 var gpt6Models = []openAIModel{
+	{"gpt-6.2-sol", effortsToUltra, longContextPriceBreak},
+	{"gpt-6.2-astra", effortsToUltra, longContextPriceBreak},
 	{"gpt-6.1-sol", effortsToUltra, longContextPriceBreak},
 	{"gpt-6.1-terra", effortsToUltra, longContextPriceBreak},
 	{"gpt-6-sol", effortsToUltra, longContextPriceBreak},
