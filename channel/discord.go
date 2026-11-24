@@ -566,48 +566,22 @@ func (d *DiscordChannel) handleMessageCreate(s *discordgo.Session, m *discordgo.
 		metadata[k] = v
 	}
 
-	// Handle attachments.
-	if len(m.Attachments) > 0 {
-		var summaries []string
-		for _, att := range m.Attachments {
-			mediaType := "file"
-			if strings.HasPrefix(att.ContentType, "image/") {
-				mediaType = "image"
-			} else if strings.HasPrefix(att.ContentType, "video/") {
-				mediaType = "video"
-			} else if strings.HasPrefix(att.ContentType, "audio/") {
-				mediaType = "audio"
-			}
-			// Download images, audio, and PDFs to local media directory so LLM can read them directly.
-			if att.ContentType == "application/pdf" {
-				mediaType = "document"
-			}
-			if mediaType == "image" || mediaType == "audio" || mediaType == "document" {
-				if localPath := downloadMedia(d.mediaDir, att.URL); localPath != "" {
-					pathKey := "image_path"
-					if mediaType == "audio" {
-						pathKey = "audio_path"
-					} else if mediaType == "document" {
-						pathKey = "document_path"
-					}
-					summaries = append(summaries, MediaSummary(mediaType,
-						"file_name", att.Filename,
-						pathKey, localPath,
-						"content_type", att.ContentType,
-					))
-					continue
-				}
-			}
-			summaries = append(summaries, MediaSummary(mediaType,
-				"file_name", att.Filename,
-				"file_url", att.URL,
-				"content_type", att.ContentType,
-			))
-		}
+	// Handle attachments. A quoted message's attachments join this turn's
+	// media too: the person is pointing at them, and the quote text alone
+	// carries no trace of an image (Content is empty for an image-only post).
+	summaries := d.attachmentSummaries(m.Attachments, "")
+	if len(m.Attachments) > 0 && text == "" {
+		text = fmt.Sprintf("[%d attachment(s) received]", len(m.Attachments))
+	}
+	var quoted *discordgo.Message
+	if m.MessageReference != nil {
+		quoted = m.ReferencedMessage
+	}
+	if quoted != nil && len(quoted.Attachments) > 0 {
+		summaries = append(summaries, d.attachmentSummaries(quoted.Attachments, "quoted message")...)
+	}
+	if len(summaries) > 0 {
 		metadata["media_summary"] = strings.Join(summaries, "\n\n")
-		if text == "" {
-			text = fmt.Sprintf("[%d attachment(s) received]", len(m.Attachments))
-		}
 	}
 
 	if text == "" {
@@ -634,15 +608,8 @@ func (d *DiscordChannel) handleMessageCreate(s *discordgo.Session, m *discordgo.
 
 	if m.MessageReference != nil {
 		msg.ReplyTo = m.MessageReference.MessageID
-		if ref := m.ReferencedMessage; ref != nil && ref.Content != "" {
-			author := "unknown"
-			if ref.Author != nil {
-				author = ref.Author.GlobalName
-				if author == "" {
-					author = ref.Author.Username
-				}
-			}
-			metadata["reply_context"] = "[Reply to " + author + "]: " + ref.Content
+		if rc := discordReplyContext(quoted); rc != "" {
+			metadata["reply_context"] = rc
 		}
 	}
 
@@ -737,4 +704,98 @@ func buildThreadContext(thread, parent *discordgo.Channel) map[string]string {
 		out["applied_tags"] = strings.Join(names, ", ")
 	}
 	return out
+}
+
+// attachmentSummaries turns Discord attachments into media_summary entries.
+// Images, audio and PDFs are downloaded so the model can read them directly;
+// anything else (or a failed download) is described by URL. from, when set,
+// marks where the attachment came from (e.g. a quoted message).
+func (d *DiscordChannel) attachmentSummaries(atts []*discordgo.MessageAttachment, from string) []string {
+	var summaries []string
+	for _, att := range atts {
+		if att == nil {
+			continue
+		}
+		mediaType := "file"
+		switch {
+		case att.ContentType == "application/pdf":
+			mediaType = "document"
+		case strings.HasPrefix(att.ContentType, "image/"):
+			mediaType = "image"
+		case strings.HasPrefix(att.ContentType, "video/"):
+			mediaType = "video"
+		case strings.HasPrefix(att.ContentType, "audio/"):
+			mediaType = "audio"
+		}
+		if mediaType == "image" || mediaType == "audio" || mediaType == "document" {
+			if localPath := downloadMedia(d.mediaDir, att.URL); localPath != "" {
+				pathKey := "image_path"
+				if mediaType == "audio" {
+					pathKey = "audio_path"
+				} else if mediaType == "document" {
+					pathKey = "document_path"
+				}
+				summaries = append(summaries, MediaSummary(mediaType,
+					"from", from,
+					"file_name", att.Filename,
+					pathKey, localPath,
+					"content_type", att.ContentType,
+				))
+				continue
+			}
+		}
+		summaries = append(summaries, MediaSummary(mediaType,
+			"from", from,
+			"file_name", att.Filename,
+			"file_url", att.URL,
+			"content_type", att.ContentType,
+		))
+	}
+	return summaries
+}
+
+// discordReplyContext describes the message being replied to. An attachment-
+// only message still yields a context line naming its files, so the model
+// knows a quote exists; the files themselves ride in media_summary.
+func discordReplyContext(ref *discordgo.Message) string {
+	if ref == nil {
+		return ""
+	}
+	body := ref.Content
+	var names []string
+	for _, att := range ref.Attachments {
+		if att != nil {
+			names = append(names, "["+discordAttachmentLabel(att)+": "+att.Filename+"]")
+		}
+	}
+	if len(names) > 0 {
+		if body != "" {
+			body += " "
+		}
+		body += strings.Join(names, " ")
+	}
+	if body == "" {
+		return ""
+	}
+	author := "unknown"
+	if ref.Author != nil {
+		author = ref.Author.GlobalName
+		if author == "" {
+			author = ref.Author.Username
+		}
+	}
+	return "[Reply to " + author + "]: " + body
+}
+
+func discordAttachmentLabel(att *discordgo.MessageAttachment) string {
+	switch {
+	case strings.HasPrefix(att.ContentType, "image/"):
+		return "Image"
+	case strings.HasPrefix(att.ContentType, "video/"):
+		return "Video"
+	case strings.HasPrefix(att.ContentType, "audio/"):
+		return "Audio"
+	default:
+		return "File"
+	}
 }
