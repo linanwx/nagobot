@@ -134,52 +134,73 @@ func canMerge(a, b *WakeMessage) bool {
 	if a.AgentName != b.AgentName {
 		return false
 	}
-	return sameTurnContext(a, b)
-}
-
-// canInject decides whether a wake that arrives while a turn is running joins
-// that turn at the next iteration boundary. It is canMerge with one difference:
-// agents are compared by the agent each wake would actually RUN under, not by
-// the raw AgentName field.
-//
-// An empty AgentName means "keep this session's agent" — RunOnce resolves it
-// from meta.json via DefaultAgentFor, and keeps the current agent when that
-// yields nothing. So a follow-up dispatch that omits `agent` (the form
-// dispatch-guide teaches) targets the very agent the running turn is on. The
-// raw comparison rejected it ("search" != ""), deferring the follow-up until
-// the child's whole turn ended — the correction reached the child only after
-// it had already finished the work being corrected.
-//
-// tryMerge keeps the strict canMerge: at turn start nothing is running yet,
-// and an empty first wake followed by an explicit agent switch must stay two
-// turns.
-func canInject(running, next *WakeMessage, runningAgent string, defaultAgent func() string) bool {
-	nextAgent := strings.TrimSpace(next.AgentName)
-	if nextAgent == "" && defaultAgent != nil {
-		nextAgent = defaultAgent()
-	}
-	if nextAgent != "" && nextAgent != runningAgent {
-		return false
-	}
-	return sameTurnContext(running, next)
-}
-
-// sameTurnContext is everything canMerge and canInject agree on: two wakes can
-// share one turn only if they come from the same source, run on the same model,
-// deliver to the same place, answer the same caller and carry the same vars.
-func sameTurnContext(a, b *WakeMessage) bool {
-	if a.Source != b.Source {
-		return false
-	}
 	// Don't merge wakes with different model overrides — the merged body would
 	// otherwise run under the first wake's model, silently mis-routing the second.
 	if a.OverrideProvider != b.OverrideProvider || a.OverrideModel != b.OverrideModel {
 		return false
 	}
+	return turnContextMismatch(a, b) == ""
+}
+
+// canInject decides whether a wake that arrives while a turn is running joins
+// that turn at the next iteration boundary.
+func canInject(running, next *WakeMessage, runningAgent string, defaultAgent func() string) bool {
+	return injectRejectReason(running, next, runningAgent, defaultAgent) == ""
+}
+
+// injectRejectReason is canInject with the reason spelled out, so a deferred
+// wake can be logged with it. It returns "" when the wake may be injected.
+//
+// It is canMerge with two differences, and both exist for the same reason: a
+// dispatch follow-up to a running child (same task_id) normally carries only a
+// body. It omits `agent`, and it omits `provider`/`model`, because those were
+// given once when the child was spawned. An omitted field means "keep what is
+// running", never "use the default".
+//
+//   - Agents are compared by the agent the wake would actually RUN under. An
+//     empty AgentName means "keep this session's agent" (RunOnce resolves it
+//     from meta.json via DefaultAgentFor, and keeps the current agent when that
+//     yields nothing).
+//   - A model override is compared only when the follow-up names one. An
+//     injected message is answered inside the running turn, on the running
+//     turn's model, so an empty override has nothing to disagree with. The
+//     strict comparison deferred every steer sent to a child spawned with an
+//     explicit model: on kingsley (2026-11-24) six follow-ups, including "stop
+//     editing the file now", reached a coder child only after its 15-minute,
+//     48-iteration turn had finished the work they were trying to stop.
+//
+// tryMerge keeps the strict canMerge: at turn start nothing is running yet, so
+// an empty field has no running value to inherit and two such wakes really are
+// two different turns.
+func injectRejectReason(running, next *WakeMessage, runningAgent string, defaultAgent func() string) string {
+	nextAgent := strings.TrimSpace(next.AgentName)
+	if nextAgent == "" && defaultAgent != nil {
+		nextAgent = defaultAgent()
+	}
+	if nextAgent != "" && nextAgent != runningAgent {
+		return "agent " + nextAgent + " != running " + runningAgent
+	}
+	if next.OverrideProvider != "" || next.OverrideModel != "" {
+		if next.OverrideProvider != running.OverrideProvider || next.OverrideModel != running.OverrideModel {
+			return "model override " + next.OverrideProvider + "/" + next.OverrideModel +
+				" != running " + running.OverrideProvider + "/" + running.OverrideModel
+		}
+	}
+	return turnContextMismatch(running, next)
+}
+
+// turnContextMismatch is everything canMerge and canInject agree on: two wakes
+// can share one turn only if they come from the same source, deliver to the
+// same place, answer the same caller and carry the same vars. It returns the
+// first mismatch, or "" when there is none.
+func turnContextMismatch(a, b *WakeMessage) string {
+	if a.Source != b.Source {
+		return "source " + string(b.Source) + " != " + string(a.Source)
+	}
 	// Don't merge messages with different sinks to prevent cross-delivery
 	// (e.g. cron results leaking to a user's channel sink).
 	if a.Sinks.Label() != b.Sinks.Label() {
-		return false
+		return "sinks differ"
 	}
 	// Two peers asking us things are two conversations, and a merged turn keeps
 	// one caller. The paired sink's label used to carry this distinction into the
@@ -187,17 +208,17 @@ func sameTurnContext(a, b *WakeMessage) bool {
 	// stated, or wakes from different sessions would fold into one turn that can
 	// only answer one of them.
 	if a.CallerSessionKey != b.CallerSessionKey {
-		return false
+		return "caller " + b.CallerSessionKey + " != " + a.CallerSessionKey
 	}
 	if len(a.Vars) != len(b.Vars) {
-		return false
+		return "vars differ"
 	}
 	for k, v := range a.Vars {
 		if b.Vars[k] != v {
-			return false
+			return "vars differ"
 		}
 	}
-	return true
+	return ""
 }
 
 // dequeue returns the next WakeMessage, preferring deferred messages
@@ -419,7 +440,7 @@ func (t *Thread) RunOnce(ctx context.Context) {
 		for {
 			select {
 			case next := <-t.inbox:
-				if canInject(msg, next, agentName, defaultAgent) {
+				if reason := injectRejectReason(msg, next, agentName, defaultAgent); reason == "" {
 					payload := buildWakePayload(next.Source, next.Message, t.id, t.sessionKey, sessionDir, deliveryLabel, modelLabel, agentName, loc, senderOrDefault(next.Sender, next.Source), next.SenderName, next.SenderID, next.MediaInfo, next.MediaPreview, next.CallerSessionKey, next.EnqueuedAt, next.RecentChat)
 					if payload != "" {
 						payload = markInjected(payload)
@@ -436,6 +457,15 @@ func (t *Thread) RunOnce(ctx context.Context) {
 						)
 					}
 				} else {
+					// A deferred wake waits for the whole running turn to end, which
+					// for a steer is the difference between correcting the work and
+					// arriving after it. Never silent.
+					logger.Warn("wake deferred instead of injected",
+						"threadID", t.id,
+						"sessionKey", t.sessionKey,
+						"source", next.Source,
+						"reason", reason,
+					)
 					t.pending = append(t.pending, next) // not mergeable, defer
 					return injected
 				}

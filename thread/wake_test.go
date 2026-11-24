@@ -337,3 +337,39 @@ func TestCanInjectKeepsTurnContextChecks(t *testing.T) {
 		}
 	}
 }
+
+// TestCanInjectFollowUpWithoutModelOverride pins the kingsley 2026-11-24
+// incident: a coder child spawned with provider=deepseek model=deepseek-v4-pro
+// is mid-turn, and the parent steers it with dispatch follow-ups that carry
+// only task_id and a body. Each follow-up must join the running turn. The
+// strict override comparison deferred all six until the child's 48-iteration
+// turn ended, including "stop editing the file now".
+func TestCanInjectFollowUpWithoutModelOverride(t *testing.T) {
+	running := &WakeMessage{Source: WakeSession, AgentName: "coder", CallerSessionKey: "discord:1",
+		OverrideProvider: "deepseek", OverrideModel: "deepseek-v4-pro"}
+
+	steer := &WakeMessage{Source: WakeSession, CallerSessionKey: "discord:1"}
+	if !canInject(running, steer, "coder", func() string { return "coder" }) {
+		t.Fatalf("follow-up without a model override was deferred: %s",
+			injectRejectReason(running, steer, "coder", func() string { return "coder" }))
+	}
+
+	same := &WakeMessage{Source: WakeSession, CallerSessionKey: "discord:1",
+		OverrideProvider: "deepseek", OverrideModel: "deepseek-v4-pro"}
+	if !canInject(running, same, "coder", nil) {
+		t.Fatal("follow-up repeating the running override must be injected")
+	}
+
+	other := &WakeMessage{Source: WakeSession, CallerSessionKey: "discord:1",
+		OverrideProvider: "openai-oauth", OverrideModel: "gpt-6.1-terra"}
+	if canInject(running, other, "coder", nil) {
+		t.Fatal("follow-up naming a different model must not join a turn running on another one")
+	}
+	if injectRejectReason(running, other, "coder", nil) == "" {
+		t.Fatal("a rejected wake must carry a reason for the deferral log")
+	}
+
+	if canMerge(running, steer) {
+		t.Fatal("canMerge must stay strict about model overrides at turn start")
+	}
+}
