@@ -95,7 +95,25 @@ func (f *Factory) Create(providerName, modelType string) (Provider, error) {
 
 	apiBase := providerAPIBase(cfg, providerName)
 	p := reg.Constructor(apiKey, apiBase, modelType, modelName, cfg.GetMaxTokens(), cfg.GetTemperature())
+	// An OAuth access token expires on its own clock (one hour), while a
+	// provider lives for a whole turn. The key above is only good for the
+	// turn's first request: on kingsley (2026-11-24) a coder child started
+	// with ~50s left on the token and died at its 10th request with 401
+	// token_expired. So an OAuth provider re-resolves the token, refresh
+	// included, before every request.
+	if providerName == "openai-oauth" {
+		if tr, ok := p.(tokenRefreshing); ok {
+			name := providerName
+			tr.setTokenFn(func() string { return oauthAccessToken(f.latestConfig(), name) })
+		}
+	}
 	return p, nil
+}
+
+// tokenRefreshing is implemented by providers whose bearer must be read per
+// request rather than fixed at construction (see Factory.Create).
+type tokenRefreshing interface {
+	setTokenFn(func() string)
 }
 
 // latestConfig returns the latest config from disk, falling back to startup config.

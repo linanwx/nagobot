@@ -152,6 +152,29 @@ type OpenAIProvider struct {
 	// (400 "Unsupported parameter") and only caches prompts for requests that
 	// carry the session affinity headers (see doRequest).
 	subscription bool
+
+	// tokenFn, when set, is asked for the bearer on every request instead of
+	// apiKey. The subscription route uses it because its access token lives
+	// one hour and a provider lives one turn: a token read once at the start
+	// of a long turn expires mid-turn, and every later request in that turn
+	// fails with 401 token_expired. See Factory.Create.
+	tokenFn func() string
+}
+
+// setTokenFn implements tokenRefreshing.
+func (p *OpenAIProvider) setTokenFn(fn func() string) { p.tokenFn = fn }
+
+// bearer returns the credential for the next request: a fresh read from
+// tokenFn when the provider has one, the constructor's key otherwise.
+func (p *OpenAIProvider) bearer() (string, error) {
+	if p.tokenFn == nil {
+		return p.apiKey, nil
+	}
+	tok := p.tokenFn()
+	if tok == "" {
+		return "", fmt.Errorf("openai-oauth token unavailable: refresh failed or not signed in; run 'nagobot auth openai'")
+	}
+	return tok, nil
 }
 
 func newOpenAIProvider(apiKey, apiBase, modelType, modelName string, maxTokens int, temperature float64) *OpenAIProvider {
@@ -278,9 +301,13 @@ func (p *OpenAIProvider) doRequest(ctx context.Context, url string, body []byte)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create request: %w", err)
 	}
+	token, err := p.bearer()
+	if err != nil {
+		return nil, err
+	}
 	httpReq.Header.Set("Content-Type", "application/json")
 	httpReq.Header.Set("Accept", "text/event-stream")
-	httpReq.Header.Set("Authorization", "Bearer "+p.apiKey)
+	httpReq.Header.Set("Authorization", "Bearer "+token)
 	if p.subscription {
 		if key := sessionCacheKey(ctx); key != "" {
 			httpReq.Header.Set("session-id", key)
