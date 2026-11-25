@@ -168,6 +168,23 @@ func TestPreprocessMessage_ReplyWithGroupSender(t *testing.T) {
 	}
 }
 
+func TestPreprocessMessage_ReplyContextIsClosedBeforeSender(t *testing.T) {
+	d := &Dispatcher{}
+	msg := &channel.Message{
+		Text:     "I agree",
+		Username: "Bob",
+		Metadata: map[string]string{
+			"reply_context": "[Reply to Alice]: first paragraph\n\n---\n\nsecond paragraph",
+			"chat_type":     "group",
+		},
+	}
+	got := d.preprocessMessage(msg)
+	want := "[Reply to Alice]: first paragraph\n\n---\n\nsecond paragraph\n[End of reply]\n\n[Bob]: I agree"
+	if got != want {
+		t.Errorf("got %q\nwant %q", got, want)
+	}
+}
+
 func TestTruncate_RuneSafe(t *testing.T) {
 	// Chinese characters: each is one rune but 3 bytes
 	input := strings.Repeat("中", 600)

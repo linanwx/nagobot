@@ -485,6 +485,9 @@ func (d *Dispatcher) resolveAgentName(sessionKey string, msg *channel.Message) (
 	return agentName, vars
 }
 
+// replyContextEnd closes a quoted reply in the message body.
+const replyContextEnd = "[End of reply]"
+
 // preprocessMessage prepends reply context, sender name, and thread header to
 // the user message. Media summary and previews are NOT inlined here — they
 // travel as WakeMessage.MediaInfo / MediaPreview and render as `media` /
@@ -492,20 +495,25 @@ func (d *Dispatcher) resolveAgentName(sessionKey string, msg *channel.Message) (
 func (d *Dispatcher) preprocessMessage(msg *channel.Message) string {
 	text := msg.Text
 
-	// Prepend quoted reply context so the AI knows what message was replied to.
-	if rc := msg.Metadata["reply_context"]; rc != "" {
-		text = truncate(rc, 500) + "\n\n" + text
-	}
-
 	// For group chats, prepend sender name so the AI can distinguish players.
 	// The name is also carried structurally as `sender_name` in the wake
 	// frontmatter and chat.jsonl; the inline prefix stays because merged wake
-	// bodies need per-message attribution.
+	// bodies need per-message attribution. It is attached to the sender's own
+	// words BEFORE the quote is prepended, so it never reads as the author of
+	// the quoted message.
 	chatType := strings.TrimSpace(msg.Metadata["chat_type"])
 	if chatType == "group" || chatType == "supergroup" {
 		if sender := senderDisplayName(msg); sender != "" {
 			text = "[" + sender + "]: " + text
 		}
+	}
+
+	// Prepend quoted reply context so the AI knows what message was replied to.
+	// The quote opens with "[Reply to X]:" and closes with replyContextEnd: a
+	// quoted message can itself contain blank lines or "---", so only an
+	// explicit closing marker makes the boundary unambiguous.
+	if rc := msg.Metadata["reply_context"]; rc != "" {
+		text = truncate(rc, 500) + "\n" + replyContextEnd + "\n\n" + text
 	}
 
 	// For Discord thread / forum-post messages, prepend a header with post title
