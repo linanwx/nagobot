@@ -1,7 +1,7 @@
 import type { SessionEntry } from "@/lib/api";
 
 // A session is a child when another session's key is a strict ":"-prefix of
-// its key (e.g. "cli" makes "cli:prethink" and "cli:threads:x" children).
+// its key (e.g. "cli" makes "cli:quote" and "cli:threads:x" children).
 // This is structural — no hardcoded suffix list.
 
 function keySet(all: SessionEntry[]): Set<string> {

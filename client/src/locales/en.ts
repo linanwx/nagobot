@@ -155,7 +155,7 @@ export const en = {
     saved_other: "Tier 1 compression saves {{tokens}} on {{count}} messages",
     toolDefs: "Tool definitions",
     tier2: "Tier 2 compression",
-    tier2Hint: "AI summary after 30 min idle",
+    tier2Hint: "AI summary after 60 min idle",
     tier3: "Tier 3 compression",
     tier3Hint: "AI summary at the end of a turn",
     trim: "Context trim",

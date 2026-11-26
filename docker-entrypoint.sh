@@ -17,7 +17,7 @@ if [ ! -f "$CONFIG_FILE" ]; then
   cat > "$CONFIG_FILE" <<EOF
 thread:
   provider: ${NAGOBOT_PROVIDER:-deepseek}
-  modelType: ${NAGOBOT_MODEL:-deepseek-v4-flash}
+  modelType: ${NAGOBOT_MODEL:-deepseek-flash}
 channels:
   web:
     addr: ${NAGOBOT_WEB_ADDR:-0.0.0.0:8080}

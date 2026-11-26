@@ -153,7 +153,7 @@ export const zh = {
     saved_other: "Tier 1 压缩在 {{count}} 条消息上省下 {{tokens}}",
     toolDefs: "工具定义",
     tier2: "Tier 2 压缩",
-    tier2Hint: "空闲 30 分钟后由 AI 总结",
+    tier2Hint: "空闲 60 分钟后由 AI 总结",
     tier3: "Tier 3 压缩",
     tier3Hint: "回合结束时由 AI 总结",
     trim: "上下文裁剪",

@@ -9,8 +9,8 @@
 #     without poppler that path is dead in a container (native PDF was removed
 #     in v1.6.6)
 #   - node + playwright-cli + chromium: browser automation is a MAIN path, not
-#     an edge case — prethink tells the model to reach for playwright on every
-#     message carrying a URL. See the browser section below for why these are
+#     an edge case — the search agent reaches for playwright-cli whenever a
+#     page needs a real browser. See the browser section below for why these are
 #     baked in rather than installed at runtime.
 #   - ripgrep/zip/sqlite3: search, attachments, light storage
 #   - fonts-noto-cjk: without it headless chromium renders every CJK glyph as a

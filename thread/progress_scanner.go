@@ -203,7 +203,7 @@ func (p *ProgressScanner) summarizerConfigured() bool {
 // session reporting straight to its user; a user-facing ancestor for a child).
 //
 // Gating beyond "running long enough with tool activity":
-//   - internal helper siblings (prethink / previews / progress-summary itself)
+//   - internal helper siblings (quote / pin / previews / progress-summary itself)
 //     are never reported — recursion guard.
 //   - a main session reports only turns woken by a real user message. Heartbeat,
 //     cron, compression, and cross-session turns on a user-facing key must never

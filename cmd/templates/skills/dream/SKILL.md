@@ -1,6 +1,6 @@
 ---
 name: dream
-description: Nighttime dreaming. Reviews the past 24 hours of this session's conversation, reflects on what matters, overwrites dream.md (a volatile nightly log) with the result, rewrites clarify.md (the short list of questions to ask the user), keeps the Open commitments section of USER.md current and checks those commitments for conflicts and missing prerequisites, refreshes the session summary if it has gone stale, summarizes this session's unsummarized memory files, and schedules follow-up wakes — a next-day check-in when one is clearly warranted, plus a wake at any distance for anything the day left open whose natural moment to come back is later than tomorrow. Triggered by the heartbeat scheduler at night (should_dream=true) — never call directly.
+description: Nighttime dreaming. Reviews the past 24 hours of this session's conversation, reflects on what matters, overwrites dream.md (a volatile nightly log) with the result, rewrites clarify.md (the short list of questions to ask the user), keeps the Open commitments section of USER.md current and checks those commitments for conflicts and missing prerequisites, refreshes the session summary if it has gone stale, summarizes this session's unsummarized memory files, and schedules follow-up wakes — a next-day check-in when one is clearly warranted, plus a wake at any distance for anything the day left open whose natural moment to come back is later than tomorrow. Triggered by the heartbeat scheduler at night (task=dream) — never call directly.
 ---
 # Dream
 
@@ -72,7 +72,7 @@ This is a BACKGROUND task. You will NOT message the user.
 6. **Refresh this session's one-line summary — only if the current one has gone stale.**
 
    **The summary in force is in the wake message that woke you** — the same
-   frontmatter block that carries `should_dream: true` carries
+   frontmatter block that carries `task: dream` carries
    `session_summary` beside it. That is this session's current summary,
    verbatim, and it is the text you are judging. Use it rather than hunting for
    your own `- {{SESSIONKEY}}: …` row in the system prompt's cross-session

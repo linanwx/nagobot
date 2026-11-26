@@ -58,7 +58,7 @@ services:
     environment:
       # First-boot config bootstrap (ignored once config.yaml exists):
       - NAGOBOT_PROVIDER=${NAGOBOT_PROVIDER:-deepseek}
-      - NAGOBOT_MODEL=${NAGOBOT_MODEL:-deepseek-v4-flash}
+      - NAGOBOT_MODEL=${NAGOBOT_MODEL:-deepseek-flash}
       # Provider keys / channel tokens — set what you have in ~/.nagobot/.env.
       # SILICONFLOW_API_KEY / OPENROUTER_API_KEY also power pre-think embedding.
       - DEEPSEEK_API_KEY=${DEEPSEEK_API_KEY:-}
@@ -98,7 +98,7 @@ fi
 KEY_VARS=(DEEPSEEK_API_KEY OPENAI_API_KEY OPENROUTER_API_KEY MOONSHOT_API_KEY)
 provider_for() {
   case "$1" in
-    DEEPSEEK_API_KEY)   echo "deepseek deepseek-v4-flash" ;;
+    DEEPSEEK_API_KEY)   echo "deepseek deepseek-flash" ;;
     OPENAI_API_KEY)     echo "openai gpt-5.5" ;;
     OPENROUTER_API_KEY) echo "openrouter moonshotai/kimi-k2.6" ;;
     MOONSHOT_API_KEY)   echo "moonshot-cn kimi-k3" ;;

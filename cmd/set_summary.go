@@ -64,7 +64,7 @@ func runSetSummary(_ *cobra.Command, args []string) error {
 	}
 
 	// Cleanup entries whose session hasn't been active in 7+ days, plus
-	// internal sibling sessions (prethink/media-preview) and child threads:
+	// internal sibling sessions (quote/pin/media-preview/progress-summary) and child threads:
 	// they render into every agent's system prompt but carry no standalone
 	// conversation. They stay "active" daily, so the age rule alone never
 	// removes entries written before the need-summary filter excluded them.

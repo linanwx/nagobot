@@ -302,8 +302,8 @@ func isUserFacingKey(key string) bool {
 	if strings.Contains(key, session.ThreadsSessionInfix) || strings.Contains(key, session.ForkSessionInfix) {
 		return false
 	}
-	// Internal siblings ({key}:quote, :imagepreview, :audiopreview,
-	// :progresssummary, :prethink) hang off a user-facing key but have no human
+	// Internal siblings ({key}:quote, :pin, :imagepreview, :audiopreview,
+	// :progresssummary) hang off a user-facing key but have no human
 	// of their own — their entire output is a value returned to the caller via
 	// OnComplete. Treating them as user-facing sends that internal artifact to
 	// the channel user as proactive content: on web, where no page is ever bound

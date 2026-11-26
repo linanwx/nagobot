@@ -286,9 +286,9 @@ func compressTier1(messages []provider.Message, keepLastAssistants int) (bool, [
 		}
 	}
 
-	// Mark entire heartbeat turns for send-time removal.
+	// Mark entire silent heartbeat/progress turns for send-time removal.
 	// Independent of protectFrom — heartbeat noise is never worth protecting.
-	// Time-gated by compressExpireAge inside markHeartbeatTurns.
+	// Not time-gated inside markHeartbeatTurns; it runs whenever Tier 1 does.
 	if markHeartbeatTurns(result) {
 		modified = true
 	}
@@ -298,9 +298,12 @@ func compressTier1(messages []provider.Message, keepLastAssistants int) (bool, [
 
 // markHeartbeatTurns scans for heartbeat turns that can be collapsed to markers.
 // A "turn" = user message + all subsequent assistant/tool messages until next user msg.
-// No protectFrom boundary and no time gate — heartbeat turns are trimmed immediately
-// since users never see them and leaving them risks the AI treating user messages
-// as responses to heartbeat actions.
+// No protectFrom boundary and no age gate of its own: every qualifying turn is
+// trimmed on the next Tier 1 run, since users never see them and leaving them
+// risks the AI treating user messages as responses to heartbeat actions. Tier 1
+// itself only runs after tier1IdleMin of idleness, so during a live
+// conversation these turns stay in the request; trimming them earlier would
+// rewrite sent history and cost a prompt-cache miss.
 // Returns true if any messages were newly marked.
 func markHeartbeatTurns(messages []provider.Message) bool {
 	modified := false
