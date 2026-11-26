@@ -1,6 +1,6 @@
 ---
 name: session-reflect
-description: Background reflection on conversation history. Records scoped user preferences, durable facts the user stated, and pitfalls the user corrected into USER.md, and files a reusable method for each kind of task that was confirmed to work. Triggered by heartbeat at the 4-hour quiet mark — never call directly.
+description: Background reflection on conversation history. Records scoped user preferences, durable facts the user stated, and pitfalls the user corrected into USER.md, and files a reusable method for each kind of task that was confirmed to work, with the problems this session and its subagents actually hit as pitfalls. Triggered by heartbeat at the 4-hour quiet mark — never call directly.
 ---
 # Session Reflect
 
@@ -28,6 +28,15 @@ Before writing anything, ask one question: **will a future turn plausibly act be
    - Mistakes the user caught: a wrong fact, a wrong assumption, a step you missed
    - Approaches the user confirmed: "yes, exactly", "keep doing it this way", or an unusual choice of yours accepted without pushback. These are quieter than corrections, so look for them — recording only corrections drifts away from what already works and makes every later turn more cautious.
    - **Methods that worked**: a task that reached a result the user accepted or a tool output confirmed, and how it was actually done — a procedure the user walked you through, or a route you found yourself after failed attempts. Step 4's `### Methods` decides whether it is kept.
+   - **Problems actually hit**: tool calls that failed or led nowhere — an error result, a non-zero exit, an HTTP 403/404/5xx, a block or CAPTCHA page, a timeout, a guessed URL or parameter that did not exist, an approach retried several times before something else worked. Each one is a candidate pitfall for the method of that kind of task: what failed, and what worked instead.
+
+   **Read a few subagents this session dispatched.** Much of the real work runs in child sessions (`dispatch` to `subagent` / `subagent_fork`), and their tool calls are not in your context: you only saw their final reply. Since the last reflection, pick at most 3 that are typical of a kind of task this session keeps doing — the ones a method file would cover — preferring a long run with many tool calls, or one whose reply mentioned trouble, over a one-off. Find them from the `dispatch` calls (`task_id`) and the turn-end notices (`child_session`, `session_file`) in your context, or with `ls -t {{SESSIONDIR}}/threads {{SESSIONDIR}}/fork`. A child's `session.jsonl` carries every tool payload and can be hundreds of KB, so never `read_file` it; print a compact trace of its calls and results instead:
+
+   ```
+   jq -r 'if .tool_calls then (.tool_calls[] | "CALL \(.function.name) \(.function.arguments | gsub("\\s+";" ") | .[0:200])") elif .role == "tool" then "  => " + ((.content // "") | sub("(?s)^---\n.*?\n---\n";"") | gsub("\\s+";" ") | .[0:200]) else empty end' {{SESSIONDIR}}/threads/<task_id>/session.jsonl | head -200
+   ```
+
+   (`fork/<task_id>/` for a fork.) Calls in one batch print before their results. Read it for the problems above, and for the route that finally worked. What you learn here is tool evidence: it feeds method files (step 4), never USER.md.
    - **Material worth keeping**: detail the user will want looked up later — an inventory or list that is now out of date in your head, a table of options they compared, account/config/device mappings, the conclusions of a piece of research. This is the half of the conversation that does NOT fit in USER.md; step 5 is where it goes.
 
 4. **Extract findings** into these categories:
@@ -80,6 +89,7 @@ Before writing anything, ask one question: **will a future turn plausibly act be
    - partial → only the confirmed steps go to the file.
    - fail or uncertain → never written up as a method. If a method file for that kind of task already exists, add what failed and what to do instead as a pitfall on the step it affects; otherwise write nothing. A list of attempts that did not work, filed as "the way to do it", is a method a later turn will trust and repeat.
    - A one-off task — one that will not plausibly come up again in this session — gets no method, however well it went.
+   - **Every problem actually hit on the way becomes a pitfall** on the step it affects, whether it came from your own tool calls or a subagent's trace: what fails here and what to use instead (`- Pitfall: daft.ie returns 403 from this server, and proxies only return errors — read the same listing on MyHome`). These come from tool output, so unlike USER.md's `### Pitfalls` they need no user correction, but they do need the output: write only what a trace shows failed, not a guess at why something might fail. A dead end hit again in a later run is the same pitfall, not a second one.
 
    ### Material (does not go into USER.md)
    - Anything from the last scan bullet: the detail itself, not a rule about it. Carry it to step 5 rather than compressing it into a USER.md line — compressing it is what loses it.
