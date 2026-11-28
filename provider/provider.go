@@ -454,8 +454,24 @@ type MediaMarker struct {
 
 var mediaMarkerRe = regexp.MustCompile(`<<media:([^:>]+):([^>]+)>>`)
 
+// acceptedImageMimes are the image formats every vision API routed here
+// accepts (OpenAI, DeepSeek, OpenRouter upstreams, OpenCode Go). Anything else
+// (avif, bmp, svg, heic) is rejected with a 400 for the whole request.
+var acceptedImageMimes = map[string]bool{
+	"image/png":  true,
+	"image/jpeg": true,
+	"image/webp": true,
+	"image/gif":  true,
+}
+
+func unsupportedImageNote(mime, path string) string {
+	return "[image not attached: " + mime + " is not a format the model accepts (png, jpeg, webp, gif only). Convert it to PNG first, then read the PNG: " + path + "]"
+}
+
 // ParseMediaMarkers extracts <<media:mime:path>> markers from text,
-// returning the cleaned text (markers removed) and the parsed markers.
+// returning the cleaned text (markers removed) and the parsed markers. An
+// image marker in a format no provider accepts is not returned; it is
+// replaced in the cleaned text by a note naming the file.
 func ParseMediaMarkers(text string) (string, []MediaMarker) {
 	matches := mediaMarkerRe.FindAllStringSubmatchIndex(text, -1)
 	if len(matches) == 0 {
@@ -468,6 +484,13 @@ func ParseMediaMarkers(text string) (string, []MediaMarker) {
 		m := matches[i]
 		mime := text[m[2]:m[3]]
 		path := text[m[4]:m[5]]
+		if strings.HasPrefix(mime, "image/") && !acceptedImageMimes[strings.ToLower(mime)] {
+			// Never handed to a provider: one rejected image fails the whole
+			// request, and since the marker stays in history, every later
+			// turn of the session with it. The note keeps the path visible.
+			cleaned = cleaned[:m[0]] + unsupportedImageNote(mime, path) + cleaned[m[1]:]
+			continue
+		}
 		markers = append([]MediaMarker{{MimeType: mime, FilePath: path}}, markers...)
 		cleaned = cleaned[:m[0]] + cleaned[m[1]:]
 	}
