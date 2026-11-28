@@ -1,6 +1,6 @@
 ---
 name: dream
-description: Nighttime dreaming. Reviews the past 24 hours of this session's conversation, reflects on what matters, overwrites dream.md (a volatile nightly log) with the result, rewrites clarify.md (the short list of questions to ask the user), keeps the Open commitments section of USER.md current and checks those commitments for conflicts and missing prerequisites, refreshes the session summary if it has gone stale, summarizes this session's unsummarized memory files, and schedules follow-up wakes — a next-day check-in when one is clearly warranted, plus a wake at any distance for anything the day left open whose natural moment to come back is later than tomorrow. Triggered by the heartbeat scheduler at night (task=dream) — never call directly.
+description: Nighttime dreaming. Reviews the past 24 hours of this session's conversation, reflects on what matters, overwrites dream.md (a volatile nightly log) with the result, rewrites clarify.md (the short list of questions to ask the user), keeps the Open commitments section of USER.md current and checks those commitments for conflicts and missing prerequisites, refreshes the session summary if it has gone stale, summarizes this session's unsummarized memory files, and schedules follow-up wakes — a next-day check-in when one is clearly warranted, plus a wake at any distance for anything the day left open whose natural moment to come back is later than tomorrow, plus a morning agenda wake on a day that holds commitments. Triggered by the heartbeat scheduler at night (task=dream) — never call directly.
 ---
 # Dream
 
@@ -110,7 +110,7 @@ This is a BACKGROUND task. You will NOT message the user.
 
    This feeds the cross-session awareness section injected into every agent's system prompt — it is how other sessions know what this one is about.
 
-7. **Plan what future-you should do — only when the past 24 hours or the open commitments leave something worth following up.** A problem step 5 found always counts, and so does an open commitment whose action clock or event clock falls before the next dream, whether or not today mentioned it. Otherwise judge from the conversation already in context. If there is clearly nothing that particularly needs follow-up, skip this entire step: do not invent candidates, add a Follow-up section, or query cron just to look for work. If unsure whether something needs follow-up, continue with the checks below. When this step applies, two things live here, split by WHEN they want to happen, and they carry opposite bars. Do both.
+7. **Plan what future-you should do — only when the past 24 hours or the open commitments leave something worth following up.** A problem step 5 found always counts, and so does an open commitment whose action clock or event clock falls before the next dream, or whose time falls today (7c), whether or not today mentioned it. Otherwise judge from the conversation already in context. If there is clearly nothing that particularly needs follow-up, skip this entire step: do not invent candidates, add a Follow-up section, or query cron just to look for work. If unsure whether something needs follow-up, continue with the checks below. When this step applies, three things live here. 7a and 7b are split by WHEN they want to happen and carry opposite bars; 7c is the morning agenda for a day that has commitments. Do all three.
 
    **7a — a follow-up for the day ahead.** Put yourself in the shoes of a friend who cares about this user. Based on the past 24 hours: is there a greeting or follow-up worth sending them tomorrow, and when? ("Tomorrow" as the user will experience it — dreams run in the small hours, so it is usually later this same calendar day.)
    - Think of up to 3 candidates. For each: what to send, when to send it, and a suitability score — low / medium / high. Include them in the dream you write in step 3, under a `## Follow-up` heading.
@@ -126,7 +126,20 @@ This is a BACKGROUND task. You will NOT message the user.
    - Skip only what a future wake could not act on at all: a day already past, or someone else's schedule the user has no part in.
    - At most 3 per night, newest and nearest first.
 
-   **Only if 7a or 7b produced something to schedule**, first look at what is already on the books:
+   **7c — the day's agenda.** Independent of 7a and 7b, and not part of 7b's count. Dreams run in the small hours, so "today" below is the calendar day that has just begun in session-local time. Look at this session's `## Open commitments` (as step 4 left them) for items whose time falls today.
+   - **Nothing today → no agenda.** Do not schedule one to say the day is free.
+   - **Exactly one item today, and an event-clock wake from 7b or an earlier night already fires that morning → no agenda.** That wake already covers the day; a second message about the same thing is noise.
+   - **Otherwise schedule one agenda wake** under the id `daily-agenda-{{SESSIONKEY}}`. Cron ids are global across the deployment, so the session key in the id is what keeps two sessions' agendas from overwriting each other, and the fixed id means tonight's agenda replaces last night's instead of piling up.
+   - **`--at`**: 08:00 session-local, or one hour before the earliest leave-home time of the day if that is earlier (allow for getting to an airport or a station). If that time has already passed, schedule nothing: the event-clock wakes have to cover the day.
+   - **Only this session's commitments.** Items you know about only from `people_knowledge` belong to the session that holds them, and that session's dream builds its own agenda.
+   - **`--task` takes the same labelled parts as 7b.** Background lists each item of the day with its time, place, `needs` and status, copied from the commitment line along with its source quote. Purpose: the user starts the day knowing what is on, in what order, and what to bring. Sources follow step 3's verification gate. The Decision tells the wake to read the conversation since the dream first: drop any item that was cancelled or moved, and if nothing is left, end silently with `dispatch({})`; otherwise deliver the agenda as ordinary reply text. Constraints:
+     - a short list in time order, one line per item: time, what, where, what to bring;
+     - put the gap between two places on its own line when it is tight;
+     - repeat any problem step 5 found for today in one sentence;
+     - mention weather only when an item is outdoors or involves travel, checked with a tool at wake time;
+     - no greeting padding, and no mention of the schedule.
+
+   **Only if 7a, 7b or 7c produced something to schedule**, first look at what is already on the books:
 
    ```
    exec: {{WORKSPACE}}/bin/nagobot cron list
