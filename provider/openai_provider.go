@@ -330,6 +330,10 @@ func userMessageToInputItems(msg Message) []map[string]any {
 			if !strings.HasPrefix(marker.MimeType, "image/") {
 				continue // OpenAI Responses API only supports image media
 			}
+			if !openAIAcceptsImage(marker.MimeType) {
+				content = append(content, unsupportedImageNote(marker))
+				continue
+			}
 			b64, err := ReadFileAsBase64(marker.FilePath)
 			if err != nil {
 				continue
@@ -405,6 +409,10 @@ func toolMessageToInputItems(msg Message) []map[string]any {
 		if !strings.HasPrefix(marker.MimeType, "image/") {
 			continue // OpenAI only supports image media
 		}
+		if !openAIAcceptsImage(marker.MimeType) {
+			output = append(output, unsupportedImageNote(marker))
+			continue
+		}
 		b64, err := ReadFileAsBase64(marker.FilePath)
 		if err != nil {
 			continue
@@ -420,6 +428,10 @@ func toolMessageToInputItems(msg Message) []map[string]any {
 		for _, marker := range mediaMarkers {
 			if !strings.HasPrefix(marker.MimeType, "image/") {
 				continue // OpenAI Responses API only supports image media
+			}
+			if !openAIAcceptsImage(marker.MimeType) {
+				output = append(output, unsupportedImageNote(marker))
+				continue
 			}
 			b64, err := ReadFileAsBase64(marker.FilePath)
 			if err != nil {
@@ -574,8 +586,34 @@ func parseSSEStream(httpResp *http.Response, adapter *streamAdapter) error {
 		return fmt.Errorf("reading SSE stream: %w", scanErr)
 	}
 
+	if !asm.terminated {
+		return fmt.Errorf("SSE stream ended without a response.completed or response.failed event")
+	}
 	asm.finish()
 	return nil
+}
+
+// openAIAcceptedImageMimes are the image formats the Responses API accepts.
+// Anything else (avif, bmp, svg, heic) makes the request fail, and since the
+// marker stays in history, every later turn of that session fails with it.
+var openAIAcceptedImageMimes = map[string]bool{
+	"image/png":  true,
+	"image/jpeg": true,
+	"image/webp": true,
+	"image/gif":  true,
+}
+
+func openAIAcceptsImage(mime string) bool {
+	return openAIAcceptedImageMimes[strings.ToLower(mime)]
+}
+
+// unsupportedImageNote stands in for an image the API would reject, so the
+// model still learns the file exists and can convert it.
+func unsupportedImageNote(marker MediaMarker) map[string]any {
+	return map[string]any{
+		"type": "input_text",
+		"text": "[image not attached: " + marker.MimeType + " is not a format this model accepts (png, jpeg, webp, gif only). Convert it to PNG first, then read the PNG: " + marker.FilePath + "]",
+	}
 }
 
 // responseAssembler processes the Responses API's streaming event vocabulary
@@ -590,6 +628,7 @@ type responseAssembler struct {
 	reasoningItems   []json.RawMessage
 	toolCalls        []ToolCall
 	toolCallSignaled bool
+	terminated       bool // a response.completed/done/incomplete event arrived
 }
 
 func newResponseAssembler(adapter *streamAdapter) *responseAssembler {
@@ -664,8 +703,18 @@ func (a *responseAssembler) handleEvent(data []byte) (done bool, err error) {
 			CacheWriteTokens: inDetails.CacheWriteTokens,
 			ReasoningTokens:  event.Response.Usage.OutputTokensDetails.ReasoningTokens,
 		}
-
+		a.terminated = true
 		return true, nil
+
+	case "error":
+		// A top-level stream error event ({"type":"error","code":…,"message":…}).
+		// Ignoring it made the turn end with an empty reply and no log line.
+		var top responsesAPIError
+		_ = json.Unmarshal(data, &top)
+		if isSubscriptionErrorCode(top.Code) {
+			return false, subscriptionError(top.Code, top.Message)
+		}
+		return false, fmt.Errorf("API stream error [%s]: %s", top.Code, top.Message)
 
 	case "response.failed":
 		errInfo := event.Response.Error
